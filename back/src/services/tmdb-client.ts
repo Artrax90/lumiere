@@ -1,0 +1,72 @@
+import fetch from 'node-fetch';
+import { SocksProxyAgent } from 'socks-proxy-agent';
+
+const TMDB_BASE = 'https://api.themoviedb.org/3';
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
+
+export type Lang = 'ru' | 'en';
+
+const langMap: Record<Lang, string> = {
+  ru: 'ru-RU',
+  en: 'en-US',
+};
+
+export class TmdbClient {
+  private agent: SocksProxyAgent | undefined;
+
+  constructor(
+    private token: string,
+    private proxyUrl?: string,
+  ) {
+    if (proxyUrl) {
+      this.agent = new SocksProxyAgent(proxyUrl);
+    }
+  }
+
+  async get(path: string, params: Record<string, string> = {}): Promise<any> {
+    const url = new URL(`${TMDB_BASE}${path}`);
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+
+    const headers: Record<string, string> = {
+      'Authorization': `Bearer ${this.token}`,
+    };
+
+    const res = await fetch(url.toString(), {
+      headers,
+      agent: this.agent as any,
+    });
+
+    if (!res.ok) {
+      throw new Error(`TMDB API error: ${res.status} ${res.statusText}`);
+    }
+
+    return res.json();
+  }
+
+  lang(l?: Lang): string {
+    return langMap[l || 'ru'];
+  }
+
+  imageUrl(path: string | null, size: string = 'w500'): string {
+    if (!path) return '';
+    const directUrl = `${TMDB_IMAGE_BASE}/${size}${path}`;
+    if (this.proxyUrl) {
+      return `/api/image?url=${encodeURIComponent(directUrl)}`;
+    }
+    return directUrl;
+  }
+
+  backdropUrl(path: string | null): string {
+    return this.imageUrl(path, 'w1280');
+  }
+
+  posterUrl(path: string | null): string {
+    return this.imageUrl(path, 'w500');
+  }
+
+  profileUrl(path: string | null): string {
+    return this.imageUrl(path, 'w185');
+  }
+}

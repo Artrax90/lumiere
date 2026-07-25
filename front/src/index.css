@@ -1,0 +1,207 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #050506;
+  --bg-soft: #0a0a0c;
+  --surface: rgba(255, 255, 255, 0.035);
+  --surface-hover: rgba(255, 255, 255, 0.07);
+  --glass: rgba(16, 16, 20, 0.52);
+  --glass-strong: rgba(18, 18, 24, 0.72);
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.12);
+  --text: rgba(255, 255, 255, 0.96);
+  --text-secondary: rgba(255, 255, 255, 0.58);
+  --text-quiet: rgba(255, 255, 255, 0.36);
+  --accent: #e8c170;
+  --accent-soft: rgba(232, 193, 112, 0.16);
+}
+
+* {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html, body, #root {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Inter', system-ui, sans-serif;
+  letter-spacing: -0.011em;
+}
+
+body {
+  overflow-x: hidden;
+}
+
+::selection {
+  background: rgba(232, 193, 112, 0.26);
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@layer components {
+  .glass {
+    background: var(--glass);
+    backdrop-filter: blur(36px) saturate(150%);
+    -webkit-backdrop-filter: blur(36px) saturate(150%);
+    border: 1px solid var(--border);
+  }
+  .glass-strong {
+    background: var(--glass-strong);
+    backdrop-filter: blur(56px) saturate(165%);
+    -webkit-backdrop-filter: blur(56px) saturate(165%);
+    border: 1px solid var(--border-strong);
+  }
+  .glass-panel {
+    background: linear-gradient(180deg, rgba(26,26,32,0.68), rgba(12,12,16,0.68));
+    backdrop-filter: blur(48px) saturate(155%);
+    -webkit-backdrop-filter: blur(48px) saturate(155%);
+    border: 1px solid var(--border);
+  }
+  .text-display {
+    font-family: 'Newsreader', Georgia, serif;
+    font-weight: 500;
+    letter-spacing: -0.022em;
+  }
+  /* Premium physical-edge card — subtle top highlight + bottom shadow */
+  .card-edge {
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  }
+  .card-edge-hover {
+    box-shadow:
+      inset 0 1px 0 0 rgba(255, 255, 255, 0.12),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.05),
+      0 2px 4px 0 rgba(0, 0, 0, 0.2),
+      0 24px 56px -20px rgba(0, 0, 0, 0.7);
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  .mask-fade-r {
+    -webkit-mask-image: linear-gradient(to right, black 85%, transparent 100%);
+    mask-image: linear-gradient(to right, black 85%, transparent 100%);
+  }
+  .mask-fade-b {
+    -webkit-mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+    mask-image: linear-gradient(to bottom, black 70%, transparent 100%);
+  }
+  .perspective {
+    perspective: 1400px;
+  }
+}
+
+/* Animations */
+@keyframes breathe {
+  0%, 100% { transform: scale(1); opacity: 0.85; }
+  50% { transform: scale(1.03); opacity: 1; }
+}
+@keyframes float-slow {
+  0%, 100% { transform: translateY(0) translateX(0); }
+  50% { transform: translateY(-14px) translateX(10px); }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(18px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+@keyframes slide-in-right {
+  from { opacity: 0; transform: translateX(40px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes pulse-soft {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 0.85; }
+}
+@keyframes row-reveal {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes stagger-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes shimmer-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(200%); }
+}
+@keyframes detail-rise {
+  from { opacity: 0; transform: translateY(28px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-breathe { animation: breathe 14s ease-in-out infinite; }
+.animate-float-slow { animation: float-slow 22s ease-in-out infinite; }
+.animate-fade-up { animation: fade-up 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94) both; }
+.animate-fade-in { animation: fade-in 0.45s ease both; }
+.animate-scale-in { animation: scale-in 0.34s cubic-bezier(0.25, 0.46, 0.45, 0.94) both; }
+.animate-slide-in-right { animation: slide-in-right 0.42s cubic-bezier(0.25, 0.46, 0.45, 0.94) both; }
+.animate-pulse-soft { animation: pulse-soft 2.6s ease-in-out infinite; }
+.animate-row-reveal { animation: row-reveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-stagger-in { animation: stagger-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both; }
+.animate-detail-rise { animation: detail-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both; }
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(255,255,255,0.02) 25%, rgba(255,255,255,0.06) 50%, rgba(255,255,255,0.02) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 2.8s ease-in-out infinite;
+}
+
+/* Premium easing — slower settle, more deliberate */
+.transition-cinematic {
+  transition: all 0.36s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.transition-soft {
+  transition: all 0.2s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+}
+.transition-lux {
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
