@@ -14,15 +14,15 @@ function hashMagnet(magnet: string): string {
 }
 
 // Save last played torrent for a movie
-function saveLastTorrent(movieId: number, magnetHash: string) {
+function saveLastTorrent(movieId: number, magnetHash: string, magnet: string, title: string) {
   try {
     const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
-    last[movieId] = magnetHash;
+    last[movieId] = { hash: magnetHash, magnet, title };
     localStorage.setItem('last_torrents', JSON.stringify(last));
   } catch {}
 }
 
-function getLastTorrent(movieId: number): string | null {
+function getLastTorrent(movieId: number): { hash: string; magnet: string; title: string } | null {
   try {
     const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
     return last[movieId] || null;
@@ -111,7 +111,8 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   };
 
   useEffect(() => {
-    setLastTorrentId(getLastTorrent(title.id));
+    const last = getLastTorrent(title.id);
+    setLastTorrentId(last?.hash || null);
     // Auto-search on mount
     search();
   }, [title.id]);
@@ -162,7 +163,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     setSelectedTorrent(item);
     // Save as last played torrent (using magnet hash for uniqueness)
     const magnetHash = hashMagnet(item.magnet);
-    saveLastTorrent(title.id, magnetHash);
+    saveLastTorrent(title.id, magnetHash, item.magnet, item.title);
     setLastTorrentId(magnetHash);
     try {
       const res = await fetch('/api/torrents/stream', {

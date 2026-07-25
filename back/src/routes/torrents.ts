@@ -294,12 +294,12 @@ export function torrentRoutes(app: FastifyInstance) {
     // Clean up old session if exists
     if (existingSession) {
       try {
-        process.kill(existingSession.pid, 'SIGTERM');
+        process.kill(existingSession.pid, 'SIGKILL');
       } catch {}
       activeSessions.delete(sessionId);
     }
 
-    // Create HLS directory
+    // Create HLS directory (no cleanup needed for main endpoint - it reuses the directory)
     if (!existsSync(hlsDir)) {
       mkdirSync(hlsDir, { recursive: true });
     }
@@ -388,95 +388,87 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link and time required' });
     }
 
-    const seekTime = parseFloat(time);
-    const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
-    const { createHash } = await import('crypto');
-    // Include seek time in session ID so each seek gets its own directory
-    const sessionId = createHash('sha256').update(`${link}-${index}-seek-${Math.floor(seekTime)}`).digest('hex').slice(0, 32);
-    const hlsDir = `/tmp/hls-${sessionId}`;
+    try {
+      const seekTime = parseFloat(time);
+      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      // Use random session ID - each seek gets a fresh directory, no cleanup needed
+      const sessionId = Math.random().toString(36).slice(2, 15) + Date.now().toString(36);
+      const hlsDir = `/tmp/hls-${sessionId}`;
 
-    const { mkdirSync, existsSync, readFileSync, rmSync } = await import('fs');
-    const { join } = await import('path');
+      const { mkdirSync, readFileSync } = await import('fs');
+      const { join } = await import('path');
 
-    // Kill existing FFmpeg for this session
-    const existingSession = activeSessions.get(sessionId);
-    if (existingSession) {
-      try { process.kill(existingSession.pid, 'SIGTERM'); } catch {}
-      activeSessions.delete(sessionId);
-    }
+      mkdirSync(hlsDir, { recursive: true });
 
-    // Clean up and recreate HLS directory
-    if (existsSync(hlsDir)) {
-      rmSync(hlsDir, { recursive: true, force: true });
-    }
-    // Small delay to ensure directory is fully cleaned
-    await new Promise(r => setTimeout(r, 100));
-    mkdirSync(hlsDir, { recursive: true });
+      const playlistPath = join(hlsDir, 'playlist.m3u8');
 
-    const playlistPath = join(hlsDir, 'playlist.m3u8');
+      // Start FFmpeg from the seek position
+      const { spawn } = await import('child_process');
+      const ffmpeg = spawn('ffmpeg', [
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '10',
+        '-ss', String(seekTime),
+        '-i', streamUrl,
+        '-map', '0:v:0',
+        '-map', '0:a:0',
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-ac', '2',
+        '-f', 'hls',
+        '-hls_time', '4',
+        '-hls_list_size', '0',
+        '-hls_flags', 'append_list',
+        '-hls_segment_type', 'mpegts',
+        '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
+        '-y',
+        playlistPath,
+      ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    // Start FFmpeg from the seek position
-    const { spawn } = await import('child_process');
-    const ffmpeg = spawn('ffmpeg', [
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
-      '-ss', String(seekTime),
-      '-i', streamUrl,
-      '-map', '0:v:0',
-      '-map', '0:a:0',
-      '-c:v', 'copy',
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-ac', '2',
-      '-f', 'hls',
-      '-hls_time', '6',
-      '-hls_list_size', '0',
-      '-hls_flags', 'append_list',
-      '-hls_segment_type', 'mpegts',
-      '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-      '-y',
-      playlistPath,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, playlistPath });
 
-    activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, playlistPath });
+      ffmpeg.on('close', () => {
+        activeSessions.delete(sessionId);
+      });
 
-    ffmpeg.on('close', () => {
-      activeSessions.delete(sessionId);
-    });
-
-    // Wait for first segments
-    const waitForSegments = () => new Promise<void>((resolve) => {
-      let attempts = 0;
-      const check = () => {
-        try {
-          if (existsSync(playlistPath)) {
-            const content = readFileSync(playlistPath, 'utf-8');
-            if ((content.match(/\.ts/g) || []).length >= 2) {
-              resolve();
-              return;
+      // Wait for first segments (up to 60 seconds)
+      const { existsSync } = await import('fs');
+      const waitForSegments = () => new Promise<void>((resolve) => {
+        let attempts = 0;
+        const check = () => {
+          try {
+            if (existsSync(playlistPath)) {
+              const content = readFileSync(playlistPath, 'utf-8');
+              if ((content.match(/\.ts/g) || []).length >= 1) {
+                resolve();
+                return;
+              }
             }
+          } catch {}
+          if (attempts++ < 300) { // 60 seconds
+            setTimeout(check, 200);
+          } else {
+            resolve();
           }
-        } catch {}
-        if (attempts++ < 150) { // 30 seconds max
-          setTimeout(check, 200);
-        } else {
-          resolve();
-        }
-      };
-      check();
-    });
+        };
+        check();
+      });
 
-    await waitForSegments();
+      await waitForSegments();
 
-    // Return manifest
-    let manifest = readFileSync(playlistPath, 'utf-8');
-    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+      // Return manifest
+      let manifest = readFileSync(playlistPath, 'utf-8');
+      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
 
-    reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Cache-Control', 'no-cache');
-    return reply.send(manifest);
+      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cache-Control', 'no-cache');
+      return reply.send(manifest);
+    } catch (err: any) {
+      console.error('Seek error:', err.message);
+      return reply.code(500).send({ error: err.message });
+    }
   });
 
   // Serve HLS segments

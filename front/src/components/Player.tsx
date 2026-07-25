@@ -33,7 +33,6 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   const [hoverX, setHoverX] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const realDurationRef = useRef<number>(0); // Duration from FFprobe (for torrents)
-  const timeOffsetRef = useRef<number>(0); // Time offset after seeking in torrent HLS
 
   // HLS-specific state
   const [qualityLevels, setQualityLevels] = useState<Array<{ height: number; index: number }>>([]);
@@ -77,6 +76,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
       .catch(() => {});
   }, [title.videoUrl]);
 
+  // Seek to initial time when video is ready
+  useEffect(() => {
+    if (!initialTime || initialTime <= 0) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    const seekToInitial = () => {
+      if (video.readyState >= 2) { // HAVE_CURRENT_DATA
+        video.currentTime = initialTime;
+      }
+    };
+
+    video.addEventListener('loadeddata', seekToInitial);
+    return () => video.removeEventListener('loadeddata', seekToInitial);
+  }, [initialTime]);
+
   // Initialize video
   useEffect(() => {
     const video = videoRef.current;
@@ -107,8 +122,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
           index,
         })).filter(l => l.height > 0);
         setQualityLevels(levels);
-        // Seek to initial time if provided (only on first load)
-        if (initialTime && initialTime > 0 && timeOffsetRef.current === 0) {
+        // Seek to initial time if provided
+        if (initialTime && initialTime > 0) {
           video.currentTime = initialTime;
         }
         video.play().catch(() => {});
@@ -180,16 +195,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     const handleTimeUpdate = () => {
       if (!isDragging) {
-        // Add time offset for torrent HLS (after seeking)
-        const actualTime = video.currentTime + timeOffsetRef.current;
-        setCurrentTime(actualTime);
+        setCurrentTime(video.currentTime);
         // Only update duration from video if we don't have a real duration from FFprobe
         if (video.duration && isFinite(video.duration) && realDurationRef.current === 0) {
           setDuration(video.duration);
         }
         // Save playback position (throttled by parent)
         if (onTimeUpdate) {
-          onTimeUpdate(actualTime);
+          onTimeUpdate(video.currentTime);
         }
       }
     };
@@ -306,37 +319,12 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     }
   };
 
-  const seek = async (fraction: number) => {
+  const seek = (fraction: number) => {
     const video = videoRef.current;
     if (!video || !isFinite(duration) || duration <= 0) return;
 
     const targetTime = fraction * duration;
-    const isTorrentHls = title.videoUrl?.includes('/api/torrents/hls');
-
-    if (isTorrentHls && hlsRef.current) {
-      // For torrent HLS, restart FFmpeg from the seek position
-      const urlObj = new URL(title.videoUrl!, window.location.origin);
-      const link = urlObj.searchParams.get('link');
-      const index = urlObj.searchParams.get('index');
-
-      if (link) {
-        try {
-          // Update time offset immediately for UI
-          timeOffsetRef.current = targetTime;
-          setCurrentTime(targetTime);
-          setLoading(true);
-
-          // Reload source with seek time
-          const seekUrl = `/api/torrents/hls-seek?link=${encodeURIComponent(link)}&index=${index || 0}&time=${Math.floor(targetTime)}`;
-          hlsRef.current.loadSource(seekUrl);
-          return;
-        } catch (err) {
-          console.error('Seek error:', err);
-        }
-      }
-    }
-
-    // Direct seek for non-torrent videos
+    // Simple seek — hls.js handles buffering within the transcoded range
     video.currentTime = targetTime;
   };
 
@@ -512,11 +500,19 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
             )}
             {/* Track */}
             <div className="relative w-full h-1.5 rounded-full bg-white/20 group-hover:h-2 transition-all">
-              <div className="absolute inset-y-0 left-0 rounded-full bg-white/30" style={{ width: `${buffered * 100}%` }} />
+              {/* Buffered range */}
+              <div className="absolute inset-y-0 left-0 rounded-full bg-white/40" style={{ width: `${buffered * 100}%` }} />
+              {/* Played range */}
               <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }}>
                 <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             </div>
+            {/* Buffer indicator */}
+            {buffered < 0.9 && buffered > 0 && (
+              <div className="text-[10px] text-white/30 mt-1">
+                Буфер: {fmtTime(buffered * duration)}
+              </div>
+            )}
           </div>
         </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Play, Plus, Check, Star, ChevronLeft, Heart, Share2, Download, Clock, Calendar, Award, Film } from 'lucide-react';
+import { Play, Plus, Check, Star, ChevronLeft, Heart, Share2, Download, Clock, Calendar, Award, Film, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
 import { apiPost, apiDelete } from '@/api/client';
@@ -23,6 +23,24 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   const [inLibrary, setInLibrary] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'sources' | 'torrents'>('torrents');
+  const [resumingTorrent, setResumingTorrent] = useState(false);
+
+  // Check if there's a saved torrent for resume
+  const savedTorrent = (() => {
+    try {
+      const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+      return last[title.id] || null;
+    } catch { return null; }
+  })();
+
+  const savedPosition = (() => {
+    try {
+      const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      return positions[title.id] || 0;
+    } catch { return 0; }
+  })();
+
+  const hasSavedProgress = savedTorrent && savedPosition > 30; // At least 30 seconds watched
 
   const { data: details } = useDetails(title.id, title.type === 'tv' ? 'tv' : 'movie');
   const displayTitle = details || title;
@@ -96,13 +114,47 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
       <div className="relative z-10 mx-auto max-w-[1200px] px-8 lg:px-12">
         <div className="-mt-6 flex flex-wrap items-center gap-3 animate-detail-rise" style={{ animationDelay: '150ms' }}>
-          <button
-            onClick={() => setActiveTab('torrents')}
-            className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95"
-            style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
-          >
-            <Play className="h-4 w-4 fill-current" />{displayTitle.progress ? 'Продолжить' : 'Смотреть'}
-          </button>
+          {hasSavedProgress ? (
+            <button
+              onClick={async () => {
+                setResumingTorrent(true);
+                try {
+                  const res = await fetch('/api/torrents/stream', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ magnet: savedTorrent.magnet, title: savedTorrent.title }),
+                  });
+                  const data = await res.json();
+                  if (data.files?.length > 0) {
+                    const file = data.files[0];
+                    onPlay({ ...displayTitle, videoUrl: file.streamUrl });
+                  }
+                } catch (err) {
+                  console.error('Resume error:', err);
+                } finally {
+                  setResumingTorrent(false);
+                }
+              }}
+              disabled={resumingTorrent}
+              className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95 disabled:opacity-50"
+              style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
+            >
+              {resumingTorrent ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 fill-current" />
+              )}
+              Продолжить
+            </button>
+          ) : (
+            <button
+              onClick={() => setActiveTab('torrents')}
+              className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95"
+              style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
+            >
+              <Play className="h-4 w-4 fill-current" />Смотреть
+            </button>
+          )}
           <button onClick={() => setInLibrary(!inLibrary)} className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12" aria-label="Watchlist">
             {inLibrary ? <Check className="h-4 w-4 text-amber-300" strokeWidth={2} /> : <Plus className="h-4 w-4" strokeWidth={1.5} />}
           </button>
