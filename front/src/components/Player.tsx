@@ -29,6 +29,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
+  const audioSwitchRef = useRef(false); // true during audio switch
   const [error, setError] = useState('');
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
@@ -109,13 +110,15 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
       .catch(() => {});
   }, [title.videoUrl]);
 
-  // Seek to initial time when video is ready
+  // Seek to initial time when video is ready (but NOT during audio switch)
   useEffect(() => {
     if (!initialTime || initialTime <= 0) return;
     const video = videoRef.current;
     if (!video) return;
 
     const seekToInitial = () => {
+      // Skip if we're in the middle of an audio switch
+      if (audioSwitchRef.current) return;
       if (video.readyState >= 2) { // HAVE_CURRENT_DATA
         video.currentTime = initialTime;
       }
@@ -425,6 +428,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     // Save current position and playing state
     const saveTime = video.currentTime;
     const wasPlaying = !video.paused;
+    audioSwitchRef.current = true;
     setCurrentAudioIndex(id);
     setCurrentAudio(id);
     setSettingsPanel('none');
@@ -469,6 +473,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
       if (wasPlaying) {
         video.play().catch(() => {});
       }
+      // Reset audio switch flag after a short delay
+      setTimeout(() => { audioSwitchRef.current = false; }, 500);
     });
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -493,9 +499,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     // If it's an external subtitle (has url), fetch and parse it
     if ((track as any).url) {
       setCurrentSubtitle(id);
+      setLoading(true);
       try {
         const res = await fetch((track as any).url);
+        if (!res.ok) {
+          console.error('Subtitle fetch failed:', res.status, res.statusText);
+          subtitleCuesRef.current = [];
+          setLoading(false);
+          setSettingsPanel('none');
+          return;
+        }
         const vtt = await res.text();
+        console.log('Subtitle VTT received:', vtt.length, 'bytes');
         // Parse WebVTT cues
         const cues: Array<{ start: number; end: number; text: string }> = [];
         const blocks = vtt.split(/\n\s*\n/);
@@ -509,10 +524,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
           const text = lines.slice(1).join('\n');
           cues.push({ start, end, text });
         }
+        console.log('Parsed subtitle cues:', cues.length);
         subtitleCuesRef.current = cues;
+        setLoading(false);
       } catch (err) {
         console.error('Failed to load subtitles:', err);
         subtitleCuesRef.current = [];
+        setLoading(false);
       }
     } else if (hlsRef.current) {
       // HLS embedded subtitle
