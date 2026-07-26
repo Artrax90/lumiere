@@ -520,26 +520,18 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <h3 className="text-[14px] font-medium text-white/70">Программа · {selectedChannel.name}</h3>
                   <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} передач</span>
                 </div>
-                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                  {getPrograms(selectedChannel).slice(0, 12).map((program, idx) => {
-                    const isCurrent = idx === 0;
-                    return (
-                      <div
-                        key={idx}
-                        className={`rounded-[12px] px-3 py-2.5 transition-cinematic ${
-                          isCurrent
-                            ? 'bg-amber-300/10 border border-amber-300/20'
-                            : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06]'
-                        }`}
-                      >
-                        <div className="text-[10px] font-medium text-white/40 mb-1">{program.startTime} — {program.stopTime}</div>
-                        <div className={`text-[12px] font-medium truncate ${isCurrent ? 'text-white/90' : 'text-white/60'}`}>{program.title}</div>
-                        {isCurrent && (
-                          <div className="mt-1.5 text-[10px] text-amber-300/70 font-medium">Сейчас</div>
-                        )}
+                <div className="glass-panel rounded-[16px] p-4 max-h-[300px] overflow-y-auto">
+                  {getPrograms(selectedChannel).length === 0 ? (
+                    <div className="text-[12px] text-white/30 text-center py-4">Нет данных о программе</div>
+                  ) : (
+                    getPrograms(selectedChannel).map((program, idx) => (
+                      <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 ${idx === 0 ? 'bg-amber-300/10' : 'hover:bg-white/[0.03]'}`}>
+                        <span className="text-[11px] text-white/40 w-24 shrink-0">{program.startTime} — {program.stopTime}</span>
+                        <span className={`text-[12px] ${idx === 0 ? 'font-medium text-white/90' : 'text-white/55'}`}>{program.title}</span>
+                        {idx === 0 && <span className="text-[10px] text-amber-300/70 font-medium ml-auto">Сейчас</span>}
                       </div>
-                    );
-                  })}
+                    ))
+                  )}
                 </div>
               </div>
               </>
