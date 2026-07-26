@@ -364,8 +364,142 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
               </div>
             )}
 
-            {/* Default */}
-            {active !== 'appearance' && active !== 'playback' && active !== 'accounts' && active !== 'plugins' && active !== 'activity' && (
+            {/* Audio Settings */}
+            {active === 'audio' && (
+              <div className="mt-8 space-y-1">
+                {[
+                  { label: 'Автоматический выбор лучшей дорожки', desc: 'Выбирать дорожку с наилучшим качеством', on: true },
+                  { label: 'Нормализация громкости', desc: 'Выравнивать громкость между дорожками', on: false },
+                  { label: 'Surround звук', desc: 'Включить многоканальный звук если поддерживается', on: true },
+                ].map((t) => (
+                  <ToggleRow key={t.label} label={t.label} desc={t.desc} on={t.on} onChange={() => {}} />
+                ))}
+              </div>
+            )}
+
+            {/* Subtitles Settings */}
+            {active === 'subtitles' && (
+              <div className="mt-8 space-y-6">
+                <div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">Язык субтитров</div>
+                  <div className="flex gap-2">
+                    {['Русский', 'Английский', 'Авто'].map((lang) => (
+                      <button
+                        key={lang}
+                        className="rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                        style={{
+                          background: lang === 'Авто' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                          color: lang === 'Авто' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                          border: lang === 'Авто' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        {lang}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {[
+                  { label: 'Показывать субтитры по умолчанию', desc: 'Автоматически включать субтитры при воспроизведении', on: false },
+                  { label: 'Субтитры для слабослышащих', desc: 'Включить описания звуков и эффектов', on: false },
+                ].map((t) => (
+                  <ToggleRow key={t.label} label={t.label} desc={t.desc} on={t.on} onChange={() => {}} />
+                ))}
+                <div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">Размер субтитров</div>
+                  <div className="flex gap-2">
+                    {['Маленький', 'Средний', 'Большой'].map((size) => (
+                      <button
+                        key={size}
+                        className="rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                        style={{
+                          background: size === 'Средний' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                          color: size === 'Средний' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                          border: size === 'Средний' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        {size}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Network Settings */}
+            {active === 'network' && (
+              <div className="mt-8 space-y-1">
+                {[
+                  { label: 'Автоматическое качество', desc: 'Подстраивать качество под скорость интернета', on: true },
+                  { label: 'Предзагрузка', desc: 'Загружать следующую серию заранее', on: true },
+                  { label: 'Использовать прокси', desc: 'Маршрутизировать трафик через прокси-сервер', on: false },
+                ].map((t) => (
+                  <ToggleRow key={t.label} label={t.label} desc={t.desc} on={t.on} onChange={() => {}} />
+                ))}
+              </div>
+            )}
+
+            {/* Remote Control Settings */}
+            {active === 'remote' && (
+              <div className="mt-8 space-y-1">
+                {[
+                  { label: 'Удалённое управление', desc: 'Разрешить управление с других устройств', on: true },
+                  { label: 'Голосовое управление', desc: 'Использовать голосовые команды', on: false },
+                  { label: 'Жесты на тачпаде', desc: 'Управление жестами на тачпаде или экране', on: true },
+                ].map((t) => (
+                  <ToggleRow key={t.label} label={t.label} desc={t.desc} on={t.on} onChange={() => {}} />
+                ))}
+              </div>
+            )}
+
+            {/* Developer Settings */}
+            {active === 'developer' && (
+              <div className="mt-8 space-y-6">
+                <div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">API эндпоинты</div>
+                  <div className="space-y-2">
+                    {[
+                      { label: 'Backend API', value: 'http://192.168.1.37:3000' },
+                      { label: 'JacRed API', value: 'http://ns3bg91xvuqfvq9h.cfhttp.top' },
+                      { label: 'TorrServer', value: 'http://localhost:8090' },
+                      { label: 'qBittorrent', value: 'http://localhost:6003' },
+                    ].map((item) => (
+                      <div key={item.label} className="flex items-center justify-between rounded-[10px] bg-white/[0.03] border border-white/[0.05] px-4 py-3">
+                        <span className="text-[13px] text-white/70">{item.label}</span>
+                        <span className="text-[12px] text-white/40 font-mono">{item.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {[
+                  { label: 'Режим разработчика', desc: 'Показывать дополнительную информацию для отладки', on: false },
+                  { label: 'Логирование', desc: 'Сохранять логи приложения', on: false },
+                ].map((t) => (
+                  <ToggleRow key={t.label} label={t.label} desc={t.desc} on={t.on} onChange={() => {}} />
+                ))}
+              </div>
+            )}
+
+            {/* About */}
+            {active === 'about' && (
+              <div className="mt-8 space-y-4">
+                <div className="rounded-[14px] border border-white/[0.06] p-5">
+                  <div className="text-[16px] font-medium text-white/90 mb-2">Lumière</div>
+                  <div className="text-[13px] text-white/50">Версия 1.0.0</div>
+                  <div className="text-[13px] text-white/50 mt-1">Современный медиацентр</div>
+                </div>
+                <div className="rounded-[14px] border border-white/[0.06] p-5">
+                  <div className="text-[13px] font-medium text-white/70 mb-3">Стек технологий</div>
+                  <div className="flex flex-wrap gap-2">
+                    {['React', 'TypeScript', 'Fastify', 'PostgreSQL', 'FFmpeg', 'hls.js', 'Tailwind CSS'].map((tech) => (
+                      <span key={tech} className="rounded-full bg-white/[0.06] px-3 py-1 text-[11px] text-white/50">{tech}</span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Default fallback */}
+            {!['appearance', 'playback', 'audio', 'subtitles', 'network', 'plugins', 'accounts', 'activity', 'remote', 'developer', 'about'].includes(active) && (
               <div className="mt-8">
                 <p className="text-[14px] leading-relaxed text-white/55">
                   Настройки «{categories.find((c) => c.id === active)?.label}» появятся здесь.

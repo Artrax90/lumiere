@@ -130,11 +130,13 @@ export default function SearchView({ onSelect }: SearchViewProps) {
                 <Clock className="h-4 w-4" strokeWidth={1.5} />Недавние
               </div>
               <div className="flex flex-wrap gap-2">
-                {recentSearches.map((s) => (
+                {recentSearches.length > 0 ? recentSearches.map((s) => (
                   <button key={s} onClick={() => handleSearch(s)} className="rounded-full border border-white/8 bg-white/[0.02] px-4 py-2 text-[13px] text-white/55 transition-cinematic hover:bg-white/8 hover:text-white/85">
                     {s}
                   </button>
-                ))}
+                )) : (
+                  <span className="text-[12px] text-white/30">Пока нет запросов</span>
+                )}
               </div>
             </div>
           </div>
