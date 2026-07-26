@@ -247,23 +247,49 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   // Get EPG ID for channel (for matching programs)
   const getEpgId = (channel: IPTVChannel): string => {
+    if (!channel) return '';
+
+    // Try tvgId directly
     if (channel.tvgId && epgData[channel.tvgId]) {
       return channel.tvgId;
     }
-    const nameKey = channel.name?.toLowerCase() || '';
-    if (nameKey) {
-      const epgId = channelMap[nameKey];
-      if (epgId && epgData[epgId]) {
-        return epgId;
-      }
-      for (const [mapName, mapId] of Object.entries(channelMap)) {
-        if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
-          if (epgData[mapId]) {
-            return mapId;
-          }
-        }
+
+    const nameKey = channel.name?.toLowerCase().trim() || '';
+    if (!nameKey) return '';
+
+    // Clean channel name for matching (remove HD, SD, etc.)
+    const cleanName = nameKey
+      .replace(/\b(hd|sd|uhd|4k|fhd)\b/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    // Exact match
+    const epgId = channelMap[nameKey] || channelMap[cleanName];
+    if (epgId && epgData[epgId]) return epgId;
+
+    // Partial match (both directions)
+    for (const [mapName, mapId] of Object.entries(channelMap)) {
+      if (!epgData[mapId]) continue;
+
+      // Clean EPG name too
+      const cleanMapName = mapName
+        .replace(/\b(hd|sd|uhd|4k|fhd)\b/gi, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      // Try various matching strategies
+      if (
+        nameKey.includes(mapName) ||
+        mapName.includes(nameKey) ||
+        cleanName.includes(cleanMapName) ||
+        cleanMapName.includes(cleanName) ||
+        // Word-level match (e.g., "НТВ" matches "НТВ HD")
+        (cleanName.split(' ')[0] === cleanMapName.split(' ')[0] && cleanName.split(' ')[0].length > 2)
+      ) {
+        return mapId;
       }
     }
+
     return '';
   };
 
