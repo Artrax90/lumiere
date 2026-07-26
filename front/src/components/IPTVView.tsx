@@ -472,6 +472,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
           <>
             {/* Now Playing preview (if channel selected) */}
             {selectedChannel && (
+              <>
               <div className="mb-10 animate-detail-rise">
                 <div className="glass-panel overflow-hidden rounded-[20px]">
                   <div className="grid md:grid-cols-[1fr_320px]">
@@ -569,6 +570,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   );
                 })}
               </div>
+              </>
             )}
 
             {/* Search + Favorites toggle */}
