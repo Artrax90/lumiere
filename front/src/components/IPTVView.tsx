@@ -77,8 +77,17 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
 
-  // Time slots for EPG grid (every 3 hours)
-  const timeSlots = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
+  // Time slots for EPG grid — start from current hour, then next 8 hours
+  const timeSlots = (() => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    const slots: string[] = [];
+    for (let i = 0; i < 8; i++) {
+      const h = (currentHour + i) % 24;
+      slots.push(`${String(h).padStart(2, '0')}:00`);
+    }
+    return slots;
+  })();
 
   // Load last selected playlist on mount
   useEffect(() => {
@@ -621,8 +630,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
               <div className="overflow-x-auto">
                 {/* Time header */}
-                <div className="flex items-center border-b border-white/[0.06] min-w-[900px]">
-                  <div className="w-44 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
+                <div className="flex items-center border-b border-white/[0.06] min-w-[1100px]">
+                  <div className="w-64 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
                   <div className="flex flex-1">
                     {timeSlots.map((time) => (
                       <div key={time} className="flex-1 px-2 py-3 text-center text-[11px] font-medium text-white/40">{time}</div>
@@ -639,10 +648,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                     <div
                       key={ch.id}
                       onClick={() => playChannel(ch)}
-                      className={`flex items-center min-w-[900px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                      className={`flex items-center min-w-[1100px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
                     >
                       {/* Channel info */}
-                      <div className="w-44 shrink-0 flex items-center gap-3 px-4 py-3">
+                      <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
                         <div className="relative h-9 w-9 overflow-hidden rounded-lg bg-white/5 shrink-0">
                           {getChannelLogo(ch) ? (
                             <img src={getChannelLogo(ch)} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
