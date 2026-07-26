@@ -264,11 +264,32 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return '';
   };
 
-  // Get programs for channel
+  // Get programs for channel (starting from current time)
   const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
     if (!channel) return [];
     const epgId = getEpgId(channel);
-    return epgId ? (epgData[epgId] || []) : [];
+    if (!epgId || !epgData[epgId]) return [];
+
+    const allPrograms = epgData[epgId];
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const currentTime = `${hours}:${minutes}`;
+
+    // Find current program index and return from there
+    let startIndex = 0;
+    for (let i = 0; i < allPrograms.length; i++) {
+      if (allPrograms[i].startTime <= currentTime && allPrograms[i].stopTime > currentTime) {
+        startIndex = i;
+        break;
+      }
+      if (allPrograms[i].startTime > currentTime) {
+        startIndex = i;
+        break;
+      }
+    }
+
+    return allPrograms.slice(startIndex);
   };
 
   // Get current program for channel
