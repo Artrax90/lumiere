@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 
 // Simple hash for magnet link

@@ -89,8 +89,23 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
       if (found) {
         watched.push(found);
       } else if (entry.title) {
-        // Use saved title info (from search results)
-        watched.push(entry.title as Title);
+        // Use saved title info (from search results) with defaults for missing fields
+        const saved = entry.title as any;
+        watched.push({
+          id: saved.id || Number(id),
+          tmdbId: saved.tmdbId || saved.id || Number(id),
+          name: saved.name || 'Unknown',
+          type: saved.type || 'movie',
+          year: saved.year || 0,
+          runtime: saved.runtime || '',
+          rating: saved.rating || '',
+          score: saved.score || 0,
+          genres: saved.genres || [],
+          description: saved.description || '',
+          backdrop: saved.backdrop || '',
+          poster: saved.poster || '',
+          logoText: saved.logoText || saved.name || '',
+        } as Title);
       }
       if (watched.length >= 6) break;
     }
