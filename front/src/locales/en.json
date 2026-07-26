@@ -33,7 +33,11 @@
     "subtitles": "Subtitles",
     "audio": "Audio",
     "quality": "Quality",
-    "auto": "Auto"
+    "auto": "Auto",
+    "onAir": "On Air",
+    "now": "Now",
+    "next": "Next",
+    "noData": "No data"
   },
   "home": {
     "continueWatching": "Continue Watching",
@@ -56,7 +60,9 @@
     "year": "Year",
     "actors": "Cast",
     "sources": "Sources",
-    "torrents": "Torrents"
+    "torrents": "Torrents",
+    "description": "Description",
+    "cast": "Cast"
   },
   "search": {
     "placeholder": "Search movies, shows, people...",
@@ -74,7 +80,9 @@
     "date": "Date",
     "all": "All",
     "watched": "Watched",
-    "loading": "Loading..."
+    "loading": "Loading...",
+    "files": "Files",
+    "backToResults": "Back to results"
   },
   "sources": {
     "searching": "Searching sources...",
@@ -143,7 +151,23 @@
     "create": "Create",
     "users": "Users",
     "admin": "Admin",
-    "adminOnly": "Only administrators can manage users"
+    "adminOnly": "Only administrators can manage users",
+    "serverStatus": "Server Status",
+    "ffmpegSessions": "FFmpeg Sessions",
+    "cacheManagement": "Cache Management",
+    "clearHls": "Clear HLS Segments",
+    "clearSubtitles": "Clear Subtitle Cache",
+    "apiEndpoints": "API Endpoints",
+    "devMode": "Developer Mode",
+    "devModeDesc": "Show additional debug information",
+    "logging": "Logging",
+    "loggingDesc": "Save application logs",
+    "techStack": "Tech Stack",
+    "version": "Version",
+    "language": "Language",
+    "onlineProviders": "Online Sources",
+    "active": "Active",
+    "disabled": "Disabled"
   },
   "downloads": {
     "title": "Downloads",
@@ -160,6 +184,45 @@
   },
   "activity": {
     "noActivity": "No activity",
-    "watching": "Watching"
+    "watching": "Watching",
+    "yearActivity": "Year Activity",
+    "less": "Less",
+    "more": "More"
+  },
+  "anime": {
+    "title": "Anime",
+    "subtitle": "Stylized worlds, drawn dreams.",
+    "recommended": "Recommended",
+    "popular": "Popular",
+    "topRated": "Top Rated",
+    "all": "All"
+  },
+  "collections": {
+    "title": "Collections",
+    "subtitle": "Carefully curated collections",
+    "collection": "Collection"
+  },
+  "episode": {
+    "season": "S",
+    "episode": "E",
+    "description": "Description",
+    "previous": "Previous",
+    "next": "Next"
+  },
+  "iptv": {
+    "title": "IPTV",
+    "subtitle": "Internet television",
+    "addPlaylist": "Add Playlist",
+    "newPlaylist": "New Playlist",
+    "playlistName": "Name",
+    "playlistUrl": "Playlist URL (m3u/m3u8)",
+    "epgUrl": "EPG URL (optional)",
+    "favorites": "Favorites",
+    "noFavorites": "No favorite channels",
+    "addToFavorites": "Click the star next to a channel",
+    "program": "Program",
+    "channels": "channels",
+    "noProgram": "No program data",
+    "searchChannels": "Search channels..."
   }
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { Title } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { usePopular } from '@/hooks/usePopular';
@@ -38,6 +39,7 @@ interface HomeProps {
 }
 
 export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood }: HomeProps) {
+  const { t } = useTranslation();
   const [active, setActive] = useState(0);
   const [imgLoaded, setImgLoaded] = useState(false);
 
@@ -174,16 +176,16 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
 
       <div className="relative z-10 pb-10" style={{ paddingTop: 'calc(max(32vh, 320px) - 28px)' }}>
         <ContentRow
-          label="Продолжить просмотр"
-          subtitle="Там, где вы остановились"
+          label={t('home.continueWatching')}
+          subtitle={t('home.continueWatchingDesc')}
           titles={continueWatching}
           variant="landscape"
           onSelect={onSelect}
         />
 
         <ContentRow
-          label="Популярное сейчас"
-          subtitle="Все смотрят эти фильмы"
+          label={t('home.popular')}
+          subtitle={t('home.popularDesc')}
           titles={becauseYouWatched}
           variant="portrait"
           featuredFirst
@@ -192,8 +194,8 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
         />
 
         <ContentRow
-          label="Сегодня для вас"
-          subtitle="Подборка по вашим вкусам"
+          label={t('home.tonight')}
+          subtitle={t('home.tonightDesc')}
           titles={tonightForYou}
           variant="landscape"
           featuredFirst
@@ -204,16 +206,16 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
         <CollectionBanner onSelect={onSelect} onPlay={onPlay} />
 
         <ShowcaseRow
-          label="Топ рейтинг"
-          subtitle="Лучшие фильмы по оценкам"
+          label={t('home.trending')}
+          subtitle={t('home.trendingDesc')}
           titles={topRated}
           onSelect={onSelect}
           glow
         />
 
         <ContentRow
-          label="Новинки сериалов"
-          subtitle="Свежие добавления"
+          label={t('home.tonight')}
+          subtitle={t('home.tonightDesc')}
           titles={newThisWeek}
           variant="portrait"
           personality="awards"

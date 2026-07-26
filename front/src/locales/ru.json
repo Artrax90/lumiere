@@ -33,7 +33,11 @@
     "subtitles": "Субтитры",
     "audio": "Аудио",
     "quality": "Качество",
-    "auto": "Авто"
+    "auto": "Авто",
+    "onAir": "В эфире",
+    "now": "Сейчас",
+    "next": "Далее",
+    "noData": "Нет данных"
   },
   "home": {
     "continueWatching": "Продолжить просмотр",
@@ -56,7 +60,9 @@
     "year": "Год",
     "actors": "Актёры",
     "sources": "Источники",
-    "torrents": "Торренты"
+    "torrents": "Торренты",
+    "description": "Описание",
+    "cast": "Актёрский состав"
   },
   "search": {
     "placeholder": "Поиск фильмов, сериалов, людей...",
@@ -74,7 +80,9 @@
     "date": "Дата",
     "all": "Все",
     "watched": "Просмотрено",
-    "loading": "Загрузка..."
+    "loading": "Загрузка...",
+    "files": "Файлы",
+    "backToResults": "Назад к результатам"
   },
   "sources": {
     "searching": "Поиск источников...",
@@ -143,7 +151,23 @@
     "create": "Создать",
     "users": "Пользователи",
     "admin": "Admin",
-    "adminOnly": "Только администратор может управлять пользователями"
+    "adminOnly": "Только администратор может управлять пользователями",
+    "serverStatus": "Статус сервера",
+    "ffmpegSessions": "FFmpeg сессии",
+    "cacheManagement": "Управление кешем",
+    "clearHls": "Очистить HLS сегменты",
+    "clearSubtitles": "Очистить кеш субтитров",
+    "apiEndpoints": "API эндпоинты",
+    "devMode": "Режим разработчика",
+    "devModeDesc": "Показывать дополнительную информацию для отладки",
+    "logging": "Логирование",
+    "loggingDesc": "Сохранять логи приложения",
+    "techStack": "Стек технологий",
+    "version": "Версия",
+    "language": "Язык",
+    "onlineProviders": "Онлайн-источники",
+    "active": "Активен",
+    "disabled": "Отключён"
   },
   "downloads": {
     "title": "Загрузки",
@@ -160,6 +184,45 @@
   },
   "activity": {
     "noActivity": "Нет активности",
-    "watching": "Смотрит"
+    "watching": "Смотрит",
+    "yearActivity": "Активность за год",
+    "less": "Меньше",
+    "more": "Больше"
+  },
+  "anime": {
+    "title": "Аниме",
+    "subtitle": "Стилизованные миры, нарисованные мечты.",
+    "recommended": "Рекомендуем",
+    "popular": "Популярное",
+    "topRated": "Топ рейтинг",
+    "all": "Все"
+  },
+  "collections": {
+    "title": "Подборки",
+    "subtitle": "Тщательно отобранные коллекции",
+    "collection": "Подборка"
+  },
+  "episode": {
+    "season": "С",
+    "episode": "Э",
+    "description": "Описание",
+    "previous": "Предыдущий",
+    "next": "Следующий"
+  },
+  "iptv": {
+    "title": "IPTV",
+    "subtitle": "Телевидение через интернет",
+    "addPlaylist": "Добавить плейлист",
+    "newPlaylist": "Новый плейлист",
+    "playlistName": "Название",
+    "playlistUrl": "URL плейлиста (m3u/m3u8)",
+    "epgUrl": "URL EPG (опционально)",
+    "favorites": "Избранное",
+    "noFavorites": "Нет избранных каналов",
+    "addToFavorites": "Нажмите на звёздочку рядом с каналом",
+    "program": "Программа",
+    "channels": "каналов",
+    "noProgram": "Нет данных о программе",
+    "searchChannels": "Поиск каналов..."
   }
 }
