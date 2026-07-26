@@ -86,22 +86,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     fetch(`/api/torrents/tracks?link=${encodedLink}&index=${idx}`)
       .then(res => res.json())
       .then(data => {
-        // Audio tracks from ffprobe
+        // Audio tracks — use backend name directly (already descriptive like "Русский DTS 5.1")
         if (data.audioTracks?.length > 0) {
-          const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
           const tracks = data.audioTracks.map((t: any) => ({
             id: t.id,
-            name: langMap[t.lang] || t.name,
+            name: t.name,
             lang: t.lang,
           }));
           setAudioTracks(tracks);
         }
-        // Subtitle tracks from ffprobe
+        // Subtitle tracks
         if (data.subtitleTracks?.length > 0) {
-          const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
           const subs = data.subtitleTracks.map((t: any) => ({
             id: t.id,
-            name: langMap[t.lang] || t.name,
+            name: t.name,
             lang: t.lang,
             url: `/api/torrents/subtitle/${t.id}?link=${encodedLink}&index=${idx}`,
           }));
@@ -127,18 +125,12 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     return () => video.removeEventListener('loadeddata', seekToInitial);
   }, [initialTime]);
 
-  // Initialize video
+  // Initialize video (only on mount — audio switching is handled separately)
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    // Build URL with audio parameter for torrent streams
-    let url = title.videoUrl!;
-    if (url.includes('/api/torrents/hls') && currentAudioIndex > 0) {
-      const urlObj = new URL(url, window.location.origin);
-      urlObj.searchParams.set('audio', String(currentAudioIndex));
-      url = urlObj.pathname + urlObj.search;
-    }
+    const url = title.videoUrl!;
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
@@ -430,11 +422,16 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     const video = videoRef.current;
     if (!video) return;
 
+    // Save current position and playing state
     const saveTime = video.currentTime;
+    const wasPlaying = !video.paused;
     setCurrentAudioIndex(id);
     setCurrentAudio(id);
     setSettingsPanel('none');
     setLoading(true);
+
+    // Pause video during switch
+    video.pause();
 
     // Destroy current HLS instance
     if (hlsRef.current) {
@@ -464,8 +461,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setLoading(false);
-      video.currentTime = saveTime;
-      video.play().catch(() => {});
+      // Restore position
+      if (saveTime > 0) {
+        video.currentTime = saveTime;
+      }
+      // Resume playback if it was playing before
+      if (wasPlaying) {
+        video.play().catch(() => {});
+      }
     });
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
