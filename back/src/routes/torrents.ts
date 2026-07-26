@@ -478,13 +478,41 @@ export function torrentRoutes(app: FastifyInstance) {
 
     try {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
-      const { execSync: execSyncSub } = await import('child_process');
+      const { spawn: spawnSub } = await import('child_process');
 
-      // Extract subtitle as WebVTT (timeout 60s for large files)
-      const vtt = execSyncSub(
-        `ffmpeg -i "${streamUrl}" -map 0:s:${trackId} -c:s webvtt -f webvtt pipe:1 2>/dev/null`,
-        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
-      ).toString();
+      // Extract subtitle as WebVTT using spawn (no timeout limit)
+      const vtt = await new Promise<string>((resolve, reject) => {
+        const chunks: Buffer[] = [];
+        const ffmpeg = spawnSub('ffmpeg', [
+          '-reconnect', '1',
+          '-reconnect_streamed', '1',
+          '-reconnect_delay_max', '5',
+          '-i', streamUrl,
+          '-map', `0:s:${trackId}`,
+          '-c:s', 'webvtt',
+          '-f', 'webvtt',
+          'pipe:1',
+        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+
+        ffmpeg.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+        ffmpeg.stderr.on('data', () => {}); // suppress stderr
+
+        ffmpeg.on('close', (code) => {
+          if (code === 0 && chunks.length > 0) {
+            resolve(Buffer.concat(chunks).toString('utf-8'));
+          } else {
+            reject(new Error(`FFmpeg exited with code ${code}`));
+          }
+        });
+
+        ffmpeg.on('error', reject);
+
+        // Safety timeout: kill after 5 minutes
+        setTimeout(() => {
+          try { ffmpeg.kill('SIGKILL'); } catch {}
+          reject(new Error('Subtitle extraction timeout'));
+        }, 300000);
+      });
 
       // Cache for 1 hour
       subtitleCache.set(cacheKey, { data: vtt, expires: Date.now() + 3600000 });
