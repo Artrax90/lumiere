@@ -289,7 +289,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       }
     }
 
-    return allPrograms.slice(startIndex);
+    const result = allPrograms.slice(startIndex);
+    console.log(`[IPTV] ${channel.name}: ${allPrograms.length} total, startIndex=${startIndex}, returning=${result.length}, time=${currentTime}`);
+    return result;
   };
 
   // Get current program for channel
@@ -638,10 +640,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 const isFavorite = favorites.has(ch.id);
 
                 return (
-                  <button
+                  <div
                     key={ch.id}
                     onClick={() => playChannel(ch)}
-                    className={`flex w-full items-center px-5 py-4 text-left transition-cinematic hover:bg-white/[0.03] ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                    className={`flex w-full items-center px-5 py-4 text-left transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
                   >
                     <div className="flex w-44 shrink-0 items-center gap-3">
                       <div className="relative h-10 w-10 overflow-hidden rounded-lg bg-white/5">
@@ -693,7 +695,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                       <div className="flex-1" />
                       <div className="flex-1" />
                     </div>
-                  </button>
+                  </div>
                 );
               })}
 
