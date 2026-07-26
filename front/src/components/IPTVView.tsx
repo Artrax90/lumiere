@@ -518,7 +518,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
                         Программа · {selectedChannel.name}
                       </div>
-                      <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1 scrollbar-thin">
+                      <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
                         {getPrograms(selectedChannel).map((program, idx) => {
                           const isCurrent = idx === 0;
                           return (
