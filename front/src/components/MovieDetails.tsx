@@ -178,7 +178,45 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           }} className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12" aria-label="Favorite">
             <Heart className={`h-4 w-4 transition-cinematic ${favorited ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.5} />
           </button>
-          <button className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12" aria-label="Download">
+          <button
+            onClick={async () => {
+              // Get last used torrent magnet for this movie
+              const lastTorrent = (() => {
+                try {
+                  const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+                  return last[displayTitle.id] || null;
+                } catch { return null; }
+              })();
+
+              if (!lastTorrent?.magnet) {
+                // No saved torrent, switch to torrents tab
+                setActiveTab('torrents');
+                return;
+              }
+
+              // Get torrent files and trigger download
+              try {
+                const res = await fetch('/api/torrents/stream', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ magnet: lastTorrent.magnet, title: lastTorrent.title }),
+                });
+                const data = await res.json();
+                if (data.files?.length > 0) {
+                  // Open first file for download via TorrServer proxy
+                  const file = data.files[0];
+                  const link = document.createElement('a');
+                  link.href = `/api/torrents/proxy?link=${encodeURIComponent(lastTorrent.magnet)}&index=${file.id}`;
+                  link.download = file.name;
+                  link.click();
+                }
+              } catch (err) {
+                console.error('Download error:', err);
+              }
+            }}
+            className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12"
+            aria-label="Download"
+          >
             <Download className="h-4 w-4" strokeWidth={1.5} />
           </button>
           <button className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12" aria-label="Share">

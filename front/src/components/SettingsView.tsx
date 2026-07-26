@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
 import { apiPost, apiDelete } from '@/api/client';

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, Settings, Film, Tv, Play, Sparkles, Bell, Puzzle, Download, Grid3x3 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -9,17 +10,18 @@ interface TopNavProps {
   onNavigate: (section: NavSection) => void;
 }
 
-const items: { id: NavSection; label: string; icon: typeof Film }[] = [
-  { id: 'home', label: 'Home', icon: Film },
-  { id: 'movies', label: 'Movies', icon: Film },
-  { id: 'shows', label: 'TV Shows', icon: Tv },
-  { id: 'anime', label: 'Anime', icon: Sparkles },
-  { id: 'live', label: 'Live TV', icon: Play },
-  { id: 'collections', label: 'Collections', icon: Grid3x3 },
+const navItems = [
+  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Film },
+  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film },
+  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
+  { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles },
+  { id: 'live' as NavSection, labelKey: 'nav.live', icon: Play },
+  { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3 },
 ];
 
 export default function TopNav({ active, onNavigate }: TopNavProps) {
   const { user } = useAuth();
+  const { t } = useTranslation();
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -57,7 +59,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
 
         {/* Primary nav — centered, calmer spacing */}
         <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-0.5 md:flex">
-          {items.map((item) => {
+          {navItems.map((item) => {
             const isActive = active === item.id;
             return (
               <button
@@ -68,7 +70,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
                   color: isActive ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.52)',
                 }}
               >
-                <span className="relative z-10">{item.label}</span>
+                <span className="relative z-10">{t(item.labelKey)}</span>
                 {/* Active underline — refined */}
                 <span
                   className="absolute inset-x-4 -bottom-0.5 h-px transition-all duration-400 ease-out"
