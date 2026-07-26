@@ -861,14 +861,16 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               <Volume2 className="h-5 w-5" />
             </button>
 
-            {/* Subtitles button */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'subtitles' ? 'none' : 'subtitles'); }}
-              className={`text-white/70 hover:text-white transition ${currentSubtitle >= 0 ? 'text-amber-300' : ''}`}
-              title="Субтитры"
-            >
-              <Subtitles className="h-5 w-5" />
-            </button>
+            {/* Subtitles button — only show when subtitles are available */}
+            {subtitleTracks.length > 0 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'subtitles' ? 'none' : 'subtitles'); }}
+                className={`text-white/70 hover:text-white transition ${currentSubtitle >= 0 ? 'text-amber-300' : ''}`}
+                title="Субтитры"
+              >
+                <Subtitles className="h-5 w-5" />
+              </button>
+            )}
 
             {/* Settings button */}
             <button
