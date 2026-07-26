@@ -356,16 +356,14 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg with selected audio track + subtitle extraction
+    // Start FFmpeg with selected audio track
     const { spawn } = await import('child_process');
-    const subtitlePath = join(hlsDir, 'subs.vtt');
-    const ffmpegArgs = [
+    const ffmpeg = spawn('ffmpeg', [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
       '-i', streamUrl,
       '-ss', '0',
-      // HLS video+audio output
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
       '-c:v', 'copy',
@@ -378,18 +376,36 @@ export function torrentRoutes(app: FastifyInstance) {
       '-hls_flags', 'append_list',
       '-hls_segment_type', 'mpegts',
       '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-      playlistPath,
-      // Subtitle output (first subtitle track)
-      '-map', '0:s:0?',
-      '-c:s', 'webvtt',
       '-y',
-      subtitlePath,
-    ];
-
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      playlistPath,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
     ffmpeg.on('close', () => activeSessions.delete(sessionId));
+
+    // Start background subtitle extraction (non-blocking)
+    const subtitlePath = join(hlsDir, 'subs.vtt');
+    const subFfmpeg = spawn('ffmpeg', [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-ss', '0',
+      '-i', streamUrl,
+      '-map', '0:s:0',
+      '-c:s', 'webvtt',
+      '-y',
+      subtitlePath,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    subFfmpeg.on('close', () => {
+      const { existsSync, statSync } = require('fs');
+      if (existsSync(subtitlePath) && statSync(subtitlePath).size > 0) {
+        console.log(`Subtitles extracted for session ${sessionId}`);
+      }
+    });
+    // Kill subtitle extraction after 3 minutes (don't let it hang forever)
+    setTimeout(() => {
+      try { subFfmpeg.kill('SIGKILL'); } catch {}
+    }, 180000);
 
     // Wait for playlist
     const waitForPlaylist = () => new Promise<void>((resolve) => {

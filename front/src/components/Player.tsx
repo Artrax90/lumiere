@@ -179,56 +179,58 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
         }
         video.play().catch(() => {});
 
-        // Try to load pre-extracted subtitles from HLS session
-        const hlsUrl = hls.url;
-        if (hlsUrl) {
-          try {
-            const hlsUrlObj = new URL(hlsUrl, window.location.origin);
-            // Extract session ID from hls-seg URL pattern or from the manifest
-            // The session is in the segment URLs: /api/torrents/hls-seg?session=XXX&id=N
-            // We need to get it from the loaded manifest segments
-            const sessionMatch = hls.levels?.[0]?.url?.match(/session=([a-f0-9]+)/) ||
-                                 hlsUrl.match(/session=([a-f0-9]+)/);
-            if (sessionMatch) {
-              const sessionId = sessionMatch[1];
-              fetch(`/api/torrents/hls-subs?session=${sessionId}`)
-                .then(res => {
-                  if (!res.ok) return null;
-                  return res.text();
-                })
-                .then(vtt => {
-                  if (!vtt || vtt.length < 10) return;
-                  console.log('Pre-extracted subtitles loaded:', vtt.length, 'bytes');
-                  // Parse VTT
-                  const cues: Array<{ start: number; end: number; text: string }> = [];
-                  const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-                  const blocks = normalized.split(/\n\n+/);
-                  for (const block of blocks) {
-                    const lines = block.trim().split('\n');
-                    if (lines.length < 2) continue;
-                    if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
-                    let timeLineIndex = -1;
-                    for (let i = 0; i < lines.length; i++) {
-                      if (lines[i].includes('-->')) { timeLineIndex = i; break; }
-                    }
-                    if (timeLineIndex === -1) continue;
-                    const timeMatch = lines[timeLineIndex].match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})/);
-                    if (!timeMatch) continue;
-                    const start = parseVttTime(timeMatch[1].replace(',', '.'));
-                    const end = parseVttTime(timeMatch[2].replace(',', '.'));
-                    const text = lines.slice(timeLineIndex + 1).join('\n').trim();
-                    if (text) cues.push({ start, end, text });
+        // Try to load pre-extracted subtitles from HLS session (with retry)
+        const sessionMatch = url.match(/session=([a-f0-9]+)/);
+        if (sessionMatch) {
+          const sessionId = sessionMatch[1];
+          const tryLoadSubs = (attempt: number) => {
+            if (attempt > 10) return; // max 10 attempts
+            fetch(`/api/torrents/hls-subs?session=${sessionId}`)
+              .then(res => {
+                if (!res.ok) return null;
+                return res.text();
+              })
+              .then(vtt => {
+                if (!vtt || vtt.length < 10) {
+                  // Subtitles not ready yet, retry after delay
+                  setTimeout(() => tryLoadSubs(attempt + 1), 3000);
+                  return;
+                }
+                console.log('Subtitles loaded:', vtt.length, 'bytes');
+                // Parse VTT
+                const cues: Array<{ start: number; end: number; text: string }> = [];
+                const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+                const blocks = normalized.split(/\n\n+/);
+                for (const block of blocks) {
+                  const lines = block.trim().split('\n');
+                  if (lines.length < 2) continue;
+                  if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
+                  let timeLineIndex = -1;
+                  for (let i = 0; i < lines.length; i++) {
+                    if (lines[i].includes('-->')) { timeLineIndex = i; break; }
                   }
-                  if (cues.length > 0) {
-                    console.log('Loaded', cues.length, 'subtitle cues');
-                    subtitleCuesRef.current = cues;
-                    setSubtitleTracks([{ id: 0, name: 'Субтитры', lang: 'auto' }]);
-                    setCurrentSubtitle(0);
-                  }
-                })
-                .catch(() => {});
-            }
-          } catch {}
+                  if (timeLineIndex === -1) continue;
+                  const timeMatch = lines[timeLineIndex].match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})/);
+                  if (!timeMatch) continue;
+                  const start = parseVttTime(timeMatch[1].replace(',', '.'));
+                  const end = parseVttTime(timeMatch[2].replace(',', '.'));
+                  const text = lines.slice(timeLineIndex + 1).join('\n').trim();
+                  if (text) cues.push({ start, end, text });
+                }
+                if (cues.length > 0) {
+                  console.log('Loaded', cues.length, 'subtitle cues');
+                  subtitleCuesRef.current = cues;
+                  setSubtitleTracks([{ id: 0, name: 'Субтитры', lang: 'auto' }]);
+                  setCurrentSubtitle(0);
+                }
+              })
+              .catch(() => {
+                // Retry on error
+                setTimeout(() => tryLoadSubs(attempt + 1), 3000);
+              });
+          };
+          // Start first attempt after 2 seconds
+          setTimeout(() => tryLoadSubs(0), 2000);
         }
       });
 
