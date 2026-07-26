@@ -9,29 +9,15 @@ interface SettingsViewProps {
   onClose: () => void;
 }
 
-const categories = [
-  { id: 'appearance', label: 'Внешний вид', desc: 'Тема, анимации, стиль', icon: Monitor },
-  { id: 'playback', label: 'Воспроизведение', desc: 'Качество, автоплей, пропуск вступления', icon: Play },
-  { id: 'audio', label: 'Аудио', desc: 'Выход, динамический диапазон, язык', icon: Volume2 },
-  { id: 'subtitles', label: 'Субтитры', desc: 'Язык, стиль, размер', icon: Captions },
-  { id: 'network', label: 'Сеть', desc: 'Пропускная способность, кеш', icon: Wifi },
-  { id: 'plugins', label: 'Плагины', desc: 'Источники, расширения, обновления', icon: Puzzle },
-  { id: 'accounts', label: 'Пользователи', desc: 'Управление учётными записями', icon: User },
-  { id: 'activity', label: 'Активность', desc: 'Мониторинг просмотров', icon: Film },
-  { id: 'remote', label: 'Удалённое управление', desc: 'Навигация, жесты, шорткаты', icon: Gamepad2 },
-  { id: 'developer', label: 'Разработчик', desc: 'API, логи, диагностика', icon: Code },
-  { id: 'about', label: 'О приложении', desc: 'Версия, авторы, лицензия', icon: Info },
-];
-
 function Play({ className, strokeWidth }: { className?: string; strokeWidth?: number }) {
   return <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={strokeWidth || 1.5}><polygon points="6 3 20 12 6 21 6 3" fill="currentColor" /></svg>;
 }
 
 const toggles = [
-  { id: 'autoplay', label: 'Автоплей следующей серии', desc: 'Автоматически запускать следующую серию', on: true },
-  { id: 'skip-intro', label: 'Пропуск вступления', desc: 'Автоматически пропускать титры', on: true },
-  { id: 'hdr', label: 'Предпочитать HDR', desc: 'Стримить в HDR10 или Dolby Vision', on: true },
-  { id: 'motion', label: 'Уменьшить анимации', desc: 'Минимизировать переходы и эффекты', on: false },
+  { id: 'autoplay', label: 'settings.autoplay', desc: 'settings.autoplayDesc', on: true },
+  { id: 'skip-intro', label: 'settings.skipIntro', desc: 'settings.skipIntroDesc', on: true },
+  { id: 'hdr', label: 'settings.hdr', desc: 'settings.hdrDesc', on: true },
+  { id: 'motion', label: 'settings.motion', desc: 'settings.motionDesc', on: false },
 ];
 
 interface UserItem {
@@ -44,12 +30,14 @@ interface UserItem {
 
 export default function SettingsView({ onClose }: SettingsViewProps) {
   const { user } = useAuth();
+  const { t, i18n } = useTranslation();
   const [active, setActive] = useState('appearance');
   const [toggleState, setToggleState] = useState<Record<string, boolean>>(
     Object.fromEntries(toggles.map((t) => [t.id, t.on]))
   );
   const [theme, setTheme] = useState('dark');
   const [quality, setQuality] = useState('Auto');
+  const [language, setLanguage] = useState(i18n.language || 'ru');
 
   // Users state
   const [users, setUsers] = useState<UserItem[]>([]);
@@ -115,12 +103,32 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
     }
   };
 
+  const changeLanguage = (lang: string) => {
+    setLanguage(lang);
+    i18n.changeLanguage(lang);
+    localStorage.setItem('lumiere_lang', lang);
+  };
+
+  const categories = [
+    { id: 'appearance', label: t('settings.appearance'), desc: t('settings.appearanceDesc'), icon: Monitor },
+    { id: 'playback', label: t('settings.playback'), desc: t('settings.playbackDesc'), icon: Play },
+    { id: 'audio', label: t('settings.audio'), desc: t('settings.audioDesc'), icon: Volume2 },
+    { id: 'subtitles', label: t('settings.subtitles'), desc: t('settings.subtitlesDesc'), icon: Captions },
+    { id: 'network', label: t('settings.network'), desc: t('settings.networkDesc'), icon: Wifi },
+    { id: 'plugins', label: t('settings.plugins'), desc: t('settings.pluginsDesc'), icon: Puzzle },
+    { id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User },
+    { id: 'activity', label: t('settings.activity'), desc: t('settings.activityDesc'), icon: Film },
+    { id: 'remote', label: t('settings.remote'), desc: t('settings.remoteDesc'), icon: Gamepad2 },
+    { id: 'developer', label: t('settings.developer'), desc: t('settings.developerDesc'), icon: Code },
+    { id: 'about', label: t('settings.about'), desc: t('settings.aboutDesc'), icon: Info },
+  ];
+
   return (
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
       <div className="mx-auto max-w-[1200px]">
         <div className="mb-10 animate-row-reveal">
-          <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">Настройки</h1>
-          <p className="mt-2 text-[15px] text-white/50">Всё просто и понятно.</p>
+          <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">{t('settings.title')}</h1>
+          <p className="mt-2 text-[15px] text-white/50">{t('settings.subtitle')}</p>
         </div>
 
         <div className="grid gap-8 md:grid-cols-[280px_1fr]">
@@ -154,33 +162,56 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
             {active === 'appearance' && (
               <div className="mt-8 space-y-6">
                 <div>
-                  <div className="mb-3 text-[13px] font-medium text-white/70">Тема</div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">{t('settings.theme')}</div>
                   <div className="flex gap-2">
                     {[
-                      { id: 'dark', label: 'Тёмная', icon: Moon },
-                      { id: 'light', label: 'Светлая', icon: Sun },
-                      { id: 'auto', label: 'Авто', icon: Monitor },
-                    ].map((t) => {
-                      const TIcon = t.icon;
+                      { id: 'dark', label: t('settings.dark'), icon: Moon },
+                      { id: 'light', label: t('settings.light'), icon: Sun },
+                      { id: 'auto', label: t('settings.autoTheme'), icon: Monitor },
+                    ].map((th) => {
+                      const TIcon = th.icon;
                       return (
                         <button
-                          key={t.id}
-                          onClick={() => setTheme(t.id)}
+                          key={th.id}
+                          onClick={() => setTheme(th.id)}
                           className="flex items-center gap-2 rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
                           style={{
-                            background: theme === t.id ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                            color: theme === t.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                            border: theme === t.id ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                            background: theme === th.id ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                            color: theme === th.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                            border: theme === th.id ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
                           }}
                         >
-                          <TIcon className="h-3.5 w-3.5" strokeWidth={1.5} />{t.label}
+                          <TIcon className="h-3.5 w-3.5" strokeWidth={1.5} />{th.label}
                         </button>
                       );
                     })}
                   </div>
                 </div>
+                {/* Language switcher */}
                 <div className="border-t border-white/[0.06] pt-6">
-                  <div className="mb-3 text-[13px] font-medium text-white/70">Цвет акцента</div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">Язык / Language</div>
+                  <div className="flex gap-2">
+                    {[
+                      { id: 'ru', label: 'Русский' },
+                      { id: 'en', label: 'English' },
+                    ].map((lang) => (
+                      <button
+                        key={lang.id}
+                        onClick={() => changeLanguage(lang.id)}
+                        className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
+                        style={{
+                          background: language === lang.id ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                          color: language === lang.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                          border: language === lang.id ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        {lang.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="border-t border-white/[0.06] pt-6">
+                  <div className="mb-3 text-[13px] font-medium text-white/70">{t('settings.accentColor')}</div>
                   <div className="flex gap-2.5">
                     {['rgba(232,193,112,0.9)', 'rgba(110,150,255,0.9)', 'rgba(244,114,182,0.9)', 'rgba(100,200,150,0.9)', 'rgba(200,120,60,0.9)'].map((c, i) => (
                       <button key={i} className="h-8 w-8 rounded-full transition-cinematic hover:scale-110" style={{ background: c, border: i === 0 ? '2px solid rgba(255,255,255,0.8)' : '2px solid transparent' }} aria-label={`Accent ${i}`} />
@@ -193,13 +224,13 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
             {/* Playback */}
             {active === 'playback' && (
               <div className="mt-8 space-y-1">
-                {toggles.map((t) => (
+                {toggles.map((toggle) => (
                   <ToggleRow
-                    key={t.id}
-                    label={t.label}
-                    desc={t.desc}
-                    on={toggleState[t.id]}
-                    onChange={() => setToggleState((p) => ({ ...p, [t.id]: !p[t.id] }))}
+                    key={toggle.id}
+                    label={t(toggle.label)}
+                    desc={t(toggle.desc)}
+                    on={toggleState[toggle.id]}
+                    onChange={() => setToggleState((p) => ({ ...p, [toggle.id]: !p[toggle.id] }))}
                   />
                 ))}
                 <div className="mt-6 border-t border-white/[0.06] pt-6">
