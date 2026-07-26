@@ -1,6 +1,6 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tv, Search, Play, ChevronDown, ChevronRight, Clock, Loader2, Settings, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Settings } from 'lucide-react';
 import type { Title } from '@/api/client';
 
 interface IPTVChannel {
@@ -46,7 +46,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [playlists, setPlaylists] = useState<Array<{ name: string; url: string; epgUrl?: string }>>(getSavedPlaylists);
   const [channels, setChannels] = useState<IPTVChannel[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
-  const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState('All');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -57,6 +57,11 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [newPlaylistUrl, setNewPlaylistUrl] = useState('');
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newEpgUrl, setNewEpgUrl] = useState('');
+  const [selectedChannel, setSelectedChannel] = useState<IPTVChannel | null>(null);
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+
+  // Time slots for EPG grid
+  const timeSlots = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
 
   // Load channels from selected playlist
   const loadPlaylist = async (index: number) => {
@@ -80,8 +85,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
       const data = await res.json();
       setChannels(data.channels || []);
-      setGroups(data.groups || []);
-      setSelectedGroup(null);
+      setGroups(['All', ...(data.groups || [])]);
+      setSelectedGroup('All');
+      setSelectedChannel(data.channels?.[0] || null);
 
       // Load EPG if available
       if (playlist.epgUrl) {
@@ -111,7 +117,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         setEpgData(data.epg || {});
       }
     } catch {
-      // EPG loading failed, continue without it
+      // EPG loading failed
     } finally {
       setEpgLoading(false);
     }
@@ -144,14 +150,25 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       setSelectedPlaylist(null);
       setChannels([]);
       setGroups([]);
+      setSelectedChannel(null);
     }
+  };
+
+  // Toggle favorite
+  const toggleFavorite = (id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   // Filter channels by group and search
   const filteredChannels = useMemo(() => {
     let filtered = channels;
 
-    if (selectedGroup) {
+    if (selectedGroup && selectedGroup !== 'All') {
       filtered = filtered.filter(ch => ch.group === selectedGroup);
     }
 
@@ -166,9 +183,14 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return filtered;
   }, [channels, selectedGroup, searchQuery]);
 
+  // Get programs for channel
+  const getPrograms = (channelId: string): EpgProgram[] => {
+    return epgData[channelId] || [];
+  };
+
   // Get current program for channel
   const getCurrentProgram = (channelId: string): EpgProgram | null => {
-    const programs = epgData[channelId] || [];
+    const programs = getPrograms(channelId);
     if (programs.length === 0) return null;
 
     const now = new Date();
@@ -176,14 +198,13 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const currentTime = `${hours}:${minutes}`;
 
-    // Find current program based on time
     for (const program of programs) {
       if (program.startTime <= currentTime && program.stopTime > currentTime) {
         return program;
       }
     }
 
-    return programs[0]; // Return first program if no current found
+    return programs[0];
   };
 
   // Play channel
@@ -209,49 +230,56 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   return (
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
-      <div className="mx-auto max-w-[1400px]">
+      <div className="mx-auto max-w-[1500px]">
         {/* Header */}
         <div className="mb-8 animate-row-reveal">
-          <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">
-            IPTV
-          </h1>
-          <p className="mt-2 text-[15px] text-white/50">
-            Телевидение через интернет
-          </p>
+          <div className="flex items-center gap-3">
+            <div className="flex h-2.5 w-2.5 items-center justify-center">
+              <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse-soft" />
+            </div>
+            <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">
+              IPTV
+            </h1>
+          </div>
+          <p className="mt-2 text-[15px] text-white/50">Телевидение через интернет</p>
         </div>
 
         {/* Playlist selector */}
-        <div className="mb-6 flex flex-wrap items-center gap-4">
+        <div className="mb-6 flex flex-wrap items-center gap-3 animate-row-reveal">
           {playlists.map((playlist, index) => (
             <button
               key={index}
               onClick={() => loadPlaylist(index)}
-              className={`flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic ${
+              className={`shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic ${
                 selectedPlaylist === index
                   ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
                   : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
               }`}
             >
-              <Tv className="h-4 w-4" />
-              {playlist.name}
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  removePlaylist(index);
-                }}
-                className="ml-2 text-white/30 hover:text-red-400"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
+              <span className="flex items-center gap-2">
+                <Tv className="h-4 w-4" />
+                {playlist.name}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removePlaylist(index);
+                  }}
+                  className="ml-1 text-white/30 hover:text-red-400"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </span>
             </button>
           ))}
 
           <button
             onClick={() => setShowAddForm(!showAddForm)}
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-cinematic"
+            className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-cinematic"
           >
-            <Plus className="h-4 w-4" />
-            Добавить плейлист
+            <span className="flex items-center gap-2">
+              <Plus className="h-4 w-4" />
+              Добавить плейлист
+            </span>
           </button>
         </div>
 
@@ -295,58 +323,16 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               <button
                 onClick={addPlaylist}
                 disabled={!newPlaylistUrl.trim()}
-                className="rounded-lg bg-amber-300/15 text-amber-300 px-6 py-2.5 text-[13px] font-medium border border-amber-300/25 hover:bg-amber-300/25 transition-cinematic disabled:opacity-50"
+                className="rounded-full bg-white py-2.5 px-6 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02] disabled:opacity-50"
               >
                 Добавить
               </button>
               <button
                 onClick={() => setShowAddForm(false)}
-                className="rounded-lg bg-white/5 text-white/60 px-6 py-2.5 text-[13px] font-medium border border-white/10 hover:bg-white/10 transition-cinematic"
+                className="rounded-full bg-white/5 text-white/60 py-2.5 px-6 text-[13px] font-medium border border-white/10 hover:bg-white/10 transition-cinematic"
               >
                 Отмена
               </button>
-            </div>
-          </div>
-        )}
-
-        {/* Search and filters */}
-        {channels.length > 0 && (
-          <div className="mb-6 flex flex-wrap items-center gap-4">
-            <div className="relative flex-1 max-w-md">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Поиск каналов..."
-                className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
-              />
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={() => setSelectedGroup(null)}
-                className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-cinematic ${
-                  selectedGroup === null
-                    ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
-                    : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
-                }`}
-              >
-                Все
-              </button>
-              {groups.map((group) => (
-                <button
-                  key={group}
-                  onClick={() => setSelectedGroup(group)}
-                  className={`rounded-full px-3 py-1.5 text-[12px] font-medium transition-cinematic ${
-                    selectedGroup === group
-                      ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
-                      : 'bg-white/5 text-white/50 border border-white/10 hover:bg-white/10'
-                  }`}
-                >
-                  {group}
-                </button>
-              ))}
             </div>
           </div>
         )}
@@ -377,71 +363,198 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
           </div>
         )}
 
-        {/* Channel grid */}
-        {!loading && filteredChannels.length > 0 && (
-          <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {filteredChannels.map((channel) => {
-              const program = getCurrentProgram(channel.id);
-
-              return (
-                <button
-                  key={channel.id}
-                  onClick={() => playChannel(channel)}
-                  className="group rounded-[16px] bg-white/5 border border-white/10 p-4 text-left transition-cinematic hover:bg-white/10 hover:border-amber-300/20"
-                >
-                  <div className="flex items-center gap-3">
-                    {channel.logo ? (
+        {/* Now Playing preview + Channel list */}
+        {!loading && channels.length > 0 && selectedChannel && (
+          <>
+            {/* Now Playing preview */}
+            <div className="mb-10 animate-detail-rise">
+              <div className="glass-panel overflow-hidden rounded-[20px]">
+                <div className="grid md:grid-cols-[1fr_320px]">
+                  {/* Preview area */}
+                  <div className="relative h-64 md:h-80">
+                    {selectedChannel.logo ? (
                       <img
-                        src={channel.logo}
-                        alt={channel.name}
-                        className="h-12 w-12 rounded-lg object-cover bg-white/10"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
+                        src={selectedChannel.logo}
+                        alt={selectedChannel.name}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        style={{ filter: 'saturate(1.05) brightness(0.85)' }}
                       />
                     ) : (
-                      <div className="h-12 w-12 rounded-lg bg-white/10 flex items-center justify-center">
-                        <Tv className="h-6 w-6 text-white/30" />
-                      </div>
+                      <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
                     )}
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium text-white/90 truncate">
-                        {channel.name}
-                      </div>
-                      <div className="text-[11px] text-white/40 truncate">
-                        {channel.group}
-                      </div>
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
                     </div>
+                    <div className="absolute bottom-0 left-0 p-6">
+                      <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
+                      <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
+                      {getCurrentProgram(selectedChannel.id) && (
+                        <>
+                          <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel.id)?.title}</div>
+                          <div className="mt-0.5 text-[12px] text-white/40">
+                            {getCurrentProgram(selectedChannel.id)?.startTime} - {getCurrentProgram(selectedChannel.id)?.stopTime}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => playChannel(selectedChannel)}
+                      className="absolute bottom-6 right-6 rounded-full bg-white p-4 text-black transition-cinematic hover:scale-110"
+                    >
+                      <Play className="h-6 w-6 fill-current" />
+                    </button>
                   </div>
-
-                  {program && (
-                    <div className="mt-3 pt-3 border-t border-white/5">
-                      <div className="flex items-center gap-2 text-[11px] text-white/50">
-                        <Clock className="h-3 w-3" />
-                        <span>{program.startTime} - {program.stopTime}</span>
-                      </div>
-                      <div className="mt-1 text-[12px] text-white/70 truncate">
-                        {program.title}
-                      </div>
+                  {/* Channel info sidebar */}
+                  <div className="border-t border-white/[0.06] p-5 md:border-l md:border-t-0">
+                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                      Программа · {selectedChannel.name}
                     </div>
-                  )}
-
-                  <div className="mt-3 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-cinematic">
-                    <div className="rounded-full bg-amber-300/20 p-2">
-                      <Play className="h-4 w-4 text-amber-300" fill="currentColor" />
+                    <div className="space-y-3 max-h-64 overflow-y-auto">
+                      {getPrograms(selectedChannel.id).slice(0, 6).map((program, idx) => {
+                        const isCurrent = idx === 0;
+                        return (
+                          <div key={idx} className={`rounded-[12px] p-3 ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02]'}`}>
+                            <div className="text-[10px] text-white/40">{program.startTime} - {program.stopTime}</div>
+                            <div className={`text-[13px] font-medium ${isCurrent ? 'text-white/85' : 'text-white/65'}`}>{program.title}</div>
+                            {isCurrent && (
+                              <div className="mt-1.5 h-[2px] w-2/3 overflow-hidden rounded-full bg-white/15">
+                                <div className="h-full w-1/2 rounded-full bg-red-400/85" />
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                      {getPrograms(selectedChannel.id).length === 0 && (
+                        <div className="text-[12px] text-white/30">Нет данных о программе</div>
+                      )}
                     </div>
+                    <button
+                      onClick={() => playChannel(selectedChannel)}
+                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white py-3 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02]"
+                    >
+                      <Play className="h-3.5 w-3.5 fill-current" />Смотреть
+                    </button>
                   </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Search */}
+            <div className="mb-6 animate-row-reveal">
+              <div className="relative max-w-md">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Поиск каналов..."
+                  className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
+                />
+              </div>
+            </div>
+
+            {/* Channel group filters */}
+            <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
+              {groups.map((g) => (
+                <button
+                  key={g}
+                  onClick={() => setSelectedGroup(g)}
+                  className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                  style={{
+                    background: selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                    color: selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                    border: selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  {g}
                 </button>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
 
-        {/* Channel count */}
-        {channels.length > 0 && (
-          <div className="mt-6 text-center text-[12px] text-white/30">
-            {filteredChannels.length} из {channels.length} каналов
-          </div>
+            {/* EPG Grid */}
+            <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
+              {/* Time header */}
+              <div className="flex items-center border-b border-white/[0.06] px-5 py-3">
+                <div className="w-44 shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
+                <div className="flex flex-1">
+                  {timeSlots.map((h) => (
+                    <div key={h} className="flex-1 text-[11px] font-medium text-white/40">{h}</div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Channels */}
+              {filteredChannels.map((ch, idx) => {
+                const currentProgram = getCurrentProgram(ch.id);
+                const isFavorite = favorites.has(ch.id);
+
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => setSelectedChannel(ch)}
+                    className={`flex w-full items-center px-5 py-4 text-left transition-cinematic hover:bg-white/[0.03] ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                  >
+                    <div className="flex w-44 shrink-0 items-center gap-3">
+                      <div className="relative h-10 w-10 overflow-hidden rounded-lg bg-white/5">
+                        {ch.logo ? (
+                          <img src={ch.logo} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Tv className="h-5 w-5 text-white/20" />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-[13px] font-medium text-white/85">{ch.name}</div>
+                        <div className="text-[10px] text-white/40">{ch.group}</div>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
+                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-cinematic"
+                        aria-label="Favorite"
+                      >
+                        <Star
+                          className={`h-3.5 w-3.5 transition-cinematic ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/25'}`}
+                          strokeWidth={1.5}
+                        />
+                      </button>
+                    </div>
+                    <div className="flex flex-1 gap-1">
+                      {currentProgram ? (
+                        <>
+                          <div className="flex-[2] rounded-lg border border-white/8 bg-white/[0.04] px-3 py-2">
+                            <div className="truncate text-[12px] font-medium text-white/85">{currentProgram.title}</div>
+                            <div className="mt-1 text-[10px] text-white/40">{currentProgram.startTime} - {currentProgram.stopTime}</div>
+                            <div className="mt-1 h-0.5 w-2/3 overflow-hidden rounded-full bg-white/15">
+                              <div className="h-full w-1/2 rounded-full bg-amber-300/80" />
+                            </div>
+                          </div>
+                          <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+                            <div className="truncate text-[12px] text-white/55">
+                              {getPrograms(ch.id)[1]?.title || '—'}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
+                          <div className="truncate text-[12px] text-white/30">Нет программы</div>
+                        </div>
+                      )}
+                      <div className="flex-1" />
+                      <div className="flex-1" />
+                      <div className="flex-1" />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Channel count */}
+            <div className="mt-6 text-center text-[12px] text-white/30">
+              {filteredChannels.length} из {channels.length} каналов
+            </div>
+          </>
         )}
       </div>
     </div>
