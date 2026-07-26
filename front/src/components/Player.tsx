@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight } from 'lucide-react';
 import type { Title } from '@/api/client';
@@ -21,6 +22,7 @@ interface PlayerProps {
 type SettingsPanel = 'none' | 'quality' | 'audio' | 'subtitles';
 
 export default function Player({ title, onExit, initialTime, onTimeUpdate, externalSubs }: PlayerProps) {
+  const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -285,7 +287,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           console.error('HLS fatal error:', data);
-          setError('Ошибка загрузки видео');
+          setError(t('common.error'));
           setLoading(false);
         }
       });
@@ -302,7 +304,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       });
       video.addEventListener('canplay', () => setLoading(false));
       video.addEventListener('error', () => {
-        setError('Не удалось загрузить видео');
+        setError(t('common.error'));
         setLoading(false);
       });
     }
@@ -721,7 +723,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         <div className="absolute inset-0 flex items-center justify-center z-20">
           <div className="text-center">
             <div className="text-[16px] text-red-400 mb-4">{error}</div>
-            <button onClick={onExit} className="px-6 py-2 rounded-full bg-white/10 text-white text-[14px]">Назад</button>
+            <button onClick={onExit} className="px-6 py-2 rounded-full bg-white/10 text-white text-[14px]">{t('common.back')}</button>
           </div>
         </div>
       )}
@@ -741,7 +743,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             onClick={onExit}
             className="flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 text-[13px] font-medium text-white/85 hover:bg-white/20 transition"
           >
-            <ChevronLeft className="h-4 w-4" />Назад
+            <ChevronLeft className="h-4 w-4" />{t('common.back')}
           </button>
           <div className="text-center">
             <div className="text-[15px] font-medium text-white">
@@ -802,7 +804,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             {/* Buffer indicator */}
             {buffered < 0.9 && buffered > 0 && (
               <div className="text-[10px] text-white/30 mt-1">
-                Буфер: {fmtTime(buffered * duration)}
+                {t('player.buffer')}: {fmtTime(buffered * duration)}
               </div>
             )}
           </div>
@@ -856,7 +858,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <button
               onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'audio' ? 'none' : 'audio'); }}
               className="text-white/70 hover:text-white transition"
-              title="Аудио"
+              title={t('common.audio')}
             >
               <Volume2 className="h-5 w-5" />
             </button>
@@ -866,7 +868,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               <button
                 onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'subtitles' ? 'none' : 'subtitles'); }}
                 className={`text-white/70 hover:text-white transition ${currentSubtitle >= 0 ? 'text-amber-300' : ''}`}
-                title="Субтитры"
+                title={t('common.subtitles')}
               >
                 <Subtitles className="h-5 w-5" />
               </button>
@@ -876,7 +878,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <button
               onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'none' ? 'quality' : 'none'); }}
               className="text-white/70 hover:text-white transition"
-              title="Качество"
+              title={t('common.quality')}
             >
               <Settings className="h-5 w-5" />
             </button>
@@ -900,14 +902,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <div>
               <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
                 <Settings className="h-4 w-4 text-white/50" />
-                <span className="text-[13px] font-medium text-white">Качество</span>
+                <span className="text-[13px] font-medium text-white">{t('common.quality')}</span>
               </div>
               <div className="py-1">
                 <button
                   onClick={() => setQuality(-1)}
                   className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
                 >
-                  <span>Авто</span>
+                  <span>{t('common.auto')}</span>
                   {currentQuality === -1 && <span className="text-amber-300">✓</span>}
                 </button>
                 {qualityLevels.map((level) => (
@@ -929,7 +931,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <div>
               <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
                 <Volume2 className="h-4 w-4 text-white/50" />
-                <span className="text-[13px] font-medium text-white">Аудио</span>
+                <span className="text-[13px] font-medium text-white">{t('common.audio')}</span>
               </div>
               <div className="py-1">
                 {audioTracks.map((track) => (
@@ -951,14 +953,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <div>
               <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
                 <Subtitles className="h-4 w-4 text-white/50" />
-                <span className="text-[13px] font-medium text-white">Субтитры</span>
+                <span className="text-[13px] font-medium text-white">{t('common.subtitles')}</span>
               </div>
               <div className="py-1">
                 <button
                   onClick={() => setSubtitle(-1)}
                   className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
                 >
-                  <span>Выключены</span>
+                  <span>{t('player.off')}</span>
                   {currentSubtitle === -1 && <span className="text-amber-300">✓</span>}
                 </button>
                 {subtitleTracks.map((track) => (
