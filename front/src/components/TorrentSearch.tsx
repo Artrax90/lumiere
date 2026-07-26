@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 
@@ -84,6 +85,7 @@ interface TorrentSearchProps {
 type SortKey = 'seeders' | 'size' | 'date';
 
 export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
+  const { t } = useTranslation();
   const [results, setResults] = useState<TorrentItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
@@ -185,7 +187,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
           setFiles(data.files);
         }
       } else {
-        setStreamError('Файлы не найдены');
+        setStreamError(t('torrents.notFound'));
       }
     } catch (err: any) {
       setStreamError(err.message);
@@ -210,13 +212,13 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
         <div className="flex items-center justify-between">
           <h3 className="text-[14px] font-medium text-white/85 flex items-center gap-2">
             <Folder className="h-4 w-4 text-amber-300/70" strokeWidth={1.5} />
-            {selectedTorrent?.title || 'Файлы торрента'}
+            {selectedTorrent?.title || t('torrents.files')}
           </h3>
           <button
             onClick={() => { setFiles(null); setSelectedTorrent(null); }}
             className="text-[12px] text-white/40 hover:text-white/70 transition-cinematic"
           >
-            Назад к результатам
+            {t('torrents.backToResults')}
           </button>
         </div>
         {files.map((file) => {
@@ -231,7 +233,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                   <div className="text-[13px] font-medium text-white/85 truncate">{file.name}</div>
                   {isWatched && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
-                      <Check className="h-3 w-3" /> Просмотрено
+                      <Check className="h-3 w-3" /> {t('torrents.watched')}
                     </span>
                   )}
                 </div>
@@ -241,7 +243,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                 onClick={() => playFile(file)}
                 className="flex items-center gap-2 rounded-full bg-amber-300/90 px-4 py-2 text-[12px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90"
               >
-                <Play className="h-3 w-3 fill-current" />Смотреть
+                <Play className="h-3 w-3 fill-current" />{t('common.watch')}
               </button>
             </div>
           );
@@ -255,7 +257,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       <div className="flex items-center justify-between">
         <h3 className="text-[14px] font-medium text-white/85 flex items-center gap-2">
           <Magnet className="h-4 w-4 text-amber-300/70" strokeWidth={1.5} />
-          Торренты
+          {t('movie.torrents')}
         </h3>
         {!searched && (
           <button
@@ -263,7 +265,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
             className="flex items-center gap-2 rounded-full bg-white/[0.06] border border-white/[0.08] px-4 py-2 text-[12px] font-medium text-white/70 transition-cinematic hover:bg-white/[0.1] hover:text-white"
           >
             <Download className="h-3 w-3" strokeWidth={1.5} />
-            Искать торренты
+            {t('torrents.search')}
           </button>
         )}
       </div>
@@ -271,7 +273,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       {loading && (
         <div className="flex items-center gap-3 text-[13px] text-white/50 py-4">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Поиск в JacRed...
+          {t('torrents.searching')}
         </div>
       )}
 
@@ -296,7 +298,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                   border: sortBy === key ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
                 }}
               >
-                {key === 'seeders' ? 'Раздающие' : key === 'size' ? 'Размер' : 'Дата'}
+                {key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
               </button>
             ))}
           </div>
@@ -314,7 +316,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                   border: seasonFilter === null ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
                 }}
               >
-                Все
+                {t('torrents.all')}
               </button>
               {availableSeasons.map((s) => (
                 <button
@@ -338,8 +340,8 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       {!loading && searched && sortedResults.length === 0 && (
         <div className="text-[13px] text-white/40 py-4">
           {results.length > 0 && seasonFilter !== null
-            ? `Нет результатов для сезона ${seasonFilter}`
-            : 'Торренты не найдены'}
+            ? `${t('torrents.notFound')} ${seasonFilter}`
+            : t('torrents.notFound')}
         </div>
       )}
 
@@ -359,12 +361,12 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                   <div className="text-[13px] font-medium text-white/85 line-clamp-2">{item.title}</div>
                   {isLastPlayed && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
-                      <Check className="h-3 w-3" /> Просмотрено
+                      <Check className="h-3 w-3" /> {t('torrents.watched')}
                     </span>
                   )}
                   {isStreaming && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
-                      <Loader2 className="h-3 w-3 animate-spin" /> Загрузка...
+                      <Loader2 className="h-3 w-3 animate-spin" /> {t('torrents.loading')}
                     </span>
                   )}
                 </div>
