@@ -4,11 +4,22 @@ import type { Title, Episode } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { useAuth } from '@/contexts/AuthContext';
 
-// Save playback position to localStorage
-function savePlaybackPosition(titleId: number, time: number) {
+// Save playback position to localStorage with timestamp and title info
+function savePlaybackPosition(titleId: number, time: number, title?: Title) {
   try {
     const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-    positions[titleId] = time;
+    const entry: any = { time, timestamp: Date.now() };
+    if (title) {
+      entry.title = {
+        id: title.id,
+        name: title.name,
+        poster: title.poster,
+        backdrop: title.backdrop,
+        year: title.year,
+        type: title.type,
+      };
+    }
+    positions[titleId] = entry;
     localStorage.setItem('playback_positions', JSON.stringify(positions));
   } catch {}
 }
@@ -17,9 +28,29 @@ function savePlaybackPosition(titleId: number, time: number) {
 function getPlaybackPosition(titleId: number): number {
   try {
     const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-    return positions[titleId] || 0;
+    const entry = positions[titleId];
+    return typeof entry === 'object' ? entry.time : (entry || 0);
   } catch {
     return 0;
+  }
+}
+
+// Get all playback positions with timestamps and title info
+export function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
+  try {
+    const raw = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const result: Record<number, { time: number; timestamp: number; title?: Title }> = {};
+    for (const [id, value] of Object.entries(raw)) {
+      if (typeof value === 'object' && value !== null) {
+        result[Number(id)] = value as { time: number; timestamp: number; title?: Title };
+      } else {
+        // Legacy format: just a number
+        result[Number(id)] = { time: value as number, timestamp: 0 };
+      }
+    }
+    return result;
+  } catch {
+    return {};
   }
 }
 
@@ -72,19 +103,36 @@ export default function App() {
   const handlePlay = useCallback((title: Title) => {
     setPlaying(title);
     lastSavedTime.current = 0;
+
+    // Report activity to server
+    const token = localStorage.getItem('lumiere_access');
+    if (token) {
+      fetch('/api/user/activity', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          action: 'watching',
+          titleId: title.id,
+          titleName: title.name,
+        }),
+      }).catch(() => {});
+    }
   }, []);
 
   const handleTimeUpdate = useCallback((time: number) => {
     // Save position every 5 seconds
     if (playing && Math.abs(time - lastSavedTime.current) > 5) {
-      savePlaybackPosition(playing.id, time);
+      savePlaybackPosition(playing.id, time, playing);
       lastSavedTime.current = time;
     }
   }, [playing]);
 
   const handlePlayerExit = useCallback(() => {
     if (playing) {
-      savePlaybackPosition(playing.id, lastSavedTime.current);
+      savePlaybackPosition(playing.id, lastSavedTime.current, playing);
     }
     setPlaying(null);
   }, [playing]);

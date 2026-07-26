@@ -186,6 +186,16 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           </button>
         </div>
 
+        {/* Description - visible in all tabs */}
+        <div className="mt-10 max-w-2xl animate-detail-rise" style={{ animationDelay: '170ms' }}>
+          <p className={`text-balance text-[16px] leading-[1.75] text-white/75 ${expanded ? '' : 'line-clamp-3'}`}>{displayTitle.description}</p>
+          {displayTitle.description.length > 180 && (
+            <button onClick={() => setExpanded(!expanded)} className="mt-2 text-[13px] font-medium text-amber-300/80 transition-cinematic hover:text-amber-200">
+              {expanded ? 'Свернуть' : 'Читать далее'}
+            </button>
+          )}
+        </div>
+
         {/* Tabs: Sources / Torrents */}
         <div className="mt-10 animate-detail-rise" style={{ animationDelay: '180ms' }}>
           <div className="flex gap-1 mb-6">
@@ -224,15 +234,6 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               title={displayTitle}
               onPlay={(url, episodeName) => onPlay({ ...displayTitle, videoUrl: url, episode: episodeName })}
             />
-          )}
-        </div>
-
-        <div className="mt-10 max-w-2xl animate-detail-rise" style={{ animationDelay: '200ms' }}>
-          <p className={`text-balance text-[16px] leading-[1.75] text-white/75 ${expanded ? '' : 'line-clamp-3'}`}>{displayTitle.description}</p>
-          {displayTitle.description.length > 180 && (
-            <button onClick={() => setExpanded(!expanded)} className="mt-2 text-[13px] font-medium text-amber-300/80 transition-cinematic hover:text-amber-200">
-              {expanded ? 'Свернуть' : 'Читать далее'}
-            </button>
           )}
         </div>
 

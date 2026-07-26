@@ -7,10 +7,19 @@ import ContentRow from './ContentRow';
 import ShowcaseRow from './ShowcaseRow';
 import CollectionBanner from './CollectionBanner';
 
-// Get playback positions from localStorage
-function getPlaybackPositions(): Record<number, number> {
+// Get playback positions from localStorage with timestamps and title info
+function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
   try {
-    return JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const raw = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const result: Record<number, { time: number; timestamp: number; title?: Title }> = {};
+    for (const [id, value] of Object.entries(raw)) {
+      if (typeof value === 'object' && value !== null) {
+        result[Number(id)] = value as { time: number; timestamp: number; title?: Title };
+      } else {
+        result[Number(id)] = { time: value as number, timestamp: 0 };
+      }
+    }
+    return result;
   } catch {
     return {};
   }
@@ -60,19 +69,32 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
     img.onload = () => setImgLoaded(true);
   }, [current]);
 
-  // Get continue watching from playback positions
+  // Get continue watching from playback positions, sorted by most recent
   const continueWatching = useMemo(() => {
     const positions = getPlaybackPositions();
-    const watchedIds = Object.keys(positions).map(Number);
-    if (watchedIds.length === 0) return popularMovies.slice(0, 6);
-    
+    const entries = Object.entries(positions);
+    if (entries.length === 0) return popularMovies.slice(0, 6);
+
+    // Sort by timestamp (most recent first)
+    const sortedEntries = entries
+      .sort(([, a], [, b]) => (b.timestamp || 0) - (a.timestamp || 0));
+
     // Find titles that have been watched
     const allTitles = [...trendingMovies, ...popularMovies];
-    const watched = watchedIds
-      .map(id => allTitles.find(t => t.id === id))
-      .filter((t): t is Title => t !== undefined)
-      .slice(0, 6);
-    
+    const watched: Title[] = [];
+
+    for (const [id, entry] of sortedEntries) {
+      // First try to find in trending/popular
+      const found = allTitles.find(t => t.id === Number(id));
+      if (found) {
+        watched.push(found);
+      } else if (entry.title) {
+        // Use saved title info (from search results)
+        watched.push(entry.title as Title);
+      }
+      if (watched.length >= 6) break;
+    }
+
     return watched.length > 0 ? watched : popularMovies.slice(0, 6);
   }, [trendingMovies, popularMovies]);
 

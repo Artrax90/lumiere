@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2 } from 'lucide-react';
+import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film } from 'lucide-react';
+import ActivityHeatmap from './ActivityHeatmap';
 import { apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -15,6 +16,7 @@ const categories = [
   { id: 'network', label: 'Сеть', desc: 'Пропускная способность, кеш', icon: Wifi },
   { id: 'plugins', label: 'Плагины', desc: 'Источники, расширения, обновления', icon: Puzzle },
   { id: 'accounts', label: 'Пользователи', desc: 'Управление учётными записями', icon: User },
+  { id: 'activity', label: 'Активность', desc: 'Мониторинг просмотров', icon: Film },
   { id: 'remote', label: 'Удалённое управление', desc: 'Навигация, жесты, шорткаты', icon: Gamepad2 },
   { id: 'developer', label: 'Разработчик', desc: 'API, логи, диагностика', icon: Code },
   { id: 'about', label: 'О приложении', desc: 'Версия, авторы, лицензия', icon: Info },
@@ -354,8 +356,16 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
               </div>
             )}
 
+            {/* Activity Monitor */}
+            {active === 'activity' && (
+              <div className="mt-6 space-y-6">
+                <ActivityHeatmap />
+                <ActivityMonitor />
+              </div>
+            )}
+
             {/* Default */}
-            {active !== 'appearance' && active !== 'playback' && active !== 'accounts' && active !== 'plugins' && (
+            {active !== 'appearance' && active !== 'playback' && active !== 'accounts' && active !== 'plugins' && active !== 'activity' && (
               <div className="mt-8">
                 <p className="text-[14px] leading-relaxed text-white/55">
                   Настройки «{categories.find((c) => c.id === active)?.label}» появятся здесь.
@@ -546,6 +556,84 @@ function JacRedConfig() {
           Текущий: {customUrl || selectedUrl}
         </div>
       </div>
+    </div>
+  );
+}
+
+interface Activity {
+  userId: number;
+  userName: string;
+  action: string;
+  titleId: number;
+  titleName: string;
+  timestamp: number;
+}
+
+function ActivityMonitor() {
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        const token = localStorage.getItem('lumiere_access');
+        const res = await fetch('/api/admin/activity', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        const data = await res.json();
+        setActivities(data.activities || []);
+      } catch {
+        setActivities([]);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchActivities();
+    const interval = setInterval(fetchActivities, 10000); // Refresh every 10 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center gap-3 text-[13px] text-white/50 py-4">
+        <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+        Загрузка...
+      </div>
+    );
+  }
+
+  if (activities.length === 0) {
+    return (
+      <div className="text-[13px] text-white/40 py-4">
+        Нет активности
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {activities.map((activity, i) => (
+        <div
+          key={`${activity.userId}-${activity.timestamp}-${i}`}
+          className="flex items-center gap-3 rounded-[12px] bg-white/[0.03] border border-white/[0.06] p-4"
+        >
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-300/20 text-[12px] font-semibold text-amber-300">
+            {activity.userName.charAt(0).toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-medium text-white/85">
+              {activity.userName}
+            </div>
+            <div className="text-[11px] text-white/40">
+              {activity.action === 'watching' ? 'Смотрит' : activity.action}: {activity.titleName}
+            </div>
+          </div>
+          <div className="text-[11px] text-white/30 shrink-0">
+            {new Date(activity.timestamp).toLocaleTimeString('ru')}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

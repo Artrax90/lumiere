@@ -55,7 +55,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     }, 4000);
   }, [playing]);
 
-  // Fetch duration from backend for torrent streams
+  // Fetch duration and subtitles from backend for torrent streams
   useEffect(() => {
     if (!title.videoUrl?.includes('/api/torrents/hls')) return;
 
@@ -65,12 +65,29 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     if (!link) return;
 
+    // Fetch duration
     fetch(`/api/torrents/duration?link=${encodeURIComponent(link)}&index=${index || 0}`)
       .then(res => res.json())
       .then(data => {
         if (data.duration && data.duration > 0) {
           realDurationRef.current = data.duration;
           setDuration(data.duration);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch subtitles
+    fetch(`/api/torrents/subtitles?link=${encodeURIComponent(link)}&index=${index || 0}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.subtitles?.length > 0) {
+          const subs = data.subtitles.map((s: any) => ({
+            id: s.id,
+            name: `${s.label} (${s.lang})`,
+            lang: s.lang,
+            url: `/api/torrents/subtitle/${s.id}?link=${encodeURIComponent(link)}&index=${index || 0}`,
+          }));
+          setSubtitleTracks(subs);
         }
       })
       .catch(() => {});
@@ -383,10 +400,43 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   };
 
   const setSubtitle = (id: number) => {
-    if (hlsRef.current) {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Find the subtitle track
+    const track = subtitleTracks.find(t => t.id === id);
+    if (!track) {
+      setCurrentSubtitle(-1);
+      setSettingsPanel('none');
+      return;
+    }
+
+    // If it's an external subtitle (has url), load it
+    if ((track as any).url) {
+      // Remove existing subtitle track if any
+      const existingTrack = video.querySelector('track[kind="subtitles"]');
+      if (existingTrack) existingTrack.remove();
+
+      // Add new subtitle track
+      const trackEl = document.createElement('track');
+      trackEl.kind = 'subtitles';
+      trackEl.src = (track as any).url;
+      trackEl.srclang = track.lang;
+      trackEl.label = track.name;
+      trackEl.default = true;
+      video.appendChild(trackEl);
+
+      // Enable the track
+      if (video.textTracks.length > 0) {
+        video.textTracks[0].mode = 'showing';
+      }
+      setCurrentSubtitle(id);
+    } else if (hlsRef.current) {
+      // HLS embedded subtitle
       hlsRef.current.subtitleTrack = id;
       setCurrentSubtitle(id);
     }
+
     setSettingsPanel('none');
   };
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Search, X, Mic, TrendingUp, Clock, Film, Sparkles } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useSearch } from '@/hooks/useSearch';
@@ -10,16 +10,45 @@ interface SearchViewProps {
 }
 
 const trendingSearches = ['Фантастика', 'Оскар', 'Драма', 'Аниме 2024', 'Документалки', 'Триллеры'];
-const recentSearches = ['Интерстеллар', 'Мыслительное кино', '4K Dolby Vision', 'Severance'];
+
+function getRecentSearches(): string[] {
+  try {
+    return JSON.parse(localStorage.getItem('recent_searches') || '[]');
+  } catch {
+    return [];
+  }
+}
+
+function saveRecentSearch(query: string) {
+  try {
+    const searches = getRecentSearches().filter(s => s !== query);
+    searches.unshift(query);
+    localStorage.setItem('recent_searches', JSON.stringify(searches.slice(0, 20)));
+  } catch {}
+}
 
 export default function SearchView({ onSelect }: SearchViewProps) {
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const { data: results, loading } = useSearch(query);
   const { data: genres } = useGenres('movie');
+
+  useEffect(() => {
+    setRecentSearches(getRecentSearches());
+    inputRef.current?.focus();
+  }, []);
+
+  const handleSearch = useCallback((q: string) => {
+    setQuery(q);
+    if (q.trim()) {
+      saveRecentSearch(q.trim());
+      setRecentSearches(getRecentSearches());
+    }
+  }, []);
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -35,6 +64,11 @@ export default function SearchView({ onSelect }: SearchViewProps) {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && query.trim()) {
+                  handleSearch(query);
+                }
+              }}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               placeholder="Поиск фильмов, сериалов, людей..."
@@ -63,7 +97,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
                     key={g.id}
                     onClick={() => {
                       setActiveGenre(activeGenre === g.name ? null : g.name);
-                      setQuery(g.name);
+                      handleSearch(g.name);
                     }}
                     className="rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
                     style={{
@@ -84,7 +118,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
               </div>
               <div className="flex flex-wrap gap-2">
                 {trendingSearches.map((s) => (
-                  <button key={s} onClick={() => setQuery(s)} className="rounded-full glass px-4 py-2 text-[13px] font-medium text-white/75 transition-cinematic hover:bg-white/12 hover:text-white">
+                  <button key={s} onClick={() => handleSearch(s)} className="rounded-full glass px-4 py-2 text-[13px] font-medium text-white/75 transition-cinematic hover:bg-white/12 hover:text-white">
                     {s}
                   </button>
                 ))}
@@ -97,7 +131,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
               </div>
               <div className="flex flex-wrap gap-2">
                 {recentSearches.map((s) => (
-                  <button key={s} onClick={() => setQuery(s)} className="rounded-full border border-white/8 bg-white/[0.02] px-4 py-2 text-[13px] text-white/55 transition-cinematic hover:bg-white/8 hover:text-white/85">
+                  <button key={s} onClick={() => handleSearch(s)} className="rounded-full border border-white/8 bg-white/[0.02] px-4 py-2 text-[13px] text-white/55 transition-cinematic hover:bg-white/8 hover:text-white/85">
                     {s}
                   </button>
                 ))}

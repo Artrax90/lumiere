@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 
 // Simple hash for magnet link
@@ -350,7 +350,8 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
         return (
           <div
             key={`${item.tracker}-${item.id}-${idx}`}
-            className={`rounded-[12px] p-4 transition-cinematic ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'}`}
+            onClick={() => streamTorrent(item)}
+            className={`rounded-[12px] p-4 transition-cinematic cursor-pointer ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'} ${isStreaming ? 'opacity-50' : ''}`}
           >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0 flex-1">
@@ -359,6 +360,11 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                   {isLastPlayed && (
                     <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
                       <Check className="h-3 w-3" /> Просмотрено
+                    </span>
+                  )}
+                  {isStreaming && (
+                    <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Загрузка...
                     </span>
                   )}
                 </div>
@@ -378,19 +384,12 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                     href={item.details}
                     target="_blank"
                     rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
                     className="flex h-8 w-8 items-center justify-center rounded-full text-white/40 hover:text-white/70 transition-cinematic"
                   >
                     <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
                   </a>
                 )}
-                <button
-                  onClick={() => streamTorrent(item)}
-                  disabled={isStreaming || !item.magnet}
-                  className="flex items-center gap-2 rounded-full bg-amber-300/90 px-4 py-2 text-[12px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90 disabled:opacity-40"
-                >
-                  {isStreaming ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3 fill-current" />}
-                  Смотреть
-                </button>
               </div>
             </div>
           </div>

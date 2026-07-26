@@ -161,4 +161,55 @@ export function userRoutes(app: FastifyInstance) {
 
     return { success: true, id: result.rows[0]?.id };
   });
+
+  // Activity tracking (in-memory for now)
+  const activityLog: Array<{
+    userId: number;
+    userName: string;
+    action: string;
+    titleId: number;
+    titleName: string;
+    timestamp: number;
+  }> = [];
+
+  // Report current activity
+  app.post('/api/user/activity', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    const { action, titleId, titleName } = request.body as {
+      action: string;
+      titleId: number;
+      titleName: string;
+    };
+
+    // Get user name
+    const userResult = await pool.query('SELECT name FROM users WHERE id = $1', [userId]);
+    const userName = userResult.rows[0]?.name || 'Unknown';
+
+    activityLog.unshift({
+      userId,
+      userName,
+      action,
+      titleId,
+      titleName,
+      timestamp: Date.now(),
+    });
+
+    // Keep only last 100 entries
+    if (activityLog.length > 100) activityLog.length = 100;
+
+    return { success: true };
+  });
+
+  // Get activity log (admin only)
+  app.get('/api/admin/activity', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+
+    // Check if user is admin (first user)
+    const users = await pool.query('SELECT id FROM users ORDER BY id LIMIT 1');
+    if (users.rows[0]?.id !== userId) {
+      return { error: 'Admin only' };
+    }
+
+    return { activities: activityLog };
+  });
 }

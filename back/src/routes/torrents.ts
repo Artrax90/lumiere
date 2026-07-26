@@ -304,29 +304,66 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg to remux to HLS (video copy, audio transcode to AAC)
-    const { spawn } = await import('child_process');
-    const ffmpeg = spawn('ffmpeg', [
+    // Probe audio tracks
+    let audioCount = 1;
+    let audioLangs: string[] = [];
+    try {
+      const { execSync: execSyncProbe } = await import('child_process');
+      const probe = execSyncProbe(
+        `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
+        { timeout: 15000 }
+      ).toString();
+      const streams = JSON.parse(probe).streams || [];
+      const audioStreams = streams.filter((s: any) => s.codec_type === 'audio');
+      audioCount = audioStreams.length;
+      audioLangs = audioStreams.map((s: any) => s.tags?.language || 'und');
+    } catch {}
+
+    // Build FFmpeg args for multi-audio HLS
+    const ffArgs = [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
       '-i', streamUrl,
       '-ss', '0',
       '-map', '0:v:0',
-      '-map', '0:a:0',
+    ];
+
+    // Map all audio tracks (up to 5)
+    const maxAudio = Math.min(audioCount, 5);
+    for (let i = 0; i < maxAudio; i++) {
+      ffArgs.push('-map', `0:a:${i}`);
+    }
+
+    ffArgs.push(
       '-c:v', 'copy',
       '-c:a', 'aac',
       '-b:a', '192k',
       '-ac', '2',
+    );
+
+    // Build var_stream_map for multi-audio
+    // v:0 = video, a:0,a:1... = audio tracks
+    let streamMap = 'v:0';
+    for (let i = 0; i < maxAudio; i++) {
+      streamMap += `,a:${i}`;
+    }
+
+    ffArgs.push(
       '-f', 'hls',
       '-hls_time', '6',
       '-hls_list_size', '0',
       '-hls_flags', 'append_list',
       '-hls_segment_type', 'mpegts',
-      '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
+      '-hls_segment_filename', join(hlsDir, 'stream_%v', 'seg-%d.ts'),
+      '-master_pl_name', 'master.m3u8',
+      '-var_stream_map', streamMap,
       '-y',
-      playlistPath,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      join(hlsDir, 'stream_%v', 'playlist.m3u8'),
+    );
+
+    const { spawn } = await import('child_process');
+    const ffmpeg = spawn('ffmpeg', ffArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     // Track this session
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, playlistPath });
@@ -361,23 +398,152 @@ export function torrentRoutes(app: FastifyInstance) {
       check();
     });
 
-    await waitForFirstSegments();
+    // Wait for master manifest
+    const masterPath = join(hlsDir, 'master.m3u8');
+    const waitForMaster = () => new Promise<void>((resolve) => {
+      let attempts = 0;
+      const check = () => {
+        if (existsSync(masterPath)) {
+          resolve();
+          return;
+        }
+        if (attempts++ < 150) {
+          setTimeout(check, 200);
+        } else {
+          resolve();
+        }
+      };
+      check();
+    });
 
-    // Return the HLS manifest (read fresh each time)
+    await waitForMaster();
+
+    // Return master manifest with rewritten URLs
+    if (existsSync(masterPath)) {
+      let manifest = readFileSync(masterPath, 'utf-8');
+
+      // Rewrite variant playlist URLs
+      manifest = manifest.replace(
+        /stream_(\d+)\/playlist\.m3u8/g,
+        `/api/torrents/hls-playlist?session=${sessionId}&variant=$1`
+      );
+
+      // Add audio language metadata
+      const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
+      const audioTags = audioLangs.map((lang, i) => {
+        const name = langMap[lang] || lang;
+        return `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${name}",LANGUAGE="${lang}",DEFAULT=${i === 0 ? 'YES' : 'NO'},AUTOSELECT=YES,URI="/api/torrents/hls-playlist?session=${sessionId}&variant=${i + 1}"`;
+      }).join('\n');
+
+      // Insert audio tags before first EXT-X-STREAM-INF
+      if (audioTags) {
+        manifest = manifest.replace(
+          /(#EXT-X-STREAM-INF)/,
+          `${audioTags}\n$1`
+        );
+        // Add AUDIO attribute to stream info
+        manifest = manifest.replace(
+          /(#EXT-X-STREAM-INF:[^\n]*)/g,
+          '$1,AUDIO="audio"'
+        );
+      }
+
+      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cache-Control', 'no-cache');
+      return reply.send(manifest);
+    }
+
+    reply.code(500);
+    return { error: 'FFmpeg failed to generate manifest' };
+  });
+
+  // Serve variant playlist
+  app.get('/api/torrents/hls-playlist', async (req, reply) => {
+    const { session, variant } = req.query as { session?: string; variant?: string };
+
+    if (!session || variant === undefined) {
+      return reply.code(400).send({ error: 'session and variant required' });
+    }
+
+    const playlistPath = join(`/tmp/hls-${session}`, `stream_${variant}`, 'playlist.m3u8');
+
+    if (!existsSync(playlistPath)) {
+      reply.code(404);
+      return { error: 'Playlist not found' };
+    }
+
+    let manifest = readFileSync(playlistPath, 'utf-8');
+    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${session}&id=$1`);
+
     reply.header('Content-Type', 'application/vnd.apple.mpegurl');
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Cache-Control', 'no-cache');
-
-    // Read manifest and rewrite segment URLs
-    let manifest = readFileSync(playlistPath, 'utf-8');
-    
-    // Rewrite segment URLs to go through our API
-    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-    
-    // Don't add ENDLIST tag - let hls.js refresh the manifest as FFmpeg generates more segments
-    // When FFmpeg finishes, the manifest will stop updating and the player will reach the end
-
     return reply.send(manifest);
+  });
+
+  // Extract subtitles from torrent
+  app.get('/api/torrents/subtitles', async (req, reply) => {
+    const { link, index } = req.query as { link?: string; index?: string };
+
+    if (!link) {
+      return reply.code(400).send({ error: 'link required' });
+    }
+
+    try {
+      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+
+      // Probe for subtitle tracks
+      const { execSync: execSyncSub } = await import('child_process');
+      let subtitles: Array<{ id: number; lang: string; label: string }> = [];
+      try {
+        const probe = execSyncSub(
+          `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
+          { timeout: 15000 }
+        ).toString();
+        const streams = JSON.parse(probe).streams || [];
+        subtitles = streams
+          .filter((s: any) => s.codec_type === 'subtitle')
+          .map((s: any, i: number) => ({
+            id: s.index || i,
+            lang: s.tags?.language || 'und',
+            label: s.tags?.language || `Subtitle ${i + 1}`,
+          }));
+      } catch {}
+
+      return { subtitles };
+    } catch (err: any) {
+      console.error('Subtitle probe error:', err.message);
+      return reply.code(500).send({ error: err.message });
+    }
+  });
+
+  // Serve extracted subtitle as WebVTT
+  app.get('/api/torrents/subtitle/:trackId', async (req, reply) => {
+    const { trackId } = req.params as { trackId: string };
+    const { link, index } = req.query as { link?: string; index?: string };
+
+    if (!link) {
+      return reply.code(400).send({ error: 'link required' });
+    }
+
+    try {
+      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      const { execSync: execSyncSub } = await import('child_process');
+
+      // Extract subtitle as WebVTT
+      const vtt = execSyncSub(
+        `ffmpeg -i "${streamUrl}" -map 0:s:${trackId} -c:s webvtt -f webvtt pipe:1 2>/dev/null`,
+        { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
+      );
+
+      reply.header('Content-Type', 'text/vtt');
+      reply.header('Access-Control-Allow-Origin', '*');
+      return reply.send(vtt);
+    } catch (err: any) {
+      console.error('Subtitle extract error:', err.message);
+      return reply.code(500).send({ error: 'Failed to extract subtitle' });
+    }
   });
 
   // Seek endpoint — restarts FFmpeg from a specific position
