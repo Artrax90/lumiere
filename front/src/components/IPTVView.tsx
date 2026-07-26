@@ -475,102 +475,72 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             {/* Now Playing preview (if channel selected) */}
             {selectedChannel && (
               <>
-              <div className="mb-10 animate-detail-rise">
+              <div className="mb-6 animate-detail-rise">
                 <div className="glass-panel overflow-hidden rounded-[20px]">
-                  <div className="grid md:grid-cols-[1fr_320px]">
-                    {/* Preview area */}
-                    <div className="relative h-64 md:h-80">
-                      {getChannelLogo(selectedChannel) ? (
-                        <img
-                          src={getChannelLogo(selectedChannel)}
-                          alt={selectedChannel.name}
-                          className="absolute inset-0 h-full w-full object-cover"
-                          style={{ filter: 'saturate(1.05) brightness(0.85)' }}
-                        />
-                      ) : (
-                        <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
+                  <div className="relative h-64 md:h-80">
+                    {getChannelLogo(selectedChannel) ? (
+                      <img
+                        src={getChannelLogo(selectedChannel)}
+                        alt={selectedChannel.name}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        style={{ filter: 'saturate(1.05) brightness(0.85)' }}
+                      />
+                    ) : (
+                      <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
+                      <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
+                    </div>
+                    <div className="absolute bottom-0 left-0 p-6">
+                      <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
+                      <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
+                      {getCurrentProgram(selectedChannel) && (
+                        <>
+                          <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel)?.title}</div>
+                          <div className="mt-0.5 text-[12px] text-white/40">
+                            {getCurrentProgram(selectedChannel)?.startTime} - {getCurrentProgram(selectedChannel)?.stopTime}
+                          </div>
+                        </>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                      <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
-                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
-                      </div>
-                      <div className="absolute bottom-0 left-0 p-6">
-                        <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
-                        <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
-                        {getCurrentProgram(selectedChannel) && (
-                          <>
-                            <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel)?.title}</div>
-                            <div className="mt-0.5 text-[12px] text-white/40">
-                              {getCurrentProgram(selectedChannel)?.startTime} - {getCurrentProgram(selectedChannel)?.stopTime}
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => playChannel(selectedChannel)}
-                        className="absolute bottom-6 right-6 rounded-full bg-white p-4 text-black transition-cinematic hover:scale-110"
-                      >
-                        <Play className="h-6 w-6 fill-current" />
-                      </button>
                     </div>
-                    {/* Channel info sidebar */}
-                    <div className="border-t border-white/[0.06] p-5 md:border-l md:border-t-0">
-                      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
-                        Программа · {selectedChannel.name}
-                      </div>
-                      <div className="space-y-1.5 max-h-[400px] overflow-y-auto pr-1">
-                        {getPrograms(selectedChannel).map((program, idx) => {
-                          const isCurrent = idx === 0;
-                          return (
-                            <div key={idx} className={`rounded-[10px] px-3 py-2 transition-cinematic ${isCurrent ? 'bg-amber-300/10 border border-amber-300/20' : 'bg-white/[0.02] hover:bg-white/[0.04]'}`}>
-                              <div className="flex items-center gap-3">
-                                <span className="text-[11px] font-medium text-white/40 w-24 shrink-0">{program.startTime} — {program.stopTime}</span>
-                                <span className={`text-[12px] truncate ${isCurrent ? 'font-medium text-white/90' : 'text-white/55'}`}>{program.title}</span>
-                              </div>
-                              {isCurrent && (
-                                <div className="mt-1.5 h-[2px] w-1/2 overflow-hidden rounded-full bg-white/10">
-                                  <div className="h-full w-2/3 rounded-full bg-amber-400/80" />
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                        {getPrograms(selectedChannel).length === 0 && (
-                          <div className="text-[12px] text-white/30 py-4 text-center">Нет данных о программе</div>
-                        )}
-                      </div>
-                      <button
-                        onClick={() => playChannel(selectedChannel)}
-                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white py-3 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02]"
-                      >
-                        <Play className="h-3.5 w-3.5 fill-current" />Смотреть
-                      </button>
-                    </div>
+                    <button
+                      onClick={() => playChannel(selectedChannel)}
+                      className="absolute bottom-6 right-6 rounded-full bg-white p-4 text-black transition-cinematic hover:scale-110"
+                    >
+                      <Play className="h-6 w-6 fill-current" />
+                    </button>
                   </div>
                 </div>
               </div>
 
-              {/* Horizontal program bar */}
-              <div className="mt-4 no-scrollbar flex gap-2 overflow-x-auto animate-detail-rise" style={{ animationDelay: '150ms' }}>
-                {getPrograms(selectedChannel).slice(0, 10).map((program, idx) => {
-                  const isCurrent = idx === 0;
-                  return (
-                    <div
-                      key={idx}
-                      className={`shrink-0 rounded-[12px] px-4 py-3 min-w-[160px] transition-cinematic ${
-                        isCurrent
-                          ? 'bg-amber-300/10 border border-amber-300/20'
-                          : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06]'
-                      }`}
-                    >
-                      <div className="text-[10px] font-medium text-white/40 mb-1">{program.startTime} — {program.stopTime}</div>
-                      <div className={`text-[12px] font-medium truncate ${isCurrent ? 'text-white/90' : 'text-white/60'}`}>{program.title}</div>
-                      {isCurrent && (
-                        <div className="mt-2 text-[10px] text-amber-300/70 font-medium">Сейчас</div>
-                      )}
-                    </div>
-                  );
-                })}
+              {/* Program schedule */}
+              <div className="mb-8 animate-detail-rise" style={{ animationDelay: '100ms' }}>
+                <div className="mb-3 flex items-center justify-between">
+                  <h3 className="text-[14px] font-medium text-white/70">Программа · {selectedChannel.name}</h3>
+                  <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} передач</span>
+                </div>
+                <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2">
+                  {getPrograms(selectedChannel).map((program, idx) => {
+                    const isCurrent = idx === 0;
+                    return (
+                      <div
+                        key={idx}
+                        className={`shrink-0 rounded-[12px] px-4 py-3 min-w-[180px] transition-cinematic ${
+                          isCurrent
+                            ? 'bg-amber-300/10 border border-amber-300/20'
+                            : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06]'
+                        }`}
+                      >
+                        <div className="text-[10px] font-medium text-white/40 mb-1">{program.startTime} — {program.stopTime}</div>
+                        <div className={`text-[12px] font-medium truncate ${isCurrent ? 'text-white/90' : 'text-white/60'}`}>{program.title}</div>
+                        {isCurrent && (
+                          <div className="mt-2 text-[10px] text-amber-300/70 font-medium">Сейчас</div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
               </>
             )}
