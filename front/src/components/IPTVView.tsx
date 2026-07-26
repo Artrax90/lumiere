@@ -358,7 +358,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     const title: Title = {
       id: 0,
       name: channel.name,
-      overview: program ? `Сейчас: ${program.title}` : '',
+      overview: program ? `${t('common.now')}: ${program.title}` : '',
       poster: getChannelLogo(channel),
       backdrop: getChannelLogo(channel),
       year: 0,
@@ -385,7 +385,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               IPTV
             </h1>
           </div>
-          <p className="mt-2 text-[15px] text-white/50">Телевидение через интернет</p>
+          <p className="mt-2 text-[15px] text-white/50">{t('iptv.subtitle')}</p>
         </div>
 
         {/* Playlist selector */}
@@ -422,7 +422,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
           >
             <span className="flex items-center gap-2">
               <Plus className="h-4 w-4" />
-              Добавить плейлист
+              {t('iptv.addPlaylist')}
             </span>
           </button>
         </div>
@@ -430,10 +430,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         {/* Add playlist form */}
         {showAddForm && (
           <div className="mb-6 rounded-[16px] bg-white/5 border border-white/10 p-6 animate-row-reveal">
-            <h3 className="text-[15px] font-medium text-white/85 mb-4">Новый плейлист</h3>
+            <h3 className="text-[15px] font-medium text-white/85 mb-4">{t('iptv.newPlaylist')}</h3>
             <div className="grid gap-4 md:grid-cols-3">
               <div>
-                <label className="block text-[12px] text-white/50 mb-2">Название</label>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.playlistName')}</label>
                 <input
                   type="text"
                   value={newPlaylistName}
@@ -443,7 +443,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 />
               </div>
               <div>
-                <label className="block text-[12px] text-white/50 mb-2">URL плейлиста (m3u/m3u8)</label>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.playlistUrl')}</label>
                 <input
                   type="text"
                   value={newPlaylistUrl}
@@ -453,7 +453,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 />
               </div>
               <div>
-                <label className="block text-[12px] text-white/50 mb-2">URL EPG (опционально)</label>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.epgUrl')}</label>
                 <input
                   type="text"
                   value={newEpgUrl}
@@ -469,13 +469,13 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 disabled={!newPlaylistUrl.trim()}
                 className="rounded-full bg-white py-2.5 px-6 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02] disabled:opacity-50"
               >
-                Добавить
+                {t('common.add')}
               </button>
               <button
                 onClick={() => setShowAddForm(false)}
                 className="rounded-full bg-white/5 text-white/60 py-2.5 px-6 text-[13px] font-medium border border-white/10 hover:bg-white/10 transition-cinematic"
               >
-                Отмена
+                {t('common.cancel')}
               </button>
             </div>
           </div>
@@ -501,8 +501,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             <Tv className="h-12 w-12 text-white/20 mx-auto mb-4" />
             <p className="text-[15px] text-white/50">
               {playlists.length === 0
-                ? 'Добавьте плейлист для начала'
-                : 'Выберите плейлист для загрузки каналов'}
+                ? t('iptv.addPlaylist')
+                : t('iptv.addPlaylist')}
             </p>
           </div>
         )}
@@ -555,8 +555,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               {/* Program schedule */}
               <div className="mb-8 animate-detail-rise" style={{ animationDelay: '100ms' }}>
                 <div className="mb-3 flex items-center justify-between">
-                  <h3 className="text-[14px] font-medium text-white/70">Программа · {selectedChannel.name}</h3>
-                  <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} передач</span>
+                  <h3 className="text-[14px] font-medium text-white/70">{t('iptv.program')} · {selectedChannel.name}</h3>
+                  <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} {t('iptv.channels')}</span>
                 </div>
                 {(() => {
                   const progs = getPrograms(selectedChannel);
@@ -564,13 +564,13 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   return (
                     <div className="glass-panel rounded-[16px] p-4 max-h-[300px] overflow-y-auto">
                       {progs.length === 0 ? (
-                        <div className="text-[12px] text-white/30 text-center py-4">Нет данных о программе</div>
+                        <div className="text-[12px] text-white/30 text-center py-4">{t('iptv.noProgram')}</div>
                       ) : (
                         progs.map((program, idx) => (
                           <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 ${idx === 0 ? 'bg-amber-300/10' : 'hover:bg-white/[0.03]'}`}>
                             <span className="text-[11px] text-white/40 w-24 shrink-0">{program.startTime} — {program.stopTime}</span>
                             <span className={`text-[12px] ${idx === 0 ? 'font-medium text-white/90' : 'text-white/55'}`}>{program.title}</span>
-                            {idx === 0 && <span className="text-[10px] text-amber-300/70 font-medium ml-auto">Сейчас</span>}
+                            {idx === 0 && <span className="text-[10px] text-amber-300/70 font-medium ml-auto">{t('common.now')}</span>}
                           </div>
                         ))
                       )}
@@ -589,7 +589,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Поиск каналов..."
+                  placeholder={t('iptv.searchChannels')}
                   className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
                 />
               </div>
@@ -608,7 +608,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 }}
               >
                 <Star className={`h-3.5 w-3.5 ${showFavorites ? 'fill-amber-300' : ''}`} />
-                Избранное {favorites.size > 0 && `(${favorites.size})`}
+                {t('iptv.favorites')} {favorites.size > 0 && `(${favorites.size})`}
               </button>
               {/* Then other groups */}
               {groups.filter(g => g !== 'Favorites').map((g) => (
@@ -632,7 +632,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               <div className="overflow-x-auto">
                 {/* Time header */}
                 <div className="flex items-center border-b border-white/[0.06] min-w-[1100px]">
-                  <div className="w-64 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
+                  <div className="w-64 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">{t('iptv.title')}</div>
                   <div className="flex flex-1">
                     {timeSlots.map((time) => (
                       <div key={time} className="flex-1 px-2 py-3 text-center text-[11px] font-medium text-white/40">{time}</div>
@@ -713,8 +713,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               {showFavorites && filteredChannels.length === 0 && (
                 <div className="px-5 py-8 text-center">
                   <Star className="h-8 w-8 text-white/20 mx-auto mb-3" />
-                  <p className="text-[13px] text-white/40">Нет избранных каналов</p>
-                  <p className="text-[12px] text-white/30 mt-1">Нажмите на звёздочку рядом с каналом</p>
+                  <p className="text-[13px] text-white/40">{t('iptv.noFavorites')}</p>
+                  <p className="text-[12px] text-white/30 mt-1">{t('iptv.addToFavorites')}</p>
                 </div>
               )}
             </div>
@@ -722,8 +722,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             {/* Channel count */}
             <div className="mt-6 text-center text-[12px] text-white/30">
               {showFavorites
-                ? `${filteredChannels.length} избранных каналов`
-                : `${filteredChannels.length} из ${channels.length} каналов`}
+                ? `${filteredChannels.length} ${t('iptv.favorites')}`
+                : `${filteredChannels.length} ${t('common.search')} ${channels.length} ${t('iptv.channels')}`}
             </div>
           </>
         )}
