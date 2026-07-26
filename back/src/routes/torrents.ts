@@ -446,17 +446,19 @@ export function torrentRoutes(app: FastifyInstance) {
       try {
         const probe = execSyncSub(
           `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
-          { timeout: 15000 }
+          { timeout: 30000, maxBuffer: 1024 * 1024 }
         ).toString();
         const streams = JSON.parse(probe).streams || [];
         subtitles = streams
           .filter((s: any) => s.codec_type === 'subtitle')
           .map((s: any, i: number) => ({
-            id: s.index || i,
+            id: i, // Use sequential index for FFmpeg -map 0:s:i
             lang: s.tags?.language || 'und',
             label: s.tags?.language || `Subtitle ${i + 1}`,
           }));
-      } catch {}
+      } catch (probeErr: any) {
+        console.error('FFprobe subtitle error:', probeErr.message);
+      }
 
       return { subtitles };
     } catch (err: any) {
