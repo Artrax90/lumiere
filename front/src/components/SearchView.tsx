@@ -42,12 +42,16 @@ export default function SearchView({ onSelect }: SearchViewProps) {
     inputRef.current?.focus();
   }, []);
 
-  const handleSearch = useCallback((q: string) => {
-    setQuery(q);
-    if (q.trim()) {
-      saveRecentSearch(q.trim());
+  // Save search when results come back
+  useEffect(() => {
+    if (query.trim() && results.length > 0 && !loading) {
+      saveRecentSearch(query.trim());
       setRecentSearches(getRecentSearches());
     }
+  }, [results, loading]);
+
+  const handleSearch = useCallback((q: string) => {
+    setQuery(q);
   }, []);
 
   useEffect(() => {

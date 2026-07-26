@@ -55,7 +55,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     }, 4000);
   }, [playing]);
 
-  // Fetch duration and subtitles from backend for torrent streams
+  // Fetch duration, audio tracks, and subtitles from backend for torrent streams
   useEffect(() => {
     if (!title.videoUrl?.includes('/api/torrents/hls')) return;
 
@@ -72,6 +72,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
         if (data.duration && data.duration > 0) {
           realDurationRef.current = data.duration;
           setDuration(data.duration);
+        }
+      })
+      .catch(() => {});
+
+    // Fetch subtitles
+    fetch(`/api/torrents/subtitles?link=${encodeURIComponent(link)}&index=${index || 0}`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.subtitles?.length > 0) {
+          const subs = data.subtitles.map((s: any) => ({
+            id: s.id,
+            name: `${s.label} (${s.lang})`,
+            lang: s.lang,
+            url: `/api/torrents/subtitle/${s.id}?link=${encodeURIComponent(link)}&index=${index || 0}`,
+          }));
+          setSubtitleTracks(subs);
         }
       })
       .catch(() => {});
