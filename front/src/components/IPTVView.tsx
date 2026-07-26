@@ -217,7 +217,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   // Get logo for channel — use channel logo or EPG icon
   const getChannelLogo = (channel: IPTVChannel): string => {
-    if (getChannelLogo(channel)) return getChannelLogo(channel);
+    if (channel.logo) return channel.logo;
 
     // Try tvgId directly
     if (channel.tvgId && iconMap[channel.tvgId]) {
