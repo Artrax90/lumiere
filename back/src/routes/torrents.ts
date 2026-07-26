@@ -356,14 +356,16 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg with selected audio track
+    // Start FFmpeg with selected audio track + subtitle extraction
     const { spawn } = await import('child_process');
-    const ffmpeg = spawn('ffmpeg', [
+    const subtitlePath = join(hlsDir, 'subs.vtt');
+    const ffmpegArgs = [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
       '-i', streamUrl,
       '-ss', '0',
+      // HLS video+audio output
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
       '-c:v', 'copy',
@@ -376,9 +378,15 @@ export function torrentRoutes(app: FastifyInstance) {
       '-hls_flags', 'append_list',
       '-hls_segment_type', 'mpegts',
       '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-      '-y',
       playlistPath,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      // Subtitle output (first subtitle track)
+      '-map', '0:s:0?',
+      '-c:s', 'webvtt',
+      '-y',
+      subtitlePath,
+    ];
+
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
     ffmpeg.on('close', () => activeSessions.delete(sessionId));
@@ -417,6 +425,29 @@ export function torrentRoutes(app: FastifyInstance) {
 
     reply.code(500);
     return { error: 'FFmpeg failed to generate manifest' };
+  });
+
+  // Serve pre-extracted subtitles from HLS session
+  app.get('/api/torrents/hls-subs', async (req, reply) => {
+    const { session } = req.query as { session?: string };
+
+    if (!session) {
+      return reply.code(400).send({ error: 'session required' });
+    }
+
+    const { readFileSync, existsSync } = await import('fs');
+    const { join } = await import('path');
+    const subtitlePath = join(`/tmp/hls-${session}`, 'subs.vtt');
+
+    if (!existsSync(subtitlePath)) {
+      reply.code(404);
+      return { error: 'Subtitles not found' };
+    }
+
+    reply.header('Content-Type', 'text/vtt');
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Cache-Control', 'public, max-age=3600');
+    return reply.send(readFileSync(subtitlePath, 'utf-8'));
   });
 
   // Extract subtitles from torrent
