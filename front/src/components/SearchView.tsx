@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Search, X, Mic, TrendingUp, Clock, Film, Sparkles } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useSearch } from '@/hooks/useSearch';
@@ -8,8 +9,6 @@ import Card from './Card';
 interface SearchViewProps {
   onSelect: (title: Title) => void;
 }
-
-const trendingSearches = ['Фантастика', 'Оскар', 'Драма', 'Аниме 2024', 'Документалки', 'Триллеры'];
 
 function getRecentSearches(): string[] {
   try {
@@ -28,11 +27,14 @@ function saveRecentSearch(query: string) {
 }
 
 export default function SearchView({ onSelect }: SearchViewProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState('');
   const [focused, setFocused] = useState(false);
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const trendingSearches = ['Sci-Fi', 'Oscar', 'Drama', 'Anime 2024', 'Documentaries', 'Thrillers'];
 
   const { data: results, loading } = useSearch(query);
   const { data: genres } = useGenres('movie');
@@ -75,7 +77,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
               }}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
-              placeholder="Поиск фильмов, сериалов, людей..."
+              placeholder={t('search.placeholder')}
               className="ml-4 w-full bg-transparent text-[18px] font-medium text-white placeholder:text-white/35 focus:outline-none"
             />
             {query && (
@@ -93,7 +95,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
           <div className="mt-10 animate-fade-in">
             <div className="mb-10">
               <div className="mb-4 flex items-center gap-2 text-[12px] font-medium uppercase tracking-[0.12em] text-white/40">
-                <Film className="h-4 w-4" strokeWidth={1.5} />Жанры
+                <Film className="h-4 w-4" strokeWidth={1.5} />{t('search.genres')}
               </div>
               <div className="flex flex-wrap gap-2">
                 {genres.slice(0, 14).map((g) => (
@@ -118,7 +120,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
 
             <div className="mb-8">
               <div className="mb-4 flex items-center gap-2 text-[12px] font-medium uppercase tracking-[0.12em] text-white/40">
-                <TrendingUp className="h-4 w-4" strokeWidth={1.5} />Популярные запросы
+                <TrendingUp className="h-4 w-4" strokeWidth={1.5} />{t('search.trending')}
               </div>
               <div className="flex flex-wrap gap-2">
                 {trendingSearches.map((s) => (
@@ -131,7 +133,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
 
             <div>
               <div className="mb-4 flex items-center gap-2 text-[12px] font-medium uppercase tracking-[0.12em] text-white/40">
-                <Clock className="h-4 w-4" strokeWidth={1.5} />Недавние
+                <Clock className="h-4 w-4" strokeWidth={1.5} />{t('search.recent')}
               </div>
               <div className="flex flex-wrap gap-2">
                 {recentSearches.length > 0 ? recentSearches.map((s) => (
@@ -139,7 +141,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
                     {s}
                   </button>
                 )) : (
-                  <span className="text-[12px] text-white/30">Пока нет запросов</span>
+                  <span className="text-[12px] text-white/30">{t('search.noResults')}</span>
                 )}
               </div>
             </div>
@@ -151,13 +153,13 @@ export default function SearchView({ onSelect }: SearchViewProps) {
             {loading ? (
               <div className="py-20 text-center">
                 <div className="mx-auto h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white/80" />
-                <p className="mt-4 text-[14px] text-white/45">Поиск...</p>
+                <p className="mt-4 text-[14px] text-white/45">{t('common.loading')}</p>
               </div>
             ) : results.length === 0 ? (
               <div className="py-20 text-center">
                 <Sparkles className="mx-auto h-10 w-10 text-white/15" strokeWidth={1} />
-                <p className="mt-4 text-display text-[24px] font-medium text-white/70">Ничего не найдено "{query}"</p>
-                <p className="mt-2 text-[14px] text-white/45">Попробуйте другой запрос.</p>
+                <p className="mt-4 text-display text-[24px] font-medium text-white/70">{t('search.noResults')} "{query}"</p>
+                <p className="mt-2 text-[14px] text-white/45">{t('search.noResults')}</p>
               </div>
             ) : (
               <>
