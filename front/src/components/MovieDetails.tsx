@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Play, Plus, Check, Star, ChevronLeft, Heart, Share2, Download, Clock, Calendar, Award, Film, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
@@ -14,16 +15,17 @@ interface MovieDetailsProps {
   onSelect: (title: Title) => void;
 }
 
-const typeLabel = (type: Title['type']) =>
-  type === 'movie' ? 'Фильм' : type === 'tv' ? 'Сериал' : type === 'anime' ? 'Аниме' : 'Документальный';
-
 export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieDetailsProps) {
+  const { t } = useTranslation();
   const [imgLoaded, setImgLoaded] = useState(false);
   const [favorited, setFavorited] = useState(false);
   const [inLibrary, setInLibrary] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState<'sources' | 'torrents'>('torrents');
   const [resumingTorrent, setResumingTorrent] = useState(false);
+
+  const typeLabel = (type: Title['type']) =>
+    type === 'movie' ? t('movie.movie') : type === 'tv' ? t('movie.series') : type === 'anime' ? t('movie.anime') : t('movie.documentary');
 
   // Check if there's a saved torrent for resume
   const savedTorrent = (() => {
@@ -77,7 +79,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           className="absolute left-8 top-24 z-20 flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/80 transition-cinematic hover:text-white lg:left-12"
         >
           <ChevronLeft className="h-4 w-4" strokeWidth={1.5} />
-          Назад
+          {t('common.back')}
         </button>
 
         <div className="absolute inset-x-0 bottom-0 px-8 pb-10 lg:px-12 lg:pb-14">
@@ -144,7 +146,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               ) : (
                 <Play className="h-4 w-4 fill-current" />
               )}
-              Продолжить
+              {t('common.continue')}
             </button>
           ) : (
             <button
@@ -152,7 +154,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95"
               style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
             >
-              <Play className="h-4 w-4 fill-current" />Смотреть
+              <Play className="h-4 w-4 fill-current" />{t('common.watch')}
             </button>
           )}
           <button onClick={() => setInLibrary(!inLibrary)} className="flex h-12 w-12 items-center justify-center rounded-full glass text-white/80 transition-cinematic hover:bg-white/12" aria-label="Watchlist">
@@ -229,7 +231,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           <p className={`text-balance text-[16px] leading-[1.75] text-white/75 ${expanded ? '' : 'line-clamp-3'}`}>{displayTitle.description}</p>
           {displayTitle.description.length > 180 && (
             <button onClick={() => setExpanded(!expanded)} className="mt-2 text-[13px] font-medium text-amber-300/80 transition-cinematic hover:text-amber-200">
-              {expanded ? 'Свернуть' : 'Читать далее'}
+              {expanded ? t('common.close') : t('movie.description')}
             </button>
           )}
         </div>
@@ -246,7 +248,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                 border: activeTab === 'sources' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
               }}
             >
-              Источники
+              {t('movie.sources')}
             </button>
             <button
               onClick={() => setActiveTab('torrents')}
@@ -257,7 +259,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                 border: activeTab === 'torrents' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
               }}
             >
-              Торренты
+              {t('movie.torrents')}
             </button>
           </div>
 
@@ -276,15 +278,15 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
         </div>
 
         <div className="mt-10 grid grid-cols-2 gap-x-8 gap-y-5 border-t border-white/[0.06] pt-8 md:grid-cols-4 animate-detail-rise" style={{ animationDelay: '250ms' }}>
-          <MetaItem label="Режиссёр" value={displayTitle.director || '—'} />
-          <MetaItem label="Жанры" value={displayTitle.genres.join(', ')} />
-          <MetaItem label="Длительность" value={displayTitle.runtime} />
-          <MetaItem label="Год" value={String(displayTitle.year)} />
+          <MetaItem label={t('movie.director')} value={displayTitle.director || '—'} />
+          <MetaItem label={t('movie.genres')} value={displayTitle.genres.join(', ')} />
+          <MetaItem label={t('movie.duration')} value={displayTitle.runtime} />
+          <MetaItem label={t('movie.year')} value={String(displayTitle.year)} />
         </div>
 
         {displayTitle.cast && displayTitle.cast.length > 0 && (
           <section className="mt-12 border-t border-white/[0.06] pt-8 animate-detail-rise" style={{ animationDelay: '300ms' }}>
-            <SectionHeader title="Актёры" count={displayTitle.cast.length} />
+            <SectionHeader title={t('movie.cast')} count={displayTitle.cast.length} />
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4">
               {displayTitle.cast.map((member, i) => (
                 <div key={member.name} className="group/cast flex items-center gap-3 rounded-2xl p-2 transition-cinematic hover:bg-white/[0.04] animate-stagger-in" style={{ animationDelay: `${300 + i * 80}ms` }}>
