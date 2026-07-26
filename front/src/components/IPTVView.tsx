@@ -581,9 +581,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               </>
             )}
 
-            {/* Search + Favorites toggle */}
-            <div className="mb-6 flex items-center gap-4 animate-row-reveal">
-              <div className="relative flex-1 max-w-md">
+            {/* Search */}
+            <div className="mb-6 animate-row-reveal">
+              <div className="relative max-w-md">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
                 <input
                   type="text"
@@ -593,38 +593,39 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
                 />
               </div>
-              <button
-                onClick={() => { setShowFavorites(!showFavorites); setSelectedGroup('All'); }}
-                className={`flex items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-cinematic ${
-                  showFavorites
-                    ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
-                    : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
-                }`}
-              >
-                <Star className={`h-4 w-4 ${showFavorites ? 'fill-amber-300' : ''}`} />
-                Избранное {favorites.size > 0 && `(${favorites.size})`}
-              </button>
             </div>
 
             {/* Channel group filters */}
-            {!showFavorites && (
-              <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
-                {groups.filter(g => g !== 'Favorites').map((g) => (
-                  <button
-                    key={g}
-                    onClick={() => setSelectedGroup(g)}
-                    className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
-                    style={{
-                      background: selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                      color: selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                      border: selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                    }}
-                  >
-                    {g}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
+              {/* Favorites first */}
+              <button
+                onClick={() => { setShowFavorites(!showFavorites); setSelectedGroup('All'); }}
+                className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic flex items-center gap-1.5"
+                style={{
+                  background: showFavorites ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                  color: showFavorites ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                  border: showFavorites ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                <Star className={`h-3.5 w-3.5 ${showFavorites ? 'fill-amber-300' : ''}`} />
+                Избранное {favorites.size > 0 && `(${favorites.size})`}
+              </button>
+              {/* Then other groups */}
+              {groups.filter(g => g !== 'Favorites').map((g) => (
+                <button
+                  key={g}
+                  onClick={() => { setSelectedGroup(g); setShowFavorites(false); }}
+                  className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                  style={{
+                    background: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                    color: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                    border: !showFavorites && selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
 
             {/* EPG Grid - Full TV Guide */}
             <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
