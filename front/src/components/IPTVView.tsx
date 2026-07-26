@@ -1,6 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Settings } from 'lucide-react';
+import { Tv, Search, Play, Star, Plus, Trash2, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
 
 interface IPTVChannel {
@@ -27,6 +27,7 @@ interface IPTVViewProps {
 }
 
 const IPTV_STORAGE_KEY = 'lumiere_iptv';
+const FAVORITES_STORAGE_KEY = 'lumiere_iptv_favorites';
 
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
@@ -39,6 +40,19 @@ function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
   localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
+}
+
+function getSavedFavorites(): Set<string> {
+  try {
+    const data = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    return data ? new Set(JSON.parse(data)) : new Set();
+  } catch {
+    return new Set();
+  }
+}
+
+function saveFavorites(favorites: Set<string>) {
+  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
 }
 
 export default function IPTVView({ onPlay }: IPTVViewProps) {
@@ -58,10 +72,19 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newEpgUrl, setNewEpgUrl] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<IPTVChannel | null>(null);
-  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
+  const [showFavorites, setShowFavorites] = useState(false);
 
-  // Time slots for EPG grid
-  const timeSlots = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
+  // Load last selected playlist on mount
+  useEffect(() => {
+    const lastPlaylist = localStorage.getItem('lumiere_iptv_last');
+    if (lastPlaylist !== null && playlists.length > 0) {
+      const index = parseInt(lastPlaylist);
+      if (index >= 0 && index < playlists.length) {
+        loadPlaylist(index);
+      }
+    }
+  }, []);
 
   // Load channels from selected playlist
   const loadPlaylist = async (index: number) => {
@@ -71,6 +94,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     setLoading(true);
     setError('');
     setSelectedPlaylist(index);
+    localStorage.setItem('lumiere_iptv_last', String(index));
 
     try {
       const res = await fetch('/api/iptv/parse', {
@@ -85,9 +109,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
       const data = await res.json();
       setChannels(data.channels || []);
-      setGroups(['All', ...(data.groups || [])]);
+      setGroups(['All', 'Favorites', ...(data.groups || [])]);
       setSelectedGroup('All');
-      setSelectedChannel(data.channels?.[0] || null);
+      setSelectedChannel(null);
 
       // Load EPG if available
       if (playlist.epgUrl) {
@@ -151,6 +175,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       setChannels([]);
       setGroups([]);
       setSelectedChannel(null);
+      localStorage.removeItem('lumiere_iptv_last');
     }
   };
 
@@ -160,6 +185,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      saveFavorites(next);
       return next;
     });
   };
@@ -168,7 +194,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const filteredChannels = useMemo(() => {
     let filtered = channels;
 
-    if (selectedGroup && selectedGroup !== 'All') {
+    if (showFavorites) {
+      filtered = filtered.filter(ch => favorites.has(ch.id));
+    } else if (selectedGroup && selectedGroup !== 'All' && selectedGroup !== 'Favorites') {
       filtered = filtered.filter(ch => ch.group === selectedGroup);
     }
 
@@ -181,7 +209,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     }
 
     return filtered;
-  }, [channels, selectedGroup, searchQuery]);
+  }, [channels, selectedGroup, searchQuery, showFavorites, favorites]);
 
   // Get programs for channel
   const getPrograms = (channelId: string): EpgProgram[] => {
@@ -364,85 +392,87 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         )}
 
         {/* Now Playing preview + Channel list */}
-        {!loading && channels.length > 0 && selectedChannel && (
+        {!loading && channels.length > 0 && (
           <>
-            {/* Now Playing preview */}
-            <div className="mb-10 animate-detail-rise">
-              <div className="glass-panel overflow-hidden rounded-[20px]">
-                <div className="grid md:grid-cols-[1fr_320px]">
-                  {/* Preview area */}
-                  <div className="relative h-64 md:h-80">
-                    {selectedChannel.logo ? (
-                      <img
-                        src={selectedChannel.logo}
-                        alt={selectedChannel.name}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        style={{ filter: 'saturate(1.05) brightness(0.85)' }}
-                      />
-                    ) : (
-                      <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
-                    )}
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
-                      <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
-                    </div>
-                    <div className="absolute bottom-0 left-0 p-6">
-                      <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
-                      <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
-                      {getCurrentProgram(selectedChannel.id) && (
-                        <>
-                          <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel.id)?.title}</div>
-                          <div className="mt-0.5 text-[12px] text-white/40">
-                            {getCurrentProgram(selectedChannel.id)?.startTime} - {getCurrentProgram(selectedChannel.id)?.stopTime}
-                          </div>
-                        </>
+            {/* Now Playing preview (if channel selected) */}
+            {selectedChannel && (
+              <div className="mb-10 animate-detail-rise">
+                <div className="glass-panel overflow-hidden rounded-[20px]">
+                  <div className="grid md:grid-cols-[1fr_320px]">
+                    {/* Preview area */}
+                    <div className="relative h-64 md:h-80">
+                      {selectedChannel.logo ? (
+                        <img
+                          src={selectedChannel.logo}
+                          alt={selectedChannel.name}
+                          className="absolute inset-0 h-full w-full object-cover"
+                          style={{ filter: 'saturate(1.05) brightness(0.85)' }}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
                       )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                      <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
+                        <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
+                      </div>
+                      <div className="absolute bottom-0 left-0 p-6">
+                        <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
+                        <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
+                        {getCurrentProgram(selectedChannel.id) && (
+                          <>
+                            <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel.id)?.title}</div>
+                            <div className="mt-0.5 text-[12px] text-white/40">
+                              {getCurrentProgram(selectedChannel.id)?.startTime} - {getCurrentProgram(selectedChannel.id)?.stopTime}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => playChannel(selectedChannel)}
+                        className="absolute bottom-6 right-6 rounded-full bg-white p-4 text-black transition-cinematic hover:scale-110"
+                      >
+                        <Play className="h-6 w-6 fill-current" />
+                      </button>
                     </div>
-                    <button
-                      onClick={() => playChannel(selectedChannel)}
-                      className="absolute bottom-6 right-6 rounded-full bg-white p-4 text-black transition-cinematic hover:scale-110"
-                    >
-                      <Play className="h-6 w-6 fill-current" />
-                    </button>
-                  </div>
-                  {/* Channel info sidebar */}
-                  <div className="border-t border-white/[0.06] p-5 md:border-l md:border-t-0">
-                    <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
-                      Программа · {selectedChannel.name}
+                    {/* Channel info sidebar */}
+                    <div className="border-t border-white/[0.06] p-5 md:border-l md:border-t-0">
+                      <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
+                        Программа · {selectedChannel.name}
+                      </div>
+                      <div className="space-y-3 max-h-64 overflow-y-auto">
+                        {getPrograms(selectedChannel.id).slice(0, 6).map((program, idx) => {
+                          const isCurrent = idx === 0;
+                          return (
+                            <div key={idx} className={`rounded-[12px] p-3 ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02]'}`}>
+                              <div className="text-[10px] text-white/40">{program.startTime} - {program.stopTime}</div>
+                              <div className={`text-[13px] font-medium ${isCurrent ? 'text-white/85' : 'text-white/65'}`}>{program.title}</div>
+                              {isCurrent && (
+                                <div className="mt-1.5 h-[2px] w-2/3 overflow-hidden rounded-full bg-white/15">
+                                  <div className="h-full w-1/2 rounded-full bg-red-400/85" />
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                        {getPrograms(selectedChannel.id).length === 0 && (
+                          <div className="text-[12px] text-white/30">Нет данных о программе</div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => playChannel(selectedChannel)}
+                        className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white py-3 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02]"
+                      >
+                        <Play className="h-3.5 w-3.5 fill-current" />Смотреть
+                      </button>
                     </div>
-                    <div className="space-y-3 max-h-64 overflow-y-auto">
-                      {getPrograms(selectedChannel.id).slice(0, 6).map((program, idx) => {
-                        const isCurrent = idx === 0;
-                        return (
-                          <div key={idx} className={`rounded-[12px] p-3 ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02]'}`}>
-                            <div className="text-[10px] text-white/40">{program.startTime} - {program.stopTime}</div>
-                            <div className={`text-[13px] font-medium ${isCurrent ? 'text-white/85' : 'text-white/65'}`}>{program.title}</div>
-                            {isCurrent && (
-                              <div className="mt-1.5 h-[2px] w-2/3 overflow-hidden rounded-full bg-white/15">
-                                <div className="h-full w-1/2 rounded-full bg-red-400/85" />
-                              </div>
-                            )}
-                          </div>
-                        );
-                      })}
-                      {getPrograms(selectedChannel.id).length === 0 && (
-                        <div className="text-[12px] text-white/30">Нет данных о программе</div>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => playChannel(selectedChannel)}
-                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white py-3 text-[13px] font-semibold text-black transition-cinematic hover:scale-[1.02]"
-                    >
-                      <Play className="h-3.5 w-3.5 fill-current" />Смотреть
-                    </button>
                   </div>
                 </div>
               </div>
-            </div>
+            )}
 
-            {/* Search */}
-            <div className="mb-6 animate-row-reveal">
-              <div className="relative max-w-md">
+            {/* Search + Favorites toggle */}
+            <div className="mb-6 flex items-center gap-4 animate-row-reveal">
+              <div className="relative flex-1 max-w-md">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
                 <input
                   type="text"
@@ -452,25 +482,38 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
                 />
               </div>
+              <button
+                onClick={() => { setShowFavorites(!showFavorites); setSelectedGroup('All'); }}
+                className={`flex items-center gap-2 rounded-full px-4 py-2.5 text-[13px] font-medium transition-cinematic ${
+                  showFavorites
+                    ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
+                    : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
+                }`}
+              >
+                <Star className={`h-4 w-4 ${showFavorites ? 'fill-amber-300' : ''}`} />
+                Избранное {favorites.size > 0 && `(${favorites.size})`}
+              </button>
             </div>
 
             {/* Channel group filters */}
-            <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
-              {groups.map((g) => (
-                <button
-                  key={g}
-                  onClick={() => setSelectedGroup(g)}
-                  className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
-                  style={{
-                    background: selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                    color: selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                    border: selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                  }}
-                >
-                  {g}
-                </button>
-              ))}
-            </div>
+            {!showFavorites && (
+              <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
+                {groups.filter(g => g !== 'Favorites').map((g) => (
+                  <button
+                    key={g}
+                    onClick={() => setSelectedGroup(g)}
+                    className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                    style={{
+                      background: selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                      border: selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                    }}
+                  >
+                    {g}
+                  </button>
+                ))}
+              </div>
+            )}
 
             {/* EPG Grid */}
             <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
@@ -478,9 +521,11 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               <div className="flex items-center border-b border-white/[0.06] px-5 py-3">
                 <div className="w-44 shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
                 <div className="flex flex-1">
-                  {timeSlots.map((h) => (
-                    <div key={h} className="flex-1 text-[11px] font-medium text-white/40">{h}</div>
-                  ))}
+                  <div className="flex-[2] text-[11px] font-medium text-white/40">Сейчас</div>
+                  <div className="flex-1 text-[11px] font-medium text-white/40">Далее</div>
+                  <div className="flex-1" />
+                  <div className="flex-1" />
+                  <div className="flex-1" />
                 </div>
               </div>
 
@@ -492,7 +537,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 return (
                   <button
                     key={ch.id}
-                    onClick={() => setSelectedChannel(ch)}
+                    onClick={() => playChannel(ch)}
                     className={`flex w-full items-center px-5 py-4 text-left transition-cinematic hover:bg-white/[0.03] ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
                   >
                     <div className="flex w-44 shrink-0 items-center gap-3">
@@ -548,11 +593,22 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   </button>
                 );
               })}
+
+              {/* Empty favorites */}
+              {showFavorites && filteredChannels.length === 0 && (
+                <div className="px-5 py-8 text-center">
+                  <Star className="h-8 w-8 text-white/20 mx-auto mb-3" />
+                  <p className="text-[13px] text-white/40">Нет избранных каналов</p>
+                  <p className="text-[12px] text-white/30 mt-1">Нажмите на звёздочку рядом с каналом</p>
+                </div>
+              )}
             </div>
 
             {/* Channel count */}
             <div className="mt-6 text-center text-[12px] text-white/30">
-              {filteredChannels.length} из {channels.length} каналов
+              {showFavorites
+                ? `${filteredChannels.length} избранных каналов`
+                : `${filteredChannels.length} из ${channels.length} каналов`}
             </div>
           </>
         )}

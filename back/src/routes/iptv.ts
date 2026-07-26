@@ -168,15 +168,28 @@ export function iptvRoutes(app: FastifyInstance) {
       const res = await fetch(url, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept-Encoding': 'identity',
         },
-        signal: AbortSignal.timeout(60000),
+        signal: AbortSignal.timeout(120000),
       });
 
       if (!res.ok) {
         return reply.code(res.status).send({ error: 'Failed to fetch EPG' });
       }
 
-      const content = await res.text();
+      // Get content as buffer, handle gzip
+      const buffer = await res.arrayBuffer();
+      let content: string;
+
+      // Check if gzipped (magic bytes 1f 8b)
+      const bytes = new Uint8Array(buffer);
+      if (bytes[0] === 0x1f && bytes[1] === 0x8b) {
+        const { gunzipSync } = await import('zlib');
+        content = gunzipSync(Buffer.from(buffer)).toString('utf-8');
+      } else {
+        content = Buffer.from(buffer).toString('utf-8');
+      }
+
       const epgData = parseEpg(content);
 
       // Convert Map to object for JSON response
