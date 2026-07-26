@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film } from 'lucide-react';
+import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
 import { apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -486,6 +486,10 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
             {/* Developer Settings */}
             {active === 'developer' && (
               <div className="mt-8 space-y-6">
+                {/* Server Status */}
+                <ServerStatus />
+
+                {/* API Endpoints */}
                 <div>
                   <div className="mb-3 text-[13px] font-medium text-white/70">API эндпоинты</div>
                   <div className="space-y-2">
@@ -502,6 +506,13 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                     ))}
                   </div>
                 </div>
+
+                {/* FFmpeg Sessions */}
+                <FFmpegSessions />
+
+                {/* Cache Management */}
+                <CacheManagement />
+
                 {[
                   { label: 'Режим разработчика', desc: 'Показывать дополнительную информацию для отладки', on: false },
                   { label: 'Логирование', desc: 'Сохранять логи приложения', on: false },
@@ -800,6 +811,202 @@ function ActivityMonitor() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+// Server Status component
+function ServerStatus() {
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStatus = async () => {
+      try {
+        const token = localStorage.getItem('lumiere_access');
+        const res = await fetch('/api/admin/server-status', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setStatus(data);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchStatus();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="rounded-[14px] border border-white/[0.06] p-5">
+        <div className="flex items-center gap-3 text-[13px] text-white/50">
+          <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
+          Загрузка статуса...
+        </div>
+      </div>
+    );
+  }
+
+  if (!status) {
+    return (
+      <div className="rounded-[14px] border border-white/[0.06] p-5">
+        <div className="text-[13px] text-white/40">Статус сервера недоступен</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-[14px] border border-white/[0.06] p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Server className="h-4 w-4 text-amber-300/70" />
+        <div className="text-[14px] font-medium text-white/85">Статус сервера</div>
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-[10px] bg-white/[0.03] p-3">
+          <div className="text-[10px] text-white/40 mb-1">Uptime</div>
+          <div className="text-[13px] font-medium text-white/85">{status.uptime || '—'}</div>
+        </div>
+        <div className="rounded-[10px] bg-white/[0.03] p-3">
+          <div className="text-[10px] text-white/40 mb-1">Пользователей</div>
+          <div className="text-[13px] font-medium text-white/85">{status.users || 0}</div>
+        </div>
+        <div className="rounded-[10px] bg-white/[0.03] p-3">
+          <div className="text-[10px] text-white/40 mb-1">Node.js</div>
+          <div className="text-[13px] font-medium text-white/85">{status.nodeVersion || '—'}</div>
+        </div>
+        <div className="rounded-[10px] bg-white/[0.03] p-3">
+          <div className="text-[10px] text-white/40 mb-1">Платформа</div>
+          <div className="text-[13px] font-medium text-white/85">{status.platform || '—'}</div>
+        </div>
+      </div>
+      {/* Services status */}
+      <div className="mt-4 space-y-2">
+        {status.services?.map((svc: any) => (
+          <div key={svc.name} className="flex items-center justify-between py-1.5">
+            <span className="text-[12px] text-white/60">{svc.name}</span>
+            <span className={`text-[11px] ${svc.online ? 'text-green-400/70' : 'text-red-400/60'}`}>
+              {svc.online ? 'Online' : 'Offline'}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// FFmpeg Sessions component
+function FFmpegSessions() {
+  const [sessions, setSessions] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchSessions = async () => {
+      try {
+        const token = localStorage.getItem('lumiere_access');
+        const res = await fetch('/api/admin/ffmpeg-sessions', {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          setSessions(data.sessions || []);
+        }
+      } catch {
+        // ignore
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchSessions();
+    const interval = setInterval(fetchSessions, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  return (
+    <div className="rounded-[14px] border border-white/[0.06] p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <Activity className="h-4 w-4 text-amber-300/70" />
+        <div className="text-[14px] font-medium text-white/85">FFmpeg сессии</div>
+      </div>
+      {loading ? (
+        <div className="text-[12px] text-white/40">Загрузка...</div>
+      ) : sessions.length === 0 ? (
+        <div className="text-[12px] text-white/40">Нет активных сессий</div>
+      ) : (
+        <div className="space-y-2">
+          {sessions.map((s, i) => (
+            <div key={i} className="flex items-center justify-between rounded-[10px] bg-white/[0.03] px-3 py-2">
+              <div>
+                <div className="text-[12px] text-white/70 font-mono">{s.sessionId?.slice(0, 12)}...</div>
+                <div className="text-[10px] text-white/40">PID: {s.pid}</div>
+              </div>
+              <button
+                onClick={async () => {
+                  const token = localStorage.getItem('lumiere_access');
+                  await fetch(`/api/admin/ffmpeg-sessions/${s.sessionId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${token}` },
+                  });
+                  setSessions(prev => prev.filter((_, idx) => idx !== i));
+                }}
+                className="text-white/30 hover:text-red-400 transition-cinematic"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Cache Management component
+function CacheManagement() {
+  const [clearing, setClearing] = useState(false);
+
+  const clearCache = async (type: string) => {
+    setClearing(true);
+    try {
+      const token = localStorage.getItem('lumiere_access');
+      await fetch(`/api/admin/cache/${type}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` },
+      });
+    } catch {
+      // ignore
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <div className="rounded-[14px] border border-white/[0.06] p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <HardDrive className="h-4 w-4 text-amber-300/70" />
+        <div className="text-[14px] font-medium text-white/85">Управление кешем</div>
+      </div>
+      <div className="space-y-2">
+        <button
+          onClick={() => clearCache('hls')}
+          disabled={clearing}
+          className="flex items-center justify-between w-full rounded-[10px] bg-white/[0.03] hover:bg-white/[0.06] px-4 py-3 transition-cinematic"
+        >
+          <span className="text-[13px] text-white/70">Очистить HLS сегменты</span>
+          <RefreshCw className={`h-3.5 w-3.5 text-white/40 ${clearing ? 'animate-spin' : ''}`} />
+        </button>
+        <button
+          onClick={() => clearCache('subtitles')}
+          disabled={clearing}
+          className="flex items-center justify-between w-full rounded-[10px] bg-white/[0.03] hover:bg-white/[0.06] px-4 py-3 transition-cinematic"
+        >
+          <span className="text-[13px] text-white/70">Очистить кеш субтитров</span>
+          <RefreshCw className={`h-3.5 w-3.5 text-white/40 ${clearing ? 'animate-spin' : ''}`} />
+        </button>
+      </div>
     </div>
   );
 }

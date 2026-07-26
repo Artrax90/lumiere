@@ -19,6 +19,7 @@ import { torrentRoutes } from './routes/torrents.js';
 import { downloadRoutes } from './routes/downloads.js';
 import { syncRoutes } from './routes/sync.js';
 import { iptvRoutes } from './routes/iptv.js';
+import { adminRoutes } from './routes/admin.js';
 import pool from './db/pool.js';
 import { hashPassword } from './services/auth.js';
 import { registerProvider } from './services/providers/registry.js';
@@ -58,6 +59,7 @@ app.register(torrentRoutes);
 app.register(downloadRoutes);
 app.register(syncRoutes, pool);
 app.register(iptvRoutes);
+app.register(adminRoutes, pool);
 
 // Register content providers
 registerProvider(new CollapsProvider());
