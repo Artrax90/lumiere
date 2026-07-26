@@ -67,8 +67,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     if (!link) return;
 
+    const encodedLink = encodeURIComponent(link);
+    const idx = index || '0';
+
     // Fetch duration
-    fetch(`/api/torrents/duration?link=${encodeURIComponent(link)}&index=${index || 0}`)
+    fetch(`/api/torrents/duration?link=${encodedLink}&index=${idx}`)
       .then(res => res.json())
       .then(data => {
         if (data.duration && data.duration > 0) {
@@ -78,32 +81,28 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
       })
       .catch(() => {});
 
-    // Fetch subtitles
-    fetch(`/api/torrents/subtitles?link=${encodeURIComponent(link)}&index=${index || 0}`)
+    // Fetch track info (audio + subtitles)
+    fetch(`/api/torrents/tracks?link=${encodedLink}&index=${idx}`)
       .then(res => res.json())
       .then(data => {
-        if (data.subtitles?.length > 0) {
-          const subs = data.subtitles.map((s: any) => ({
-            id: s.id,
-            name: `${s.label} (${s.lang})`,
-            lang: s.lang,
-            url: `/api/torrents/subtitle/${s.id}?link=${encodeURIComponent(link)}&index=${index || 0}`,
+        // Audio tracks from ffprobe
+        if (data.audioTracks?.length > 0) {
+          const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
+          const tracks = data.audioTracks.map((t: any) => ({
+            id: t.id,
+            name: langMap[t.lang] || t.name,
+            lang: t.lang,
           }));
-          setSubtitleTracks(subs);
+          setAudioTracks(tracks);
         }
-      })
-      .catch(() => {});
-
-    // Fetch subtitles
-    fetch(`/api/torrents/subtitles?link=${encodeURIComponent(link)}&index=${index || 0}`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.subtitles?.length > 0) {
-          const subs = data.subtitles.map((s: any) => ({
-            id: s.id,
-            name: `${s.label} (${s.lang})`,
-            lang: s.lang,
-            url: `/api/torrents/subtitle/${s.id}?link=${encodeURIComponent(link)}&index=${index || 0}`,
+        // Subtitle tracks from ffprobe
+        if (data.subtitleTracks?.length > 0) {
+          const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
+          const subs = data.subtitleTracks.map((t: any) => ({
+            id: t.id,
+            name: langMap[t.lang] || t.name,
+            lang: t.lang,
+            url: `/api/torrents/subtitle/${t.id}?link=${encodedLink}&index=${idx}`,
           }));
           setSubtitleTracks(subs);
         }
