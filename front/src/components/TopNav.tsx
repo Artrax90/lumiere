@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Search, Settings, Film, Tv, Play, Sparkles, Bell, Puzzle, Download, Grid3x3 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
-export type NavSection = 'home' | 'movies' | 'shows' | 'anime' | 'live' | 'search' | 'library' | 'collections' | 'settings' | 'profile' | 'plugins' | 'downloads' | 'notifications';
+export type NavSection = 'home' | 'movies' | 'shows' | 'anime' | 'live' | 'iptv' | 'search' | 'library' | 'collections' | 'settings' | 'profile' | 'plugins' | 'downloads' | 'notifications';
 
 interface TopNavProps {
   active: NavSection;
@@ -16,6 +16,7 @@ const navItems = [
   { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
   { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles },
   { id: 'live' as NavSection, labelKey: 'nav.live', icon: Play },
+  { id: 'iptv' as NavSection, labelKey: 'IPTV', icon: Tv },
   { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3 },
 ];
 

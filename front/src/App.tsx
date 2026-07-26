@@ -74,6 +74,7 @@ import ProfileView from '@/components/ProfileView';
 import PluginStore from '@/components/PluginStore';
 import DownloadManager from '@/components/DownloadManager';
 import NotificationsView from '@/components/NotificationsView';
+import IPTVView from '@/components/IPTVView';
 
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
@@ -247,6 +248,8 @@ export default function App() {
           <SearchView onSelect={handleSelect} />
         ) : section === 'live' ? (
           <LiveTV onSelect={handlePlay} titles={trendingMovies} />
+        ) : section === 'iptv' ? (
+          <IPTVView onPlay={handlePlay} />
         ) : section === 'settings' ? (
           <SettingsView onClose={() => setSection('home')} />
         ) : section === 'collections' ? (
