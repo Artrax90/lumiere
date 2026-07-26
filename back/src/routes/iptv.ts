@@ -69,11 +69,30 @@ function parseM3U(content: string): IptvChannel[] {
   return channels;
 }
 
-// Parse EPG XML
-function parseEpg(xmlContent: string): Map<string, EpgProgram[]> {
+// Parse EPG XML — returns programs by channel ID and channel name→ID mapping
+function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; channelMap: Map<string, string> } {
   const programs = new Map<string, EpgProgram[]>();
+  const channelMap = new Map<string, string>(); // name → id mapping
 
-  // Simple XML parser for EPG
+  // Parse channel definitions: <channel id="123"><display-name>Channel Name</display-name></channel>
+  const channelRegex = /<channel\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/channel>/g;
+  const displayNameRegex = /<display-name[^>]*>([^<]*)<\/display-name>/g;
+
+  let channelMatch;
+  while ((channelMatch = channelRegex.exec(xmlContent)) !== null) {
+    const channelId = channelMatch[1];
+    const channelContent = channelMatch[2];
+
+    let nameMatch;
+    while ((nameMatch = displayNameRegex.exec(channelContent)) !== null) {
+      const name = nameMatch[1].trim();
+      if (name) {
+        channelMap.set(name.toLowerCase(), channelId);
+      }
+    }
+  }
+
+  // Parse programmes
   const programmeRegex = /<programme\s+start="([^"]*)"\s+stop="([^"]*)"\s+channel="([^"]*)"[^>]*>([\s\S]*?)<\/programme>/g;
   const titleRegex = /<title[^>]*>([^<]*)<\/title>/;
   const descRegex = /<desc[^>]*>([^<]*)<\/desc>/;
@@ -102,7 +121,7 @@ function parseEpg(xmlContent: string): Map<string, EpgProgram[]> {
     programs.get(channel)!.push(program);
   }
 
-  return programs;
+  return { programs, channelMap };
 }
 
 // Format EPG time (20240101120000 +0000) to readable format
@@ -190,13 +209,13 @@ export function iptvRoutes(app: FastifyInstance) {
         content = Buffer.from(buffer).toString('utf-8');
       }
 
-      const epgData = parseEpg(content);
+      const { programs, channelMap } = parseEpg(content);
 
-      // Convert Map to object for JSON response
+      // Convert Maps to objects for JSON response
       const epgObject: Record<string, Array<{ title: string; start: string; stop: string; desc?: string; startTime: string; startDate: string; stopTime: string; stopDate: string }>> = {};
 
-      for (const [channel, programs] of epgData.entries()) {
-        epgObject[channel] = programs.map(p => {
+      for (const [channel, channelPrograms] of programs.entries()) {
+        epgObject[channel] = channelPrograms.map(p => {
           const startFormatted = formatEpgTime(p.start);
           const stopFormatted = formatEpgTime(p.stop);
           return {
@@ -212,8 +231,15 @@ export function iptvRoutes(app: FastifyInstance) {
         });
       }
 
+      // Convert channelMap to object (name → id)
+      const channelMapObject: Record<string, string> = {};
+      for (const [name, id] of channelMap.entries()) {
+        channelMapObject[name] = id;
+      }
+
       return {
         epg: epgObject,
+        channelMap: channelMapObject,
         channels: Object.keys(epgObject).length,
       };
     } catch (err: any) {

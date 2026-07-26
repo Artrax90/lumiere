@@ -66,6 +66,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [error, setError] = useState('');
   const [selectedPlaylist, setSelectedPlaylist] = useState<number | null>(null);
   const [epgData, setEpgData] = useState<Record<string, EpgProgram[]>>({});
+  const [channelMap, setChannelMap] = useState<Record<string, string>>({}); // name → epgId
   const [epgLoading, setEpgLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPlaylistUrl, setNewPlaylistUrl] = useState('');
@@ -139,6 +140,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       if (res.ok) {
         const data = await res.json();
         setEpgData(data.epg || {});
+        setChannelMap(data.channelMap || {});
       }
     } catch {
       // EPG loading failed
@@ -211,14 +213,32 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return filtered;
   }, [channels, selectedGroup, searchQuery, showFavorites, favorites]);
 
-  // Get programs for channel
-  const getPrograms = (channelId: string): EpgProgram[] => {
-    return epgData[channelId] || [];
+  // Get programs for channel — try tvgId first, then name lookup via channelMap
+  const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
+    // Try tvgId directly
+    if (channel.tvgId && epgData[channel.tvgId]) {
+      return epgData[channel.tvgId];
+    }
+    // Try name lookup via channelMap
+    const nameKey = channel.name.toLowerCase();
+    const epgId = channelMap[nameKey];
+    if (epgId && epgData[epgId]) {
+      return epgData[epgId];
+    }
+    // Try partial match
+    for (const [mapName, mapId] of Object.entries(channelMap)) {
+      if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
+        if (epgData[mapId]) {
+          return epgData[mapId];
+        }
+      }
+    }
+    return [];
   };
 
   // Get current program for channel
-  const getCurrentProgram = (channelId: string): EpgProgram | null => {
-    const programs = getPrograms(channelId);
+  const getCurrentProgram = (channel: IPTVChannel): EpgProgram | null => {
+    const programs = getPrograms(channel);
     if (programs.length === 0) return null;
 
     const now = new Date();
@@ -237,7 +257,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   // Play channel
   const playChannel = (channel: IPTVChannel) => {
-    const program = getCurrentProgram(channel.id);
+    const program = getCurrentProgram(channel);
 
     const title: Title = {
       id: 0,
@@ -418,11 +438,11 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                       <div className="absolute bottom-0 left-0 p-6">
                         <div className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">{selectedChannel.group}</div>
                         <h2 className="mt-1 text-display text-[24px] font-medium text-white md:text-[28px]">{selectedChannel.name}</h2>
-                        {getCurrentProgram(selectedChannel.id) && (
+                        {getCurrentProgram(selectedChannel) && (
                           <>
-                            <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel.id)?.title}</div>
+                            <div className="mt-1 text-[14px] text-white/70">{getCurrentProgram(selectedChannel)?.title}</div>
                             <div className="mt-0.5 text-[12px] text-white/40">
-                              {getCurrentProgram(selectedChannel.id)?.startTime} - {getCurrentProgram(selectedChannel.id)?.stopTime}
+                              {getCurrentProgram(selectedChannel)?.startTime} - {getCurrentProgram(selectedChannel)?.stopTime}
                             </div>
                           </>
                         )}
@@ -440,7 +460,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                         Программа · {selectedChannel.name}
                       </div>
                       <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {getPrograms(selectedChannel.id).slice(0, 6).map((program, idx) => {
+                        {getPrograms(selectedChannel).slice(0, 6).map((program, idx) => {
                           const isCurrent = idx === 0;
                           return (
                             <div key={idx} className={`rounded-[12px] p-3 ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02]'}`}>
@@ -454,7 +474,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                             </div>
                           );
                         })}
-                        {getPrograms(selectedChannel.id).length === 0 && (
+                        {getPrograms(selectedChannel).length === 0 && (
                           <div className="text-[12px] text-white/30">Нет данных о программе</div>
                         )}
                       </div>
@@ -531,7 +551,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
               {/* Channels */}
               {filteredChannels.map((ch, idx) => {
-                const currentProgram = getCurrentProgram(ch.id);
+                const currentProgram = getCurrentProgram(ch);
                 const isFavorite = favorites.has(ch.id);
 
                 return (
@@ -577,7 +597,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                           </div>
                           <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
                             <div className="truncate text-[12px] text-white/55">
-                              {getPrograms(ch.id)[1]?.title || '—'}
+                              {getPrograms(ch)[1]?.title || '—'}
                             </div>
                           </div>
                         </>
