@@ -82,6 +82,7 @@ export default function App() {
   const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [playing, setPlaying] = useState<Title | null>(null);
+  const [playingExternalSubs, setPlayingExternalSubs] = useState<any[]>([]);
   const [aiOpen, setAiOpen] = useState(false);
   const [mood, setMood] = useState<Mood>('warm');
 
@@ -100,8 +101,9 @@ export default function App() {
 
   const lastSavedTime = useRef(0);
 
-  const handlePlay = useCallback((title: Title) => {
+  const handlePlay = useCallback((title: Title, externalSubs?: any[]) => {
     setPlaying(title);
+    setPlayingExternalSubs(externalSubs || []);
     lastSavedTime.current = 0;
 
     // Report activity to server
@@ -190,6 +192,7 @@ export default function App() {
             onExit={handlePlayerExit}
             initialTime={getPlaybackPosition(playing.id)}
             onTimeUpdate={handleTimeUpdate}
+            externalSubs={playingExternalSubs}
           />
         ) : selectedEpisode ? (
           <EpisodeDetails

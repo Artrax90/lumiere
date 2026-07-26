@@ -270,7 +270,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           {activeTab === 'torrents' && (
             <TorrentSearch
               title={displayTitle}
-              onPlay={(url, episodeName) => onPlay({ ...displayTitle, videoUrl: url, episode: episodeName })}
+              onPlay={(url, episodeName, externalSubs) => onPlay({ ...displayTitle, videoUrl: url, episode: episodeName }, externalSubs)}
             />
           )}
         </div>

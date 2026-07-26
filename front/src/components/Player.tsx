@@ -3,16 +3,24 @@ import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight } from 'lucide-react';
 import type { Title } from '@/api/client';
 
+interface ExternalSub {
+  id: number;
+  name: string;
+  url: string;
+  lang: string;
+}
+
 interface PlayerProps {
   title: Title;
   onExit: () => void;
   initialTime?: number;
   onTimeUpdate?: (time: number) => void;
+  externalSubs?: ExternalSub[];
 }
 
 type SettingsPanel = 'none' | 'quality' | 'audio' | 'subtitles';
 
-export default function Player({ title, onExit, initialTime, onTimeUpdate }: PlayerProps) {
+export default function Player({ title, onExit, initialTime, onTimeUpdate, externalSubs }: PlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +81,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     }
     return 0;
   };
+
+  // Load external subtitle files from torrent
+  useEffect(() => {
+    if (!externalSubs || externalSubs.length === 0) return;
+
+    const langMap: Record<string, string> = { rus: 'Русский', eng: 'English', ukr: 'Украинский', und: 'Неизвестно' };
+    const subs = externalSubs.map((s) => ({
+      id: s.id,
+      name: langMap[s.lang] || s.name,
+      lang: s.lang,
+      url: s.url,
+    }));
+    setSubtitleTracks(subs);
+  }, [externalSubs]);
 
   // Fetch duration, audio tracks, and subtitles from backend for torrent streams
   useEffect(() => {

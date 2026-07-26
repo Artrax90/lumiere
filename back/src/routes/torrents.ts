@@ -49,6 +49,32 @@ function formatSize(bytes: number): string {
   return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
 }
 
+function extractSubLang(filename: string): string {
+  // Extract language from filename patterns like Movie.rus.srt, Movie.eng.vtt, Movie.en.srt
+  const langMap: Record<string, string> = {
+    rus: 'rus', ru: 'rus', russian: 'rus', рус: 'rus', русский: 'rus',
+    eng: 'eng', en: 'eng', english: 'eng',
+    ukr: 'ukr', uk: 'ukr', ukrainian: 'ukr',
+    ger: 'ger', de: 'ger', german: 'ger',
+    fre: 'fre', fr: 'fre', french: 'fre',
+    spa: 'spa', es: 'spa', spanish: 'spa',
+    ita: 'ita', it: 'ita', italian: 'ita',
+    por: 'por', pt: 'por', portuguese: 'por',
+    jpn: 'jpn', ja: 'jpn', japanese: 'jpn',
+    kor: 'kor', ko: 'kor', korean: 'kor',
+    chi: 'chi', zh: 'chi', chinese: 'chi',
+    ara: 'ara', ar: 'ara', arabic: 'ara',
+    hin: 'hin', hi: 'hin', hindi: 'hin',
+  };
+  const name = filename.toLowerCase();
+  // Try to find language code between dots
+  const parts = name.split('.');
+  for (const part of parts) {
+    if (langMap[part]) return langMap[part];
+  }
+  return 'und';
+}
+
 export function torrentRoutes(app: FastifyInstance) {
   // Search torrents via JacRed
   app.get('/api/torrents/search', async (req, reply) => {
@@ -156,22 +182,55 @@ export function torrentRoutes(app: FastifyInstance) {
         });
       }
 
-      // Filter out non-video files
+      // Find video and subtitle files
       const videoExtensions = ['.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm', '.ts', '.m4v'];
-      const files: TorrentFile[] = stat.file_stats
-        .filter((f) => {
-          const ext = f.path.toLowerCase().split('.').pop();
-          return ext && videoExtensions.some((ve) => ext.endsWith(ve.replace('.', '')));
-        })
-        .map((f) => ({
+      const subtitleExtensions = ['.srt', '.vtt', '.ass', '.ssa', '.sub', '.sup'];
+
+      const videoFiles = stat.file_stats.filter((f) => {
+        const ext = f.path.toLowerCase().split('.').pop();
+        return ext && videoExtensions.some((ve) => ext.endsWith(ve.replace('.', '')));
+      });
+
+      const subtitleFiles = stat.file_stats.filter((f) => {
+        const ext = f.path.toLowerCase().split('.').pop();
+        return ext && subtitleExtensions.some((se) => ext.endsWith(se.replace('.', '')));
+      });
+
+      // Associate subtitles with video files by name matching
+      const files: TorrentFile[] = videoFiles.map((f) => {
+        const videoName = f.path.replace(/\.[^.]+$/, ''); // remove extension
+        const videoDir = f.path.substring(0, f.path.lastIndexOf('/'));
+        const baseName = videoName.split('/').pop() || videoName;
+
+        // Find matching subtitle files
+        const matchingSubs = subtitleFiles.filter((sf) => {
+          const subName = sf.path.replace(/\.[^.]+$/, '');
+          const subBase = subName.split('/').pop() || subName;
+          const subDir = sf.path.substring(0, sf.path.lastIndexOf('/'));
+          // Match by: same directory + subtitle name starts with video name
+          // Or: subtitle name contains video name (for patterns like Movie.rus.srt)
+          return subDir === videoDir && (
+            subBase.startsWith(baseName) ||
+            subBase.toLowerCase().includes(baseName.toLowerCase())
+          );
+        }).map((sf) => ({
+          id: sf.id,
+          name: sf.path.split('/').pop() || sf.path,
+          path: sf.path,
+          url: `/api/torrents/subtitle-file?link=${encodeURIComponent(magnet)}&index=${sf.id}`,
+          lang: extractSubLang(sf.path),
+        }));
+
+        return {
           id: f.id,
           name: f.path.split('/').pop() || f.path,
           path: f.path,
           size: f.length,
           sizeFormatted: formatSize(f.length),
-          // Stream URL goes through our proxy
           streamUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
-        }));
+          externalSubs: matchingSubs,
+        } as any;
+      });
 
       return {
         hash,
@@ -385,24 +444,30 @@ export function torrentRoutes(app: FastifyInstance) {
 
     // Start background subtitle extraction (non-blocking)
     const subtitlePath = join(hlsDir, 'subs.vtt');
+    console.log(`Starting subtitle extraction for session ${sessionId}`);
     const subFfmpeg = spawn('ffmpeg', [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
-      '-ss', '0',
       '-i', streamUrl,
       '-map', '0:s:0',
       '-c:s', 'webvtt',
       '-y',
       subtitlePath,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
-    subFfmpeg.on('close', () => {
+    subFfmpeg.on('close', (code) => {
       const { existsSync, statSync } = require('fs');
-      if (existsSync(subtitlePath) && statSync(subtitlePath).size > 0) {
-        console.log(`Subtitles extracted for session ${sessionId}`);
+      const size = existsSync(subtitlePath) ? statSync(subtitlePath).size : 0;
+      console.log(`Subtitle extraction finished for session ${sessionId}: code=${code}, size=${size}`);
+    });
+    subFfmpeg.stderr.on('data', (data) => {
+      // Log FFmpeg errors for debugging
+      const msg = data.toString();
+      if (msg.includes('Error') || msg.includes('error')) {
+        console.error(`Subtitle FFmpeg error: ${msg.substring(0, 200)}`);
       }
     });
-    // Kill subtitle extraction after 3 minutes (don't let it hang forever)
+    // Kill subtitle extraction after 3 minutes
     setTimeout(() => {
       try { subFfmpeg.kill('SIGKILL'); } catch {}
     }, 180000);
@@ -464,6 +529,54 @@ export function torrentRoutes(app: FastifyInstance) {
     reply.header('Access-Control-Allow-Origin', '*');
     reply.header('Cache-Control', 'public, max-age=3600');
     return reply.send(readFileSync(subtitlePath, 'utf-8'));
+  });
+
+  // Serve subtitle file from TorrServer (external subtitle files)
+  app.get('/api/torrents/subtitle-file', async (req, reply) => {
+    const { link, index } = req.query as { link?: string; index?: string };
+
+    if (!link || !index) {
+      return reply.code(400).send({ error: 'link and index required' });
+    }
+
+    try {
+      const url = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index}&play`;
+      const res = await fetch(url, {
+        signal: AbortSignal.timeout(30000),
+      });
+
+      if (!res.ok) {
+        return reply.code(res.status).send({ error: 'TorrServer stream error' });
+      }
+
+      const content = await res.text();
+
+      // Detect format and convert to WebVTT if needed
+      let vtt = content;
+      const lower = content.toLowerCase().trim();
+
+      if (lower.startsWith('webvtt')) {
+        // Already WebVTT
+        vtt = content;
+      } else if (lower.includes('-->') && !lower.startsWith('webvtt')) {
+        // Looks like SRT - convert to WebVTT
+        vtt = 'WEBVTT\n\n' + content
+          .replace(/\r\n/g, '\n')
+          .replace(/\r/g, '\n')
+          // Remove SRT sequence numbers (lines that are just digits)
+          .replace(/^\d+\s*$/gm, '')
+          // Fix SRT timestamp format (comma → dot)
+          .replace(/(\d{2}:\d{2}:\d{2}),(\d{3})/g, '$1.$2');
+      }
+
+      reply.header('Content-Type', 'text/vtt');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cache-Control', 'public, max-age=3600');
+      return reply.send(vtt);
+    } catch (err: any) {
+      console.error('Subtitle file error:', err.message);
+      return reply.code(500).send({ error: err.message });
+    }
   });
 
   // Extract subtitles from torrent

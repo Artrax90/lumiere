@@ -78,7 +78,7 @@ interface TorrentFile {
 
 interface TorrentSearchProps {
   title: Title;
-  onPlay: (url: string, episodeName?: string) => void;
+  onPlay: (url: string, episodeName?: string, externalSubs?: any[]) => void;
 }
 
 type SortKey = 'seeders' | 'size' | 'date';
@@ -180,7 +180,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
           saveWatchedEpisode(title.id, data.files[0].id);
           const episodeMatch = data.files[0].name.match(/S(\d{1,2})E(\d{1,2})/i);
           const episodeName = episodeMatch ? `S${episodeMatch[1]}E${episodeMatch[2]}` : data.files[0].name;
-          onPlay(data.files[0].streamUrl, episodeName);
+          onPlay(data.files[0].streamUrl, episodeName, data.files[0].externalSubs || []);
         } else {
           setFiles(data.files);
         }
@@ -199,7 +199,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     // Extract episode name from filename (e.g., "S01E05 - Episode Name.mkv" → "S01E05")
     const episodeMatch = file.name.match(/S(\d{1,2})E(\d{1,2})/i);
     const episodeName = episodeMatch ? `S${episodeMatch[1]}E${episodeMatch[2]}` : file.name;
-    onPlay(file.streamUrl, episodeName);
+    onPlay(file.streamUrl, episodeName, (file as any).externalSubs || []);
   };
 
   // File list view
