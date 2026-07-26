@@ -444,6 +444,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
     // Start background subtitle extraction (non-blocking)
     const subtitlePath = join(hlsDir, 'subs.vtt');
+    const { existsSync: subExistsSync, statSync: subStatSync } = await import('fs');
     console.log(`Starting subtitle extraction for session ${sessionId}`);
     const subFfmpeg = spawn('ffmpeg', [
       '-reconnect', '1',
@@ -456,8 +457,7 @@ export function torrentRoutes(app: FastifyInstance) {
       subtitlePath,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
     subFfmpeg.on('close', (code) => {
-      const { existsSync, statSync } = require('fs');
-      const size = existsSync(subtitlePath) ? statSync(subtitlePath).size : 0;
+      const size = subExistsSync(subtitlePath) ? subStatSync(subtitlePath).size : 0;
       console.log(`Subtitle extraction finished for session ${sessionId}: code=${code}, size=${size}`);
     });
     subFfmpeg.stderr.on('data', (data) => {
