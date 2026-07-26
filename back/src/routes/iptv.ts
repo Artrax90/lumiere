@@ -69,19 +69,27 @@ function parseM3U(content: string): IptvChannel[] {
   return channels;
 }
 
-// Parse EPG XML — returns programs by channel ID and channel name→ID mapping
-function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; channelMap: Map<string, string> } {
+// Parse EPG XML — returns programs by channel ID, channel name→ID mapping, and icons
+function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; channelMap: Map<string, string>; iconMap: Map<string, string> } {
   const programs = new Map<string, EpgProgram[]>();
   const channelMap = new Map<string, string>(); // name → id mapping
+  const iconMap = new Map<string, string>(); // id → icon URL
 
-  // Parse channel definitions: <channel id="123"><display-name>Channel Name</display-name></channel>
+  // Parse channel definitions: <channel id="123"><display-name>Channel Name</display-name><icon src="..."/></channel>
   const channelRegex = /<channel\s+id="([^"]*)"[^>]*>([\s\S]*?)<\/channel>/g;
   const displayNameRegex = /<display-name[^>]*>([^<]*)<\/display-name>/g;
+  const iconRegex = /<icon\s+src="([^"]*)"[^>]*\/?>/;
 
   let channelMatch;
   while ((channelMatch = channelRegex.exec(xmlContent)) !== null) {
     const channelId = channelMatch[1];
     const channelContent = channelMatch[2];
+
+    // Extract icon
+    const iconMatch = iconRegex.exec(channelContent);
+    if (iconMatch) {
+      iconMap.set(channelId, iconMatch[1]);
+    }
 
     let nameMatch;
     while ((nameMatch = displayNameRegex.exec(channelContent)) !== null) {
@@ -121,7 +129,7 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
     programs.get(channel)!.push(program);
   }
 
-  return { programs, channelMap };
+  return { programs, channelMap, iconMap };
 }
 
 // Format EPG time (20240101120000 +0000) to readable format
@@ -209,7 +217,7 @@ export function iptvRoutes(app: FastifyInstance) {
         content = Buffer.from(buffer).toString('utf-8');
       }
 
-      const { programs, channelMap } = parseEpg(content);
+      const { programs, channelMap, iconMap } = parseEpg(content);
 
       // Convert Maps to objects for JSON response
       const epgObject: Record<string, Array<{ title: string; start: string; stop: string; desc?: string; startTime: string; startDate: string; stopTime: string; stopDate: string }>> = {};
@@ -237,9 +245,16 @@ export function iptvRoutes(app: FastifyInstance) {
         channelMapObject[name] = id;
       }
 
+      // Convert iconMap to object (id → icon URL)
+      const iconMapObject: Record<string, string> = {};
+      for (const [id, icon] of iconMap.entries()) {
+        iconMapObject[id] = icon;
+      }
+
       return {
         epg: epgObject,
         channelMap: channelMapObject,
+        iconMap: iconMapObject,
         channels: Object.keys(epgObject).length,
       };
     } catch (err: any) {
@@ -266,8 +281,8 @@ export function iptvRoutes(app: FastifyInstance) {
       }
 
       const content = await res.text();
-      const epgData = parseEpg(content);
-      const programs = epgData.get(channelId) || [];
+      const { programs } = parseEpg(content);
+      const channelPrograms = programs.get(channelId) || [];
 
       const now = new Date();
       const nowStr = now.toISOString().replace(/[-:T]/g, '').slice(0, 14) + '00';
@@ -275,12 +290,12 @@ export function iptvRoutes(app: FastifyInstance) {
       let current: EpgProgram | null = null;
       let next: EpgProgram | null = null;
 
-      for (let i = 0; i < programs.length; i++) {
-        const p = programs[i];
+      for (let i = 0; i < channelPrograms.length; i++) {
+        const p = channelPrograms[i];
         if (p.start <= nowStr && p.stop > nowStr) {
           current = p;
-          if (i + 1 < programs.length) {
-            next = programs[i + 1];
+          if (i + 1 < channelPrograms.length) {
+            next = channelPrograms[i + 1];
           }
           break;
         }

@@ -38,10 +38,23 @@ CREATE TABLE IF NOT EXISTS watch_history (
   title_name VARCHAR(500) NOT NULL,
   poster VARCHAR(500) DEFAULT '',
   progress INTEGER DEFAULT 0,
-  timestamp INTEGER DEFAULT 0,
+  timestamp BIGINT DEFAULT 0,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(user_id, tmdb_id, media_type)
 );
+
+-- Migrate timestamp column to BIGINT if it exists as INTEGER
+DO $$ 
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns 
+    WHERE table_name = 'watch_history' 
+    AND column_name = 'timestamp' 
+    AND data_type = 'integer'
+  ) THEN
+    ALTER TABLE watch_history ALTER COLUMN timestamp TYPE BIGINT;
+  END IF;
+END $$;
 
 -- Invite codes table
 CREATE TABLE IF NOT EXISTS invite_codes (

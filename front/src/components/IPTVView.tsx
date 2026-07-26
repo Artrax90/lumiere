@@ -67,6 +67,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [selectedPlaylist, setSelectedPlaylist] = useState<number | null>(null);
   const [epgData, setEpgData] = useState<Record<string, EpgProgram[]>>({});
   const [channelMap, setChannelMap] = useState<Record<string, string>>({}); // name → epgId
+  const [iconMap, setIconMap] = useState<Record<string, string>>({}); // epgId → icon URL
   const [epgLoading, setEpgLoading] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newPlaylistUrl, setNewPlaylistUrl] = useState('');
@@ -141,6 +142,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         const data = await res.json();
         setEpgData(data.epg || {});
         setChannelMap(data.channelMap || {});
+        setIconMap(data.iconMap || {});
       }
     } catch {
       // EPG loading failed
@@ -213,31 +215,60 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return filtered;
   }, [channels, selectedGroup, searchQuery, showFavorites, favorites]);
 
-  // Get programs for channel — try tvgId first, then name lookup via channelMap
-  const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
-    if (!channel) return [];
+  // Get logo for channel — use channel logo or EPG icon
+  const getChannelLogo = (channel: IPTVChannel): string => {
+    if (getChannelLogo(channel)) return getChannelLogo(channel);
 
     // Try tvgId directly
-    if (channel.tvgId && epgData[channel.tvgId]) {
-      return epgData[channel.tvgId];
+    if (channel.tvgId && iconMap[channel.tvgId]) {
+      return iconMap[channel.tvgId];
     }
     // Try name lookup via channelMap
     const nameKey = channel.name?.toLowerCase() || '';
-    if (!nameKey) return [];
-
-    const epgId = channelMap[nameKey];
-    if (epgId && epgData[epgId]) {
-      return epgData[epgId];
-    }
-    // Try partial match
-    for (const [mapName, mapId] of Object.entries(channelMap)) {
-      if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
-        if (epgData[mapId]) {
-          return epgData[mapId];
+    if (nameKey) {
+      const epgId = channelMap[nameKey];
+      if (epgId && iconMap[epgId]) {
+        return iconMap[epgId];
+      }
+      // Partial match
+      for (const [mapName, mapId] of Object.entries(channelMap)) {
+        if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
+          if (iconMap[mapId]) {
+            return iconMap[mapId];
+          }
         }
       }
     }
-    return [];
+    return '';
+  };
+
+  // Get EPG ID for channel (for matching programs)
+  const getEpgId = (channel: IPTVChannel): string => {
+    if (channel.tvgId && epgData[channel.tvgId]) {
+      return channel.tvgId;
+    }
+    const nameKey = channel.name?.toLowerCase() || '';
+    if (nameKey) {
+      const epgId = channelMap[nameKey];
+      if (epgId && epgData[epgId]) {
+        return epgId;
+      }
+      for (const [mapName, mapId] of Object.entries(channelMap)) {
+        if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
+          if (epgData[mapId]) {
+            return mapId;
+          }
+        }
+      }
+    }
+    return '';
+  };
+
+  // Get programs for channel
+  const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
+    if (!channel) return [];
+    const epgId = getEpgId(channel);
+    return epgId ? (epgData[epgId] || []) : [];
   };
 
   // Get current program for channel
@@ -267,8 +298,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       id: 0,
       name: channel.name,
       overview: program ? `Сейчас: ${program.title}` : '',
-      poster: channel.logo,
-      backdrop: channel.logo,
+      poster: getChannelLogo(channel),
+      backdrop: getChannelLogo(channel),
       year: 0,
       runtime: '',
       rating: 0,
@@ -299,10 +330,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         {/* Playlist selector */}
         <div className="mb-6 flex flex-wrap items-center gap-3 animate-row-reveal">
           {playlists.map((playlist, index) => (
-            <button
+            <div
               key={index}
               onClick={() => loadPlaylist(index)}
-              className={`shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic ${
+              className={`shrink-0 cursor-pointer rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic ${
                 selectedPlaylist === index
                   ? 'bg-amber-300/15 text-amber-300 border border-amber-300/25'
                   : 'bg-white/5 text-white/60 border border-white/10 hover:bg-white/10'
@@ -321,7 +352,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <Trash2 className="h-3 w-3" />
                 </button>
               </span>
-            </button>
+            </div>
           ))}
 
           <button
@@ -425,9 +456,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <div className="grid md:grid-cols-[1fr_320px]">
                     {/* Preview area */}
                     <div className="relative h-64 md:h-80">
-                      {selectedChannel.logo ? (
+                      {getChannelLogo(selectedChannel) ? (
                         <img
-                          src={selectedChannel.logo}
+                          src={getChannelLogo(selectedChannel)}
                           alt={selectedChannel.name}
                           className="absolute inset-0 h-full w-full object-cover"
                           style={{ filter: 'saturate(1.05) brightness(0.85)' }}
@@ -463,23 +494,25 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                       <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-white/40">
                         Программа · {selectedChannel.name}
                       </div>
-                      <div className="space-y-3 max-h-64 overflow-y-auto">
-                        {getPrograms(selectedChannel).slice(0, 6).map((program, idx) => {
+                      <div className="space-y-2 max-h-96 overflow-y-auto">
+                        {getPrograms(selectedChannel).slice(0, 12).map((program, idx) => {
                           const isCurrent = idx === 0;
                           return (
-                            <div key={idx} className={`rounded-[12px] p-3 ${isCurrent ? 'bg-white/[0.04]' : 'bg-white/[0.02]'}`}>
-                              <div className="text-[10px] text-white/40">{program.startTime} - {program.stopTime}</div>
-                              <div className={`text-[13px] font-medium ${isCurrent ? 'text-white/85' : 'text-white/65'}`}>{program.title}</div>
+                            <div key={idx} className={`rounded-[10px] px-3 py-2 ${isCurrent ? 'bg-white/[0.06] border border-amber-300/20' : 'bg-white/[0.02]'}`}>
+                              <div className="flex items-center gap-2">
+                                <span className="text-[11px] font-medium text-white/50 w-20 shrink-0">{program.startTime} - {program.stopTime}</span>
+                                <span className={`text-[12px] ${isCurrent ? 'font-medium text-white/90' : 'text-white/60'}`}>{program.title}</span>
+                              </div>
                               {isCurrent && (
-                                <div className="mt-1.5 h-[2px] w-2/3 overflow-hidden rounded-full bg-white/15">
-                                  <div className="h-full w-1/2 rounded-full bg-red-400/85" />
+                                <div className="mt-1.5 h-[2px] w-1/2 overflow-hidden rounded-full bg-white/10">
+                                  <div className="h-full w-2/3 rounded-full bg-amber-400/80" />
                                 </div>
                               )}
                             </div>
                           );
                         })}
                         {getPrograms(selectedChannel).length === 0 && (
-                          <div className="text-[12px] text-white/30">Нет данных о программе</div>
+                          <div className="text-[12px] text-white/30 py-4 text-center">Нет данных о программе</div>
                         )}
                       </div>
                       <button
@@ -566,8 +599,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   >
                     <div className="flex w-44 shrink-0 items-center gap-3">
                       <div className="relative h-10 w-10 overflow-hidden rounded-lg bg-white/5">
-                        {ch.logo ? (
-                          <img src={ch.logo} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
+                        {getChannelLogo(ch) ? (
+                          <img src={getChannelLogo(ch)} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">
                             <Tv className="h-5 w-5 text-white/20" />
