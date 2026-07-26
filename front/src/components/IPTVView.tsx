@@ -77,6 +77,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
 
+  // Time slots for EPG grid (every 3 hours)
+  const timeSlots = ['00:00', '03:00', '06:00', '09:00', '12:00', '15:00', '18:00', '21:00'];
+
   // Load last selected playlist on mount
   useEffect(() => {
     const lastPlaylist = localStorage.getItem('lumiere_iptv_last');
@@ -520,19 +523,25 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <h3 className="text-[14px] font-medium text-white/70">Программа · {selectedChannel.name}</h3>
                   <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} передач</span>
                 </div>
-                <div className="glass-panel rounded-[16px] p-4 max-h-[300px] overflow-y-auto">
-                  {getPrograms(selectedChannel).length === 0 ? (
-                    <div className="text-[12px] text-white/30 text-center py-4">Нет данных о программе</div>
-                  ) : (
-                    getPrograms(selectedChannel).map((program, idx) => (
-                      <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 ${idx === 0 ? 'bg-amber-300/10' : 'hover:bg-white/[0.03]'}`}>
-                        <span className="text-[11px] text-white/40 w-24 shrink-0">{program.startTime} — {program.stopTime}</span>
-                        <span className={`text-[12px] ${idx === 0 ? 'font-medium text-white/90' : 'text-white/55'}`}>{program.title}</span>
-                        {idx === 0 && <span className="text-[10px] text-amber-300/70 font-medium ml-auto">Сейчас</span>}
-                      </div>
-                    ))
-                  )}
-                </div>
+                {(() => {
+                  const progs = getPrograms(selectedChannel);
+                  console.log('[IPTV] Rendering programs:', progs.length);
+                  return (
+                    <div className="glass-panel rounded-[16px] p-4 max-h-[300px] overflow-y-auto">
+                      {progs.length === 0 ? (
+                        <div className="text-[12px] text-white/30 text-center py-4">Нет данных о программе</div>
+                      ) : (
+                        progs.map((program, idx) => (
+                          <div key={idx} className={`flex items-center gap-3 px-3 py-2 rounded-lg mb-1 ${idx === 0 ? 'bg-amber-300/10' : 'hover:bg-white/[0.03]'}`}>
+                            <span className="text-[11px] text-white/40 w-24 shrink-0">{program.startTime} — {program.stopTime}</span>
+                            <span className={`text-[12px] ${idx === 0 ? 'font-medium text-white/90' : 'text-white/55'}`}>{program.title}</span>
+                            {idx === 0 && <span className="text-[10px] text-amber-300/70 font-medium ml-auto">Сейчас</span>}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
               </>
             )}
@@ -582,84 +591,87 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               </div>
             )}
 
-            {/* EPG Grid */}
+            {/* EPG Grid - Full TV Guide */}
             <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
-              {/* Time header */}
-              <div className="flex items-center border-b border-white/[0.06] px-5 py-3">
-                <div className="w-44 shrink-0 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
-                <div className="flex flex-1">
-                  <div className="flex-[2] text-[11px] font-medium text-white/40">Сейчас</div>
-                  <div className="flex-1 text-[11px] font-medium text-white/40">Далее</div>
-                  <div className="flex-1" />
-                  <div className="flex-1" />
-                  <div className="flex-1" />
-                </div>
-              </div>
-
-              {/* Channels */}
-              {filteredChannels.map((ch, idx) => {
-                const currentProgram = getCurrentProgram(ch);
-                const isFavorite = favorites.has(ch.id);
-
-                return (
-                  <div
-                    key={ch.id}
-                    onClick={() => playChannel(ch)}
-                    className={`flex w-full items-center px-5 py-4 text-left transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
-                  >
-                    <div className="flex w-44 shrink-0 items-center gap-3">
-                      <div className="relative h-10 w-10 overflow-hidden rounded-lg bg-white/5">
-                        {getChannelLogo(ch) ? (
-                          <img src={getChannelLogo(ch)} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
-                            <Tv className="h-5 w-5 text-white/20" />
-                          </div>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-[13px] font-medium text-white/85">{ch.name}</div>
-                        <div className="text-[10px] text-white/40">{ch.group}</div>
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
-                        className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-cinematic"
-                        aria-label="Favorite"
-                      >
-                        <Star
-                          className={`h-3.5 w-3.5 transition-cinematic ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/25'}`}
-                          strokeWidth={1.5}
-                        />
-                      </button>
-                    </div>
-                    <div className="flex flex-1 gap-1">
-                      {currentProgram ? (
-                        <>
-                          <div className="flex-[2] rounded-lg border border-white/8 bg-white/[0.04] px-3 py-2">
-                            <div className="truncate text-[12px] font-medium text-white/85">{currentProgram.title}</div>
-                            <div className="mt-1 text-[10px] text-white/40">{currentProgram.startTime} - {currentProgram.stopTime}</div>
-                            <div className="mt-1 h-0.5 w-2/3 overflow-hidden rounded-full bg-white/15">
-                              <div className="h-full w-1/2 rounded-full bg-amber-300/80" />
-                            </div>
-                          </div>
-                          <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-                            <div className="truncate text-[12px] text-white/55">
-                              {getPrograms(ch)[1]?.title || '—'}
-                            </div>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="flex-1 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2">
-                          <div className="truncate text-[12px] text-white/30">Нет программы</div>
-                        </div>
-                      )}
-                      <div className="flex-1" />
-                      <div className="flex-1" />
-                      <div className="flex-1" />
-                    </div>
+              <div className="overflow-x-auto">
+                {/* Time header */}
+                <div className="flex items-center border-b border-white/[0.06] min-w-[900px]">
+                  <div className="w-44 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Канал</div>
+                  <div className="flex flex-1">
+                    {timeSlots.map((time) => (
+                      <div key={time} className="flex-1 px-2 py-3 text-center text-[11px] font-medium text-white/40">{time}</div>
+                    ))}
                   </div>
-                );
-              })}
+                </div>
+
+                {/* Channels */}
+                {filteredChannels.map((ch, idx) => {
+                  const isFavorite = favorites.has(ch.id);
+                  const programs = getPrograms(ch);
+
+                  return (
+                    <div
+                      key={ch.id}
+                      onClick={() => playChannel(ch)}
+                      className={`flex items-center min-w-[900px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                    >
+                      {/* Channel info */}
+                      <div className="w-44 shrink-0 flex items-center gap-3 px-4 py-3">
+                        <div className="relative h-9 w-9 overflow-hidden rounded-lg bg-white/5 shrink-0">
+                          {getChannelLogo(ch) ? (
+                            <img src={getChannelLogo(ch)} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <Tv className="h-4 w-4 text-white/20" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="truncate text-[12px] font-medium text-white/85">{ch.name}</div>
+                        </div>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                          aria-label="Favorite"
+                        >
+                          <Star className={`h-3 w-3 ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/20'}`} strokeWidth={1.5} />
+                        </button>
+                      </div>
+
+                      {/* Program slots */}
+                      <div className="flex flex-1 gap-px">
+                        {timeSlots.map((slotTime, slotIdx) => {
+                          // Find program that airs at this time slot
+                          const slotProgram = programs.find(p => p.startTime <= slotTime && p.stopTime > slotTime);
+                          const nextSlotTime = timeSlots[slotIdx + 1] || '24:00';
+                          // Check if program spans multiple slots
+                          const isCurrentSlot = slotProgram && slotIdx === 0;
+
+                          return (
+                            <div
+                              key={slotTime}
+                              className={`flex-1 px-2 py-2.5 min-h-[52px] ${
+                                isCurrentSlot
+                                  ? 'bg-amber-300/[0.06]'
+                                  : slotIdx % 2 === 0 ? 'bg-white/[0.01]' : ''
+                              }`}
+                            >
+                              {slotProgram ? (
+                                <div className={`text-[11px] leading-tight ${isCurrentSlot ? 'text-white/90 font-medium' : 'text-white/50'}`}>
+                                  <div className="truncate">{slotProgram.title}</div>
+                                  <div className="text-[9px] text-white/30 mt-0.5">{slotProgram.startTime}</div>
+                                </div>
+                              ) : (
+                                <div className="text-[10px] text-white/15">—</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
               {/* Empty favorites */}
               {showFavorites && filteredChannels.length === 0 && (
