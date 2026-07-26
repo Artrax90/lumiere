@@ -215,12 +215,16 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   // Get programs for channel — try tvgId first, then name lookup via channelMap
   const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
+    if (!channel) return [];
+
     // Try tvgId directly
     if (channel.tvgId && epgData[channel.tvgId]) {
       return epgData[channel.tvgId];
     }
     // Try name lookup via channelMap
-    const nameKey = channel.name.toLowerCase();
+    const nameKey = channel.name?.toLowerCase() || '';
+    if (!nameKey) return [];
+
     const epgId = channelMap[nameKey];
     if (epgId && epgData[epgId]) {
       return epgData[epgId];
