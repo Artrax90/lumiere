@@ -467,7 +467,9 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
-  // Serve extracted subtitle as WebVTT
+  // Serve extracted subtitle as WebVTT (with caching)
+  const subtitleCache = new Map<string, { data: string; expires: number }>();
+
   app.get('/api/torrents/subtitle/:trackId', async (req, reply) => {
     const { trackId } = req.params as { trackId: string };
     const { link, index } = req.query as { link?: string; index?: string };
@@ -476,15 +478,26 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link required' });
     }
 
+    const cacheKey = `${link}-${index}-${trackId}`;
+    const cached = subtitleCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      reply.header('Content-Type', 'text/vtt');
+      reply.header('Access-Control-Allow-Origin', '*');
+      return reply.send(cached.data);
+    }
+
     try {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       const { execSync: execSyncSub } = await import('child_process');
 
-      // Extract subtitle as WebVTT
+      // Extract subtitle as WebVTT (timeout 60s for large files)
       const vtt = execSyncSub(
         `ffmpeg -i "${streamUrl}" -map 0:s:${trackId} -c:s webvtt -f webvtt pipe:1 2>/dev/null`,
-        { timeout: 30000, maxBuffer: 10 * 1024 * 1024 }
-      );
+        { timeout: 60000, maxBuffer: 10 * 1024 * 1024 }
+      ).toString();
+
+      // Cache for 1 hour
+      subtitleCache.set(cacheKey, { data: vtt, expires: Date.now() + 3600000 });
 
       reply.header('Content-Type', 'text/vtt');
       reply.header('Access-Control-Allow-Origin', '*');

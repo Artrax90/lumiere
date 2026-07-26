@@ -31,6 +31,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   const [error, setError] = useState('');
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
+  const [subtitleText, setSubtitleText] = useState('');
+  const subtitleCuesRef = useRef<Array<{ start: number; end: number; text: string }>>([]);
   const [isDragging, setIsDragging] = useState(false);
   const realDurationRef = useRef<number>(0); // Duration from FFprobe (for torrents)
 
@@ -415,38 +417,40 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     setSettingsPanel('none');
   };
 
-  const setSubtitle = (id: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Find the subtitle track
+  const setSubtitle = async (id: number) => {
     const track = subtitleTracks.find(t => t.id === id);
     if (!track) {
       setCurrentSubtitle(-1);
+      subtitleCuesRef.current = [];
+      setSubtitleText('');
       setSettingsPanel('none');
       return;
     }
 
-    // If it's an external subtitle (has url), load it
+    // If it's an external subtitle (has url), fetch and parse it
     if ((track as any).url) {
-      // Remove existing subtitle track if any
-      const existingTrack = video.querySelector('track[kind="subtitles"]');
-      if (existingTrack) existingTrack.remove();
-
-      // Add new subtitle track
-      const trackEl = document.createElement('track');
-      trackEl.kind = 'subtitles';
-      trackEl.src = (track as any).url;
-      trackEl.srclang = track.lang;
-      trackEl.label = track.name;
-      trackEl.default = true;
-      video.appendChild(trackEl);
-
-      // Enable the track
-      if (video.textTracks.length > 0) {
-        video.textTracks[0].mode = 'showing';
-      }
       setCurrentSubtitle(id);
+      try {
+        const res = await fetch((track as any).url);
+        const vtt = await res.text();
+        // Parse WebVTT cues
+        const cues: Array<{ start: number; end: number; text: string }> = [];
+        const blocks = vtt.split(/\n\s*\n/);
+        for (const block of blocks) {
+          const lines = block.trim().split('\n');
+          if (lines.length < 2) continue;
+          const timeMatch = lines[0].match(/(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})/);
+          if (!timeMatch) continue;
+          const start = parseVttTime(timeMatch[1]);
+          const end = parseVttTime(timeMatch[2]);
+          const text = lines.slice(1).join('\n');
+          cues.push({ start, end, text });
+        }
+        subtitleCuesRef.current = cues;
+      } catch (err) {
+        console.error('Failed to load subtitles:', err);
+        subtitleCuesRef.current = [];
+      }
     } else if (hlsRef.current) {
       // HLS embedded subtitle
       hlsRef.current.subtitleTrack = id;
@@ -455,6 +459,32 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     setSettingsPanel('none');
   };
+
+  const parseVttTime = (time: string): number => {
+    const parts = time.split(':');
+    const h = parseInt(parts[0]);
+    const m = parseInt(parts[1]);
+    const s = parseFloat(parts[2]);
+    return h * 3600 + m * 60 + s;
+  };
+
+  // Update subtitle display
+  useEffect(() => {
+    if (subtitleCuesRef.current.length === 0) {
+      setSubtitleText('');
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const video = videoRef.current;
+      if (!video) return;
+      const t = video.currentTime;
+      const cue = subtitleCuesRef.current.find(c => t >= c.start && t <= c.end);
+      setSubtitleText(cue?.text || '');
+    }, 100);
+
+    return () => clearInterval(interval);
+  }, [currentSubtitle]);
 
   const fmtTime = (seconds: number) => {
     if (!seconds || !isFinite(seconds)) return '0:00';
@@ -482,6 +512,15 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
         playsInline
         crossOrigin="anonymous"
       />
+
+      {/* Subtitle overlay */}
+      {subtitleText && (
+        <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center max-w-[80%]">
+          <div className="inline-block px-4 py-2 rounded-lg bg-black/80 backdrop-blur-sm text-white text-[18px] leading-relaxed shadow-lg">
+            {subtitleText}
+          </div>
+        </div>
+      )}
 
       {/* Loading spinner */}
       {loading && (
