@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, ChevronRight, Clock, Calendar, Star } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
@@ -12,6 +13,7 @@ interface EpisodeDetailsProps {
 }
 
 export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisode }: EpisodeDetailsProps) {
+  const { t } = useTranslation();
   const [imgLoaded, setImgLoaded] = useState(false);
   const { data: series } = useDetails(episode.seriesId, 'tv');
   const { data: seasonEpisodes } = useSeason(episode.seriesId, episode.season);
@@ -48,7 +50,7 @@ export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisod
         <div className="absolute inset-x-0 bottom-0 p-8 lg:p-12">
           <div className="max-w-2xl animate-detail-rise">
             <div className="mb-2 flex items-center gap-2.5">
-              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">С{episode.season} · Э{episode.episode}</span>
+              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">{t('episode.season')}{episode.season} · {t('episode.episode')}{episode.episode}</span>
               <span className="h-px w-5 bg-amber-200/20" />
               <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/40">{series.name}</span>
             </div>
@@ -77,12 +79,12 @@ export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisod
             className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95"
             style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
           >
-            <Play className="h-4 w-4 fill-current" />{episode.progress ? 'Продолжить' : 'Смотреть'}
+            <Play className="h-4 w-4 fill-current" />{episode.progress ? t('common.continue') : t('common.watch')}
           </button>
         </div>
 
         <div className="mt-10 max-w-2xl animate-detail-rise" style={{ animationDelay: '150ms' }}>
-          <h3 className="mb-3 text-display text-[18px] font-medium text-white/85">Описание</h3>
+          <h3 className="mb-3 text-display text-[18px] font-medium text-white/85">{t('episode.description')}</h3>
           <p className="text-[16px] leading-[1.75] text-white/72">{episode.synopsis}</p>
         </div>
 
@@ -91,16 +93,16 @@ export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisod
             <button onClick={() => onSelectEpisode(prevEp)} className="group flex items-center gap-3 rounded-[14px] glass-panel p-3 text-left transition-cinematic hover:bg-white/[0.06]">
               <ChevronLeft className="h-5 w-5 text-white/40 transition-cinematic group-hover:text-white/80" strokeWidth={1.5} />
               <div>
-                <div className="text-[10px] uppercase tracking-[0.14em] text-white/30">Предыдущий</div>
-                <div className="text-[13px] font-medium text-white/80">Э{prevEp.episode} · {prevEp.title}</div>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-white/30">{t('episode.previous')}</div>
+                <div className="text-[13px] font-medium text-white/80">{t('episode.episode')}{prevEp.episode} · {prevEp.title}</div>
               </div>
             </button>
           ) : <div />}
           {nextEp ? (
             <button onClick={() => onSelectEpisode(nextEp)} className="group flex items-center gap-3 rounded-[14px] glass-panel p-3 text-right transition-cinematic hover:bg-white/[0.06]">
               <div>
-                <div className="text-[10px] uppercase tracking-[0.14em] text-white/30">Следующий</div>
-                <div className="text-[13px] font-medium text-white/80">Э{nextEp.episode} · {nextEp.title}</div>
+                <div className="text-[10px] uppercase tracking-[0.14em] text-white/30">{t('episode.next')}</div>
+                <div className="text-[13px] font-medium text-white/80">{t('episode.episode')}{nextEp.episode} · {nextEp.title}</div>
               </div>
               <ChevronRight className="h-5 w-5 text-white/40 transition-cinematic group-hover:text-white/80" strokeWidth={1.5} />
             </button>
