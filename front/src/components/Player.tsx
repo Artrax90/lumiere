@@ -448,7 +448,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     urlObj.searchParams.set('audio', String(id));
     const newUrl = urlObj.pathname + urlObj.search;
 
-    // Create new HLS instance
+    // Create new HLS instance with startPosition
     const hls = new Hls({
       maxBufferLength: 120,
       maxMaxBufferLength: 300,
@@ -457,6 +457,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
       fragLoadingTimeOut: 30000,
       manifestLoadingTimeOut: 30000,
       levelLoadingTimeOut: 30000,
+      startPosition: saveTime > 0 ? saveTime : -1,
     });
     hlsRef.current = hls;
 
@@ -465,16 +466,16 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setLoading(false);
-      // Restore position
-      if (saveTime > 0) {
+      // Double-check position restore
+      if (saveTime > 0 && Math.abs(video.currentTime - saveTime) > 2) {
         video.currentTime = saveTime;
       }
       // Resume playback if it was playing before
       if (wasPlaying) {
         video.play().catch(() => {});
       }
-      // Reset audio switch flag after a short delay
-      setTimeout(() => { audioSwitchRef.current = false; }, 500);
+      // Reset audio switch flag
+      setTimeout(() => { audioSwitchRef.current = false; }, 1000);
     });
 
     hls.on(Hls.Events.ERROR, (_event, data) => {
@@ -511,20 +512,33 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
         }
         const vtt = await res.text();
         console.log('Subtitle VTT received:', vtt.length, 'bytes');
-        // Parse WebVTT cues
+        // Parse WebVTT cues — handle both \n and \r\n, skip WEBVTT header
         const cues: Array<{ start: number; end: number; text: string }> = [];
-        const blocks = vtt.split(/\n\s*\n/);
+        // Normalize line endings and split into blocks
+        const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const blocks = normalized.split(/\n\n+/);
         for (const block of blocks) {
           const lines = block.trim().split('\n');
           if (lines.length < 2) continue;
-          const timeMatch = lines[0].match(/(\d{2}:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2}\.\d{3})/);
+          // Skip WEBVTT header and NOTE blocks
+          if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
+          // Find the timestamp line (might not be the first line due to cue identifiers)
+          let timeLineIndex = -1;
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes('-->')) {
+              timeLineIndex = i;
+              break;
+            }
+          }
+          if (timeLineIndex === -1) continue;
+          const timeMatch = lines[timeLineIndex].match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})/);
           if (!timeMatch) continue;
-          const start = parseVttTime(timeMatch[1]);
-          const end = parseVttTime(timeMatch[2]);
-          const text = lines.slice(1).join('\n');
-          cues.push({ start, end, text });
+          const start = parseVttTime(timeMatch[1].replace(',', '.'));
+          const end = parseVttTime(timeMatch[2].replace(',', '.'));
+          const text = lines.slice(timeLineIndex + 1).join('\n').trim();
+          if (text) cues.push({ start, end, text });
         }
-        console.log('Parsed subtitle cues:', cues.length);
+        console.log('Parsed subtitle cues:', cues.length, cues.slice(0, 3));
         subtitleCuesRef.current = cues;
         setLoading(false);
       } catch (err) {
@@ -543,10 +557,17 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
 
   const parseVttTime = (time: string): number => {
     const parts = time.split(':');
-    const h = parseInt(parts[0]);
-    const m = parseInt(parts[1]);
-    const s = parseFloat(parts[2]);
-    return h * 3600 + m * 60 + s;
+    if (parts.length === 3) {
+      const h = parseInt(parts[0]);
+      const m = parseInt(parts[1]);
+      const s = parseFloat(parts[2].replace(',', '.'));
+      return h * 3600 + m * 60 + s;
+    } else if (parts.length === 2) {
+      const m = parseInt(parts[0]);
+      const s = parseFloat(parts[1].replace(',', '.'));
+      return m * 60 + s;
+    }
+    return 0;
   };
 
   // Update subtitle display
