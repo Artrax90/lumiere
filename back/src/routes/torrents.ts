@@ -448,7 +448,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
       await waitForPlaylists();
 
-      // Rewrite segment URLs in all playlists
+      // Rewrite segment URLs in all playlists to absolute paths
       const rewritePlaylist = (playlistPath: string, dir: string) => {
         if (!existsSync(playlistPath)) return;
         let content = readFileSync(playlistPath, 'utf-8');
@@ -461,13 +461,13 @@ export function torrentRoutes(app: FastifyInstance) {
         rewritePlaylist(join(audioDirs[i], 'playlist.m3u8'), `audio-${i}`);
       });
 
-      // Generate master manifest
+      // Generate master manifest with absolute URLs
       const audioTags = audioTracks.map((track, i) => {
         const name = langMap[track.lang] || track.name;
-        return `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${name}",DEFAULT=${i === 0 ? 'YES' : 'NO'},AUTOSELECT=YES,URI="audio-${i}/playlist.m3u8"`;
+        return `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${name}",DEFAULT=${i === 0 ? 'YES' : 'NO'},AUTOSELECT=YES,URI="/api/torrents/hls-playlist?session=${sessionId}&dir=audio-${i}"`;
       }).join('\n');
 
-      const masterManifest = `#EXTM3U\n${audioTags}\n#EXT-X-STREAM-INF:BANDWIDTH=4000000,AUDIO="audio"\nvideo/playlist.m3u8`;
+      const masterManifest = `#EXTM3U\n${audioTags}\n#EXT-X-STREAM-INF:BANDWIDTH=4000000,AUDIO="audio"\n/api/torrents/hls-playlist?session=${sessionId}&dir=video`;
       writeFileSync(join(hlsDir, 'master.m3u8'), masterManifest);
 
       reply.header('Content-Type', 'application/vnd.apple.mpegurl');
@@ -539,6 +539,34 @@ export function torrentRoutes(app: FastifyInstance) {
       reply.code(500);
       return { error: 'FFmpeg failed to generate manifest' };
     }
+  });
+
+  // Serve HLS sub-playlists (video/audio tracks)
+  app.get('/api/torrents/hls-playlist', async (req, reply) => {
+    const { session, dir } = req.query as { session?: string; dir?: string };
+
+    if (!session || !dir) {
+      return reply.code(400).send({ error: 'session and dir required' });
+    }
+
+    // Sanitize dir to prevent path traversal
+    if (!/^(video|audio-\d+)$/.test(dir)) {
+      return reply.code(400).send({ error: 'invalid dir' });
+    }
+
+    const { readFileSync, existsSync } = await import('fs');
+    const { join } = await import('path');
+    const playlistPath = join(`/tmp/hls-${session}`, dir, 'playlist.m3u8');
+
+    if (!existsSync(playlistPath)) {
+      reply.code(404);
+      return { error: 'Playlist not found' };
+    }
+
+    reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Cache-Control', 'no-cache');
+    return reply.send(readFileSync(playlistPath, 'utf-8'));
   });
 
   // Extract subtitles from torrent
