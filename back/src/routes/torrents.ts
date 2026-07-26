@@ -238,22 +238,34 @@ export function torrentRoutes(app: FastifyInstance) {
       ).toString();
       const streams = JSON.parse(probe).streams || [];
 
+      const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
+      const codecMap: Record<string, string> = {
+        aac: 'AAC', ac3: 'AC3', eac3: 'EAC3', dts: 'DTS', truehd: 'TrueHD',
+        mp3: 'MP3', flac: 'FLAC', opus: 'Opus', vorbis: 'Vorbis', pcm: 'PCM',
+      };
+      const channelMap: Record<number, string> = { 1: 'Mono', 2: 'Stereo', 6: '5.1', 8: '7.1' };
+
       const audioTracks = streams
         .filter((s: any) => s.codec_type === 'audio')
-        .map((s: any, i: number) => ({
-          id: i,
-          lang: s.tags?.language || 'und',
-          name: s.tags?.title || s.tags?.language || `Аудио ${i + 1}`,
-          codec: s.codec_name,
-          channels: s.channels || 2,
-        }));
+        .map((s: any, i: number) => {
+          const lang = langMap[s.tags?.language] || s.tags?.language || 'Неизвестно';
+          const codec = codecMap[s.codec_name?.toLowerCase()] || s.codec_name?.toUpperCase() || '';
+          const channels = channelMap[s.channels] || (s.channels ? `${s.channels}ch` : '');
+          const title = s.tags?.title || '';
+          // Build descriptive name: "Русский DTS 5.1" or "Русский (author) DTS 5.1"
+          let name = lang;
+          if (title && title !== s.tags?.language) name += ` (${title})`;
+          if (codec) name += ` ${codec}`;
+          if (channels) name += ` ${channels}`;
+          return { id: i, lang: s.tags?.language || 'und', name, codec: s.codec_name, channels: s.channels || 2 };
+        });
 
       const subtitleTracks = streams
         .filter((s: any) => s.codec_type === 'subtitle')
         .map((s: any, i: number) => ({
           id: i,
           lang: s.tags?.language || 'und',
-          name: s.tags?.title || s.tags?.language || `Субтитры ${i + 1}`,
+          name: s.tags?.title || langMap[s.tags?.language] || s.tags?.language || `Субтитры ${i + 1}`,
           codec: s.codec_name,
         }));
 
@@ -301,45 +313,37 @@ export function torrentRoutes(app: FastifyInstance) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
-  // HLS transcoding endpoint — remuxes MKV/AVI to HLS via FFmpeg with multi-audio support
+  // HLS transcoding endpoint — remuxes MKV/AVI to HLS via FFmpeg
   // Track active FFmpeg sessions
   const activeSessions = new Map<string, { pid: number; hlsDir: string }>();
 
   app.get('/api/torrents/hls', async (req, reply) => {
-    const { link, index } = req.query as { link?: string; index?: string };
+    const { link, index, audio } = req.query as { link?: string; index?: string; audio?: string };
 
     if (!link) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
+    const audioIndex = parseInt(audio || '0', 10) || 0;
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
-    const sessionId = createHash('sha256').update(`${link}-${index}`).digest('hex').slice(0, 32);
+    // Include audio index in session ID so different audio tracks get different sessions
+    const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}`).digest('hex').slice(0, 32);
     const hlsDir = `/tmp/hls-${sessionId}`;
 
-    const { mkdirSync, existsSync, readFileSync, writeFileSync } = await import('fs');
+    const { mkdirSync, existsSync, readFileSync } = await import('fs');
     const { join } = await import('path');
+    const playlistPath = join(hlsDir, 'playlist.m3u8');
 
     // Check if session is already active
     const existingSession = activeSessions.get(sessionId);
-    if (existingSession) {
-      // Check for master manifest (multi-audio) or single playlist
-      const masterPath = join(hlsDir, 'master.m3u8');
-      const playlistPath = join(hlsDir, 'playlist.m3u8');
-      if (existsSync(masterPath)) {
-        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-        reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cache-Control', 'no-cache');
-        return reply.send(readFileSync(masterPath, 'utf-8'));
-      }
-      if (existsSync(playlistPath)) {
-        let manifest = readFileSync(playlistPath, 'utf-8');
-        manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-        reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cache-Control', 'no-cache');
-        return reply.send(manifest);
-      }
+    if (existingSession && existsSync(playlistPath)) {
+      let manifest = readFileSync(playlistPath, 'utf-8');
+      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cache-Control', 'no-cache');
+      return reply.send(manifest);
     }
 
     // Clean up old session if exists
@@ -352,221 +356,67 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Probe audio tracks
-    let audioTracks: Array<{ lang: string; name: string }> = [];
-    try {
-      const { execSync: execSyncProbe } = await import('child_process');
-      const probe = execSyncProbe(
-        `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
-        { timeout: 15000 }
-      ).toString();
-      const streams = JSON.parse(probe).streams || [];
-      audioTracks = streams
-        .filter((s: any) => s.codec_type === 'audio')
-        .map((s: any) => ({
-          lang: s.tags?.language || 'und',
-          name: s.tags?.title || s.tags?.language || 'Unknown',
-        }));
-    } catch {}
-
-    const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
+    // Start FFmpeg with selected audio track
     const { spawn } = await import('child_process');
+    const ffmpeg = spawn('ffmpeg', [
+      '-reconnect', '1',
+      '-reconnect_streamed', '1',
+      '-reconnect_delay_max', '5',
+      '-i', streamUrl,
+      '-ss', '0',
+      '-map', '0:v:0',
+      '-map', `0:a:${audioIndex}`,
+      '-c:v', 'copy',
+      '-c:a', 'aac',
+      '-b:a', '192k',
+      '-ac', '2',
+      '-f', 'hls',
+      '-hls_time', '6',
+      '-hls_list_size', '0',
+      '-hls_flags', 'append_list',
+      '-hls_segment_type', 'mpegts',
+      '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
+      '-y',
+      playlistPath,
+    ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    if (audioTracks.length > 1) {
-      // Multi-audio: create separate video and audio HLS streams
-      const videoDir = join(hlsDir, 'video');
-      const audioDirs = audioTracks.map((_, i) => join(hlsDir, `audio-${i}`));
+    activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
+    ffmpeg.on('close', () => activeSessions.delete(sessionId));
 
-      mkdirSync(videoDir, { recursive: true });
-      audioDirs.forEach(d => mkdirSync(d, { recursive: true }));
-
-      const ffmpegArgs = [
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-i', streamUrl,
-        '-ss', '0',
-        // Video output
-        '-map', '0:v:0',
-        '-c:v', 'copy',
-        '-f', 'hls',
-        '-hls_time', '6',
-        '-hls_list_size', '0',
-        '-hls_flags', 'append_list',
-        '-hls_segment_type', 'mpegts',
-        '-hls_segment_filename', join(videoDir, 'seg-%d.ts'),
-        join(videoDir, 'playlist.m3u8'),
-      ];
-
-      // Add audio outputs
-      audioTracks.forEach((_, i) => {
-        ffmpegArgs.push(
-          '-map', `0:a:${i}`,
-          '-c:a', 'aac',
-          '-b:a', '192k',
-          '-ac', '2',
-          '-f', 'hls',
-          '-hls_time', '6',
-          '-hls_list_size', '0',
-          '-hls_flags', 'append_list',
-          '-hls_segment_type', 'mpegts',
-          '-hls_segment_filename', join(audioDirs[i], 'seg-%d.ts'),
-          join(audioDirs[i], 'playlist.m3u8'),
-        );
-      });
-
-      ffmpegArgs.push('-y');
-
-      const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
-
-      ffmpeg.on('close', () => activeSessions.delete(sessionId));
-
-      // Wait for all playlists
-      const waitForPlaylists = () => new Promise<void>((resolve) => {
-        let attempts = 0;
-        const check = () => {
-          const videoPlaylist = join(videoDir, 'playlist.m3u8');
-          const allReady = existsSync(videoPlaylist) &&
-            audioDirs.every(d => existsSync(join(d, 'playlist.m3u8')));
-
-          if (allReady) {
-            const content = readFileSync(videoPlaylist, 'utf-8');
-            if (content.includes('.ts')) {
-              resolve();
-              return;
-            }
-          }
-          if (attempts++ < 150) {
-            setTimeout(check, 200);
-          } else {
+    // Wait for playlist
+    const waitForPlaylist = () => new Promise<void>((resolve) => {
+      let attempts = 0;
+      const check = () => {
+        if (existsSync(playlistPath)) {
+          const content = readFileSync(playlistPath, 'utf-8');
+          if (content.includes('.ts')) {
             resolve();
+            return;
           }
-        };
-        check();
-      });
-
-      await waitForPlaylists();
-
-      // Rewrite segment URLs in all playlists to absolute paths
-      const rewritePlaylist = (playlistPath: string, dir: string) => {
-        if (!existsSync(playlistPath)) return;
-        let content = readFileSync(playlistPath, 'utf-8');
-        content = content.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&dir=${dir}&id=$1`);
-        writeFileSync(playlistPath, content);
+        }
+        if (attempts++ < 150) {
+          setTimeout(check, 200);
+        } else {
+          resolve();
+        }
       };
+      check();
+    });
 
-      rewritePlaylist(join(videoDir, 'playlist.m3u8'), 'video');
-      audioTracks.forEach((_, i) => {
-        rewritePlaylist(join(audioDirs[i], 'playlist.m3u8'), `audio-${i}`);
-      });
+    await waitForPlaylist();
 
-      // Generate master manifest with absolute URLs
-      const audioTags = audioTracks.map((track, i) => {
-        const name = langMap[track.lang] || track.name;
-        return `#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="audio",NAME="${name}",DEFAULT=${i === 0 ? 'YES' : 'NO'},AUTOSELECT=YES,URI="/api/torrents/hls-playlist?session=${sessionId}&dir=audio-${i}"`;
-      }).join('\n');
-
-      const masterManifest = `#EXTM3U\n${audioTags}\n#EXT-X-STREAM-INF:BANDWIDTH=4000000,AUDIO="audio"\n/api/torrents/hls-playlist?session=${sessionId}&dir=video`;
-      writeFileSync(join(hlsDir, 'master.m3u8'), masterManifest);
+    if (existsSync(playlistPath)) {
+      let manifest = readFileSync(playlistPath, 'utf-8');
+      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
 
       reply.header('Content-Type', 'application/vnd.apple.mpegurl');
       reply.header('Access-Control-Allow-Origin', '*');
       reply.header('Cache-Control', 'no-cache');
-      return reply.send(masterManifest);
-
-    } else {
-      // Single audio: use simple approach (video+audio in one stream)
-      const playlistPath = join(hlsDir, 'playlist.m3u8');
-
-      const ffmpeg = spawn('ffmpeg', [
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-i', streamUrl,
-        '-ss', '0',
-        '-map', '0:v:0',
-        '-map', '0:a:0',
-        '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-ac', '2',
-        '-f', 'hls',
-        '-hls_time', '6',
-        '-hls_list_size', '0',
-        '-hls_flags', 'append_list',
-        '-hls_segment_type', 'mpegts',
-        '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-        '-y',
-        playlistPath,
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
-      ffmpeg.on('close', () => activeSessions.delete(sessionId));
-
-      // Wait for playlist
-      const waitForPlaylist = () => new Promise<void>((resolve) => {
-        let attempts = 0;
-        const check = () => {
-          if (existsSync(playlistPath)) {
-            const content = readFileSync(playlistPath, 'utf-8');
-            if (content.includes('.ts')) {
-              resolve();
-              return;
-            }
-          }
-          if (attempts++ < 150) {
-            setTimeout(check, 200);
-          } else {
-            resolve();
-          }
-        };
-        check();
-      });
-
-      await waitForPlaylist();
-
-      if (existsSync(playlistPath)) {
-        let manifest = readFileSync(playlistPath, 'utf-8');
-        manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-
-        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-        reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cache-Control', 'no-cache');
-        return reply.send(manifest);
-      }
-
-      reply.code(500);
-      return { error: 'FFmpeg failed to generate manifest' };
-    }
-  });
-
-  // Serve HLS sub-playlists (video/audio tracks)
-  app.get('/api/torrents/hls-playlist', async (req, reply) => {
-    const { session, dir } = req.query as { session?: string; dir?: string };
-
-    if (!session || !dir) {
-      return reply.code(400).send({ error: 'session and dir required' });
+      return reply.send(manifest);
     }
 
-    // Sanitize dir to prevent path traversal
-    if (!/^(video|audio-\d+)$/.test(dir)) {
-      return reply.code(400).send({ error: 'invalid dir' });
-    }
-
-    const { readFileSync, existsSync } = await import('fs');
-    const { join } = await import('path');
-    const playlistPath = join(`/tmp/hls-${session}`, dir, 'playlist.m3u8');
-
-    if (!existsSync(playlistPath)) {
-      reply.code(404);
-      return { error: 'Playlist not found' };
-    }
-
-    reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Cache-Control', 'no-cache');
-    return reply.send(readFileSync(playlistPath, 'utf-8'));
+    reply.code(500);
+    return { error: 'FFmpeg failed to generate manifest' };
   });
 
   // Extract subtitles from torrent

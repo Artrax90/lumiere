@@ -28,6 +28,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
   const [error, setError] = useState('');
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
@@ -131,7 +132,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    const url = title.videoUrl!;
+    // Build URL with audio parameter for torrent streams
+    let url = title.videoUrl!;
+    if (url.includes('/api/torrents/hls') && currentAudioIndex > 0) {
+      const urlObj = new URL(url, window.location.origin);
+      urlObj.searchParams.set('audio', String(currentAudioIndex));
+      url = urlObj.pathname + urlObj.search;
+    }
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
@@ -409,11 +416,65 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate }: Pla
   };
 
   const setAudio = (id: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.audioTrack = id;
-      setCurrentAudio(id);
+    if (!title.videoUrl?.includes('/api/torrents/hls')) {
+      // For non-torrent HLS, use built-in switching
+      if (hlsRef.current) {
+        hlsRef.current.audioTrack = id;
+        setCurrentAudio(id);
+      }
+      setSettingsPanel('none');
+      return;
     }
+
+    // For torrent HLS: reload with new audio track
+    const video = videoRef.current;
+    if (!video) return;
+
+    const saveTime = video.currentTime;
+    setCurrentAudioIndex(id);
+    setCurrentAudio(id);
     setSettingsPanel('none');
+    setLoading(true);
+
+    // Destroy current HLS instance
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    // Build new URL with audio parameter
+    const urlObj = new URL(title.videoUrl, window.location.origin);
+    urlObj.searchParams.set('audio', String(id));
+    const newUrl = urlObj.pathname + urlObj.search;
+
+    // Create new HLS instance
+    const hls = new Hls({
+      maxBufferLength: 120,
+      maxMaxBufferLength: 300,
+      startLevel: -1,
+      debug: false,
+      fragLoadingTimeOut: 30000,
+      manifestLoadingTimeOut: 30000,
+      levelLoadingTimeOut: 30000,
+    });
+    hlsRef.current = hls;
+
+    hls.loadSource(newUrl);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      setLoading(false);
+      video.currentTime = saveTime;
+      video.play().catch(() => {});
+    });
+
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) {
+        console.error('HLS fatal error:', data);
+        setError('Ошибка загрузки видео');
+        setLoading(false);
+      }
+    });
   };
 
   const setSubtitle = async (id: number) => {
