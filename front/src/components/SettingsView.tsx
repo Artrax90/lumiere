@@ -189,7 +189,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                 </div>
                 {/* Language switcher */}
                 <div className="border-t border-white/[0.06] pt-6">
-                  <div className="mb-3 text-[13px] font-medium text-white/70">Язык / Language</div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">{t('settings.language')}</div>
                   <div className="flex gap-2">
                     {[
                       { id: 'ru', label: 'Русский' },
@@ -234,7 +234,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                   />
                 ))}
                 <div className="mt-6 border-t border-white/[0.06] pt-6">
-                  <div className="mb-3 text-[13px] font-medium text-white/70">Максимальное качество</div>
+                  <div className="mb-3 text-[13px] font-medium text-white/70">{t('common.quality')}</div>
                   <div className="flex gap-2">
                     {['Auto', '4K', '1080p', '720p'].map((q) => (
                       <button
@@ -261,21 +261,21 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                 {!usersLoaded ? (
                   <div className="flex items-center gap-3 text-[13px] text-white/50">
                     <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white/60" />
-                    Загрузка...
+                    {t('common.loading')}
                   </div>
                 ) : isAdmin ? (
                   <>
-                    <p className="text-[13px] text-white/50">Создавайте учётные записи для пользователей, которые заходят извне.</p>
+                    <p className="text-[13px] text-white/50">{t('settings.accountsDesc')}</p>
 
                     {/* Create user form */}
                     <form onSubmit={handleCreateUser} className="space-y-4 rounded-[14px] border border-white/[0.06] p-5">
-                      <div className="text-[14px] font-medium text-white/85">Новый пользователь</div>
+                      <div className="text-[14px] font-medium text-white/85">{t('settings.newUser')}</div>
                       <div className="grid gap-3 md:grid-cols-2">
                         <input
                           type="text"
                           value={newUserName}
                           onChange={(e) => setNewUserName(e.target.value)}
-                          placeholder="Имя"
+                          placeholder={t('settings.name')}
                           required
                           className="rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/30"
                         />
@@ -293,7 +293,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                           type="password"
                           value={newUserPassword}
                           onChange={(e) => setNewUserPassword(e.target.value)}
-                          placeholder="Пароль (мин. 6 символов)"
+                          placeholder={t('settings.password')}
                           required
                           minLength={6}
                           className="flex-1 rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/30"
@@ -303,7 +303,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                           disabled={userLoading}
                           className="flex items-center gap-2 rounded-[10px] bg-amber-300/90 px-5 py-2.5 text-[13px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90 disabled:opacity-50"
                         >
-                          <Plus className="h-3.5 w-3.5" />Создать
+                          <Plus className="h-3.5 w-3.5" />{t('settings.create')}
                         </button>
                       </div>
                       {userError && (
@@ -313,7 +313,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
 
                     {/* Users list */}
                     <div className="space-y-2">
-                      <div className="text-[13px] font-medium text-white/70">Пользователи ({users.length})</div>
+                      <div className="text-[13px] font-medium text-white/70">{t('settings.users')} ({users.length})</div>
                       {users.map((u, i) => (
                         <div key={u.id} className="flex items-center justify-between rounded-[12px] bg-white/[0.03] border border-white/[0.05] px-4 py-3">
                           <div className="flex items-center gap-3">
@@ -343,7 +343,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                     </div>
                   </>
                 ) : (
-                  <p className="text-[14px] text-white/50">Только администратор может управлять пользователями.</p>
+                  <p className="text-[14px] text-white/50">{t('settings.adminOnly')}</p>
                 )}
               </div>
             )}
@@ -370,7 +370,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                 />
                 {/* Online Providers */}
                 <div className="rounded-[14px] border border-white/[0.06] p-5">
-                  <div className="text-[14px] font-medium text-white/85 mb-3">Онлайн-источники</div>
+                  <div className="text-[14px] font-medium text-white/85 mb-3">{t('settings.onlineProviders')}</div>
                   <div className="space-y-2">
                     {[
                       { name: 'Collaps', status: true },
@@ -379,7 +379,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                       <div key={p.name} className="flex items-center justify-between py-2">
                         <span className="text-[13px] text-white/70">{p.name}</span>
                         <span className={`text-[11px] ${p.status ? 'text-green-400/70' : 'text-white/30'}`}>
-                          {p.status ? 'Активен' : 'Отключён'}
+                          {p.status ? t('settings.active') : t('settings.disabled')}
                         </span>
                       </div>
                     ))}
