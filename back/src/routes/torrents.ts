@@ -304,7 +304,19 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg to remux to HLS (video copy, audio transcode to AAC)
+    // Probe audio tracks first
+    const { execSync: execSyncProbe } = await import('child_process');
+    let audioCount = 1;
+    try {
+      const probe = execSyncProbe(
+        `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
+        { timeout: 15000 }
+      ).toString();
+      const streams = JSON.parse(probe).streams || [];
+      audioCount = streams.filter((s: any) => s.codec_type === 'audio').length;
+    } catch {}
+
+    // Start FFmpeg with first audio track (simple and reliable)
     const { spawn } = await import('child_process');
     const ffmpeg = spawn('ffmpeg', [
       '-reconnect', '1',
@@ -340,19 +352,18 @@ export function torrentRoutes(app: FastifyInstance) {
       // Suppress verbose FFmpeg output
     });
 
-    // Wait for first few segments to be ready (enough to start playback)
-    const waitForFirstSegments = () => new Promise<void>((resolve) => {
+    // Wait for first segments
+    const waitForSegments = () => new Promise<void>((resolve) => {
       let attempts = 0;
       const check = () => {
         if (existsSync(playlistPath)) {
           const content = readFileSync(playlistPath, 'utf-8');
-          const segCount = (content.match(/\.ts/g) || []).length;
-          if (segCount >= 3) {
+          if ((content.match(/\.ts/g) || []).length >= 2) {
             resolve();
             return;
           }
         }
-        if (attempts++ < 100) { // 20 seconds max
+        if (attempts++ < 150) {
           setTimeout(check, 200);
         } else {
           resolve();
@@ -361,23 +372,20 @@ export function torrentRoutes(app: FastifyInstance) {
       check();
     });
 
-    await waitForFirstSegments();
+    await waitForSegments();
 
-    // Return the HLS manifest (read fresh each time)
-    reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Cache-Control', 'no-cache');
+    // Return the manifest with segment URLs rewritten
+    if (existsSync(playlistPath)) {
+      let manifest = readFileSync(playlistPath, 'utf-8');
+      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Cache-Control', 'no-cache');
+      return reply.send(manifest);
+    }
 
-    // Read manifest and rewrite segment URLs
-    let manifest = readFileSync(playlistPath, 'utf-8');
-    
-    // Rewrite segment URLs to go through our API
-    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-    
-    // Don't add ENDLIST tag - let hls.js refresh the manifest as FFmpeg generates more segments
-    // When FFmpeg finishes, the manifest will stop updating and the player will reach the end
-
-    return reply.send(manifest);
+    reply.code(500);
+    return { error: 'FFmpeg failed to generate manifest' };
   });
 
   // Seek endpoint — restarts FFmpeg from a specific position
@@ -411,7 +419,8 @@ export function torrentRoutes(app: FastifyInstance) {
         '-ss', String(seekTime),
         '-i', streamUrl,
         '-map', '0:v:0',
-        '-map', '0:a:0',
+        '-map', '0:a',
+        '-map', '0:s?',
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-b:a', '192k',
