@@ -1,8 +1,9 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Sparkles } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { useAuth } from '@/contexts/AuthContext';
+import { syncClient } from '@/api/sync';
 
 // Save playback position to localStorage with timestamp and title info
 function savePlaybackPosition(titleId: number, time: number, title?: Title) {
@@ -88,6 +89,22 @@ export default function App() {
 
   const { data: trendingMovies } = useTrending('movie');
 
+  // Start sync when user is authenticated
+  useEffect(() => {
+    if (user) {
+      // Merge local data with server on login
+      syncClient.mergeWithServer();
+      // Start periodic sync (every 30 seconds)
+      syncClient.start(30000);
+    } else {
+      syncClient.stop();
+    }
+
+    return () => {
+      syncClient.stop();
+    };
+  }, [user]);
+
   const handleMoodChange = useCallback((m: Mood) => {
     setMood(m);
   }, []);
@@ -129,6 +146,16 @@ export default function App() {
     if (playing && Math.abs(time - lastSavedTime.current) > 5) {
       savePlaybackPosition(playing.id, time, playing);
       lastSavedTime.current = time;
+
+      // Sync to server
+      syncClient.saveWatchProgress({
+        tmdbId: playing.id,
+        mediaType: playing.type || 'movie',
+        titleName: playing.name,
+        poster: playing.poster,
+        progress: Math.floor(time),
+        timestamp: Date.now(),
+      });
     }
   }, [playing]);
 
