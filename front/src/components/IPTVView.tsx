@@ -520,13 +520,13 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <h3 className="text-[14px] font-medium text-white/70">Программа · {selectedChannel.name}</h3>
                   <span className="text-[11px] text-white/30">{getPrograms(selectedChannel).length} передач</span>
                 </div>
-                <div className="no-scrollbar flex gap-2 overflow-x-auto pb-2">
-                  {getPrograms(selectedChannel).map((program, idx) => {
+                <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                  {getPrograms(selectedChannel).slice(0, 12).map((program, idx) => {
                     const isCurrent = idx === 0;
                     return (
                       <div
                         key={idx}
-                        className={`shrink-0 rounded-[12px] px-4 py-3 min-w-[180px] transition-cinematic ${
+                        className={`rounded-[12px] px-3 py-2.5 transition-cinematic ${
                           isCurrent
                             ? 'bg-amber-300/10 border border-amber-300/20'
                             : 'bg-white/[0.03] border border-white/[0.06] hover:bg-white/[0.06]'
@@ -535,7 +535,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                         <div className="text-[10px] font-medium text-white/40 mb-1">{program.startTime} — {program.stopTime}</div>
                         <div className={`text-[12px] font-medium truncate ${isCurrent ? 'text-white/90' : 'text-white/60'}`}>{program.title}</div>
                         {isCurrent && (
-                          <div className="mt-2 text-[10px] text-amber-300/70 font-medium">Сейчас</div>
+                          <div className="mt-1.5 text-[10px] text-amber-300/70 font-medium">Сейчас</div>
                         )}
                       </div>
                     );
