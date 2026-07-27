@@ -6,6 +6,13 @@ import { useAuth } from '@/contexts/AuthContext';
 import { syncClient } from '@/api/sync';
 import { serverFetch } from '@/api/server';
 import ServerSetup from '@/components/ServerSetup';
+import { isTizen } from '@/hooks/usePlatform';
+import TvNav from '@/tv/TvNav';
+import TvHome from '@/tv/TvHome';
+import TvPlayer from '@/tv/TvPlayer';
+import { useFocus, type FocusableElement } from '@/tv/useFocus';
+
+const tv = isTizen();
 
 // Save playback position to localStorage with timestamp and title info
 function savePlaybackPosition(titleId: number, time: number, title?: Title) {
@@ -87,10 +94,30 @@ export default function App() {
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [playing, setPlaying] = useState<Title | null>(null);
   const [playingExternalSubs, setPlayingExternalSubs] = useState<any[]>([]);
-
   const [mood, setMood] = useState<Mood>('warm');
+  const [tvNavFocused, setTvNavFocused] = useState<string | null>(null);
 
   const { data: trendingMovies } = useTrending('movie');
+
+  // TV focus management
+  const tvNavElements: FocusableElement[] = [
+    { id: 'nav-home', row: 0, col: 0, onSelect: () => handleNavigate('home') },
+    { id: 'nav-movies', row: 1, col: 0, onSelect: () => handleNavigate('movies') },
+    { id: 'nav-shows', row: 2, col: 0, onSelect: () => handleNavigate('shows') },
+    { id: 'nav-anime', row: 3, col: 0, onSelect: () => handleNavigate('anime') },
+    { id: 'nav-iptv', row: 4, col: 0, onSelect: () => handleNavigate('iptv') },
+    { id: 'nav-collections', row: 5, col: 0, onSelect: () => handleNavigate('collections') },
+    { id: 'nav-search', row: 6, col: 0, onSelect: () => handleNavigate('search') },
+    { id: 'nav-settings', row: 7, col: 0, onSelect: () => handleNavigate('settings') },
+  ];
+
+  useFocus({
+    elements: tvNavElements,
+    initialFocus: 'nav-home',
+    onBack: () => {
+      if (section !== 'home') handleNavigate('home');
+    },
+  });
 
   // Start sync when user is authenticated
   useEffect(() => {
@@ -239,20 +266,33 @@ export default function App() {
   }
 
   return (
-    <div className="relative min-h-screen w-full">
+    <div className={`relative min-h-screen w-full ${tv ? 'pl-[220px]' : ''}`}>
       <AmbientBackground mood={mood} />
 
-      <TopNav active={section} onNavigate={handleNavigate} />
+      {tv ? (
+        <TvNav active={section} focusedId={tvNavFocused} onNavigate={handleNavigate} />
+      ) : (
+        <TopNav active={section} onNavigate={handleNavigate} />
+      )}
 
       <main className="pb-20 md:pb-0">
         {playing ? (
-          <Player
-            title={playing}
-            onExit={handlePlayerExit}
-            initialTime={getPlaybackPosition(playing.id)}
-            onTimeUpdate={handleTimeUpdate}
-            externalSubs={playingExternalSubs}
-          />
+          tv ? (
+            <TvPlayer
+              title={playing}
+              onExit={handlePlayerExit}
+              initialTime={getPlaybackPosition(playing.id)}
+              onTimeUpdate={handleTimeUpdate}
+            />
+          ) : (
+            <Player
+              title={playing}
+              onExit={handlePlayerExit}
+              initialTime={getPlaybackPosition(playing.id)}
+              onTimeUpdate={handleTimeUpdate}
+              externalSubs={playingExternalSubs}
+            />
+          )
         ) : selectedEpisode ? (
           <EpisodeDetails
             episode={selectedEpisode}
@@ -268,13 +308,17 @@ export default function App() {
             onSelect={handleSelect}
           />
         ) : section === 'home' ? (
-          <Home
-            heroTitles={trendingMovies}
-            onSelect={handleSelect}
-            onPlay={handlePlay}
-            onMoodChange={handleMoodChange}
-            mood={mood}
-          />
+          tv ? (
+            <TvHome onSelect={handleSelect} onPlay={handlePlay} />
+          ) : (
+            <Home
+              heroTitles={trendingMovies}
+              onSelect={handleSelect}
+              onPlay={handlePlay}
+              onMoodChange={handleMoodChange}
+              mood={mood}
+            />
+          )
         ) : section === 'search' ? (
           <SearchView onSelect={handleSelect} />
         ) : section === 'live' ? (

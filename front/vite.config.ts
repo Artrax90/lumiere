@@ -2,6 +2,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
+const isTizen = process.env.VITE_BUILD_MODE === 'tizen';
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -17,4 +19,11 @@ export default defineConfig({
   optimizeDeps: {
     exclude: ['lucide-react'],
   },
+  ...(isTizen && {
+    base: './',
+    build: {
+      outDir: 'tizen/dist',
+      emptyOutDir: true,
+    },
+  }),
 });

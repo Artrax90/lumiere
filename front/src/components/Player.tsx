@@ -4,6 +4,7 @@ import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
+import { Capacitor } from '@capacitor/core';
 
 interface ExternalSub {
   id: number;
@@ -431,9 +432,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
   // Fullscreen change detection
   useEffect(() => {
-    const onChange = () => setIsFullscreen(!!document.fullscreenElement);
+    const onChange = () => setIsFullscreen(!!document.fullscreenElement || !!(document as any).webkitFullscreenElement);
     document.addEventListener('fullscreenchange', onChange);
-    return () => document.removeEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
   }, []);
 
   const togglePlay = () => {
@@ -441,6 +446,55 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     if (!video) return;
     playing ? video.pause() : video.play();
     resetHideTimer();
+  };
+
+  // Double-tap seek state
+  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [seekIndicator, setSeekIndicator] = useState<{ text: string; side: 'left' | 'right' } | null>(null);
+  const seekIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleVideoAreaClick = (e: React.MouseEvent) => {
+    const now = Date.now();
+    const x = e.clientX;
+    const screenWidth = window.innerWidth;
+    const side = x < screenWidth / 2 ? 'left' : 'right';
+
+    // Double-tap detection (within 300ms, same half of screen)
+    if (now - lastTapRef.current.time < 300) {
+      const prevSide = lastTapRef.current.x < screenWidth / 2 ? 'left' : 'right';
+      if (side === prevSide) {
+        // Cancel pending single-tap
+        if (singleTapTimer.current) {
+          clearTimeout(singleTapTimer.current);
+          singleTapTimer.current = null;
+        }
+
+        // Double-tap confirmed → seek
+        const seconds = side === 'left' ? -10 : 10;
+        skip(seconds);
+
+        // Show indicator
+        setSeekIndicator({ text: `${seconds > 0 ? '+' : ''}${seconds}с`, side });
+        if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current);
+        seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 800);
+
+        lastTapRef.current = { time: 0, x: 0 };
+        return;
+      }
+    }
+
+    lastTapRef.current = { time: now, x };
+
+    // Delayed single-tap (wait for possible double-tap)
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = setTimeout(() => {
+      if (!showControls) {
+        resetHideTimer();
+      } else {
+        togglePlay();
+      }
+    }, 300);
   };
 
   const skip = (seconds: number) => {
@@ -460,10 +514,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   };
 
   const toggleFullscreen = () => {
-    const el = containerRef.current;
-    if (!el) return;
-    if (document.fullscreenElement) document.exitFullscreen();
-    else el.requestFullscreen();
+    if (Capacitor.isNativePlatform()) {
+      // Android: app is always fullscreen (immersive mode in MainActivity)
+      // Toggle controls visibility instead
+      setShowControls(prev => !prev);
+    } else {
+      // Web: standard Fullscreen API
+      const container = containerRef.current;
+      if (!container) return;
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else if (container.requestFullscreen) {
+        container.requestFullscreen();
+      }
+    }
   };
 
   const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -695,7 +759,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       ref={containerRef}
       className="fixed inset-0 z-[100] bg-black select-none"
       onMouseMove={resetHideTimer}
-      onClick={togglePlay}
+      onClick={handleVideoAreaClick}
     >
       {/* Video */}
       <video
@@ -704,6 +768,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         playsInline
         crossOrigin="anonymous"
       />
+
+      {/* Double-tap seek indicator */}
+      {seekIndicator && (
+        <div
+          className={`absolute top-1/2 -translate-y-1/2 z-30 pointer-events-none flex items-center gap-2 rounded-full bg-black/50 px-6 py-3 text-white text-[20px] font-semibold animate-fade-in ${
+            seekIndicator.side === 'left' ? 'left-[15%]' : 'right-[15%]'
+          }`}
+        >
+          {seekIndicator.side === 'left' ? (
+            <SkipBack className="h-5 w-5" />
+          ) : (
+            <SkipForward className="h-5 w-5" />
+          )}
+          {seekIndicator.text}
+        </div>
+      )}
 
       {/* Subtitle overlay */}
       {subtitleText && (

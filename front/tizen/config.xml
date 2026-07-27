@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:tizen="http://tizen.org/ns/widgets"
+        version="2.0.0">
+
+  <tizen:application id="com.lumiere.app" package="com.lumiere" version="1.0.0"/>
+
+  <name>Lumiere</name>
+  <description>Медиацентр нового поколения</description>
+
+  <author href="https://lumiere.app">
+    <email>admin@lumiere.app</email>
+  </author>
+
+  <license>MIT</license>
+
+  <icon src="icon.png"/>
+
+  <content src="index.html"/>
+
+  <!-- Привилегии -->
+  <tizen:privilege name="http://tizen.org/privilege/internet"/>
+  <tizen:privilege name="http://developer.samsung.com/privilege/network.public"/>
+
+  <!-- Доступ к сети -->
+  <access origin="*" subdomains="true"/>
+
+  <!-- Отключить тачпад Smart Remote — навигация только D-pad -->
+  <tizen:setting pointing-device-support="disable"/>
+
+  <!-- Превью в Smart Hub -->
+  <tizen:metadata key="http://samsung.com/tv/metadata/prelaunch.support" value="true"/>
+
+</widget>
