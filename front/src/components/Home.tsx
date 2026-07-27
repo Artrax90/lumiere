@@ -247,30 +247,6 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
           onSelect={onSelect}
         />
 
-        <section className="px-8 py-20 lg:px-14">
-          <h2 className="mb-6 text-display text-[21px] font-medium tracking-tight text-white/85">Настроение</h2>
-          <div className="flex flex-wrap gap-2">
-            {[
-              'Взрывное действие',
-              'Истории, которые запоминаются',
-              'Уютные вечера',
-              'Н mind-bending Sci-Fi',
-              'Все смотрят',
-              'Вечера для хорошего настроения',
-              'Лауреаты премий',
-              'Скрытые жемчужины',
-              'Семейный вечер',
-            ].map((g) => (
-              <button
-                key={g}
-                className="rounded-full border border-white/[0.05] bg-white/[0.015] px-5 py-2.5 text-[13px] font-medium text-white/45 transition-lux hover:bg-white/[0.05] hover:text-white/82"
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        </section>
-
         <footer className="px-8 py-16 lg:px-14">
           <div className="flex items-center justify-between border-t border-white/[0.035] pt-10">
             <div className="flex items-center gap-2.5">

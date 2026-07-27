@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import { Sparkles } from 'lucide-react';
+
 import type { Title, Episode } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { useAuth } from '@/contexts/AuthContext';
@@ -87,7 +87,7 @@ export default function App() {
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
   const [playing, setPlaying] = useState<Title | null>(null);
   const [playingExternalSubs, setPlayingExternalSubs] = useState<any[]>([]);
-  const [aiOpen, setAiOpen] = useState(false);
+
   const [mood, setMood] = useState<Mood>('warm');
 
   const { data: trendingMovies } = useTrending('movie');
@@ -191,8 +191,6 @@ export default function App() {
           setSelectedEpisode(null);
         } else if (selectedTitle) {
           setSelectedTitle(null);
-        } else if (aiOpen) {
-          setAiOpen(false);
         } else if (section === 'settings') {
           const evt = new Event('settings-back', { cancelable: true });
           const handled = !document.dispatchEvent(evt);
@@ -208,7 +206,7 @@ export default function App() {
     });
 
     return () => { removeListener?.(); };
-  }, [playing, selectedEpisode, selectedTitle, aiOpen, section, handlePlayerExit]);
+  }, [playing, selectedEpisode, selectedTitle, section, handlePlayerExit]);
 
   if (!serverReady) {
     return <ServerSetup onConnected={() => {}} />;
@@ -245,17 +243,6 @@ export default function App() {
       <AmbientBackground mood={mood} />
 
       <TopNav active={section} onNavigate={handleNavigate} />
-
-      {!playing && (
-        <button
-          onClick={() => setAiOpen(true)}
-          className="fixed bottom-24 right-8 z-40 flex items-center gap-2 rounded-full glass-strong px-5 py-3.5 text-[13px] font-medium text-white/85 shadow-2xl transition-cinematic hover:scale-105 hover:text-white md:bottom-8"
-          aria-label="Open assistant"
-        >
-          <Sparkles className="h-4 w-4 text-amber-300" strokeWidth={1.5} />
-          Ask Lumière
-        </button>
-      )}
 
       <main className="pb-20 md:pb-0">
         {playing ? (
