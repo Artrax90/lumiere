@@ -166,7 +166,7 @@ export default function SearchView({ onSelect }: SearchViewProps) {
                 <p className="mb-5 text-[13px] text-white/45">{results.length} результатов для "{query}"</p>
                 <div className="no-scrollbar flex flex-wrap gap-4">
                   {results.map((t) => (
-                    <Card key={t.id} title={t} variant="portrait" onSelect={onSelect} />
+                    <Card key={t.id} title={t} variant="portrait" onSelect={onSelect} fill />
                   ))}
                 </div>
               </>

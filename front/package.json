@@ -11,6 +11,10 @@
     "typecheck": "tsc --noEmit -p tsconfig.app.json"
   },
   "dependencies": {
+    "@capacitor/android": "^8.4.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/cli": "^7.6.8",
+    "@capacitor/core": "^8.4.2",
     "@supabase/supabase-js": "^2.57.4",
     "hls.js": "^1.6.16",
     "i18next": "^26.3.6",

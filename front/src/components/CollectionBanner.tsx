@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
+import SafeImg from './SafeImg';
 
 interface CollectionBannerProps {
   onSelect: (title: Title) => void;
@@ -42,7 +43,7 @@ export default function CollectionBanner({ onSelect }: CollectionBannerProps) {
               style={{ transform: isHovered ? 'translateY(-3px)' : 'translateY(0)', animationDelay: `${i * 100}ms` }}
             >
               {bgImage && (
-                <img
+                <SafeImg
                   src={bgImage}
                   alt={col.name}
                   className="absolute inset-0 h-full w-full object-cover transition-all duration-700 ease-out"

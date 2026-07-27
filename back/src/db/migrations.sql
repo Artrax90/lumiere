@@ -66,9 +66,21 @@ CREATE TABLE IF NOT EXISTS invite_codes (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+-- IPTV playlists table
+CREATE TABLE IF NOT EXISTS iptv_playlists (
+  id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  url VARCHAR(1000) NOT NULL,
+  epg_url VARCHAR(1000) DEFAULT '',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE(user_id, url)
+);
+
 -- Indexes
 CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_refresh_token ON sessions(refresh_token);
 CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON favorites(user_id);
 CREATE INDEX IF NOT EXISTS idx_watch_history_user_id ON watch_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_invite_codes_code ON invite_codes(code);
+CREATE INDEX IF NOT EXISTS idx_iptv_playlists_user_id ON iptv_playlists(user_id);

@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Star, Sparkles, TrendingUp, Award, Play } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useSearch } from '@/hooks/useSearch';
+import SafeImg from './SafeImg';
 import Card from './Card';
 
 interface AnimeViewProps {
@@ -35,7 +36,7 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
             onClick={() => onSelect(featured)}
             className="group relative mb-12 block h-64 w-full overflow-hidden rounded-[20px] text-left transition-cinematic hover:scale-[1.01] animate-detail-rise md:h-72"
           >
-            <img src={featured.backdrop} alt={featured.name} className="absolute inset-0 h-full w-full object-cover transition-cinematic group-hover:scale-105" style={{ filter: 'saturate(1.15) brightness(0.75)' }} />
+            <SafeImg src={featured.backdrop} alt={featured.name} className="absolute inset-0 h-full w-full object-cover transition-cinematic group-hover:scale-105" style={{ filter: 'saturate(1.15) brightness(0.75)' }} />
             <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(200,100,150,0.15) 0%, transparent 55%)' }} />
             <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-[#08080a]/30 to-transparent" />
             <div className="absolute inset-0 bg-gradient-to-r from-[#08080a]/70 to-transparent" />

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Download, Pause, Play, Trash2, Loader2, HardDrive, ArrowDown, ArrowUp } from 'lucide-react';
+import { serverFetch } from '@/api/server';
 
 interface TorrentDownload {
   hash: string;
@@ -26,7 +27,7 @@ export default function DownloadManager() {
   const fetchTorrents = useCallback(async () => {
     try {
       const token = localStorage.getItem('lumiere_access');
-      const res = await fetch('/api/downloads', {
+      const res = await serverFetch('/api/downloads', {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await res.json();
@@ -49,7 +50,7 @@ export default function DownloadManager() {
     setAdding(true);
     try {
       const token = localStorage.getItem('lumiere_access');
-      await fetch('/api/downloads/add', {
+      await serverFetch('/api/downloads/add', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -69,7 +70,7 @@ export default function DownloadManager() {
   const pauseTorrent = async (hash: string) => {
     try {
       const token = localStorage.getItem('lumiere_access');
-      await fetch(`/api/downloads/${hash}/pause`, {
+      await serverFetch(`/api/downloads/${hash}/pause`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -80,7 +81,7 @@ export default function DownloadManager() {
   const resumeTorrent = async (hash: string) => {
     try {
       const token = localStorage.getItem('lumiere_access');
-      await fetch(`/api/downloads/${hash}/resume`, {
+      await serverFetch(`/api/downloads/${hash}/resume`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -91,7 +92,7 @@ export default function DownloadManager() {
   const deleteTorrent = async (hash: string) => {
     try {
       const token = localStorage.getItem('lumiere_access');
-      await fetch(`/api/downloads/${hash}?deleteFiles=false`, {
+      await serverFetch(`/api/downloads/${hash}?deleteFiles=false`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` },
       });
@@ -129,7 +130,7 @@ export default function DownloadManager() {
 
         {/* Add torrent */}
         <div className="mb-8 glass-panel rounded-[20px] p-6 animate-row-reveal">
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row">
             <input
               type="text"
               value={magnetInput}

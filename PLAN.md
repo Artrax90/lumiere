@@ -280,6 +280,7 @@ services:
 12. DLNA
 13. Watch Together
 14. AdminPanel
+15. Settings UI: категории открываются в полноэкранном окне (не инлайн)
 
 ---
 

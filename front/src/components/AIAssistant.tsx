@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Sparkles, X, Send, Mic } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 const mockTitles: Title[] = [
   { id: 1, tmdbId: 1, name: 'Интерстеллар', type: 'movie', year: 2014, runtime: '2h 49m', rating: 'PG-13', score: 8.6, genres: ['Sci-Fi', 'Drama'], description: 'Команда исследователей путешествует через червоточину в космосе.', backdrop: 'https://images.pexels.com/photos/733047/pexels-photo-733047.jpeg?auto=compress&cs=tinysrgb&w=1600', poster: 'https://images.pexels.com/photos/733047/pexels-photo-733047.jpeg?auto=compress&cs=tinysrgb&w=800&h=1200&fit=crop', logoText: 'Интерстеллар' },
@@ -116,7 +117,7 @@ export default function AIAssistant({ open, onClose, onSelect }: AIAssistantProp
                               className="group/shrink w-28 shrink-0 text-left"
                             >
                               <div className="aspect-[2/3] overflow-hidden rounded-lg">
-                                <img
+                                <SafeImg
                                   src={t.poster}
                                   alt={t.name}
                                   className="h-full w-full object-cover transition-cinematic group-hover/shrink:scale-105"

@@ -3,6 +3,7 @@ import { ChevronDown, Star, ArrowUpDown } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
 import { useGenres } from '@/hooks/useGenres';
+import SafeImg from './SafeImg';
 import Card from './Card';
 
 interface MoviesLibraryProps {
@@ -53,7 +54,7 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
               <span className="text-[12px] font-medium uppercase tracking-[0.12em] text-white/50">Выбор редакции</span>
             </div>
             <button onClick={() => onSelect(featured)} className="group relative h-72 w-full overflow-hidden rounded-[20px] text-left md:h-80">
-              <img src={featured.backdrop} alt={featured.name} className="absolute inset-0 h-full w-full object-cover transition-cinematic group-hover:scale-105" />
+              <SafeImg src={featured.backdrop} alt={featured.name} className="absolute inset-0 h-full w-full object-cover transition-cinematic group-hover:scale-105" />
               <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
               <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent" />
               <div className="absolute bottom-0 left-0 p-8 lg:p-10">
@@ -128,7 +129,7 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
         <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
           {rest.map((t, i) => (
             <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 40, 600)}ms` }}>
-              <Card title={t} variant="portrait" onSelect={onSelect} />
+              <Card title={t} variant="portrait" onSelect={onSelect} fill />
             </div>
           ))}
         </div>

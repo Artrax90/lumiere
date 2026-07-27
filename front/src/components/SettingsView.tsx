@@ -32,6 +32,30 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const { user } = useAuth();
   const { t, i18n } = useTranslation();
   const [active, setActive] = useState('appearance');
+  const [mobileCategory, setMobileCategory] = useState<string | null>(null);
+
+  // Push history state when entering a category, pop when going back
+  useEffect(() => {
+    const onPopState = () => {
+      setMobileCategory(null);
+    };
+    window.addEventListener('popstate', onPopState);
+
+    // Handle Android back button via custom event from App.tsx
+    const onSettingsBack = (e: Event) => {
+      if (mobileCategory) {
+        e.preventDefault();
+        setMobileCategory(null);
+      }
+      // If no category open, don't preventDefault → App.tsx navigates to home
+    };
+    document.addEventListener('settings-back', onSettingsBack);
+
+    return () => {
+      window.removeEventListener('popstate', onPopState);
+      document.removeEventListener('settings-back', onSettingsBack);
+    };
+  }, [mobileCategory]);
   const [toggleState, setToggleState] = useState<Record<string, boolean>>(
     Object.fromEntries(toggles.map((t) => [t.id, t.on]))
   );
@@ -131,8 +155,33 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
           <p className="mt-2 text-[15px] text-white/50">{t('settings.subtitle')}</p>
         </div>
 
-        <div className="grid gap-8 md:grid-cols-[280px_1fr]">
-          <div className="space-y-1 animate-row-reveal">
+        {/* Mobile: category list (hidden when viewing a category) */}
+        {!mobileCategory && (
+          <div className="space-y-2 animate-row-reveal md:hidden">
+            {categories.map((c) => {
+              const Icon = c.icon;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => { setActive(c.id); setMobileCategory(c.id); window.history.pushState({ settings: c.id }, ''); }}
+                  className="group flex w-full items-center justify-between rounded-[14px] glass-panel px-5 py-4 text-left transition-cinematic hover:bg-white/[0.04]"
+                >
+                  <div className="flex items-center gap-3">
+                    <Icon className="h-5 w-5 text-amber-300/70" strokeWidth={1.5} />
+                    <div>
+                      <div className="text-[15px] font-medium text-white/85">{c.label}</div>
+                      <div className="mt-0.5 text-[12px] text-white/35">{c.desc}</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="h-5 w-5 text-white/25" strokeWidth={1.5} />
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div className={`${mobileCategory ? '' : 'hidden md:grid'} gap-8 md:grid-cols-[280px_1fr]`}>
+          <div className="space-y-1 animate-row-reveal hidden md:block">
             {categories.map((c) => {
               const Icon = c.icon;
               return (
@@ -156,6 +205,15 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
           </div>
 
           <div className="glass-panel rounded-[20px] p-8 animate-detail-rise" style={{ animationDelay: '100ms' }}>
+            {mobileCategory && (
+              <button
+                onClick={() => window.history.back()}
+                className="flex items-center gap-2 mb-4 text-[14px] text-white/60 hover:text-white/90 md:hidden"
+              >
+                <ChevronRight className="h-4 w-4 rotate-180" strokeWidth={1.5} />
+                Назад
+              </button>
+            )}
             <h2 className="text-display text-[22px] font-medium text-white/90">{categories.find((c) => c.id === active)?.label}</h2>
 
             {/* Appearance */}

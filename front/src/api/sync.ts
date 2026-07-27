@@ -1,5 +1,7 @@
 // Sync API client for cross-device synchronization
 
+import { serverFetch } from './server';
+
 interface WatchHistoryItem {
   tmdbId: number;
   mediaType: string;
@@ -16,11 +18,20 @@ interface FavoriteItem {
   poster?: string;
 }
 
+export interface IPTVPlaylist {
+  name: string;
+  url: string;
+  epgUrl?: string;
+}
+
 interface SyncData {
   watchHistory: WatchHistoryItem[];
   favorites: FavoriteItem[];
+  iptvPlaylists: IPTVPlaylist[];
   syncedAt: string;
 }
+
+const IPTV_STORAGE_KEY = 'lumiere_iptv';
 
 class SyncClient {
   private syncInterval: ReturnType<typeof setInterval> | null = null;
@@ -29,21 +40,15 @@ class SyncClient {
     favorites: FavoriteItem[];
   } = { watchHistory: [], favorites: [] };
 
-  // Start periodic sync
   start(intervalMs: number = 30000) {
     if (this.syncInterval) return;
-
-    // Initial sync
     this.pull();
-
-    // Periodic sync
     this.syncInterval = setInterval(() => {
       this.push();
       this.pull();
     }, intervalMs);
   }
 
-  // Stop periodic sync
   stop() {
     if (this.syncInterval) {
       clearInterval(this.syncInterval);
@@ -51,18 +56,19 @@ class SyncClient {
     }
   }
 
-  // Pull sync data from server
-  async pull(): Promise<SyncData | null> {
+  private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('lumiere_access');
-    if (!token) return null;
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  }
 
+  async pull(): Promise<SyncData | null> {
     try {
-      const res = await fetch('/api/sync', {
-        headers: { 'Authorization': `Bearer ${token}` },
+      const res = await serverFetch('/api/sync', {
+        headers: this.getAuthHeaders(),
       });
-
       if (!res.ok) return null;
-
       const data = await res.json();
       return data;
     } catch {
@@ -70,32 +76,25 @@ class SyncClient {
     }
   }
 
-  // Push local changes to server
   async push(): Promise<boolean> {
-    const token = localStorage.getItem('lumiere_access');
-    if (!token) return false;
-
-    // Get local data
     const localHistory = this.getLocalWatchHistory();
     const localFavorites = this.getLocalFavorites();
+    const localIptv = this.getLocalIptvPlaylists();
 
-    if (localHistory.length === 0 && localFavorites.length === 0) return true;
+    if (localHistory.length === 0 && localFavorites.length === 0 && localIptv.length === 0) return true;
 
     try {
-      const res = await fetch('/api/sync/push', {
+      const res = await serverFetch('/api/sync/push', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', ...this.getAuthHeaders() },
         body: JSON.stringify({
           watchHistory: localHistory,
           favorites: localFavorites,
+          iptvPlaylists: localIptv,
         }),
       });
 
       if (res.ok) {
-        // Clear pending changes after successful push
         this.pendingChanges = { watchHistory: [], favorites: [] };
         return true;
       }
@@ -105,14 +104,11 @@ class SyncClient {
     }
   }
 
-  // Save watch progress (local + queue for sync)
   saveWatchProgress(item: WatchHistoryItem) {
-    // Save to localStorage
     const positions = this.getLocalWatchHistory();
     const existingIndex = positions.findIndex(p => p.tmdbId === item.tmdbId && p.mediaType === item.mediaType);
 
     if (existingIndex >= 0) {
-      // Update existing entry (keep higher progress)
       positions[existingIndex] = {
         ...positions[existingIndex],
         progress: Math.max(positions[existingIndex].progress || 0, item.progress || 0),
@@ -125,12 +121,9 @@ class SyncClient {
     }
 
     localStorage.setItem('lumiere_watch_history', JSON.stringify(positions));
-
-    // Queue for sync
     this.pendingChanges.watchHistory.push(item);
   }
 
-  // Add favorite (local + queue for sync)
   addFavorite(item: FavoriteItem) {
     const favorites = this.getLocalFavorites();
     const existingIndex = favorites.findIndex(f => f.tmdbId === item.tmdbId && f.mediaType === item.mediaType);
@@ -142,14 +135,12 @@ class SyncClient {
     }
   }
 
-  // Remove favorite (local)
   removeFavorite(tmdbId: number, mediaType: string) {
     const favorites = this.getLocalFavorites();
     const filtered = favorites.filter(f => !(f.tmdbId === tmdbId && f.mediaType === mediaType));
     localStorage.setItem('lumiere_favorites', JSON.stringify(filtered));
   }
 
-  // Get local watch history
   getLocalWatchHistory(): WatchHistoryItem[] {
     try {
       const data = localStorage.getItem('lumiere_watch_history');
@@ -159,7 +150,6 @@ class SyncClient {
     }
   }
 
-  // Get local favorites
   getLocalFavorites(): FavoriteItem[] {
     try {
       const data = localStorage.getItem('lumiere_favorites');
@@ -169,26 +159,35 @@ class SyncClient {
     }
   }
 
-  // Merge server data with local data
+  getLocalIptvPlaylists(): IPTVPlaylist[] {
+    try {
+      const data = localStorage.getItem(IPTV_STORAGE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  saveLocalIptvPlaylists(playlists: IPTVPlaylist[]) {
+    localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
+  }
+
   async mergeWithServer(): Promise<void> {
     const serverData = await this.pull();
     if (!serverData) return;
 
-    // Merge watch history (keep highest progress)
+    // Merge watch history
     const localHistory = this.getLocalWatchHistory();
     const mergedHistory = new Map<string, WatchHistoryItem>();
 
-    // Add local items
     for (const item of localHistory) {
       const key = `${item.tmdbId}-${item.mediaType}`;
       mergedHistory.set(key, item);
     }
 
-    // Merge server items (keep higher progress)
     for (const item of serverData.watchHistory) {
       const key = `${item.tmdbId}-${item.mediaType}`;
       const existing = mergedHistory.get(key);
-
       if (!existing || (item.progress || 0) > (existing.progress || 0)) {
         mergedHistory.set(key, item);
       }
@@ -211,6 +210,24 @@ class SyncClient {
     }
 
     localStorage.setItem('lumiere_favorites', JSON.stringify(Array.from(mergedFavorites.values())));
+
+    // Merge IPTV playlists (server wins — replace local with server data)
+    if (serverData.iptvPlaylists && serverData.iptvPlaylists.length > 0) {
+      const localIptv = this.getLocalIptvPlaylists();
+      const mergedIptv = new Map<string, IPTVPlaylist>();
+
+      // Add local playlists
+      for (const item of localIptv) {
+        mergedIptv.set(item.url, item);
+      }
+
+      // Merge server playlists (server takes precedence for same URL)
+      for (const item of serverData.iptvPlaylists) {
+        mergedIptv.set(item.url, item);
+      }
+
+      this.saveLocalIptvPlaylists(Array.from(mergedIptv.values()));
+    }
   }
 }
 

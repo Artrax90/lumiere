@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { serverFetch, hasServerUrl, setServerUrl, getServerUrl } from '@/api/server';
 
 export interface User {
   id: number;
@@ -12,11 +13,9 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   needsSetup: boolean;
-  inviteCodes: string[];
   isLan: boolean;
+  serverReady: boolean;
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, name: string, inviteCode: string) => Promise<void>;
-  setupAdmin: (email: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -37,116 +36,140 @@ function getAccessToken(): string | null {
   return localStorage.getItem('lumiere_access');
 }
 
-function getRefreshToken(): string | null {
-  return localStorage.getItem('lumiere_refresh');
-}
-
 function clearTokens() {
   localStorage.removeItem('lumiere_access');
   localStorage.removeItem('lumiere_refresh');
+}
+
+// Detect native platform without importing Capacitor
+function isNativeApp(): boolean {
+  const p = window.location.protocol;
+  if (p === 'capacitor:' || p === 'file:') return true;
+  // Capacitor with androidScheme:'https' uses https://localhost
+  if (p === 'https:' && window.location.hostname === 'localhost') return true;
+  return false;
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
-  const [inviteCodes, setInviteCodes] = useState<string[]>([]);
   const [isLan, setIsLan] = useState(false);
+  const native = isNativeApp();
+
+  // On web: set server URL to current origin immediately
+  // On native: wait for user to enter server URL
+  const [serverReady, setServerReady] = useState(() => {
+    if (!native) {
+      setServerUrl(window.location.origin);
+      return true;
+    }
+    return hasServerUrl();
+  });
 
   const fetchProfile = useCallback(async (token: string) => {
     try {
-      const res = await fetch('/api/user/profile', {
+      const res = await serverFetch('/api/user/profile', {
         headers: { 'Authorization': `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error('Failed to fetch profile');
+      if (!res.ok) throw new Error('Failed');
       return await res.json();
     } catch {
       return null;
     }
   }, []);
 
-  const storeAndSetUser = useCallback((data: { user: User; accessToken: string; refreshToken: string }) => {
-    storeTokens(data.accessToken, data.refreshToken);
-    setUser(data.user);
-  }, []);
+  // Poll for server URL on native
+  useEffect(() => {
+    if (serverReady) return;
+    const interval = setInterval(() => {
+      if (hasServerUrl()) {
+        setServerReady(true);
+        clearInterval(interval);
+      }
+    }, 200);
+    return () => clearInterval(interval);
+  }, [serverReady]);
 
   useEffect(() => {
+    if (!serverReady) return;
+
     const init = async () => {
-      // Check if setup is needed
+      setLoading(true);
+
+      // Check if server needs initial setup
       try {
-        const statusRes = await fetch('/api/setup/status');
+        const statusRes = await serverFetch('/api/setup/status');
+        if (!statusRes.ok) { setLoading(false); return; }
         const status = await statusRes.json();
         if (status.needsSetup) {
           setNeedsSetup(true);
           setLoading(false);
           return;
         }
-      } catch {}
-
-      // Check if we're on LAN
-      let lanMode = false;
-      try {
-        const lanRes = await fetch('/api/auth/lan-status');
-        const lanData = await lanRes.json();
-        setIsLan(lanData.isLan);
-        lanMode = lanData.isLan;
-      } catch {}
-
-      // If on LAN, try auto-login first
-      if (lanMode) {
-        try {
-          const lanLoginRes = await fetch('/api/auth/lan-login', { method: 'POST' });
-          if (lanLoginRes.ok) {
-            const lanData = await lanLoginRes.json();
-            storeAndSetUser(lanData);
-            setLoading(false);
-            return;
-          }
-        } catch {}
+      } catch {
+        setLoading(false);
+        return;
       }
 
-      // Check existing session
-      const accessToken = getAccessToken();
-      if (accessToken) {
-        const profile = await fetchProfile(accessToken);
-        if (profile && !profile.error) {
+      // On native: auto-login only if server is a local IP (not a domain)
+      if (native) {
+        const serverHost = new URL(getServerUrl()).hostname;
+        const isLocalIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(serverHost);
+
+        if (isLocalIp) {
+          try {
+            const lanRes = await serverFetch('/api/auth/lan-status');
+            const lanData = await lanRes.json();
+            setIsLan(lanData.isLan);
+
+            if (lanData.isLan) {
+              const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
+              if (lanLoginRes.ok) {
+                const data = await lanLoginRes.json();
+                storeTokens(data.accessToken, data.refreshToken);
+                setUser(data.user);
+                setLoading(false);
+                return;
+              }
+            }
+          } catch {}
+        }
+      }
+
+      // Check existing token
+      const token = getAccessToken();
+      if (token) {
+        const profile = await fetchProfile(token);
+        if (profile) {
           setUser(profile);
         } else {
           clearTokens();
         }
       }
+
       setLoading(false);
     };
     init();
-  }, [fetchProfile, storeAndSetUser]);
+  }, [serverReady, fetchProfile, native]);
 
   const login = useCallback(async (email: string, password: string) => {
-    const res = await fetch('/api/auth/login', {
+    const res = await serverFetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Login failed');
-    storeAndSetUser(data);
-  }, [storeAndSetUser]);
-
-  const register = useCallback(async (email: string, password: string, name: string, inviteCode: string) => {
-    const res = await fetch('/api/auth/register', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name, inviteCode }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Registration failed');
-    storeAndSetUser(data);
-  }, [storeAndSetUser]);
+    storeTokens(data.accessToken, data.refreshToken);
+    setUser(data.user);
+  }, []);
 
   const logout = useCallback(async () => {
-    const refreshToken = getRefreshToken();
+    const refreshToken = localStorage.getItem('lumiere_refresh');
     if (refreshToken) {
       try {
-        await fetch('/api/auth/logout', {
+        await serverFetch('/api/auth/logout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ refreshToken }),
@@ -157,22 +180,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }, []);
 
-  const setupAdmin = useCallback(async (email: string, password: string, name: string) => {
-    const res = await fetch('/api/setup/admin', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, name }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Setup failed');
-    setInviteCodes(data.inviteCodes);
-    setNeedsSetup(false);
-    // Auto-login as admin
-    await login(email, password);
-  }, [login]);
-
   return (
-    <AuthContext.Provider value={{ user, loading, needsSetup, inviteCodes, isLan, login, register, setupAdmin, logout }}>
+    <AuthContext.Provider value={{ user, loading, needsSetup, isLan, serverReady, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

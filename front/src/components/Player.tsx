@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import Hls from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight } from 'lucide-react';
 import type { Title } from '@/api/client';
+import { serverFetch, serverUrl } from '@/api/server';
 
 interface ExternalSub {
   id: number;
@@ -102,7 +103,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   useEffect(() => {
     if (!title.videoUrl?.includes('/api/torrents/hls')) return;
 
-    const urlObj = new URL(title.videoUrl, window.location.origin);
+    const fullUrl = serverUrl(title.videoUrl);
+    const urlObj = new URL(fullUrl, window.location.origin);
     const link = urlObj.searchParams.get('link');
     const index = urlObj.searchParams.get('index');
 
@@ -112,7 +114,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const idx = index || '0';
 
     // Fetch duration
-    fetch(`/api/torrents/duration?link=${encodedLink}&index=${idx}`)
+    serverFetch(`/api/torrents/duration?link=${encodedLink}&index=${idx}`)
       .then(res => res.json())
       .then(data => {
         if (data.duration && data.duration > 0) {
@@ -123,7 +125,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       .catch(() => {});
 
     // Fetch track info (audio + subtitles)
-    fetch(`/api/torrents/tracks?link=${encodedLink}&index=${idx}`)
+    serverFetch(`/api/torrents/tracks?link=${encodedLink}&index=${idx}`)
       .then(res => res.json())
       .then(data => {
         // Audio tracks — use backend name directly
@@ -172,7 +174,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    const url = title.videoUrl!;
+    const url = serverUrl(title.videoUrl!);
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
@@ -209,7 +211,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           const sessionId = sessionMatch[1];
           const tryLoadSubs = (attempt: number) => {
             if (attempt > 10) return; // max 10 attempts
-            fetch(`/api/torrents/hls-subs?session=${sessionId}`)
+            serverFetch(`/api/torrents/hls-subs?session=${sessionId}`)
               .then(res => {
                 if (!res.ok) return null;
                 return res.text();
@@ -537,9 +539,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     }
 
     // Build new URL with audio parameter
-    const urlObj = new URL(title.videoUrl, window.location.origin);
+    const fullUrl = serverUrl(title.videoUrl);
+    const urlObj = new URL(fullUrl, window.location.origin);
     urlObj.searchParams.set('audio', String(id));
-    const newUrl = urlObj.pathname + urlObj.search;
+    const newUrl = urlObj.toString();
 
     // Create new HLS instance with startPosition
     const hls = new Hls({

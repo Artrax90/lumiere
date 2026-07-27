@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Title } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { usePopular } from '@/hooks/usePopular';
+import { serverUrl } from '@/api/server';
 import Hero, { moodGrade } from './Hero';
 import ContentRow from './ContentRow';
 import ShowcaseRow from './ShowcaseRow';
@@ -65,10 +66,34 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
 
   useEffect(() => {
     setImgLoaded(false);
-    if (!current) return;
+    if (!current) {
+      console.log('[Hero] current is null/undefined, heroTitles empty?');
+      return;
+    }
+
+    const url = serverUrl(current.backdrop);
+    console.log('[Hero] preload URL:', url, 'current:', current.name, 'backdrop raw:', current.backdrop);
+
+    // Show Hero after 2s even if image hasn't loaded (fallback)
+    const fallback = setTimeout(() => {
+      console.log('[Hero] fallback timeout — showing anyway');
+      setImgLoaded(true);
+    }, 2000);
+
     const img = new Image();
-    img.src = current.backdrop;
-    img.onload = () => setImgLoaded(true);
+    img.src = url;
+    img.onload = () => {
+      console.log('[Hero] preload OK');
+      clearTimeout(fallback);
+      setImgLoaded(true);
+    };
+    img.onerror = (e) => {
+      console.warn('[Hero] preload FAILED:', url, e);
+      clearTimeout(fallback);
+      setImgLoaded(true);
+    };
+
+    return () => clearTimeout(fallback);
   }, [current]);
 
   // Get continue watching from playback positions, sorted by most recent

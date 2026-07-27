@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Settings, Film, Tv, Sparkles, Bell, Puzzle, Download, Grid3x3 } from 'lucide-react';
+import { Search, Settings, Film, Tv, Sparkles, Bell, Puzzle, Download, Grid3x3, Home, Radio } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 
 export type NavSection = 'home' | 'movies' | 'shows' | 'anime' | 'live' | 'iptv' | 'search' | 'library' | 'collections' | 'settings' | 'profile' | 'plugins' | 'downloads' | 'notifications';
@@ -19,6 +19,14 @@ const navItems = [
   { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3 },
 ];
 
+const mobileNavItems = [
+  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Home },
+  { id: 'search' as NavSection, labelKey: 'nav.search', icon: Search },
+  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film },
+  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
+  { id: 'iptv' as NavSection, labelKey: 'IPTV', icon: Radio },
+];
+
 export default function TopNav({ active, onNavigate }: TopNavProps) {
   const { user } = useAuth();
   const { t } = useTranslation();
@@ -31,6 +39,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
   }, []);
 
   return (
+    <>
     <header
       className="fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out"
       style={{
@@ -144,5 +153,27 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
         </div>
       </nav>
     </header>
+
+    {/* Mobile bottom navigation */}
+    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] bg-[#0a0a0c]/90 backdrop-blur-xl md:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+      <div className="flex items-center justify-around px-2 py-1.5">
+        {mobileNavItems.map((item) => {
+          const isActive = active === item.id;
+          const Icon = item.icon;
+          return (
+            <button
+              key={item.id}
+              onClick={() => onNavigate(item.id)}
+              className="flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 transition-colors"
+              style={{ color: isActive ? '#e8c170' : 'rgba(255,255,255,0.4)' }}
+            >
+              <Icon className="h-5 w-5" strokeWidth={isActive ? 2 : 1.5} />
+              <span className="text-[10px] font-medium">{t(item.labelKey)}</span>
+            </button>
+          );
+        })}
+      </div>
+    </nav>
+    </>
   );
 }

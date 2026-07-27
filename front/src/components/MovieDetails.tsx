@@ -3,6 +3,8 @@ import { useTranslation } from 'react-i18next';
 import { Play, Plus, Check, Star, ChevronLeft, Heart, Share2, Download, Clock, Calendar, Award, Film, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
+import { serverFetch, serverUrl } from '@/api/server';
+import SafeImg from './SafeImg';
 import { apiPost, apiDelete } from '@/api/client';
 import Card from './Card';
 import SourceSelector from './SourceSelector';
@@ -57,7 +59,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
     <div className="min-h-screen w-full animate-fade-in">
       <div className="relative h-[72vh] min-h-[520px] w-full overflow-hidden">
         {!imgLoaded && <div className="absolute inset-0 skeleton" />}
-        <img
+        <SafeImg
           src={displayTitle.backdrop}
           alt={displayTitle.name}
           onLoad={() => setImgLoaded(true)}
@@ -121,7 +123,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               onClick={async () => {
                 setResumingTorrent(true);
                 try {
-                  const res = await fetch('/api/torrents/stream', {
+                  const res = await serverFetch('/api/torrents/stream', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ magnet: savedTorrent.magnet, title: savedTorrent.title }),
@@ -198,7 +200,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
               // Get torrent files and trigger download
               try {
-                const res = await fetch('/api/torrents/stream', {
+                const res = await serverFetch('/api/torrents/stream', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ magnet: lastTorrent.magnet, title: lastTorrent.title }),
@@ -291,7 +293,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               {displayTitle.cast.map((member, i) => (
                 <div key={member.name} className="group/cast flex items-center gap-3 rounded-2xl p-2 transition-cinematic hover:bg-white/[0.04] animate-stagger-in" style={{ animationDelay: `${300 + i * 80}ms` }}>
                   <div className="h-14 w-14 shrink-0 overflow-hidden rounded-full bg-white/5 ring-1 ring-white/5 transition-cinematic group-hover/cast:ring-amber-200/20">
-                    <img src={member.image} alt={member.name} className="h-full w-full object-cover" loading="lazy" />
+                    <SafeImg src={member.image} alt={member.name} className="h-full w-full object-cover" loading="lazy" />
                   </div>
                   <div className="min-w-0">
                     <div className="truncate text-[13px] font-medium text-white/85">{member.name}</div>

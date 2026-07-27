@@ -3,6 +3,7 @@ import { Play, Star, Clock, ChevronRight } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
 import { useSeason } from '@/hooks/useSeason';
+import SafeImg from './SafeImg';
 
 interface TVShowsProps {
   onSelect: (title: Title) => void;
@@ -20,7 +21,7 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
     return (
       <div className="min-h-screen w-full animate-fade-in">
         <div className="relative h-[50vh] min-h-[360px] w-full overflow-hidden">
-          <img src={selectedShow.backdrop} alt={selectedShow.name} className="absolute inset-0 h-full w-full object-cover" style={{ filter: 'saturate(1.05)' }} />
+          <SafeImg src={selectedShow.backdrop} alt={selectedShow.name} className="absolute inset-0 h-full w-full object-cover" style={{ filter: 'saturate(1.05)' }} />
           <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-[#08080a]/40 to-transparent" />
           <div className="absolute inset-0 bg-gradient-to-r from-[#08080a]/80 to-transparent" />
           <button onClick={() => setSelectedShow(null)} className="absolute left-8 top-24 z-20 flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/80 transition-cinematic hover:text-white lg:left-12">
@@ -55,7 +56,7 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
               <h3 className="text-display text-[20px] font-medium tracking-tight text-white/90">Эпизоды</h3>
               <div className="h-px flex-1 bg-white/[0.06]" />
             </div>
-            <div className="mb-6 flex gap-2">
+            <div className="mb-6 flex gap-2 overflow-x-auto no-scrollbar">
               {[1, 2, 3, 4, 5].map((s) => (
                 <button
                   key={s}
@@ -125,7 +126,7 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
             {shows.map((show, i) => (
               <button key={show.id} onClick={() => setSelectedShow(show)} className="group text-left animate-stagger-in" style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}>
                 <div className="relative aspect-[2/3] overflow-hidden rounded-[12px] card-edge transition-cinematic group-hover:card-edge-hover group-hover:scale-[1.04]" style={{ transition: 'transform 420ms cubic-bezier(0.16, 1, 0.3, 1)' }}>
-                  <img src={show.poster} alt={show.name} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                  <SafeImg src={show.poster} alt={show.name} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                 </div>
                 <h3 className="mt-2.5 truncate text-[13px] font-medium text-white/85">{show.name}</h3>

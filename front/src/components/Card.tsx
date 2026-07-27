@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Play, Info, Plus, Check, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 interface CardProps {
   title: Title;
@@ -9,6 +10,7 @@ interface CardProps {
   featured?: boolean;
   width?: number;
   rank?: number;
+  fill?: boolean;
   onSelect: (title: Title) => void;
 }
 
@@ -24,6 +26,7 @@ export default function Card({
   featured = false,
   width,
   rank,
+  fill = false,
   onSelect,
 }: CardProps) {
   const [hovered, setHovered] = useState(false);
@@ -45,8 +48,8 @@ export default function Card({
 
   return (
     <div
-      className="group/card relative shrink-0 cursor-pointer"
-      style={{ width: cardWidth }}
+      className={`group/card relative cursor-pointer ${fill ? 'w-full' : 'shrink-0'}`}
+      style={fill ? undefined : { width: cardWidth }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={() => onSelect(title)}
@@ -94,7 +97,7 @@ export default function Card({
         {/* Skeleton */}
         {!imgLoaded && <div className={`absolute inset-0 skeleton ${radius}`} />}
 
-        <img
+        <SafeImg
           src={isPortrait ? title.poster : title.backdrop}
           alt={title.name}
           loading="lazy"

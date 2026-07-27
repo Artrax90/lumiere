@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Play, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
+import { serverFetch } from '@/api/server';
 
 interface SearchResult {
   id: string;
@@ -31,7 +32,7 @@ export default function SourceSelector({ title, onPlay }: SourceSelectorProps) {
     const search = async () => {
       setLoading(true);
       try {
-        const res = await fetch(`/api/online/search?q=${encodeURIComponent(title.name)}&type=${title.type === 'tv' ? 'series' : 'movie'}`);
+        const res = await serverFetch(`/api/online/search?q=${encodeURIComponent(title.name)}&type=${title.type === 'tv' ? 'series' : 'movie'}`);
         const data = await res.json();
         setResults(data.results || []);
       } catch {

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { ChevronRight, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 const mockTitles: Title[] = [
   { id: 1, tmdbId: 1, name: 'Интерстеллар', type: 'movie', year: 2014, runtime: '2h 49m', rating: 'PG-13', score: 8.6, genres: ['Sci-Fi', 'Drama'], description: 'Команда исследователей.', backdrop: 'https://images.pexels.com/photos/733047/pexels-photo-733047.jpeg?auto=compress&cs=tinysrgb&w=1600', poster: 'https://images.pexels.com/photos/733047/pexels-photo-733047.jpeg?auto=compress&cs=tinysrgb&w=800&h=1200&fit=crop', logoText: 'Интерстеллар' },
@@ -120,7 +121,7 @@ export default function CollectionsView({ onSelect }: CollectionsViewProps) {
           {/* Titles */}
           <div className="no-scrollbar flex flex-wrap gap-5 animate-detail-rise" style={{ animationDelay: '100ms' }}>
             {titles.map((t) => (
-              <Card key={t.id} title={t} variant="portrait" onSelect={onSelect} />
+              <Card key={t.id} title={t} variant="portrait" onSelect={onSelect} fill />
             ))}
           </div>
         </div>
@@ -183,7 +184,7 @@ export default function CollectionsView({ onSelect }: CollectionsViewProps) {
                   <div className="mt-1.5 flex -space-x-2">
                     {colTitles.slice(0, 3).map((t) => (
                       <div key={t.id} className="h-8 w-8 overflow-hidden rounded-full border-2 border-black/40">
-                        <img src={t.poster} alt={t.name} className="h-full w-full object-cover" />
+                        <SafeImg src={t.poster} alt={t.name} className="h-full w-full object-cover" />
                       </div>
                     ))}
                   </div>

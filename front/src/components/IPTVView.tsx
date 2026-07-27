@@ -2,6 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tv, Search, Play, Star, Plus, Trash2, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
+import { serverFetch, getServerUrl } from '@/api/server';
+import { syncClient } from '@/api/sync';
 
 interface IPTVChannel {
   id: string;
@@ -40,6 +42,8 @@ function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
   localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
+  // Trigger sync push
+  syncClient.push().catch(() => {});
 }
 
 function getSavedFavorites(): Set<string> {
@@ -57,7 +61,68 @@ function saveFavorites(favorites: Set<string>) {
 
 export default function IPTVView({ onPlay }: IPTVViewProps) {
   const { t } = useTranslation();
-  const [playlists, setPlaylists] = useState<Array<{ name: string; url: string; epgUrl?: string }>>(getSavedPlaylists);
+  const initialPlaylists = getSavedPlaylists();
+  console.log('[IPTV] initial playlists from localStorage:', initialPlaylists.length);
+  const [playlists, setPlaylists] = useState<Array<{ name: string; url: string; epgUrl?: string }>>(initialPlaylists);
+
+  // Load IPTV playlists from sync API
+  useEffect(() => {
+    let active = true;
+    let attempts = 0;
+
+    const loadFromSync = () => {
+      const token = localStorage.getItem('lumiere_access');
+      const base = getServerUrl();
+      console.log('[IPTV] attempt', attempts + 1, 'token:', token ? 'yes' : 'NO', 'base:', base);
+
+      if (!token || !base) {
+        console.log('[IPTV] waiting for token/server...');
+        if (attempts < 30 && active) {
+          attempts++;
+          setTimeout(loadFromSync, 1000);
+        }
+        return;
+      }
+
+      const url = `${base}/api/sync`;
+      console.log('[IPTV] fetching:', url);
+
+      const xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+      xhr.timeout = 10000;
+
+      xhr.onload = () => {
+        console.log('[IPTV] response status:', xhr.status);
+        if (!active || xhr.status !== 200) return;
+        try {
+          const data = JSON.parse(xhr.responseText);
+          console.log('[IPTV] playlists from server:', data.iptvPlaylists?.length || 0);
+          if (data.iptvPlaylists && data.iptvPlaylists.length > 0) {
+            // Save directly to localStorage and update state (no push back to server)
+            localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
+            console.log('[IPTV] saved to localStorage, updating state...');
+            setPlaylists([...data.iptvPlaylists]);
+          }
+        } catch (e) {
+          console.warn('[IPTV] parse error:', e);
+        }
+      };
+
+      xhr.onerror = (e) => {
+        console.warn('[IPTV] XHR error:', e);
+        if (attempts < 10 && active) {
+          attempts++;
+          setTimeout(loadFromSync, 3000);
+        }
+      };
+
+      xhr.send();
+    };
+
+    const timer = setTimeout(loadFromSync, 2000);
+    return () => { active = false; clearTimeout(timer); };
+  }, []);
   const [channels, setChannels] = useState<IPTVChannel[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [selectedGroup, setSelectedGroup] = useState('All');
@@ -89,16 +154,22 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return slots;
   })();
 
-  // Load last selected playlist on mount
+  // Auto-load playlist on mount or when playlists change
   useEffect(() => {
+    if (playlists.length === 0 || selectedPlaylist !== null) return;
+
     const lastPlaylist = localStorage.getItem('lumiere_iptv_last');
-    if (lastPlaylist !== null && playlists.length > 0) {
+    if (lastPlaylist !== null) {
       const index = parseInt(lastPlaylist);
       if (index >= 0 && index < playlists.length) {
         loadPlaylist(index);
+        return;
       }
     }
-  }, []);
+
+    // No last playlist saved — auto-load first one
+    loadPlaylist(0);
+  }, [playlists]);
 
   // Load channels from selected playlist
   const loadPlaylist = async (index: number) => {
@@ -111,7 +182,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     localStorage.setItem('lumiere_iptv_last', String(index));
 
     try {
-      const res = await fetch('/api/iptv/parse', {
+      const res = await serverFetch('/api/iptv/parse', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: playlist.url }),
@@ -144,7 +215,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const loadEpg = async (epgUrl: string) => {
     setEpgLoading(true);
     try {
-      const res = await fetch('/api/iptv/epg', {
+      const res = await serverFetch('/api/iptv/epg', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: epgUrl }),
@@ -390,6 +461,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
         {/* Playlist selector */}
         <div className="mb-6 flex flex-wrap items-center gap-3 animate-row-reveal">
+          {playlists.length === 0 && <p className="text-white/30 text-[13px]">Нет плейлистов. Добавьте плейлист или дождитесь синхронизации.</p>}
           {playlists.map((playlist, index) => (
             <div
               key={index}

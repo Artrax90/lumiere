@@ -40,6 +40,18 @@ async function runMigrations() {
   }
 }
 
+async function ensureDefaultUser() {
+  const result = await pool.query('SELECT COUNT(*) as count FROM users');
+  if (parseInt(result.rows[0].count) === 0) {
+    const hash = await hashPassword('local');
+    await pool.query(
+      `INSERT INTO users (id, email, password_hash, name) VALUES (1, 'local@lumiere', $1, 'Пользователь') ON CONFLICT DO NOTHING`,
+      [hash]
+    );
+    console.log('Default user created');
+  }
+}
+
 const app = Fastify({ logger: true, trustProxy: true });
 
 await app.register(cors, { origin: config.cors.origin });
@@ -105,6 +117,7 @@ app.post('/api/setup/admin', async (req, reply) => {
 });
 
 await runMigrations();
+await ensureDefaultUser();
 
 try {
   await app.listen({ port: config.port, host: '0.0.0.0' });

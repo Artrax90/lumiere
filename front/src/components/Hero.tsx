@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Play, Info, Plus, Star, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 const typeLabel = (type: Title['type']) =>
@@ -77,13 +78,19 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
         <div
           className="absolute inset-0 transition-opacity duration-[2000ms] ease-out"
           style={{
-            backgroundImage: `url(${current.backdrop})`,
-            backgroundSize: 'cover',
-            backgroundPosition: '72% center',
             opacity: imgLoaded ? 1 : 0,
-            filter: 'saturate(1.0) contrast(1.03) brightness(1.0)',
           }}
-        />
+        >
+          <SafeImg
+            src={current.backdrop}
+            alt={current.name}
+            className="absolute inset-0 h-full w-full object-cover"
+            style={{
+              objectPosition: '72% center',
+              filter: 'saturate(1.0) contrast(1.03) brightness(1.0)',
+            }}
+          />
+        </div>
 
         {/* Subtle color grade */}
         <div

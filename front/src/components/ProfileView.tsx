@@ -52,29 +52,29 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
       <div className="mx-auto max-w-[1300px]">
         <div className="mb-10 animate-row-reveal">
-          <div className="flex items-center gap-5">
-            <div className="relative">
-              <div className="flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-amber-200/90 to-amber-700/50 text-[28px] font-semibold text-black/65">
+          <div className="flex items-center gap-4">
+            <div className="relative shrink-0">
+              <div className="flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-200/90 to-amber-700/50 text-[24px] font-semibold text-black/65 md:h-20 md:w-20 md:text-[28px]">
                 {user?.name?.charAt(0).toUpperCase() || 'U'}
               </div>
-              <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-[#08080a] bg-amber-400">
-                <Trophy className="h-3.5 w-3.5 text-black/70" strokeWidth={1.5} />
+              <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-[#08080a] bg-amber-400 md:h-7 md:w-7">
+                <Trophy className="h-3 w-3 text-black/70 md:h-3.5 md:w-3.5" strokeWidth={1.5} />
               </div>
             </div>
-            <div>
-              <h1 className="text-display text-[32px] font-medium tracking-tight text-white/95">{user?.name || 'Пользователь'}</h1>
-              <div className="mt-1 flex items-center gap-3 text-[13px] text-white/45">
-                <span>{user?.email || ''}</span>
-                <span className="text-white/15">·</span>
-                <span className="flex items-center gap-1"><Star className="h-3 w-3 text-amber-300/70" fill="currentColor" strokeWidth={0} />Киноман</span>
+            <div className="min-w-0 flex-1">
+              <h1 className="truncate text-display text-[24px] font-medium tracking-tight text-white/95 md:text-[32px]">{user?.name || 'Пользователь'}</h1>
+              <div className="mt-1 flex items-center gap-2 text-[12px] text-white/45 md:gap-3 md:text-[13px]">
+                <span className="truncate">{user?.email || ''}</span>
+                <span className="text-white/15 shrink-0">·</span>
+                <span className="flex items-center gap-1 shrink-0"><Star className="h-3 w-3 text-amber-300/70" fill="currentColor" strokeWidth={0} />Киноман</span>
               </div>
             </div>
-            <div className="ml-auto">
+            <div className="shrink-0">
               <button
                 onClick={logout}
-                className="flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/60 transition-cinematic hover:text-white/90 hover:bg-white/[0.08]"
+                className="flex items-center gap-2 rounded-full glass px-3 py-2 text-[12px] font-medium text-white/60 transition-cinematic hover:text-white/90 hover:bg-white/[0.08] md:px-4 md:text-[13px]"
               >
-                <LogOut className="h-4 w-4" strokeWidth={1.5} />Выйти
+                <LogOut className="h-4 w-4" strokeWidth={1.5} /><span className="hidden md:inline">Выйти</span>
               </button>
             </div>
           </div>
@@ -87,14 +87,14 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           <StatCard label="Достижения" value={profileStats.achievements.filter((a) => a.unlocked).length} suffix={`/${profileStats.achievements.length}`} />
         </div>
 
-        <div className="mb-8 flex gap-1 border-b border-white/[0.06] animate-row-reveal">
+        <div className="mb-8 flex gap-1 overflow-x-auto border-b border-white/[0.06] animate-row-reveal no-scrollbar">
           {tabs.map((t) => {
             const TIcon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className="flex items-center gap-2 px-4 py-3 text-[13px] font-medium transition-cinematic"
+                className="flex shrink-0 items-center gap-2 px-4 py-3 text-[13px] font-medium transition-cinematic whitespace-nowrap"
                 style={{
                   color: activeTab === t.id ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.45)',
                   borderBottom: activeTab === t.id ? '2px solid rgba(232,193,112,0.65)' : '2px solid transparent',
@@ -132,7 +132,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 animate-fade-in">
             {favorites.map((t, i) => (
               <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 50, 600)}ms` }}>
-                <Card title={t} variant="portrait" onSelect={onSelect} />
+                <Card title={t} variant="portrait" onSelect={onSelect} fill />
               </div>
             ))}
           </div>

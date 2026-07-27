@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
+import { serverFetch } from '@/api/server';
 
 // Simple hash for magnet link
 function hashMagnet(magnet: string): string {
@@ -102,7 +103,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     setSearched(true);
     setFiles(null);
     try {
-      const res = await fetch(`/api/torrents/search?q=${encodeURIComponent(title.name)}`);
+      const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(title.name)}`);
       const data = await res.json();
       setResults(data.results || []);
     } catch {
@@ -168,7 +169,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     saveLastTorrent(title.id, magnetHash, item.magnet, item.title);
     setLastTorrentId(magnetHash);
     try {
-      const res = await fetch('/api/torrents/stream', {
+      const res = await serverFetch('/api/torrents/stream', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ magnet: item.magnet, title: item.title }),

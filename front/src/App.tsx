@@ -4,6 +4,8 @@ import type { Title, Episode } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { useAuth } from '@/contexts/AuthContext';
 import { syncClient } from '@/api/sync';
+import { serverFetch } from '@/api/server';
+import ServerSetup from '@/components/ServerSetup';
 
 // Save playback position to localStorage with timestamp and title info
 function savePlaybackPosition(titleId: number, time: number, title?: Title) {
@@ -79,7 +81,7 @@ import IPTVView from '@/components/IPTVView';
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
-  const { user, loading, needsSetup } = useAuth();
+  const { user, loading, needsSetup, serverReady } = useAuth();
   const [section, setSection] = useState<NavSection>('home');
   const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
@@ -125,21 +127,15 @@ export default function App() {
     lastSavedTime.current = 0;
 
     // Report activity to server
-    const token = localStorage.getItem('lumiere_access');
-    if (token) {
-      fetch('/api/user/activity', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          action: 'watching',
-          titleId: title.id,
-          titleName: title.name,
-        }),
-      }).catch(() => {});
-    }
+    serverFetch('/api/user/activity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'watching',
+        titleId: title.id,
+        titleName: title.name,
+      }),
+    }).catch(() => {});
   }, []);
 
   const handleTimeUpdate = useCallback((time: number) => {
@@ -179,6 +175,45 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
+  // Handle Android back button / swipe-back gesture
+  useEffect(() => {
+    const p = window.location.protocol;
+    const isNative = p === 'capacitor:' || p === 'file:' || (p === 'https:' && window.location.hostname === 'localhost');
+    if (!isNative) return;
+
+    let removeListener: (() => void) | null = null;
+
+    import('@capacitor/app').then(({ App: CapApp }) => {
+      CapApp.addListener('backButton', ({ canGoBack }) => {
+        if (playing) {
+          handlePlayerExit();
+        } else if (selectedEpisode) {
+          setSelectedEpisode(null);
+        } else if (selectedTitle) {
+          setSelectedTitle(null);
+        } else if (aiOpen) {
+          setAiOpen(false);
+        } else if (section === 'settings') {
+          const evt = new Event('settings-back', { cancelable: true });
+          const handled = !document.dispatchEvent(evt);
+          if (!handled) {
+            setSection('home');
+          }
+        } else if (section !== 'home') {
+          setSection('home');
+        } else if (canGoBack) {
+          CapApp.exitApp();
+        }
+      }).then(l => { removeListener = () => l.remove(); });
+    });
+
+    return () => { removeListener?.(); };
+  }, [playing, selectedEpisode, selectedTitle, aiOpen, section, handlePlayerExit]);
+
+  if (!serverReady) {
+    return <ServerSetup onConnected={() => {}} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen w-full flex items-center justify-center">
@@ -187,11 +222,20 @@ export default function App() {
     );
   }
 
+  if (needsSetup) {
+    return (
+      <>
+        <AmbientBackground mood="warm" />
+        <SetupView />
+      </>
+    );
+  }
+
   if (!user) {
     return (
       <>
         <AmbientBackground mood="warm" />
-        {needsSetup ? <SetupView /> : <LoginView />}
+        <LoginView />
       </>
     );
   }
@@ -205,7 +249,7 @@ export default function App() {
       {!playing && (
         <button
           onClick={() => setAiOpen(true)}
-          className="fixed bottom-8 right-8 z-40 flex items-center gap-2 rounded-full glass-strong px-5 py-3.5 text-[13px] font-medium text-white/85 shadow-2xl transition-cinematic hover:scale-105 hover:text-white"
+          className="fixed bottom-24 right-8 z-40 flex items-center gap-2 rounded-full glass-strong px-5 py-3.5 text-[13px] font-medium text-white/85 shadow-2xl transition-cinematic hover:scale-105 hover:text-white md:bottom-8"
           aria-label="Open assistant"
         >
           <Sparkles className="h-4 w-4 text-amber-300" strokeWidth={1.5} />
@@ -213,7 +257,7 @@ export default function App() {
         </button>
       )}
 
-      <main>
+      <main className="pb-20 md:pb-0">
         {playing ? (
           <Player
             title={playing}

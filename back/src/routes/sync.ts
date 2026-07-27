@@ -25,6 +25,14 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
       [userId]
     );
 
+    // Get IPTV playlists
+    const iptvResult = await db.query(
+      `SELECT name, url, epg_url
+       FROM iptv_playlists
+       WHERE user_id = $1`,
+      [userId]
+    );
+
     return {
       watchHistory: historyResult.rows.map(row => ({
         tmdbId: row.tmdb_id,
@@ -42,6 +50,11 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
         poster: row.poster,
         addedAt: row.added_at,
       })),
+      iptvPlaylists: iptvResult.rows.map(row => ({
+        name: row.name,
+        url: row.url,
+        epgUrl: row.epg_url || '',
+      })),
       syncedAt: new Date().toISOString(),
     };
   });
@@ -50,7 +63,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
   app.post('/api/sync/push', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;
 
-    const { watchHistory, favorites } = request.body as {
+    const { watchHistory, favorites, iptvPlaylists } = request.body as {
       watchHistory?: Array<{
         tmdbId: number;
         mediaType: string;
@@ -64,6 +77,11 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
         mediaType: string;
         titleName: string;
         poster?: string;
+      }>;
+      iptvPlaylists?: Array<{
+        name: string;
+        url: string;
+        epgUrl?: string;
       }>;
     };
 
@@ -101,6 +119,22 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
                title_name = EXCLUDED.title_name,
                poster = EXCLUDED.poster`,
             [userId, item.tmdbId, item.mediaType, item.titleName, item.poster || '']
+          );
+        }
+      }
+
+      // Upsert IPTV playlists
+      if (iptvPlaylists && iptvPlaylists.length > 0) {
+        for (const item of iptvPlaylists) {
+          await client.query(
+            `INSERT INTO iptv_playlists (user_id, name, url, epg_url, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())
+             ON CONFLICT (user_id, url)
+             DO UPDATE SET
+               name = EXCLUDED.name,
+               epg_url = EXCLUDED.epg_url,
+               updated_at = NOW()`,
+            [userId, item.name, item.url, item.epgUrl || '']
           );
         }
       }

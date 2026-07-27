@@ -8,7 +8,7 @@ export const config = {
     proxyUrl: process.env.TMDB_PROXY_URL || undefined,
   },
   cors: {
-    origin: ['http://localhost:5173', 'http://localhost:3000'],
+    origin: true,
   },
   db: {
     host: process.env.DB_HOST || 'localhost',

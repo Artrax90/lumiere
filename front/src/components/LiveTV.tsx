@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Star, ChevronRight, Play } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 const img = (id: string, w = 600, h = 400) =>
   `https://images.pexels.com/photos/${id}/pexels-photo-${id}.jpeg?auto=compress&cs=tinysrgb&w=${w}&h=${h}&fit=crop`;
@@ -61,7 +62,7 @@ export default function LiveTV({ onSelect, titles }: LiveTVProps) {
             <div className="grid md:grid-cols-[1fr_320px]">
               {/* Preview area */}
               <div className="relative h-64 md:h-80">
-                <img src={selectedChannel.image} alt={selectedChannel.name} className="absolute inset-0 h-full w-full object-cover" style={{ filter: 'saturate(1.05) brightness(0.85)' }} />
+                <SafeImg src={selectedChannel.image} alt={selectedChannel.name} className="absolute inset-0 h-full w-full object-cover" style={{ filter: 'saturate(1.05) brightness(0.85)' }} />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                 <div className="absolute left-4 top-4 flex items-center gap-2 rounded-full bg-red-500/85 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-white backdrop-blur-md">
                   <span className="h-1.5 w-1.5 rounded-full bg-white animate-pulse-soft" />On Air
@@ -140,7 +141,7 @@ export default function LiveTV({ onSelect, titles }: LiveTVProps) {
             >
               <div className="flex w-44 shrink-0 items-center gap-3">
                 <div className="relative h-10 w-10 overflow-hidden rounded-lg bg-white/5">
-                  <img src={ch.image} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
+                  <SafeImg src={ch.image} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[13px] font-medium text-white/85">{ch.name}</div>

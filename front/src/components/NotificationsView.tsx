@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Bell, Download, Sparkles, Puzzle, RefreshCw, ChevronRight, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 interface NotificationItem {
   id: string;
@@ -53,19 +54,21 @@ export default function NotificationsView({ onSelect, titles }: NotificationsVie
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
       <div className="mx-auto max-w-[700px]">
         {/* Header */}
-        <div className="mb-8 flex items-center justify-between animate-row-reveal">
-          <div className="flex items-center gap-3">
-            <Bell className="h-5 w-5 text-white/50" strokeWidth={1.5} />
-            <h1 className="text-display text-[32px] font-medium tracking-tight text-white/95 md:text-[38px]">Notifications</h1>
+        <div className="mb-8 animate-row-reveal">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Bell className="h-5 w-5 text-white/50 shrink-0" strokeWidth={1.5} />
+              <h1 className="truncate text-display text-[24px] font-medium tracking-tight text-white/95 md:text-[38px]">Notifications</h1>
+              {unreadCount > 0 && (
+                <span className="rounded-full bg-amber-300/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200/90 shrink-0">{unreadCount}</span>
+              )}
+            </div>
             {unreadCount > 0 && (
-              <span className="rounded-full bg-amber-300/15 px-2.5 py-0.5 text-[11px] font-semibold text-amber-200/90">{unreadCount} new</span>
+              <button onClick={markAllRead} className="text-[13px] font-medium text-white/50 transition-cinematic hover:text-white/85 shrink-0">
+                Mark all read
+              </button>
             )}
           </div>
-          {unreadCount > 0 && (
-            <button onClick={markAllRead} className="text-[13px] font-medium text-white/50 transition-cinematic hover:text-white/85">
-              Mark all read
-            </button>
-          )}
         </div>
 
         {/* Filter */}
@@ -101,7 +104,7 @@ export default function NotificationsView({ onSelect, titles }: NotificationsVie
                 {/* Image or icon */}
                 {n.image ? (
                   <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-[10px]">
-                    <img src={n.image} alt={n.title} className="h-full w-full object-cover" loading="lazy" />
+                    <SafeImg src={n.image} alt={n.title} className="h-full w-full object-cover" loading="lazy" />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
                   </div>
                 ) : (

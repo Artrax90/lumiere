@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Play, Plus, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
+import SafeImg from './SafeImg';
 
 interface ShowcaseRowProps {
   label: string;
@@ -108,7 +109,7 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
                   style={{ transform: isHovered ? 'scale(1.025) translateY(-2px)' : 'scale(1)' }}
                 >
                   {!imgLoaded[t.id] && <div className="absolute inset-0 skeleton rounded-[16px]" />}
-                  <img
+                  <SafeImg
                     src={t.backdrop}
                     alt={t.name}
                     loading="lazy"

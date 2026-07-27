@@ -62,8 +62,11 @@ export function getLang(): Lang {
   return currentLang;
 }
 
+import { getServerUrl } from './server';
+
 export async function apiFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
-  const url = new URL(path, window.location.origin);
+  const base = getServerUrl();
+  const url = new URL(path, base || window.location.origin);
   url.searchParams.set('lang', currentLang);
   if (params) {
     for (const [key, value] of Object.entries(params)) {
@@ -71,13 +74,7 @@ export async function apiFetch<T>(path: string, params?: Record<string, string>)
     }
   }
 
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem('lumiere_access');
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
-
-  const res = await fetch(url.toString(), { headers });
+  const res = await fetch(url.toString());
 
   if (!res.ok) {
     throw new Error(`API error: ${res.status} ${res.statusText}`);
@@ -87,15 +84,12 @@ export async function apiFetch<T>(path: string, params?: Record<string, string>)
 }
 
 export async function apiPost<T>(path: string, body: Record<string, any>): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  const token = localStorage.getItem('lumiere_access');
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+  const base = getServerUrl();
+  const url = path.startsWith('http') ? path : `${base}${path}`;
 
-  const res = await fetch(path, {
+  const res = await fetch(url, {
     method: 'POST',
-    headers,
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
 
@@ -108,16 +102,10 @@ export async function apiPost<T>(path: string, body: Record<string, any>): Promi
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const headers: Record<string, string> = {};
-  const token = localStorage.getItem('lumiere_access');
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`;
-  }
+  const base = getServerUrl();
+  const url = path.startsWith('http') ? path : `${base}${path}`;
 
-  const res = await fetch(path, {
-    method: 'DELETE',
-    headers,
-  });
+  const res = await fetch(url, { method: 'DELETE' });
 
   if (!res.ok) {
     throw new Error(`API error: ${res.status}`);
