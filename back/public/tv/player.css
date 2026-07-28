@@ -1,0 +1,127 @@
+/* Lumiere TV Player */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { background: black; overflow: hidden; width: 1920px; height: 1080px; font-family: 'Samsung One', 'Roboto', sans-serif; }
+.hidden { display: none !important; }
+
+#player { position: fixed; top: 0; left: 0; right: 0; bottom: 0; }
+#video { width: 100%; height: 100%; object-fit: contain; display: none; }
+
+/* OSD */
+#osd {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10;
+  transition: opacity 0.3s;
+}
+#osd.hide { opacity: 0; pointer-events: none; }
+
+/* Top bar */
+#osd-top {
+  display: flex; align-items: center;
+  padding: 20px 28px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.75) 0%, transparent 100%);
+}
+#osd-title-wrap { flex: 1; margin-left: 16px; }
+#osd-title { font-size: 16px; font-weight: 500; color: white; }
+#osd-subtitle { font-size: 12px; color: rgba(255,255,255,0.5); margin-top: 2px; }
+#osd-time-corner { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+/* Center play icon when paused */
+#center-play {
+  position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+#center-play-icon {
+  width: 88px; height: 88px; border-radius: 50%;
+  background: rgba(255,255,255,0.2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 36px; color: white; padding-left: 6px;
+}
+
+/* Bottom */
+#osd-bottom {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  padding: 0 28px 20px;
+  background: linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%);
+}
+
+/* Timeline */
+#timeline-wrap { padding: 14px 0 10px; cursor: pointer; }
+#timeline-bar {
+  position: relative; width: 100%; height: 4px;
+  background: rgba(255,255,255,0.2); border-radius: 2px;
+}
+#timeline-buffer {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: rgba(255,255,255,0.35); border-radius: 2px; width: 0%;
+}
+#timeline-fill {
+  position: absolute; top: 0; left: 0; height: 100%;
+  background: white; border-radius: 2px; width: 0%;
+}
+#timeline-thumb {
+  position: absolute; right: -8px; top: 50%;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: white; transform: translate(50%, -50%);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+
+/* Controls row */
+#controls-row {
+  display: flex; align-items: center; justify-content: space-between;
+}
+#controls-left { display: flex; align-items: center; }
+#controls-right { display: flex; align-items: center; }
+#controls-left > * { margin-right: 14px; }
+#controls-right > * { margin-left: 12px; }
+
+#time-display { font-size: 13px; color: rgba(255,255,255,0.5); }
+
+/* Buttons */
+.osd-icon-btn {
+  background: none; border: none; color: rgba(255,255,255,0.7);
+  font-size: 20px; cursor: pointer; padding: 10px;
+  border-radius: 8px;
+}
+.osd-icon-btn:hover { color: white; }
+.osd-icon-btn.focused {
+  outline: 2px solid #6ee7b7; outline-offset: 2px;
+  color: white; background: rgba(110,231,183,0.15);
+}
+
+/* Play button — larger */
+.osd-play-btn {
+  font-size: 28px; padding: 8px 14px;
+}
+
+/* Settings panel */
+#settings-panel {
+  position: absolute; bottom: 80px; right: 28px; z-index: 20;
+  width: 280px; max-height: 400px;
+  background: rgba(0,0,0,0.9); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 12px; overflow: hidden;
+}
+#settings-header {
+  padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.1);
+  font-size: 13px; font-weight: 500; color: rgba(255,255,255,0.5);
+}
+#settings-list { max-height: 340px; overflow-y: auto; }
+.settings-item {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 16px; cursor: pointer;
+  color: rgba(255,255,255,0.8); font-size: 13px;
+}
+.settings-item:hover { background: rgba(255,255,255,0.08); }
+.settings-item.focused { background: rgba(255,255,255,0.1); color: white; }
+.settings-item.active { color: #fbbf24; }
+.settings-item .check { color: #fbbf24; font-weight: 700; }
+
+/* Subtitle overlay */
+#subtitle-overlay {
+  position: absolute; bottom: 120px; left: 0; right: 0;
+  text-align: center; z-index: 5; pointer-events: none;
+}
+.sub-text {
+  display: inline-block; padding: 4px 16px; border-radius: 4px;
+  background: rgba(0,0,0,0.75); color: white;
+  font-size: 24px; line-height: 1.4;
+}

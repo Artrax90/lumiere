@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="/tv/tv.css">
+  <link rel="stylesheet" href="/tv/tv.css?v=24">
 </head>
 <body>
   <!-- Loading -->
@@ -20,6 +20,7 @@
       <div class="logo-sm"><div class="dot-sm"></div><span>Lumière</span></div>
       <nav id="nav">
         <button class="nav-btn active" data-section="home">Главная</button>
+        <button class="nav-btn" data-section="search">Поиск</button>
         <button class="nav-btn" data-section="movies">Фильмы</button>
         <button class="nav-btn" data-section="tv">Сериалы</button>
         <button class="nav-btn" data-section="iptv">IPTV</button>
@@ -32,6 +33,10 @@
       <!-- Home -->
       <section id="sec-home" class="section active">
         <div id="hero" class="hero"></div>
+        <div class="row" id="row-continue">
+          <h2 class="row-title">Продолжить просмотр</h2>
+          <div class="row-items" id="continue-items"></div>
+        </div>
         <div class="row" id="row-trending">
           <h2 class="row-title">В тренде</h2>
           <div class="row-items" id="trending-items"></div>
@@ -46,6 +51,15 @@
         </div>
       </section>
 
+      <!-- Search -->
+      <section id="sec-search" class="section">
+        <h1 class="page-title">Поиск</h1>
+        <div class="search-wrap">
+          <input id="search-input" class="search-input" type="text" placeholder="Введите название фильма или сериала..." tabindex="0">
+        </div>
+        <div id="search-results" class="grid"></div>
+      </section>
+
       <!-- Movies -->
       <section id="sec-movies" class="section">
         <h1 class="page-title">Фильмы</h1>
@@ -58,10 +72,37 @@
         <div class="grid" id="tv-grid"></div>
       </section>
 
-      <!-- IPTV -->
-      <section id="sec-iptv" class="section">
-        <h1 class="page-title">IPTV</h1>
-        <div id="iptv-channels" class="iptv-grid"></div>
+      <!-- IPTV — Three-column layout: Categories | Channels | Preview -->
+      <section id="sec-iptv" class="section iptv-section">
+        <!-- Left: Categories -->
+        <div id="iptv-categories" class="iptv-col iptv-col-left">
+          <div class="iptv-col-header">Категории</div>
+          <div id="iptv-cat-list" class="iptv-cat-list"></div>
+        </div>
+
+        <!-- Middle: Channels -->
+        <div id="iptv-channels-wrap" class="iptv-col iptv-col-mid">
+          <div class="iptv-col-header">
+            <span id="iptv-channel-count">0 каналов</span>
+          </div>
+          <div id="iptv-channels" class="iptv-channel-list"></div>
+        </div>
+
+        <!-- Right: Preview -->
+        <div id="iptv-preview" class="iptv-col iptv-col-right">
+          <div id="iptv-preview-video-wrap" class="iptv-preview-video-wrap">
+            <video id="iptv-preview-video" muted playsinline></video>
+            <div id="iptv-preview-no-video" class="iptv-preview-no-video">
+              <span>Выберите канал</span>
+            </div>
+          </div>
+          <div id="iptv-preview-info" class="iptv-preview-info">
+            <div id="iptv-preview-name" class="iptv-preview-name"></div>
+            <div id="iptv-preview-program" class="iptv-preview-program"></div>
+            <div id="iptv-preview-next" class="iptv-preview-next"></div>
+            <div id="iptv-preview-meta" class="iptv-preview-meta"></div>
+          </div>
+        </div>
       </section>
 
       <!-- Settings -->
@@ -85,10 +126,37 @@
 
   <!-- Detail view (movie/show detail) -->
   <div id="detail" class="screen hidden">
-    <button id="detail-back" class="back-btn">← Назад</button>
     <div id="detail-content"></div>
   </div>
 
-  <script src="/tv/tv.js"></script>
+  <script src="/tv/tv.js?v=24"></script>
+  <script>
+    // Test if JS executes
+    document.addEventListener('DOMContentLoaded', function() {
+      var el = document.getElementById('loading');
+      if (el) {
+        var p = document.createElement('p');
+        p.style.cssText = 'color:#6ee7b7;font-size:12px;margin-top:10px;';
+        p.textContent = 'JS executing...';
+        el.appendChild(p);
+      }
+    });
+
+    window.onerror = function(msg, url, line, col, err) {
+      var el = document.getElementById('error-screen');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'error-screen';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0b0f;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99999;';
+        document.body.appendChild(el);
+      }
+      el.style.display = 'flex';
+      el.innerHTML = '<div style="color:#f87171;font-size:18px;max-width:700px;text-align:center;padding:20px;">' +
+        '<b>JS Error:</b><br>' + msg + '<br><small style="color:#9aa0ac;">line ' + line + ':' + col + '</small></div>' +
+        '<button onclick="location.reload()" style="margin-top:20px;padding:14px 28px;border-radius:10px;background:#6ee7b7;color:#0a0b0f;border:none;font-size:16px;cursor:pointer;">Reload</button>';
+      var loading = document.getElementById('loading');
+      if (loading) loading.style.display = 'none';
+    };
+  </script>
 </body>
 </html>

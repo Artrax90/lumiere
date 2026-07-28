@@ -4,37 +4,67 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere Player</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { background: black; overflow: hidden; width: 1920px; height: 1080px; }
-    #player { position: fixed; inset: 0; }
-    #video { width: 100%; height: 100%; object-fit: contain; display: none; }
-    #player-osd {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      padding: 20px 24px;
-      background: linear-gradient(0deg, rgba(0,0,0,0.85) 0%, transparent 100%);
-      opacity: 1; transition: opacity 0.3s;
-    }
-    #player-title { font-size: 18px; font-weight: 500; color: #e6e8ee; margin-bottom: 10px; }
-    #player-progress { display: flex; align-items: center; gap: 12px; }
-    #player-bar { flex: 1; height: 4px; background: rgba(255,255,255,0.2); border-radius: 2px; overflow: hidden; }
-    #player-fill { height: 100%; background: #6ee7b7; border-radius: 2px; width: 0%; }
-    #player-time { font-size: 13px; color: rgba(255,255,255,0.6); }
-    #player-hint { margin-top: 8px; font-size: 12px; color: rgba(255,255,255,0.3); }
-  </style>
+  <link rel="stylesheet" href="/tv/player.css?v=9">
 </head>
 <body>
   <div id="player">
     <video id="video" playsinline></video>
-    <div id="player-osd">
-      <div id="player-title"></div>
-      <div id="player-progress">
-        <div id="player-bar"><div id="player-fill"></div></div>
-        <span id="player-time">0:00 / 0:00</span>
+
+    <!-- OSD — matches web Player.tsx layout -->
+    <div id="osd">
+      <!-- Top bar: back + title -->
+      <div id="osd-top">
+        <button id="btn-back" class="osd-icon-btn" tabindex="0">&#9664;</button>
+        <div id="osd-title-wrap">
+          <div id="osd-title"></div>
+          <div id="osd-subtitle"></div>
+        </div>
+        <div id="osd-time-corner"></div>
       </div>
-      <div id="player-hint">Enter: пауза | ←→: ±10с | ↑↓: ±60с | ←: назад</div>
+
+      <!-- Center play/pause (shown when paused) -->
+      <div id="center-play" class="hidden">
+        <div id="center-play-icon">&#9654;</div>
+      </div>
+
+      <!-- Bottom controls -->
+      <div id="osd-bottom">
+        <!-- Timeline -->
+        <div id="timeline-wrap">
+          <div id="timeline-bar">
+            <div id="timeline-buffer"></div>
+            <div id="timeline-fill">
+              <div id="timeline-thumb"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Controls row — matches web layout -->
+        <div id="controls-row">
+          <div id="controls-left">
+            <button id="btn-skip-back" class="osd-icon-btn" tabindex="0" title="-10 сек">&#8634;</button>
+            <button id="btn-play" class="osd-icon-btn osd-play-btn" tabindex="0" title="Пауза">&#9646;&#9646;</button>
+            <button id="btn-skip-fwd" class="osd-icon-btn" tabindex="0" title="+10 сек">&#8635;</button>
+            <button id="btn-volume" class="osd-icon-btn" tabindex="0" title="Звук">&#128266;</button>
+            <span id="time-display">0:00 / 0:00</span>
+          </div>
+          <div id="controls-right">
+            <button id="btn-subs" class="osd-icon-btn" tabindex="0" title="Субтитры">CC</button>
+            <button id="btn-audio" class="osd-icon-btn" tabindex="0" title="Аудио">&#128266;</button>
+          </div>
+        </div>
+      </div>
     </div>
+
+    <!-- Settings panel -->
+    <div id="settings-panel" class="hidden">
+      <div id="settings-header"><span id="settings-title"></span></div>
+      <div id="settings-list"></div>
+    </div>
+
+    <!-- Subtitle overlay -->
+    <div id="subtitle-overlay"></div>
   </div>
-  <script src="/tv/player.js"></script>
+  <script src="/tv/player.js?v=9"></script>
 </body>
 </html>
