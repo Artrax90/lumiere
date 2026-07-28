@@ -1346,14 +1346,23 @@
     switch (code) {
       case 37: // Left
         if (isOnNav) focusNavDelta(-1);
+        else if (isOnCard) focusCardDelta(-1);
         e.preventDefault();
         break;
       case 39: // Right
         if (isOnNav) focusNavDelta(1);
+        else if (isOnCard) focusCardDelta(1);
         e.preventDefault();
         break;
       case 38: // Up
-        if (isOnNav) { /* nothing */ }
+        if (isOnCard) {
+          var moved = focusCardUp();
+          if (!moved) {
+            clearCardFocus();
+            state.focusedCard = null;
+            focusNav(state.focusedNav);
+          }
+        }
         e.preventDefault();
         break;
       case 40: // Down
@@ -1370,6 +1379,8 @@
             state.focusedCard = 0;
             focusCard(0);
           }
+        } else if (isOnCard) {
+          focusCardDown();
         }
         e.preventDefault();
         break;
