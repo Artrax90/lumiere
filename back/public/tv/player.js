@@ -45,7 +45,7 @@
   // DOM
   var $video, $osdTop, $osdBottom, $osdTitle, $osdBadges;
   var $centerPlay, $timeCurrent, $timeTotal;
-  var $fill, $bufferFill, $popup, $popupHeader, $popupList;
+  var $fill, $bufferFill, $thumb, $popup, $popupHeader, $popupList;
   var $nextEpPopup, $nextEpCountdown, $subtitleOverlay;
 
   // Transport buttons (row 0)
@@ -67,6 +67,7 @@
     $timeTotal = document.getElementById('time-total');
     $fill = document.getElementById('timeline-fill');
     $bufferFill = document.getElementById('timeline-buffer');
+    $thumb = document.getElementById('timeline-thumb');
     $popup = document.getElementById('popup');
     $popupHeader = document.getElementById('popup-header');
     $popupList = document.getElementById('popup-list');
@@ -279,6 +280,7 @@
   function updateTimeline() {
     var pct = duration > 0 ? (currentTime / duration * 100) : 0;
     if ($fill) $fill.style.width = pct + '%';
+    if ($thumb) $thumb.style.left = pct + '%';
     if ($timeCurrent) $timeCurrent.textContent = fmt(currentTime);
     if ($timeTotal) $timeTotal.textContent = fmt(duration);
   }
@@ -365,8 +367,18 @@
 
   // ========== Player keys ==========
   function handlePlayerKeys(e) {
-    showOsd();
     var code = e.keyCode;
+
+    // Back must be handled BEFORE showOsd, otherwise it always just hides OSD
+    if (code === 10009) {
+      if (popupOpen) { closePopup(); }
+      else if (osdVisible) { hideOsd(); }
+      else { goBack(); }
+      e.preventDefault();
+      return;
+    }
+
+    showOsd();
 
     switch (code) {
       case 37: // Left
@@ -392,11 +404,6 @@
       case 13: // Enter
         if (!osdVisible) { showOsd(); }
         else { clickFocused(); }
-        e.preventDefault();
-        break;
-      case 10009: // Back
-        if (osdVisible) { hideOsd(); }
-        else { goBack(); }
         e.preventDefault();
         break;
     }
@@ -448,6 +455,7 @@
     // Show preview on timeline
     var pct = duration > 0 ? (seekTarget / duration * 100) : 0;
     if ($fill) $fill.style.width = pct + '%';
+    if ($thumb) $thumb.style.left = pct + '%';
     if ($timeCurrent) $timeCurrent.textContent = fmt(seekTarget);
 
     isSeeking = true;
@@ -550,12 +558,8 @@
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
       currentAudio = idx;
-      // Switch audio track
-      if ($video.audioTracks) {
-        for (var i = 0; i < $video.audioTracks.length; i++) {
-          $video.audioTracks[i].enabled = (i === idx);
-        }
-      }
+      // Note: Audio track switching for HLS streams requires HLS.js
+      // For now, just store the selection
       closePopup();
     });
   }
