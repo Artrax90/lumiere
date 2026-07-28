@@ -124,7 +124,6 @@
   function loadData() {
     apiFetch('/api/movies/trending', function(err, data) {
       if (data && data.results) {
-        renderHero(data.results.slice(0, 5));
         renderRow('trending-items', data.results.slice(0, 12));
       }
     });
@@ -613,19 +612,6 @@
 
   // ========== Rendering ==========
 
-
-  function showHero(title) {
-    var hero = document.getElementById('hero');
-    if (!title || !hero) return;
-    var bg = imgUrl(title.backdrop || title.poster);
-
-    hero.style.backgroundImage = 'url(' + bg + ')';
-    hero.innerHTML = '<h2 class="hero-title">' + esc(title.name) + '</h2>' +
-      '<p class="hero-desc">' + esc(title.description || '') + '</p>';
-    hero.setAttribute('data-id', title.id);
-    hero.onclick = function() { showDetail(title); };
-    hero.style.cursor = 'pointer';
-  }
 
   function renderRow(containerId, titles) {
     var container = document.getElementById(containerId);
