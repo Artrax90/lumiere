@@ -1,7 +1,8 @@
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import staticFiles from '@fastify/static';
 import crypto from 'crypto';
-import { readFileSync } from 'fs';
+import { readFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { config } from './config.js';
@@ -118,6 +119,33 @@ app.post('/api/setup/admin', async (req, reply) => {
 
 await runMigrations();
 await ensureDefaultUser();
+
+// Serve static frontend files (React build)
+const publicDir = join(__dirname, '..', 'public');
+if (existsSync(publicDir)) {
+  await app.register(staticFiles, {
+    root: publicDir,
+    prefix: '/',
+    decorateReply: false,
+  });
+
+  // Redirect /tv to /tv/
+  app.get('/tv', async (request, reply) => {
+    reply.code(301);
+    reply.header('Location', '/tv/');
+    return reply.send();
+  });
+
+  // SPA fallback: serve index.html for non-API routes
+  app.setNotFoundHandler((request, reply) => {
+    if (!request.url.startsWith('/api/')) {
+      return reply.sendFile('index.html', publicDir);
+    }
+    return reply.code(404).send({ error: 'Not found' });
+  });
+
+  console.log('Serving static files from', publicDir);
+}
 
 try {
   await app.listen({ port: config.port, host: '0.0.0.0' });

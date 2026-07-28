@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
+  <title>Lumiere</title>
+  <link rel="stylesheet" href="/tv/tv.css">
+</head>
+<body>
+  <!-- Loading -->
+  <div id="loading" class="screen">
+    <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="logo-sm"><div class="dot-sm"></div><span>Lumière</span></div>
+      <nav id="nav">
+        <button class="nav-btn active" data-section="home">Главная</button>
+        <button class="nav-btn" data-section="movies">Фильмы</button>
+        <button class="nav-btn" data-section="tv">Сериалы</button>
+        <button class="nav-btn" data-section="iptv">IPTV</button>
+        <button class="nav-btn" data-section="settings">Настройки</button>
+      </nav>
+    </header>
+
+    <!-- Content sections -->
+    <main id="content">
+      <!-- Home -->
+      <section id="sec-home" class="section active">
+        <div id="hero" class="hero"></div>
+        <div class="row" id="row-trending">
+          <h2 class="row-title">В тренде</h2>
+          <div class="row-items" id="trending-items"></div>
+        </div>
+        <div class="row" id="row-popular">
+          <h2 class="row-title">Популярные фильмы</h2>
+          <div class="row-items" id="popular-items"></div>
+        </div>
+        <div class="row" id="row-tv">
+          <h2 class="row-title">Популярные сериалы</h2>
+          <div class="row-items" id="tv-items"></div>
+        </div>
+      </section>
+
+      <!-- Movies -->
+      <section id="sec-movies" class="section">
+        <h1 class="page-title">Фильмы</h1>
+        <div class="grid" id="movies-grid"></div>
+      </section>
+
+      <!-- TV Shows -->
+      <section id="sec-tv" class="section">
+        <h1 class="page-title">Сериалы</h1>
+        <div class="grid" id="tv-grid"></div>
+      </section>
+
+      <!-- IPTV -->
+      <section id="sec-iptv" class="section">
+        <h1 class="page-title">IPTV</h1>
+        <div id="iptv-channels" class="iptv-grid"></div>
+      </section>
+
+      <!-- Settings -->
+      <section id="sec-settings" class="section">
+        <h1 class="page-title">Настройки</h1>
+        <div class="settings-list">
+          <div class="setting-item">
+            <span class="setting-label">Сервер</span>
+            <span class="setting-value" id="server-url"></span>
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Версия</span>
+            <span class="setting-value">1.0.0</span>
+          </div>
+          <button class="setting-btn" id="btn-change-server">Сменить сервер</button>
+          <button class="setting-btn danger" id="btn-logout">Выйти</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Detail view (movie/show detail) -->
+  <div id="detail" class="screen hidden">
+    <button id="detail-back" class="back-btn">← Назад</button>
+    <div id="detail-content"></div>
+  </div>
+
+  <script src="/tv/tv.js"></script>
+</body>
+</html>

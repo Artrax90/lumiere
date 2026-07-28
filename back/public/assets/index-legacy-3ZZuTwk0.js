@@ -1,0 +1,1 @@
+System.register(["./index-legacy-BKVBMSuL.js"],function(e,t){"use strict";var r,n;return{setters:[e=>{r=e.r,n=e._}],execute:function(){e("App",r("App",{web:()=>n(()=>t.import("./web-legacy-CnNFZ53E.js"),void 0,t.meta.url).then(e=>new e.AppWeb)}))}}});

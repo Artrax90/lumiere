@@ -112,29 +112,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // On native: auto-login only if server is a local IP (not a domain)
-      if (native) {
-        const serverHost = new URL(getServerUrl()).hostname;
-        const isLocalIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(serverHost);
+      // Auto-login if server is a local IP (works on both native and web/TV)
+      const serverHost = new URL(getServerUrl()).hostname;
+      const isLocalIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(serverHost);
 
-        if (isLocalIp) {
-          try {
-            const lanRes = await serverFetch('/api/auth/lan-status');
-            const lanData = await lanRes.json();
-            setIsLan(lanData.isLan);
+      if (isLocalIp) {
+        try {
+          const lanRes = await serverFetch('/api/auth/lan-status');
+          const lanData = await lanRes.json();
+          setIsLan(lanData.isLan);
 
-            if (lanData.isLan) {
-              const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
-              if (lanLoginRes.ok) {
-                const data = await lanLoginRes.json();
-                storeTokens(data.accessToken, data.refreshToken);
-                setUser(data.user);
-                setLoading(false);
-                return;
-              }
+          if (lanData.isLan) {
+            const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
+            if (lanLoginRes.ok) {
+              const data = await lanLoginRes.json();
+              storeTokens(data.accessToken, data.refreshToken);
+              setUser(data.user);
+              setLoading(false);
+              return;
             }
-          } catch {}
-        }
+          }
+        } catch {}
       }
 
       // Check existing token
