@@ -113,6 +113,9 @@
     $video.play().then(function() { isPlaying = true; updatePlayBtn(); }).catch(function() {});
 
     function updateDuration() {
+      // If we already have a valid duration from FFprobe API, don't overwrite it
+      if (duration > 0) return;
+
       var d = $video.duration;
       if (d && isFinite(d) && d > 0) {
         duration = d;
