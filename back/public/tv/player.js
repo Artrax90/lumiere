@@ -214,10 +214,17 @@
 
   // ========== Subtitles ==========
   function loadSubtitleVtt(url) {
-    apiFetch(url, function(err, text) {
-      if (err || !text) { subtitleCues = []; return; }
-      subtitleCues = parseVtt(text);
-    });
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + url, true);
+    xhr.timeout = 10000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        subtitleCues = parseVtt(xhr.responseText);
+      }
+    };
+    xhr.send();
   }
 
   function parseVtt(text) {
@@ -429,8 +436,14 @@
 
   // ========== Netflix-style seek ==========
   function seekStep(seconds) {
+    var pos = $video.currentTime || currentTime;
+    if (!duration || duration <= 0 || !isFinite(duration)) {
+      // Duration unknown, do simple seek
+      $video.currentTime = Math.max(0, pos + seconds);
+      return;
+    }
     seekAccum += seconds;
-    seekTarget = Math.max(0, Math.min(currentTime + seekAccum, duration));
+    seekTarget = Math.max(0, Math.min(pos + seekAccum, duration));
 
     // Show preview on timeline
     var pct = duration > 0 ? (seekTarget / duration * 100) : 0;
@@ -469,7 +482,12 @@
     saveProgress();
     $video.pause();
     $video.src = '';
-    window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+    // Return to previous page (movie detail or home)
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+    }
   }
 
   // ========== Popup Menu ==========
@@ -532,6 +550,12 @@
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
       currentAudio = idx;
+      // Switch audio track
+      if ($video.audioTracks) {
+        for (var i = 0; i < $video.audioTracks.length; i++) {
+          $video.audioTracks[i].enabled = (i === idx);
+        }
+      }
       closePopup();
     });
   }
