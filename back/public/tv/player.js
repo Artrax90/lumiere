@@ -94,6 +94,28 @@
     // Focus play button on first show
     navRow = 1; navCol = 2;
     highlightFocused();
+
+    // Resume from saved position
+    if (movieId) {
+      try {
+        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var saved = positions[movieId];
+        if (saved && typeof saved === 'object' && saved.time > 30) {
+          // Wait for video to be ready, then seek
+          var resumeTime = saved.time;
+          var resumeAttempts = 0;
+          var resumeInterval = setInterval(function() {
+            resumeAttempts++;
+            if ($video.readyState >= 2 && $video.duration && isFinite($video.duration)) {
+              $video.currentTime = Math.min(resumeTime, $video.duration - 5);
+              clearInterval(resumeInterval);
+            } else if (resumeAttempts > 50) {
+              clearInterval(resumeInterval);
+            }
+          }, 200);
+        }
+      } catch(e) {}
+    }
   });
 
   function parseParams() {
@@ -194,9 +216,10 @@
     try {
       if ($video.buffered && $video.buffered.length > 0) {
         var end = $video.buffered.end($video.buffered.length - 1);
-        var d = duration > 0 ? duration : ($video.duration || 1);
-        if (d > 0 && isFinite(d)) {
-          $bufferFill.style.width = ((end / d) * 100) + '%';
+        var d = duration > 0 ? duration : (isFinite($video.duration) ? $video.duration : 0);
+        if (d > 0) {
+          var pct = Math.min(100, (end / d) * 100);
+          $bufferFill.style.width = pct + '%';
         }
       }
     } catch(e) {}
