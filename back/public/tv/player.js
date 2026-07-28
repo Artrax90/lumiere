@@ -15,6 +15,7 @@
   var movieTitle = '';
   var movieId = 0;
   var referrerUrl = '';
+  var isBuffering = false;
 
   // Navigation
   var navRows = [];
@@ -114,10 +115,35 @@
       if (data.duration > 0) duration = data.duration;
       updateTimeline();
     });
+    player.on('bufferingStart', function() {
+      isBuffering = true;
+      // Show buffering indicator
+      var $centerPlay = document.getElementById('center-play');
+      if ($centerPlay) $centerPlay.classList.remove('hidden');
+      var $centerIcon = document.getElementById('center-play-icon');
+      if ($centerIcon) $centerIcon.innerHTML = '<div style="font-size:24px;color:white;">Буферизация...</div>';
+    });
     player.on('bufferingProgress', function(data) {
       if ($bufferFill && data.percent > 0) {
         $bufferFill.style.width = data.percent + '%';
       }
+    });
+    player.on('bufferingEnd', function() {
+      isBuffering = false;
+      var $centerPlay = document.getElementById('center-play');
+      if ($centerPlay) {
+        if (isPlaying) $centerPlay.classList.add('hidden');
+        else {
+          var $centerIcon = document.getElementById('center-play-icon');
+          if ($centerIcon) $centerIcon.innerHTML = '▶';
+        }
+      }
+    });
+    player.on('audioTracksChanged', function(data) {
+      // Audio tracks are now available in player.getAudioTracks()
+    });
+    player.on('subtitleTracksChanged', function(data) {
+      // Subtitle tracks are now available in player.getSubtitleTracks()
     });
     player.on('error', function(data) {
       console.error('[Player] Error:', data.message);

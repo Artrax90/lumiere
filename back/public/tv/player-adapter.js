@@ -263,8 +263,11 @@
   PlayerAdapter.prototype.setAudioTrack = function(index) {
     if (this.engineType === 'avplay') {
       try {
-        webapis.avplay.setSelectTrack('AUDIO', this.audioTracks[index].index);
-        this.currentAudio = index;
+        if (index >= 0 && index < this.audioTracks.length) {
+          webapis.avplay.setSelectTrack('AUDIO', this.audioTracks[index].index);
+          this.currentAudio = index;
+          console.log('[AVPlay] Audio track set to:', this.audioTracks[index].name);
+        }
       } catch(e) { console.error('[AVPlay] setAudioTrack error:', e); }
     }
     // HTML5 video doesn't support audio track switching natively
@@ -276,9 +279,11 @@
         if (index >= 0 && this.subtitleTracks[index]) {
           webapis.avplay.setSelectTrack('TEXT', this.subtitleTracks[index].index);
           this.currentSubtitle = index;
+          console.log('[AVPlay] Subtitle track set to:', this.subtitleTracks[index].name);
         } else {
           // Disable subtitles
           this.currentSubtitle = -1;
+          console.log('[AVPlay] Subtitles disabled');
         }
       } catch(e) { console.error('[AVPlay] setSubtitleTrack error:', e); }
     }
