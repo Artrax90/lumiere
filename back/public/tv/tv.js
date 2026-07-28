@@ -113,10 +113,37 @@
         console.log('[App] Sync complete, loading IPTV');
         loadIptv();
       });
+
+      // Check if we need to open a detail view (e.g., returning from player)
+      checkDetailParam();
+
       setTimeout(function() { focusNav(0); }, 100);
     } catch(e) {
       console.error('[Lumiere] startApp error:', e);
       showError('Ошибка запуска: ' + (e.message || 'unknown'));
+    }
+  }
+
+  // Check URL for ?detail=ID parameter (returning from player)
+  function checkDetailParam() {
+    var search = window.location.search.substring(1);
+    var params = {};
+    search.split('&').forEach(function(pair) {
+      var parts = pair.split('=');
+      if (parts.length === 2) params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+    });
+    var detailId = params.detail;
+    if (detailId) {
+      // Fetch movie details and open detail view
+      apiFetch('/api/movies/' + detailId, function(err, data) {
+        if (data && data.id) {
+          showDetail(data);
+        }
+      });
+      // Clean URL
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     }
   }
 

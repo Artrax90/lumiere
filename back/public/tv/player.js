@@ -15,6 +15,7 @@
   var osdTimer = null;
   var movieTitle = '';
   var movieId = 0;
+  var referrerUrl = ''; // URL to return to on BACK
 
   // Navigation: rows of focusable elements
   // Row 0: back button (single)
@@ -64,6 +65,7 @@
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
     var url = params.url || '';
+    referrerUrl = params.ref || '';
 
     $osdTitle.textContent = movieTitle;
 
@@ -110,24 +112,27 @@
     $video.src = url;
     $video.play().then(function() { isPlaying = true; updatePlayBtn(); }).catch(function() {});
 
+    function updateDuration() {
+      var d = $video.duration;
+      // For HLS streams, duration might be Infinity — try seekable range
+      if (d && isFinite(d) && d > 0) {
+        duration = d;
+      } else if ($video.seekable && $video.seekable.length > 0) {
+        // Use seekable end as duration estimate
+        duration = $video.seekable.end($video.seekable.length - 1);
+      }
+      if (duration > 0) updateTimeline();
+    }
+
     $video.ontimeupdate = function() {
       currentTime = $video.currentTime;
-      if ($video.duration && isFinite($video.duration)) duration = $video.duration;
+      updateDuration();
       if (!scrubberFocused) updateTimeline();
     };
-    $video.onloadedmetadata = function() {
-      if ($video.duration && isFinite($video.duration)) duration = $video.duration;
-      updateTimeline();
-    };
-    $video.ondurationchange = function() {
-      if ($video.duration && isFinite($video.duration)) duration = $video.duration;
-      updateTimeline();
-    };
+    $video.onloadedmetadata = function() { updateDuration(); };
+    $video.ondurationchange = function() { updateDuration(); };
     $video.onprogress = function() { updateBuffer(); };
-    $video.oncanplay = function() {
-      if ($video.duration && isFinite($video.duration)) duration = $video.duration;
-      updateTimeline();
-    };
+    $video.oncanplay = function() { updateDuration(); };
     $video.onended = function() { isPlaying = false; updatePlayBtn(); saveProgress(); };
   }
 
@@ -332,16 +337,24 @@
   }
 
   function seek(sec) {
-    if (!$video || !duration) return;
-    $video.currentTime = Math.max(0, Math.min($video.currentTime + sec, duration));
+    if (!$video) return;
+    var target = $video.currentTime + sec;
+    if (duration > 0) target = Math.max(0, Math.min(target, duration));
+    else target = Math.max(0, target);
+    $video.currentTime = target;
     showOsd();
   }
 
   function goBack() {
     saveProgress();
     if ($video) { $video.pause(); $video.src = ''; }
-    if (window.history.length > 1) window.history.back();
-    else window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+    // Navigate back to TV app with movie ID so detail view can be opened
+    var server = localStorage.getItem(SERVER_KEY) || '';
+    if (movieId) {
+      window.location.href = server + '/tv/?detail=' + movieId;
+    } else {
+      window.location.href = server + '/tv/';
+    }
   }
 
   // ========== Popup ==========
