@@ -114,19 +114,10 @@
 
     function updateDuration() {
       var d = $video.duration;
-      // Try multiple methods to get duration
       if (d && isFinite(d) && d > 0) {
         duration = d;
       } else if ($video.seekable && $video.seekable.length > 0) {
-        try {
-          duration = $video.seekable.end($video.seekable.length - 1);
-        } catch(e) {}
-      }
-      // Also try buffered ranges
-      if ((!duration || duration <= 0) && $video.buffered && $video.buffered.length > 0) {
-        try {
-          duration = $video.buffered.end($video.buffered.length - 1);
-        } catch(e) {}
+        try { duration = $video.seekable.end($video.seekable.length - 1); } catch(e) {}
       }
       if (duration > 0) {
         updateTimeline();
@@ -144,6 +135,29 @@
     $video.onprogress = function() { updateBuffer(); };
     $video.oncanplay = function() { updateDuration(); };
     $video.onended = function() { isPlaying = false; updatePlayBtn(); saveProgress(); };
+
+    // For HLS streams, fetch duration from backend FFprobe
+    fetchDurationFromApi(url);
+  }
+
+  function fetchDurationFromApi(url) {
+    // Extract link and index from URL
+    var linkMatch = url.match(/link=([^&]+)/);
+    var indexMatch = url.match(/index=(\d+)/);
+    if (!linkMatch) return;
+    var link = decodeURIComponent(linkMatch[1]);
+    var index = indexMatch ? indexMatch[1] : '0';
+
+    apiFetch('/api/torrents/duration?link=' + encodeURIComponent(link) + '&index=' + index, function(err, resp) {
+      if (err || !resp) return;
+      var data = null;
+      try { data = JSON.parse(resp); } catch(e) { return; }
+      if (data && data.duration && data.duration > 0) {
+        duration = data.duration;
+        updateTimeline();
+        updateBuffer();
+      }
+    });
   }
 
   function updatePlayBtn() {
@@ -161,7 +175,7 @@
     if ($fill) $fill.style.width = pct + '%';
     if ($thumb) $thumb.style.left = pct + '%';
     if ($timeCurrent) $timeCurrent.textContent = fmt(currentTime);
-    if ($timeTotal) $timeTotal.textContent = fmt(duration);
+    if ($timeTotal) $timeTotal.textContent = duration > 0 ? fmt(duration) : '--:--';
   }
 
   function updateBuffer() {
