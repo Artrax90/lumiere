@@ -128,12 +128,13 @@
     $video.ontimeupdate = function() {
       currentTime = $video.currentTime;
       updateDuration();
+      updateBuffer();
       if (!scrubberFocused) updateTimeline();
     };
-    $video.onloadedmetadata = function() { updateDuration(); };
-    $video.ondurationchange = function() { updateDuration(); };
+    $video.onloadedmetadata = function() { updateDuration(); updateBuffer(); };
+    $video.ondurationchange = function() { updateDuration(); updateBuffer(); };
     $video.onprogress = function() { updateBuffer(); };
-    $video.oncanplay = function() { updateDuration(); };
+    $video.oncanplay = function() { updateDuration(); updateBuffer(); };
     $video.onended = function() { isPlaying = false; updatePlayBtn(); saveProgress(); };
 
     // For HLS streams, fetch duration from backend FFprobe
@@ -141,23 +142,30 @@
   }
 
   function fetchDurationFromApi(url) {
-    // Extract link and index from URL
     var linkMatch = url.match(/link=([^&]+)/);
     var indexMatch = url.match(/index=(\d+)/);
     if (!linkMatch) return;
     var link = decodeURIComponent(linkMatch[1]);
     var index = indexMatch ? indexMatch[1] : '0';
 
-    apiFetch('/api/torrents/duration?link=' + encodeURIComponent(link) + '&index=' + index, function(err, resp) {
-      if (err || !resp) return;
-      var data = null;
-      try { data = JSON.parse(resp); } catch(e) { return; }
-      if (data && data.duration && data.duration > 0) {
-        duration = data.duration;
-        updateTimeline();
-        updateBuffer();
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + '/api/torrents/duration?link=' + encodeURIComponent(link) + '&index=' + index, true);
+    xhr.timeout = 15000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data && data.duration && data.duration > 0) {
+            duration = data.duration;
+            updateTimeline();
+            updateBuffer();
+          }
+        } catch(e) {}
       }
-    });
+    };
+    xhr.send();
   }
 
   function updatePlayBtn() {
