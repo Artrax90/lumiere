@@ -1,4 +1,5 @@
-// Lumiere TV Player v2 — Netflix-style UX (Chrome 56 compatible)
+// Lumiere TV Player — UI phase (Chrome 56 compatible)
+// Only UI and navigation. No AVPlay, no audio switching, no subtitle rendering, no HLS changes.
 (function() {
   'use strict';
 
@@ -14,116 +15,84 @@
   var osdTimer = null;
   var movieTitle = '';
   var movieId = 0;
-  var movieType = 'movie';
-  var playbackSpeed = 1;
 
-  // Tracks
-  var audioTracks = [];
-  var subtitleTracks = [];
-  var currentAudio = 0;
-  var currentSubtitle = -1;
-  var subtitleCues = [];
+  // Navigation: rows of focusable elements
+  // Row 0: back button (single)
+  // Row 1: transport buttons [start, rew, play, fwd, end]
+  // Row 2: timeline scrubber
+  // Row 3: action buttons [cc, audio, speed, settings]
+  var navRows = [];
+  var navRow = 1; // start on transport (play button)
+  var navCol = 2; // play button index
 
-  // Navigation
-  var navRow = 0; // 0=transport, 1=actions
-  var navCol = 2; // index in current row (play=2 in transport)
+  // Popup
   var popupOpen = false;
   var popupFocus = 0;
   var popupItems = [];
+  var popupReturnRow = 0;
+  var popupReturnCol = 0;
 
-  // Netflix seek
-  var seekTarget = 0;
-  var seekAccum = 0;
-  var seekTimer = null;
-  var isSeeking = false;
-
-  // Next episode
-  var nextEpShown = false;
-  var nextEpTimer = null;
-  var nextEpCountdown = 30;
+  // Seek via scrubber
+  var scrubberFocused = false;
+  var scrubberPos = 0; // 0-100
 
   // DOM
-  var $video, $osdTop, $osdBottom, $osdTitle, $osdBadges;
-  var $centerPlay, $timeCurrent, $timeTotal;
-  var $fill, $bufferFill, $thumb, $popup, $popupHeader, $popupList;
-  var $nextEpPopup, $nextEpCountdown, $subtitleOverlay;
-
-  // Transport buttons (row 0)
-  var transportBtns = [];
-  // Action buttons (row 1)
-  var actionBtns = [];
-  // All buttons flat
-  var allBtns = [];
+  var $video, $osd, $osdTitle, $timeCurrent, $timeTotal;
+  var $fill, $bufferFill, $thumb, $centerPlay;
+  var $popup, $popupHeader, $popupList, $subtitleOverlay;
 
   // ========== Init ==========
   window.addEventListener('DOMContentLoaded', function() {
     $video = document.getElementById('video');
-    $osdTop = document.getElementById('osd-top');
-    $osdBottom = document.getElementById('osd-bottom');
+    $osd = document.getElementById('osd');
     $osdTitle = document.getElementById('osd-title');
-    $osdBadges = document.getElementById('osd-badges');
-    $centerPlay = document.getElementById('center-play');
     $timeCurrent = document.getElementById('time-current');
     $timeTotal = document.getElementById('time-total');
     $fill = document.getElementById('timeline-fill');
     $bufferFill = document.getElementById('timeline-buffer');
     $thumb = document.getElementById('timeline-thumb');
+    $centerPlay = document.getElementById('center-play');
     $popup = document.getElementById('popup');
     $popupHeader = document.getElementById('popup-header');
     $popupList = document.getElementById('popup-list');
-    $nextEpPopup = document.getElementById('next-ep-popup');
-    $nextEpCountdownEl = document.getElementById('next-ep-countdown');
     $subtitleOverlay = document.getElementById('subtitle-overlay');
 
     var server = localStorage.getItem(SERVER_KEY);
     if (server) API = server;
 
-    // Parse params
     var params = parseParams();
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
-    movieType = params.type || 'movie';
     var url = params.url || '';
 
     $osdTitle.textContent = movieTitle;
 
-    // Build button arrays
-    transportBtns = [
-      document.getElementById('btn-prev'),
-      document.getElementById('btn-rew'),
-      document.getElementById('btn-play'),
-      document.getElementById('btn-fwd'),
-      document.getElementById('btn-next')
+    // Build nav rows
+    navRows = [
+      [document.getElementById('btn-back')], // row 0
+      [ // row 1: transport
+        document.getElementById('btn-start'),
+        document.getElementById('btn-rew'),
+        document.getElementById('btn-play'),
+        document.getElementById('btn-fwd'),
+        document.getElementById('btn-end')
+      ],
+      [document.getElementById('timeline-wrap')], // row 2: scrubber
+      [ // row 3: actions
+        document.getElementById('btn-cc'),
+        document.getElementById('btn-audio'),
+        document.getElementById('btn-speed'),
+        document.getElementById('btn-settings')
+      ]
     ];
-    actionBtns = [
-      document.getElementById('btn-cc'),
-      document.getElementById('btn-audio'),
-      document.getElementById('btn-quality'),
-      document.getElementById('btn-speed'),
-      document.getElementById('btn-episodes'),
-      document.getElementById('btn-settings')
-    ];
-    allBtns = transportBtns.concat(actionBtns);
 
-    // Hide prev/next for movies
-    if (movieType !== 'tv') {
-      document.getElementById('btn-prev').style.display = 'none';
-      document.getElementById('btn-next').style.display = 'none';
-    }
-
-    // Badges
-    renderBadges(params);
-
-    if (url) {
-      startPlayback(url);
-      loadTrackInfo(url);
-    }
-
+    if (url) startPlayback(url);
     setupControls();
     showOsd();
+    // Focus play button on first show
+    navRow = 1; navCol = 2;
+    highlightFocused();
   });
-
-  var $nextEpCountdownEl;
 
   function parseParams() {
     var search = window.location.search.substring(1);
@@ -135,23 +104,6 @@
     return p;
   }
 
-  function renderBadges(params) {
-    var badges = [];
-    var url = params.url || '';
-    if (url.indexOf('4k') >= 0 || url.indexOf('2160') >= 0) badges.push({ text: '4K', cls: 'badge-4k' });
-    if (url.indexOf('hdr') >= 0) badges.push({ text: 'HDR10', cls: 'badge-hdr' });
-    if (url.indexOf('hevc') >= 0 || url.indexOf('h265') >= 0) badges.push({ text: 'HEVC', cls: '' });
-    // Default badges
-    if (badges.length === 0) {
-      badges.push({ text: 'HD', cls: '' });
-    }
-    var html = '';
-    badges.forEach(function(b) {
-      html += '<span class="badge ' + b.cls + '">' + b.text + '</span>';
-    });
-    $osdBadges.innerHTML = html;
-  }
-
   // ========== Playback ==========
   function startPlayback(url) {
     $video.style.display = 'block';
@@ -161,9 +113,7 @@
     $video.ontimeupdate = function() {
       currentTime = $video.currentTime;
       if ($video.duration && isFinite($video.duration)) duration = $video.duration;
-      updateTimeline();
-      updateSubtitles();
-      checkNextEpisode();
+      if (!scrubberFocused) updateTimeline();
     };
     $video.onloadedmetadata = function() {
       if ($video.duration && isFinite($video.duration)) duration = $video.duration;
@@ -190,92 +140,6 @@
     }
   }
 
-  // ========== Track info ==========
-  function loadTrackInfo(url) {
-    var linkMatch = url.match(/link=([^&]+)/);
-    var indexMatch = url.match(/index=(\d+)/);
-    if (!linkMatch) return;
-    var link = decodeURIComponent(linkMatch[1]);
-    var index = indexMatch ? indexMatch[1] : '0';
-
-    apiFetch('/api/torrents/tracks?link=' + encodeURIComponent(link) + '&index=' + index, function(err, resp) {
-      if (err || !resp) return;
-      var data = null;
-      try { data = JSON.parse(resp); } catch(e) { return; }
-      if (!data) return;
-      if (data.audioTracks && data.audioTracks.length > 0) audioTracks = data.audioTracks;
-      if (data.subtitleTracks && data.subtitleTracks.length > 0) {
-        subtitleTracks = data.subtitleTracks;
-        subtitleTracks.forEach(function(st) {
-          st.url = '/api/torrents/subtitle-file?link=' + encodeURIComponent(link) + '&index=' + st.id;
-        });
-      }
-    });
-  }
-
-  // ========== Subtitles ==========
-  function loadSubtitleVtt(url) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', API + url, true);
-    xhr.timeout = 10000;
-    var token = localStorage.getItem(TOKEN_KEY);
-    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-    xhr.onload = function() {
-      if (xhr.status === 200) {
-        subtitleCues = parseVtt(xhr.responseText);
-      }
-    };
-    xhr.send();
-  }
-
-  function parseVtt(text) {
-    var cues = [];
-    var blocks = text.replace(/\r\n/g, '\n').split('\n\n');
-    for (var b = 0; b < blocks.length; b++) {
-      var lines = blocks[b].split('\n');
-      for (var l = 0; l < lines.length; l++) {
-        if (lines[l].indexOf('-->') > 0) {
-          var parts = lines[l].split('-->');
-          var start = parseVttTime(parts[0].trim());
-          var end = parseVttTime(parts[1].trim());
-          var txt = [];
-          for (var t = l + 1; t < lines.length; t++) {
-            if (lines[t].trim()) txt.push(lines[t].trim());
-          }
-          if (txt.length > 0) cues.push({ start: start, end: end, text: txt.join('\n') });
-          break;
-        }
-      }
-    }
-    return cues;
-  }
-
-  function parseVttTime(s) {
-    var p = s.split(':');
-    if (p.length === 3) {
-      var sp = p[2].split('.');
-      return parseInt(p[0]) * 3600 + parseInt(p[1]) * 60 + parseInt(sp[0]) + (sp[1] ? parseInt(sp[1]) / 1000 : 0);
-    } else if (p.length === 2) {
-      var sp2 = p[1].split('.');
-      return parseInt(p[0]) * 60 + parseInt(sp2[0]) + (sp2[1] ? parseInt(sp2[1]) / 1000 : 0);
-    }
-    return 0;
-  }
-
-  function updateSubtitles() {
-    if (subtitleCues.length === 0 || currentSubtitle < 0) {
-      $subtitleOverlay.innerHTML = '';
-      return;
-    }
-    for (var i = 0; i < subtitleCues.length; i++) {
-      if (currentTime >= subtitleCues[i].start && currentTime < subtitleCues[i].end) {
-        $subtitleOverlay.innerHTML = '<span class="sub-text">' + esc(subtitleCues[i].text) + '</span>';
-        return;
-      }
-    }
-    $subtitleOverlay.innerHTML = '';
-  }
-
   // ========== Timeline ==========
   function updateTimeline() {
     var pct = duration > 0 ? (currentTime / duration * 100) : 0;
@@ -291,22 +155,30 @@
     $bufferFill.style.width = (duration > 0 ? (end / duration * 100) : 0) + '%';
   }
 
+  function updateScrubberPreview() {
+    var pct = scrubberPos;
+    if ($fill) $fill.style.width = pct + '%';
+    if ($thumb) $thumb.style.left = pct + '%';
+    if ($timeCurrent) $timeCurrent.textContent = fmt((pct / 100) * duration);
+  }
+
   // ========== OSD ==========
   function showOsd() {
     osdVisible = true;
-    document.body.classList.remove('osd-hide');
+    if ($osd) $osd.classList.remove('hide');
     resetOsdTimer();
   }
 
   function hideOsd() {
-    if (popupOpen) return;
+    if (popupOpen || scrubberFocused) return;
     osdVisible = false;
-    document.body.classList.add('osd-hide');
+    if ($osd) $osd.classList.add('hide');
+    clearFocus();
   }
 
   function resetOsdTimer() {
     if (osdTimer) clearTimeout(osdTimer);
-    if (!isPlaying || popupOpen) return;
+    if (!isPlaying || popupOpen || scrubberFocused) return;
     osdTimer = setTimeout(hideOsd, 5000);
   }
 
@@ -320,38 +192,51 @@
     } catch(e) {}
   }
 
+  // ========== Focus ==========
+  function clearFocus() {
+    for (var r = 0; r < navRows.length; r++) {
+      for (var c = 0; c < navRows[r].length; c++) {
+        if (navRows[r][c]) navRows[r][c].classList.remove('focused');
+      }
+    }
+    scrubberFocused = false;
+    var tw = document.getElementById('timeline-wrap');
+    if (tw) tw.classList.remove('focused');
+  }
+
+  function highlightFocused() {
+    clearFocus();
+    var el = navRows[navRow] && navRows[navRow][navCol];
+    if (el) {
+      el.classList.add('focused');
+      if (navRow === 2) scrubberFocused = true;
+    }
+  }
+
   // ========== Controls ==========
   function setupControls() {
-    // Transport buttons
-    bindClick('btn-prev', function() { /* prev episode */ });
-    bindClick('btn-rew', function() { seekStep(-10); });
-    bindClick('btn-play', function() { togglePlay(); });
-    bindClick('btn-fwd', function() { seekStep(10); });
-    bindClick('btn-next', function() { /* next episode */ });
-
-    // Action buttons
     bindClick('btn-back', function() { goBack(); });
+    bindClick('btn-start', function() { $video.currentTime = 0; showOsd(); });
+    bindClick('btn-rew', function() { seek(-10); });
+    bindClick('btn-play', function() { togglePlay(); });
+    bindClick('btn-fwd', function() { seek(10); });
+    bindClick('btn-end', function() { if (duration > 0) $video.currentTime = Math.max(0, duration - 10); showOsd(); });
     bindClick('btn-cc', function() { openPopup('cc'); });
     bindClick('btn-audio', function() { openPopup('audio'); });
-    bindClick('btn-quality', function() { openPopup('quality'); });
     bindClick('btn-speed', function() { openPopup('speed'); });
-    bindClick('btn-episodes', function() { openPopup('episodes'); });
     bindClick('btn-settings', function() { openPopup('settings'); });
 
     // Timeline click
     var tw = document.getElementById('timeline-wrap');
     if (tw) {
       tw.addEventListener('click', function(e) {
+        if (!duration) return;
         var rect = tw.getBoundingClientRect();
         var pct = (e.clientX - rect.left) / rect.width;
         $video.currentTime = pct * duration;
         showOsd();
       });
     }
-
-    // Next episode buttons
-    bindClick('btn-next-ep-watch', function() { /* play next */ });
-    bindClick('btn-next-ep-cancel', function() { closeNextEp(); });
 
     // Keyboard
     document.addEventListener('keydown', function(e) {
@@ -369,149 +254,110 @@
   function handlePlayerKeys(e) {
     var code = e.keyCode;
 
-    // Back must be handled BEFORE showOsd, otherwise it always just hides OSD
+    // Back — always handle first
     if (code === 10009) {
       if (popupOpen) { closePopup(); }
+      else if (scrubberFocused) { scrubberFocused = false; highlightFocused(); showOsd(); }
       else if (osdVisible) { hideOsd(); }
       else { goBack(); }
       e.preventDefault();
       return;
     }
 
+    // Show OSD on any other key
     showOsd();
+
+    // If scrubber is focused, LEFT/RIGHT move the preview position
+    if (scrubberFocused && (code === 37 || code === 39 || code === 13)) {
+      if (code === 37) { // Left — move scrubber back
+        scrubberPos = Math.max(0, scrubberPos - 2);
+        updateScrubberPreview();
+      } else if (code === 39) { // Right — move scrubber forward
+        scrubberPos = Math.min(100, scrubberPos + 2);
+        updateScrubberPreview();
+      } else if (code === 13) { // Enter — commit scrubber position
+        if (duration > 0) $video.currentTime = (scrubberPos / 100) * duration;
+        scrubberFocused = false;
+        highlightFocused();
+      }
+      e.preventDefault();
+      return;
+    }
 
     switch (code) {
       case 37: // Left
-        if (!osdVisible) { seekStep(-10); }
-        else { moveFocus(-1, 0); }
+        if (navCol > 0) {
+          navCol--;
+          highlightFocused();
+        }
         e.preventDefault();
         break;
       case 39: // Right
-        if (!osdVisible) { seekStep(10); }
-        else { moveFocus(1, 0); }
+        if (navCol < navRows[navRow].length - 1) {
+          navCol++;
+          highlightFocused();
+        }
         e.preventDefault();
         break;
       case 38: // Up
-        if (!osdVisible) { showOsd(); }
-        else { moveFocus(0, -1); }
+        if (navRow > 0) {
+          navRow--;
+          if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1;
+          highlightFocused();
+        }
         e.preventDefault();
         break;
       case 40: // Down
-        if (!osdVisible) { showOsd(); }
-        else { moveFocus(0, 1); }
+        if (navRow < navRows.length - 1) {
+          navRow++;
+          if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1;
+          highlightFocused();
+        }
         e.preventDefault();
         break;
       case 13: // Enter
-        if (!osdVisible) { showOsd(); }
-        else { clickFocused(); }
+        var el = navRows[navRow] && navRows[navRow][navCol];
+        if (el) el.click();
         e.preventDefault();
         break;
     }
   }
 
-  function moveFocus(dx, dy) {
-    clearFocus();
-
-    if (dy !== 0) {
-      // Switch between transport (0) and actions (1) rows
-      navRow = navRow === 0 ? 1 : 0;
-      // Adjust column to fit new row
-      var row = navRow === 0 ? transportBtns : actionBtns;
-      if (navCol >= row.length) navCol = row.length - 1;
-    }
-
-    if (dx !== 0) {
-      var row = navRow === 0 ? transportBtns : actionBtns;
-      navCol = navCol + dx;
-      if (navCol < 0) navCol = 0;
-      if (navCol >= row.length) navCol = row.length - 1;
-    }
-
-    var btn = (navRow === 0 ? transportBtns : actionBtns)[navCol];
-    if (btn) btn.classList.add('focused');
-    resetOsdTimer();
-  }
-
-  function clearFocus() {
-    allBtns.forEach(function(b) { if (b) b.classList.remove('focused'); });
-  }
-
-  function clickFocused() {
-    var btn = (navRow === 0 ? transportBtns : actionBtns)[navCol];
-    if (btn) btn.click();
-  }
-
-  // ========== Netflix-style seek ==========
-  function seekStep(seconds) {
-    var pos = $video.currentTime || currentTime;
-    if (!duration || duration <= 0 || !isFinite(duration)) {
-      // Duration unknown, do simple seek
-      $video.currentTime = Math.max(0, pos + seconds);
-      return;
-    }
-    seekAccum += seconds;
-    seekTarget = Math.max(0, Math.min(pos + seekAccum, duration));
-
-    // Show preview on timeline
-    var pct = duration > 0 ? (seekTarget / duration * 100) : 0;
-    if ($fill) $fill.style.width = pct + '%';
-    if ($thumb) $thumb.style.left = pct + '%';
-    if ($timeCurrent) $timeCurrent.textContent = fmt(seekTarget);
-
-    isSeeking = true;
-
-    // Reset timer
-    if (seekTimer) clearTimeout(seekTimer);
-    seekTimer = setTimeout(function() {
-      // Commit seek
-      $video.currentTime = seekTarget;
-      isSeeking = false;
-      seekAccum = 0;
-    }, 1000);
-  }
-
-  // ========== Play/Pause ==========
+  // ========== Actions ==========
   function togglePlay() {
-    if (isSeeking) {
-      // Commit pending seek first
-      if (seekTimer) clearTimeout(seekTimer);
-      $video.currentTime = seekTarget;
-      isSeeking = false;
-      seekAccum = 0;
-    }
-
     if ($video.paused) { $video.play(); isPlaying = true; }
     else { $video.pause(); isPlaying = false; }
     updatePlayBtn();
     showOsd();
   }
 
-  function goBack() {
-    saveProgress();
-    $video.pause();
-    $video.src = '';
-    // Return to previous page (movie detail or home)
-    if (window.history.length > 1) {
-      window.history.back();
-    } else {
-      window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
-    }
+  function seek(sec) {
+    if (!$video || !duration) return;
+    $video.currentTime = Math.max(0, Math.min($video.currentTime + sec, duration));
+    showOsd();
   }
 
-  // ========== Popup Menu ==========
+  function goBack() {
+    saveProgress();
+    if ($video) { $video.pause(); $video.src = ''; }
+    if (window.history.length > 1) window.history.back();
+    else window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+  }
+
+  // ========== Popup ==========
   function openPopup(type) {
     popupOpen = true;
     popupFocus = 0;
     popupItems = [];
+    popupReturnRow = navRow;
+    popupReturnCol = navCol;
     if (osdTimer) clearTimeout(osdTimer);
 
     $popup.classList.remove('hidden');
 
     if (type === 'cc') renderCcPopup();
     else if (type === 'audio') renderAudioPopup();
-    else if (type === 'quality') renderQualityPopup();
     else if (type === 'speed') renderSpeedPopup();
-    else if (type === 'episodes') renderEpisodesPopup();
     else if (type === 'settings') renderSettingsPopup();
   }
 
@@ -519,13 +365,15 @@
     popupOpen = false;
     $popup.classList.add('hidden');
     popupItems = [];
+    navRow = popupReturnRow;
+    navCol = popupReturnCol;
+    highlightFocused();
     resetOsdTimer();
   }
 
-  function renderPopupItem(text, isActive, isHeader) {
+  function renderPopupItem(text, isActive) {
     var cls = 'popup-item';
     if (isActive) cls += ' active';
-    if (isHeader) cls += ' section-header';
     return '<div class="' + cls + '"><span>' + esc(text) + '</span>' +
       (isActive ? '<span class="check">✓</span>' : '') + '</div>';
   }
@@ -533,41 +381,15 @@
   function renderCcPopup() {
     $popupHeader.textContent = 'Субтитры';
     var html = '';
-    html += renderPopupItem('Выключены', currentSubtitle === -1);
-    subtitleTracks.forEach(function(t, i) {
-      html += renderPopupItem(t.name || t.lang || 'Дорожка ' + (i+1), currentSubtitle === i);
-    });
+    html += renderPopupItem('Выключены', true);
     $popupList.innerHTML = html;
-    bindPopupClick(function(idx) {
-      if (idx === 0) { currentSubtitle = -1; subtitleCues = []; $subtitleOverlay.innerHTML = ''; }
-      else { currentSubtitle = idx - 1; if (subtitleTracks[currentSubtitle]) loadSubtitleVtt(subtitleTracks[currentSubtitle].url); }
-      closePopup();
-    });
+    bindPopupClick(function() { closePopup(); });
   }
 
   function renderAudioPopup() {
     $popupHeader.textContent = 'Аудио';
     var html = '';
-    if (audioTracks.length === 0) {
-      html = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет дорожек</div>';
-    } else {
-      audioTracks.forEach(function(t, i) {
-        html += renderPopupItem(t.name || 'Дорожка ' + (i+1), currentAudio === i);
-      });
-    }
-    $popupList.innerHTML = html;
-    bindPopupClick(function(idx) {
-      currentAudio = idx;
-      // Note: Audio track switching for HLS streams requires HLS.js
-      // For now, just store the selection
-      closePopup();
-    });
-  }
-
-  function renderQualityPopup() {
-    $popupHeader.textContent = 'Качество';
-    var html = '';
-    html += renderPopupItem('Auto (HLS)', true);
+    html += renderPopupItem('Основная дорожка', true);
     $popupList.innerHTML = html;
     bindPopupClick(function() { closePopup(); });
   }
@@ -576,48 +398,27 @@
     $popupHeader.textContent = 'Скорость';
     var speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     var html = '';
+    var currentSpeed = $video ? $video.playbackRate : 1;
     speeds.forEach(function(s) {
-      html += renderPopupItem(s + 'x', playbackSpeed === s);
+      html += renderPopupItem(s + 'x', Math.abs(currentSpeed - s) < 0.01);
     });
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      playbackSpeed = speeds[idx];
-      $video.playbackRate = playbackSpeed;
+      if ($video) $video.playbackRate = speeds[idx];
       closePopup();
     });
-  }
-
-  function renderEpisodesPopup() {
-    $popupHeader.textContent = 'Эпизоды';
-    $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Загрузка...</div>';
-    // Fetch episode list from API
-    apiFetch('/api/tv/' + movieId, function(err, data) {
-      if (err || !data) {
-        $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет данных</div>';
-        return;
-      }
-      // For now, show basic info
-      $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.5)">Список эпизодов будет доступен в следующем обновлении</div>';
-    });
-    bindPopupClick(function() { closePopup(); });
   }
 
   function renderSettingsPopup() {
     $popupHeader.textContent = 'Настройки';
     var html = '';
-    html += renderPopupItem('Видео', false, true);
-    html += renderPopupItem('Звук', false);
-    html += renderPopupItem('Субтитры', false);
     html += renderPopupItem('Информация', false);
-    html += renderPopupItem('Таймер сна', false);
-    html += renderPopupItem('Соотношение сторон', false);
+    html += renderPopupItem('Скорость воспроизведения', false);
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      if (idx === 3) { // Info
-        showInfoPopup();
-      } else {
-        closePopup();
-      }
+      if (idx === 0) showInfoPopup();
+      else if (idx === 1) { closePopup(); openPopup('speed'); }
+      else closePopup();
     });
   }
 
@@ -625,26 +426,20 @@
     $popupHeader.textContent = 'Информация';
     var html = '';
     html += '<div class="popup-item"><span>Название</span><span style="color:rgba(255,255,255,0.5)">' + esc(movieTitle) + '</span></div>';
-    html += '<div class="popup-item"><span>Тип</span><span style="color:rgba(255,255,255,0.5)">' + (movieType === 'tv' ? 'Сериал' : 'Фильм') + '</span></div>';
     html += '<div class="popup-item"><span>Позиция</span><span style="color:rgba(255,255,255,0.5)">' + fmt(currentTime) + ' / ' + fmt(duration) + '</span></div>';
-    html += '<div class="popup-item"><span>Скорость</span><span style="color:rgba(255,255,255,0.5)">' + playbackSpeed + 'x</span></div>';
+    html += '<div class="popup-item"><span>Скорость</span><span style="color:rgba(255,255,255,0.5)">' + ($video ? $video.playbackRate : 1) + 'x</span></div>';
     $popupList.innerHTML = html;
     bindPopupClick(function() { closePopup(); });
   }
 
   function bindPopupClick(handler) {
-    var items = $popupList.querySelectorAll('.popup-item:not(.section-header)');
+    var items = $popupList.querySelectorAll('.popup-item');
     popupItems = [];
     for (var i = 0; i < items.length; i++) popupItems.push(items[i]);
-
     popupItems.forEach(function(el, idx) {
       el.addEventListener('click', function() { handler(idx); });
     });
-
-    // Focus first item
-    if (popupItems.length > 0) {
-      popupItems[0].classList.add('focused');
-    }
+    if (popupItems.length > 0) popupItems[0].classList.add('focused');
   }
 
   function handlePopupKeys(e) {
@@ -677,38 +472,6 @@
         e.preventDefault();
         break;
     }
-  }
-
-  // ========== Next Episode ==========
-  function checkNextEpisode() {
-    if (movieType !== 'tv' || !duration || duration < 60) return;
-    var remaining = duration - currentTime;
-    if (remaining <= 30 && remaining > 0 && !nextEpShown) {
-      showNextEp();
-    }
-  }
-
-  function showNextEp() {
-    nextEpShown = true;
-    nextEpCountdown = 30;
-    $nextEpPopup.classList.remove('hidden');
-    $nextEpCountdownEl.textContent = nextEpCountdown;
-
-    nextEpTimer = setInterval(function() {
-      nextEpCountdown--;
-      if ($nextEpCountdownEl) $nextEpCountdownEl.textContent = nextEpCountdown;
-      if (nextEpCountdown <= 0) {
-        clearInterval(nextEpTimer);
-        // Auto-play next (placeholder)
-        closeNextEp();
-      }
-    }, 1000);
-  }
-
-  function closeNextEp() {
-    nextEpShown = true; // prevent re-showing
-    $nextEpPopup.classList.add('hidden');
-    if (nextEpTimer) clearInterval(nextEpTimer);
   }
 
   // ========== API ==========

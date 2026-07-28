@@ -4,58 +4,58 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere Player</title>
-  <link rel="stylesheet" href="/tv/player.css?v=32">
+  <link rel="stylesheet" href="/tv/player.css?v=33">
 </head>
 <body>
   <div id="player">
     <video id="video" playsinline></video>
 
-    <!-- Top bar -->
-    <div id="osd-top" class="osd-bar">
-      <button id="btn-back" class="osd-btn" tabindex="0">← Назад</button>
-      <div id="osd-title-wrap">
-        <div id="osd-title"></div>
-      </div>
-      <div id="osd-badges"></div>
-    </div>
-
-    <!-- Center play icon (when paused) -->
-    <div id="center-play" class="hidden">
-      <div id="center-play-icon">▶</div>
-    </div>
-
-    <!-- Bottom controls -->
-    <div id="osd-bottom" class="osd-bar">
-      <!-- Timeline -->
-      <div id="timeline-row">
-        <span id="time-current">0:00</span>
-        <div id="timeline-wrap">
-          <div id="timeline-bar">
-            <div id="timeline-buffer"></div>
-            <div id="timeline-fill"></div>
-            <div id="timeline-thumb"></div>
-          </div>
+    <!-- OSD -->
+    <div id="osd">
+      <!-- Top bar -->
+      <div id="osd-top">
+        <button id="btn-back" class="osd-btn" tabindex="0">← Назад</button>
+        <div id="osd-title-wrap">
+          <div id="osd-title"></div>
         </div>
-        <span id="time-total">0:00</span>
       </div>
 
-      <!-- Controls row 1: transport -->
-      <div id="controls-transport">
-        <button id="btn-prev" class="osd-btn osd-btn-round" tabindex="0">⏮</button>
-        <button id="btn-rew" class="osd-btn osd-btn-round" tabindex="0">⏪</button>
-        <button id="btn-play" class="osd-btn osd-btn-play" tabindex="0">❚❚</button>
-        <button id="btn-fwd" class="osd-btn osd-btn-round" tabindex="0">⏩</button>
-        <button id="btn-next" class="osd-btn osd-btn-round" tabindex="0">⏭</button>
+      <!-- Center play icon -->
+      <div id="center-play" class="hidden">
+        <div id="center-play-icon">▶</div>
       </div>
 
-      <!-- Controls row 2: actions -->
-      <div id="controls-actions">
-        <button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button>
-        <button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button>
-        <button id="btn-quality" class="osd-btn osd-btn-action" tabindex="0">Качество</button>
-        <button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button>
-        <button id="btn-episodes" class="osd-btn osd-btn-action" tabindex="0">Эпизоды</button>
-        <button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button>
+      <!-- Bottom -->
+      <div id="osd-bottom">
+        <!-- Timeline row -->
+        <div id="timeline-row">
+          <span id="time-current">0:00</span>
+          <div id="timeline-wrap" tabindex="0">
+            <div id="timeline-bar">
+              <div id="timeline-buffer"></div>
+              <div id="timeline-fill"></div>
+              <div id="timeline-thumb"></div>
+            </div>
+          </div>
+          <span id="time-total">0:00</span>
+        </div>
+
+        <!-- Transport buttons -->
+        <div id="controls-transport">
+          <button id="btn-start" class="osd-btn osd-btn-round" tabindex="0">⏮</button>
+          <button id="btn-rew" class="osd-btn osd-btn-round" tabindex="0">⏪</button>
+          <button id="btn-play" class="osd-btn osd-btn-play" tabindex="0">❚❚</button>
+          <button id="btn-fwd" class="osd-btn osd-btn-round" tabindex="0">⏩</button>
+          <button id="btn-end" class="osd-btn osd-btn-round" tabindex="0">⏭</button>
+        </div>
+
+        <!-- Action buttons -->
+        <div id="controls-actions">
+          <button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button>
+          <button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button>
+          <button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button>
+          <button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button>
+        </div>
       </div>
     </div>
 
@@ -65,19 +65,9 @@
       <div id="popup-list"></div>
     </div>
 
-    <!-- Next episode popup -->
-    <div id="next-ep-popup" class="hidden">
-      <div id="next-ep-title">Следующий эпизод</div>
-      <div id="next-ep-timer">через <span id="next-ep-countdown">30</span> сек</div>
-      <div id="next-ep-buttons">
-        <button id="btn-next-ep-watch" class="next-ep-btn next-ep-btn-primary" tabindex="0">Смотреть</button>
-        <button id="btn-next-ep-cancel" class="next-ep-btn" tabindex="0">Отмена</button>
-      </div>
-    </div>
-
     <!-- Subtitle overlay -->
     <div id="subtitle-overlay"></div>
   </div>
-  <script src="/tv/player.js?v=32"></script>
+  <script src="/tv/player.js?v=33"></script>
 </body>
 </html>
