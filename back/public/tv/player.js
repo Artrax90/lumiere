@@ -1,5 +1,4 @@
-// Lumiere TV Player — UI phase (Chrome 56 compatible)
-// Only UI and navigation. No AVPlay, no audio switching, no subtitle rendering, no HLS changes.
+// Lumiere TV Player — with PlayerAdapter (Chrome 56 compatible)
 (function() {
   'use strict';
 
@@ -15,16 +14,12 @@
   var osdTimer = null;
   var movieTitle = '';
   var movieId = 0;
-  var referrerUrl = ''; // URL to return to on BACK
+  var referrerUrl = '';
 
-  // Navigation: rows of focusable elements
-  // Row 0: back button (single)
-  // Row 1: transport buttons [start, rew, play, fwd, end]
-  // Row 2: timeline scrubber
-  // Row 3: action buttons [cc, audio, speed, settings]
+  // Navigation
   var navRows = [];
-  var navRow = 1; // start on transport (play button)
-  var navCol = 2; // play button index
+  var navRow = 1;
+  var navCol = 2;
 
   // Popup
   var popupOpen = false;
@@ -33,18 +28,20 @@
   var popupReturnRow = 0;
   var popupReturnCol = 0;
 
-  // Seek via scrubber
+  // Scrubber
   var scrubberFocused = false;
-  var scrubberPos = 0; // 0-100
+  var scrubberPos = 0;
 
   // DOM
-  var $video, $osd, $osdTitle, $timeCurrent, $timeTotal;
+  var $osd, $osdTitle, $timeCurrent, $timeTotal;
   var $fill, $bufferFill, $thumb, $centerPlay;
   var $popup, $popupHeader, $popupList, $subtitleOverlay;
 
+  // Player Adapter
+  var player = null;
+
   // ========== Init ==========
   window.addEventListener('DOMContentLoaded', function() {
-    $video = document.getElementById('video');
     $osd = document.getElementById('osd');
     $osdTitle = document.getElementById('osd-title');
     $timeCurrent = document.getElementById('time-current');
@@ -69,18 +66,18 @@
 
     $osdTitle.textContent = movieTitle;
 
-    // Build nav rows — order matches visual layout top-to-bottom
+    // Build nav rows
     navRows = [
-      [document.getElementById('btn-back')], // row 0: back
-      [document.getElementById('timeline-wrap')], // row 1: scrubber (top)
-      [ // row 2: transport (middle)
+      [document.getElementById('btn-back')],
+      [document.getElementById('timeline-wrap')],
+      [
         document.getElementById('btn-start'),
         document.getElementById('btn-rew'),
         document.getElementById('btn-play'),
         document.getElementById('btn-fwd'),
         document.getElementById('btn-end')
       ],
-      [ // row 3: actions (bottom)
+      [
         document.getElementById('btn-cc'),
         document.getElementById('btn-audio'),
         document.getElementById('btn-speed'),
@@ -88,10 +85,52 @@
       ]
     ];
 
-    if (url) startPlayback(url);
+    // Initialize player adapter
+    player = new PlayerAdapter('player');
+
+    // Listen for player events
+    player.on('loaded', function() {
+      isPlaying = true;
+      updatePlayBtn();
+    });
+    player.on('playing', function() {
+      isPlaying = true;
+      updatePlayBtn();
+    });
+    player.on('paused', function() {
+      isPlaying = false;
+      updatePlayBtn();
+    });
+    player.on('ended', function() {
+      isPlaying = false;
+      updatePlayBtn();
+      saveProgress();
+    });
+    player.on('timeUpdate', function(data) {
+      currentTime = data.currentTime;
+      if (!scrubberFocused) updateTimeline();
+    });
+    player.on('durationChange', function(data) {
+      if (data.duration > 0) duration = data.duration;
+      updateTimeline();
+    });
+    player.on('bufferingProgress', function(data) {
+      if ($bufferFill && data.percent > 0) {
+        $bufferFill.style.width = data.percent + '%';
+      }
+    });
+    player.on('error', function(data) {
+      console.error('[Player] Error:', data.message);
+    });
+
+    // Start playback
+    if (url) {
+      player.play(url);
+      fetchDurationFromApi(url);
+    }
+
     setupControls();
     showOsd();
-    // Focus play button on first show
     navRow = 1; navCol = 2;
     highlightFocused();
 
@@ -101,13 +140,12 @@
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
         var saved = positions[movieId];
         if (saved && typeof saved === 'object' && saved.time > 30) {
-          // Wait for video to be ready, then seek
           var resumeTime = saved.time;
           var resumeAttempts = 0;
           var resumeInterval = setInterval(function() {
             resumeAttempts++;
-            if ($video.readyState >= 2 && $video.duration && isFinite($video.duration)) {
-              $video.currentTime = Math.min(resumeTime, $video.duration - 5);
+            if (duration > 0) {
+              player.seekTo(Math.min(resumeTime, duration - 5));
               clearInterval(resumeInterval);
             } else if (resumeAttempts > 50) {
               clearInterval(resumeInterval);
@@ -128,44 +166,7 @@
     return p;
   }
 
-  // ========== Playback ==========
-  function startPlayback(url) {
-    $video.style.display = 'block';
-    $video.src = url;
-    $video.play().then(function() { isPlaying = true; updatePlayBtn(); }).catch(function() {});
-
-    function updateDuration() {
-      // If we already have a valid duration from FFprobe API, don't overwrite it
-      if (duration > 0) return;
-
-      var d = $video.duration;
-      if (d && isFinite(d) && d > 0) {
-        duration = d;
-      } else if ($video.seekable && $video.seekable.length > 0) {
-        try { duration = $video.seekable.end($video.seekable.length - 1); } catch(e) {}
-      }
-      if (duration > 0) {
-        updateTimeline();
-        updateBuffer();
-      }
-    }
-
-    $video.ontimeupdate = function() {
-      currentTime = $video.currentTime;
-      updateDuration();
-      updateBuffer();
-      if (!scrubberFocused) updateTimeline();
-    };
-    $video.onloadedmetadata = function() { updateDuration(); updateBuffer(); };
-    $video.ondurationchange = function() { updateDuration(); updateBuffer(); };
-    $video.onprogress = function() { updateBuffer(); };
-    $video.oncanplay = function() { updateDuration(); updateBuffer(); };
-    $video.onended = function() { isPlaying = false; updatePlayBtn(); saveProgress(); };
-
-    // For HLS streams, fetch duration from backend FFprobe
-    fetchDurationFromApi(url);
-  }
-
+  // ========== Duration from API ==========
   function fetchDurationFromApi(url) {
     var linkMatch = url.match(/link=([^&]+)/);
     var indexMatch = url.match(/index=(\d+)/);
@@ -185,21 +186,11 @@
           if (data && data.duration && data.duration > 0) {
             duration = data.duration;
             updateTimeline();
-            updateBuffer();
           }
         } catch(e) {}
       }
     };
     xhr.send();
-  }
-
-  function updatePlayBtn() {
-    var btn = document.getElementById('btn-play');
-    if (btn) btn.innerHTML = isPlaying ? '❚❚' : '▶';
-    if ($centerPlay) {
-      if (isPlaying) $centerPlay.classList.add('hidden');
-      else $centerPlay.classList.remove('hidden');
-    }
   }
 
   // ========== Timeline ==========
@@ -211,25 +202,21 @@
     if ($timeTotal) $timeTotal.textContent = duration > 0 ? fmt(duration) : '--:--';
   }
 
-  function updateBuffer() {
-    if (!$bufferFill || !$video) return;
-    try {
-      if ($video.buffered && $video.buffered.length > 0) {
-        var end = $video.buffered.end($video.buffered.length - 1);
-        var d = duration > 0 ? duration : (isFinite($video.duration) ? $video.duration : 0);
-        if (d > 0) {
-          var pct = Math.min(100, (end / d) * 100);
-          $bufferFill.style.width = pct + '%';
-        }
-      }
-    } catch(e) {}
-  }
-
   function updateScrubberPreview() {
     var pct = scrubberPos;
     if ($fill) $fill.style.width = pct + '%';
     if ($thumb) $thumb.style.left = pct + '%';
     if ($timeCurrent) $timeCurrent.textContent = fmt((pct / 100) * duration);
+  }
+
+  // ========== Play/Pause ==========
+  function updatePlayBtn() {
+    var btn = document.getElementById('btn-play');
+    if (btn) btn.innerHTML = isPlaying ? '❚❚' : '▶';
+    if ($centerPlay) {
+      if (isPlaying) $centerPlay.classList.add('hidden');
+      else $centerPlay.classList.remove('hidden');
+    }
   }
 
   // ========== OSD ==========
@@ -279,7 +266,6 @@
     var el = navRows[navRow] && navRows[navRow][navCol];
     if (el) {
       el.classList.add('focused');
-      // Scrubber is row 1 in new layout
       if (navRow === 1 && el.id === 'timeline-wrap') scrubberFocused = true;
     }
   }
@@ -287,11 +273,11 @@
   // ========== Controls ==========
   function setupControls() {
     bindClick('btn-back', function() { goBack(); });
-    bindClick('btn-start', function() { $video.currentTime = 0; showOsd(); });
-    bindClick('btn-rew', function() { seek(-10); });
+    bindClick('btn-start', function() { player.seekTo(0); showOsd(); });
+    bindClick('btn-rew', function() { player.seek(-10); showOsd(); });
     bindClick('btn-play', function() { togglePlay(); });
-    bindClick('btn-fwd', function() { seek(10); });
-    bindClick('btn-end', function() { if (duration > 0) $video.currentTime = Math.max(0, duration - 10); showOsd(); });
+    bindClick('btn-fwd', function() { player.seek(10); showOsd(); });
+    bindClick('btn-end', function() { if (duration > 0) player.seekTo(Math.max(0, duration - 10)); showOsd(); });
     bindClick('btn-cc', function() { openPopup('cc'); });
     bindClick('btn-audio', function() { openPopup('audio'); });
     bindClick('btn-speed', function() { openPopup('speed'); });
@@ -304,7 +290,7 @@
         if (!duration) return;
         var rect = tw.getBoundingClientRect();
         var pct = (e.clientX - rect.left) / rect.width;
-        $video.currentTime = pct * duration;
+        player.seekTo(pct * duration);
         showOsd();
       });
     }
@@ -325,7 +311,6 @@
   function handlePlayerKeys(e) {
     var code = e.keyCode;
 
-    // Back — always handle first
     if (code === 10009) {
       if (popupOpen) { closePopup(); }
       else if (scrubberFocused) { scrubberFocused = false; highlightFocused(); showOsd(); }
@@ -335,58 +320,34 @@
       return;
     }
 
-    // Show OSD on any other key
     showOsd();
 
-    // If scrubber is focused, LEFT/RIGHT move the preview position
     if (scrubberFocused && (code === 37 || code === 39 || code === 13)) {
-      if (code === 37) { // Left — move scrubber back
-        scrubberPos = Math.max(0, scrubberPos - 2);
-        updateScrubberPreview();
-      } else if (code === 39) { // Right — move scrubber forward
-        scrubberPos = Math.min(100, scrubberPos + 2);
-        updateScrubberPreview();
-      } else if (code === 13) { // Enter — commit scrubber position
-        if (duration > 0) $video.currentTime = (scrubberPos / 100) * duration;
-        scrubberFocused = false;
-        highlightFocused();
-      }
+      if (code === 37) { scrubberPos = Math.max(0, scrubberPos - 2); updateScrubberPreview(); }
+      else if (code === 39) { scrubberPos = Math.min(100, scrubberPos + 2); updateScrubberPreview(); }
+      else if (code === 13) { if (duration > 0) player.seekTo((scrubberPos / 100) * duration); scrubberFocused = false; highlightFocused(); }
       e.preventDefault();
       return;
     }
 
     switch (code) {
-      case 37: // Left
-        if (navCol > 0) {
-          navCol--;
-          highlightFocused();
-        }
+      case 37:
+        if (navCol > 0) { navCol--; highlightFocused(); }
         e.preventDefault();
         break;
-      case 39: // Right
-        if (navCol < navRows[navRow].length - 1) {
-          navCol++;
-          highlightFocused();
-        }
+      case 39:
+        if (navCol < navRows[navRow].length - 1) { navCol++; highlightFocused(); }
         e.preventDefault();
         break;
-      case 38: // Up
-        if (navRow > 0) {
-          navRow--;
-          if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1;
-          highlightFocused();
-        }
+      case 38:
+        if (navRow > 0) { navRow--; if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1; highlightFocused(); }
         e.preventDefault();
         break;
-      case 40: // Down
-        if (navRow < navRows.length - 1) {
-          navRow++;
-          if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1;
-          highlightFocused();
-        }
+      case 40:
+        if (navRow < navRows.length - 1) { navRow++; if (navCol >= navRows[navRow].length) navCol = navRows[navRow].length - 1; highlightFocused(); }
         e.preventDefault();
         break;
-      case 13: // Enter
+      case 13:
         var el = navRows[navRow] && navRows[navRow][navCol];
         if (el) el.click();
         e.preventDefault();
@@ -396,31 +357,17 @@
 
   // ========== Actions ==========
   function togglePlay() {
-    if ($video.paused) { $video.play(); isPlaying = true; }
-    else { $video.pause(); isPlaying = false; }
-    updatePlayBtn();
-    showOsd();
-  }
-
-  function seek(sec) {
-    if (!$video) return;
-    var target = $video.currentTime + sec;
-    if (duration > 0) target = Math.max(0, Math.min(target, duration));
-    else target = Math.max(0, target);
-    $video.currentTime = target;
+    if (isPlaying) player.pause();
+    else player.resume();
     showOsd();
   }
 
   function goBack() {
     saveProgress();
-    if ($video) { $video.pause(); $video.src = ''; }
-    // Navigate back to TV app with movie ID so detail view can be opened
+    player.stop();
     var server = localStorage.getItem(SERVER_KEY) || '';
-    if (movieId) {
-      window.location.href = server + '/tv/?detail=' + movieId;
-    } else {
-      window.location.href = server + '/tv/';
-    }
+    if (movieId) window.location.href = server + '/tv/?detail=' + movieId;
+    else window.location.href = server + '/tv/';
   }
 
   // ========== Popup ==========
@@ -431,7 +378,6 @@
     popupReturnRow = navRow;
     popupReturnCol = navCol;
     if (osdTimer) clearTimeout(osdTimer);
-
     $popup.classList.remove('hidden');
 
     if (type === 'cc') renderCcPopup();
@@ -459,31 +405,48 @@
 
   function renderCcPopup() {
     $popupHeader.textContent = 'Субтитры';
+    var tracks = player.getSubtitleTracks();
     var html = '';
-    html += renderPopupItem('Выключены', true);
+    html += renderPopupItem('Выключены', player.currentSubtitle === -1);
+    tracks.forEach(function(t, i) {
+      html += renderPopupItem(t.name || 'Дорожка ' + (i+1), player.currentSubtitle === i);
+    });
     $popupList.innerHTML = html;
-    bindPopupClick(function() { closePopup(); });
+    bindPopupClick(function(idx) {
+      if (idx === 0) { player.setSubtitleTrack(-1); $subtitleOverlay.innerHTML = ''; }
+      else { player.setSubtitleTrack(idx - 1); }
+      closePopup();
+    });
   }
 
   function renderAudioPopup() {
-    $popupHeader.textContent = 'Аудио';
+    $popupHeader.textContent = 'Аудио дорожки';
+    var tracks = player.getAudioTracks();
     var html = '';
-    html += renderPopupItem('Основная дорожка', true);
+    if (tracks.length === 0) {
+      html = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет доступных дорожек</div>';
+    } else {
+      tracks.forEach(function(t, i) {
+        html += renderPopupItem(t.name || 'Дорожка ' + (i+1), player.currentAudio === i);
+      });
+    }
     $popupList.innerHTML = html;
-    bindPopupClick(function() { closePopup(); });
+    bindPopupClick(function(idx) {
+      player.setAudioTrack(idx);
+      closePopup();
+    });
   }
 
   function renderSpeedPopup() {
     $popupHeader.textContent = 'Скорость';
     var speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     var html = '';
-    var currentSpeed = $video ? $video.playbackRate : 1;
     speeds.forEach(function(s) {
-      html += renderPopupItem(s + 'x', Math.abs(currentSpeed - s) < 0.01);
+      html += renderPopupItem(s + 'x', false);
     });
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      if ($video) $video.playbackRate = speeds[idx];
+      player.setPlaybackRate(speeds[idx]);
       closePopup();
     });
   }
@@ -505,8 +468,10 @@
     $popupHeader.textContent = 'Информация';
     var html = '';
     html += '<div class="popup-item"><span>Название</span><span style="color:rgba(255,255,255,0.5)">' + esc(movieTitle) + '</span></div>';
+    html += '<div class="popup-item"><span>Движок</span><span style="color:rgba(255,255,255,0.5)">' + (typeof webapis !== 'undefined' && webapis.avplay ? 'AVPlay' : 'HTML5 Video') + '</span></div>';
     html += '<div class="popup-item"><span>Позиция</span><span style="color:rgba(255,255,255,0.5)">' + fmt(currentTime) + ' / ' + fmt(duration) + '</span></div>';
-    html += '<div class="popup-item"><span>Скорость</span><span style="color:rgba(255,255,255,0.5)">' + ($video ? $video.playbackRate : 1) + 'x</span></div>';
+    html += '<div class="popup-item"><span>Аудио дорожек</span><span style="color:rgba(255,255,255,0.5)">' + player.getAudioTracks().length + '</span></div>';
+    html += '<div class="popup-item"><span>Субтитры</span><span style="color:rgba(255,255,255,0.5)">' + player.getSubtitleTracks().length + '</span></div>';
     $popupList.innerHTML = html;
     bindPopupClick(function() { closePopup(); });
   }
@@ -524,7 +489,7 @@
   function handlePopupKeys(e) {
     var code = e.keyCode;
     switch (code) {
-      case 38: // Up
+      case 38:
         if (popupFocus > 0) {
           popupItems[popupFocus].classList.remove('focused');
           popupFocus--;
@@ -533,7 +498,7 @@
         }
         e.preventDefault();
         break;
-      case 40: // Down
+      case 40:
         if (popupFocus < popupItems.length - 1) {
           popupItems[popupFocus].classList.remove('focused');
           popupFocus++;
@@ -542,28 +507,15 @@
         }
         e.preventDefault();
         break;
-      case 13: // Enter
+      case 13:
         if (popupItems[popupFocus]) popupItems[popupFocus].click();
         e.preventDefault();
         break;
-      case 10009: // Back
+      case 10009:
         closePopup();
         e.preventDefault();
         break;
     }
-  }
-
-  // ========== API ==========
-  function apiFetch(path, cb) {
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', API + path, true);
-    xhr.timeout = 10000;
-    var token = localStorage.getItem(TOKEN_KEY);
-    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-    xhr.onload = function() { if (xhr.status === 200) cb(null, xhr.responseText); else cb(new Error('HTTP ' + xhr.status), null); };
-    xhr.onerror = function() { cb(new Error('Network'), null); };
-    xhr.ontimeout = function() { cb(new Error('Timeout'), null); };
-    xhr.send();
   }
 
   // ========== Utils ==========
