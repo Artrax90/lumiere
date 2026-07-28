@@ -67,8 +67,8 @@ body {
 #nav { display: flex; }
 #nav .nav-btn { margin-right: 6px; }
 .nav-btn {
-  padding: 12px 24px; border: none; background: transparent;
-  color: var(--text-mute); font-size: 20px; font-weight: 500;
+  padding: 14px 28px; border: none; background: transparent;
+  color: var(--text-mute); font-size: 22px; font-weight: 500;
   border-radius: 10px; cursor: pointer;
   transition: all 0.2s;
 }
@@ -110,7 +110,7 @@ body {
 
 /* Rows */
 .row { margin-bottom: 40px; }
-.row-title { font-size: 24px; font-weight: 600; color: var(--text); margin-bottom: 16px; }
+.row-title { font-size: 28px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
 .row-items { display: flex; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
 .row-items::-webkit-scrollbar { display: none; }
 .row-items .card { margin-right: 16px; }
@@ -132,13 +132,13 @@ body {
   background: var(--surface-2); display: block;
 }
 .card-score {
-  position: absolute; top: 8px; right: 8px;
-  padding: 5px 10px; border-radius: 8px;
-  background: rgba(0,0,0,0.7); color: var(--warn);
-  font-size: 16px; font-weight: 600;
+  position: absolute; top: 10px; right: 10px;
+  padding: 6px 12px; border-radius: 8px;
+  background: rgba(0,0,0,0.8); color: var(--warn);
+  font-size: 20px; font-weight: 700;
 }
 .card-title {
-  padding: 12px 12px 10px; font-size: 20px; font-weight: 500;
+  padding: 14px 14px 12px; font-size: 24px; font-weight: 500;
   color: var(--text-dim);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -154,14 +154,14 @@ body {
 /* Grid */
 .grid { display: flex; flex-wrap: wrap; }
 .grid .card { width: 200px; margin-right: 16px; margin-bottom: 16px; }
-.page-title { font-size: 36px; font-weight: 600; color: var(--text); margin-bottom: 28px; }
+.page-title { font-size: 40px; font-weight: 600; color: var(--text); margin-bottom: 32px; }
 
 /* Search */
 .search-wrap { display: flex; margin-bottom: 32px; }
 .search-input {
-  flex: 1; padding: 18px 28px; border-radius: 14px;
+  flex: 1; padding: 20px 32px; border-radius: 16px;
   background: var(--surface); border: 1px solid var(--border);
-  color: var(--text); font-size: 22px; outline: none;
+  color: var(--text); font-size: 26px; outline: none;
 }
 .search-input:focus { border-color: var(--accent); }
 .search-input::placeholder { color: var(--text-mute); }
@@ -455,12 +455,12 @@ body {
   background: var(--surface); border: 1px solid var(--border);
   margin-bottom: 10px;
 }
-.setting-label { font-size: 18px; color: var(--text-dim); }
-.setting-value { font-size: 16px; color: var(--text-mute); font-family: monospace; }
+.setting-label { font-size: 20px; color: var(--text-dim); }
+.setting-value { font-size: 18px; color: var(--text-mute); font-family: monospace; }
 .setting-btn {
-  width: 100%; padding: 16px; border: none; border-radius: 12px;
+  width: 100%; padding: 18px; border: none; border-radius: 12px;
   background: var(--surface-2); color: var(--text-dim);
-  font-size: 18px; cursor: pointer; margin-top: 10px;
+  font-size: 20px; cursor: pointer; margin-top: 12px;
 }
 .setting-btn.focused { outline: 3px solid var(--accent); outline-offset: 3px; }
 .setting-btn.danger { color: var(--error); }
@@ -521,8 +521,8 @@ body {
 .detail-sep { color: var(--text-mute); font-size: 16px; margin: 0 10px; }
 
 .detail-title {
-  font-size: 48px; font-weight: 700; color: var(--text);
-  line-height: 1.15; margin-bottom: 18px;
+  font-size: 52px; font-weight: 700; color: var(--text);
+  line-height: 1.15; margin-bottom: 20px;
 }
 .detail-meta-row { display: flex; align-items: center; flex-wrap: wrap; }
 .detail-meta-row > * { margin-right: 10px; }
