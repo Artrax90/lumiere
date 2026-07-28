@@ -1,4 +1,4 @@
-// Lumiere TV Player v2 — Netflix-style UX (Chrome 56 compatible)
+// Lumiere TV Player v2.1 (Chrome 56 compatible)
 (function() {
   'use strict';
 
@@ -26,13 +26,13 @@
 
   // Navigation
   var navRow = 0; // 0=transport, 1=actions
-  var navCol = 2; // index in current row (play=2 in transport)
+  var navCol = 2; // play=2
   var popupOpen = false;
   var popupFocus = 0;
   var popupItems = [];
 
-  // Netflix seek
-  var seekTarget = 0;
+  // Seek
+  var seekTarget = -1;
   var seekAccum = 0;
   var seekTimer = null;
   var isSeeking = false;
@@ -46,14 +46,8 @@
   var $video, $osdTop, $osdBottom, $osdTitle, $osdBadges;
   var $centerPlay, $timeCurrent, $timeTotal;
   var $fill, $bufferFill, $popup, $popupHeader, $popupList;
-  var $nextEpPopup, $nextEpCountdown, $subtitleOverlay;
-
-  // Transport buttons (row 0)
-  var transportBtns = [];
-  // Action buttons (row 1)
-  var actionBtns = [];
-  // All buttons flat
-  var allBtns = [];
+  var $nextEpPopup, $nextEpCountdownEl, $subtitleOverlay;
+  var transportBtns = [], actionBtns = [], allBtns = [];
 
   // ========== Init ==========
   window.addEventListener('DOMContentLoaded', function() {
@@ -77,7 +71,6 @@
     var server = localStorage.getItem(SERVER_KEY);
     if (server) API = server;
 
-    // Parse params
     var params = parseParams();
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
@@ -86,7 +79,6 @@
 
     $osdTitle.textContent = movieTitle;
 
-    // Build button arrays
     transportBtns = [
       document.getElementById('btn-prev'),
       document.getElementById('btn-rew'),
@@ -106,11 +98,12 @@
 
     // Hide prev/next for movies
     if (movieType !== 'tv') {
-      document.getElementById('btn-prev').style.display = 'none';
-      document.getElementById('btn-next').style.display = 'none';
+      var prevBtn = document.getElementById('btn-prev');
+      var nextBtn = document.getElementById('btn-next');
+      if (prevBtn) prevBtn.style.display = 'none';
+      if (nextBtn) nextBtn.style.display = 'none';
     }
 
-    // Badges
     renderBadges(params);
 
     if (url) {
@@ -121,8 +114,6 @@
     setupControls();
     showOsd();
   });
-
-  var $nextEpCountdownEl;
 
   function parseParams() {
     var search = window.location.search.substring(1);
@@ -140,10 +131,7 @@
     if (url.indexOf('4k') >= 0 || url.indexOf('2160') >= 0) badges.push({ text: '4K', cls: 'badge-4k' });
     if (url.indexOf('hdr') >= 0) badges.push({ text: 'HDR10', cls: 'badge-hdr' });
     if (url.indexOf('hevc') >= 0 || url.indexOf('h265') >= 0) badges.push({ text: 'HEVC', cls: '' });
-    // Default badges
-    if (badges.length === 0) {
-      badges.push({ text: 'HD', cls: '' });
-    }
+    if (badges.length === 0) badges.push({ text: 'HD', cls: '' });
     var html = '';
     badges.forEach(function(b) {
       html += '<span class="badge ' + b.cls + '">' + b.text + '</span>';
@@ -158,6 +146,7 @@
     $video.play().then(function() { isPlaying = true; updatePlayBtn(); }).catch(function() {});
 
     $video.ontimeupdate = function() {
+      if (isSeeking) return; // don't update during seek preview
       currentTime = $video.currentTime;
       if ($video.duration && isFinite($video.duration)) duration = $video.duration;
       updateTimeline();
@@ -214,10 +203,17 @@
 
   // ========== Subtitles ==========
   function loadSubtitleVtt(url) {
-    apiFetch(url, function(err, text) {
-      if (err || !text) { subtitleCues = []; return; }
-      subtitleCues = parseVtt(text);
-    });
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + url, true);
+    xhr.timeout = 10000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        subtitleCues = parseVtt(xhr.responseText);
+      }
+    };
+    xhr.send();
   }
 
   function parseVtt(text) {
@@ -313,14 +309,11 @@
 
   // ========== Controls ==========
   function setupControls() {
-    // Transport buttons
-    bindClick('btn-prev', function() { /* prev episode */ });
+    bindClick('btn-prev', function() {});
     bindClick('btn-rew', function() { seekStep(-10); });
     bindClick('btn-play', function() { togglePlay(); });
     bindClick('btn-fwd', function() { seekStep(10); });
-    bindClick('btn-next', function() { /* next episode */ });
-
-    // Action buttons
+    bindClick('btn-next', function() {});
     bindClick('btn-back', function() { goBack(); });
     bindClick('btn-cc', function() { openPopup('cc'); });
     bindClick('btn-audio', function() { openPopup('audio'); });
@@ -328,6 +321,8 @@
     bindClick('btn-speed', function() { openPopup('speed'); });
     bindClick('btn-episodes', function() { openPopup('episodes'); });
     bindClick('btn-settings', function() { openPopup('settings'); });
+    bindClick('btn-next-ep-watch', function() { closeNextEp(); });
+    bindClick('btn-next-ep-cancel', function() { closeNextEp(); });
 
     // Timeline click
     var tw = document.getElementById('timeline-wrap');
@@ -339,10 +334,6 @@
         showOsd();
       });
     }
-
-    // Next episode buttons
-    bindClick('btn-next-ep-watch', function() { /* play next */ });
-    bindClick('btn-next-ep-cancel', function() { closeNextEp(); });
 
     // Keyboard
     document.addEventListener('keydown', function(e) {
@@ -362,33 +353,32 @@
     var code = e.keyCode;
 
     switch (code) {
-      case 37: // Left
-        if (!osdVisible) { seekStep(-10); }
-        else { moveFocus(-1, 0); }
+      case 37: // Left — always seek
+        seekStep(-10);
         e.preventDefault();
         break;
-      case 39: // Right
-        if (!osdVisible) { seekStep(10); }
-        else { moveFocus(1, 0); }
+      case 39: // Right — always seek
+        seekStep(10);
         e.preventDefault();
         break;
-      case 38: // Up
-        if (!osdVisible) { showOsd(); }
-        else { moveFocus(0, -1); }
+      case 38: // Up — navigate buttons or seek forward
+        if (osdVisible) { moveFocus(0, -1); }
+        else { seekStep(60); }
         e.preventDefault();
         break;
-      case 40: // Down
-        if (!osdVisible) { showOsd(); }
-        else { moveFocus(0, 1); }
+      case 40: // Down — navigate buttons or seek back
+        if (osdVisible) { moveFocus(0, 1); }
+        else { seekStep(-60); }
         e.preventDefault();
         break;
-      case 13: // Enter
-        if (!osdVisible) { showOsd(); }
-        else { clickFocused(); }
+      case 13: // Enter — play/pause or click focused button
+        if (osdVisible) { clickFocused(); }
+        else { togglePlay(); }
         e.preventDefault();
         break;
       case 10009: // Back
-        if (osdVisible) { hideOsd(); }
+        if (popupOpen) { closePopup(); }
+        else if (osdVisible) { hideOsd(); }
         else { goBack(); }
         e.preventDefault();
         break;
@@ -397,22 +387,17 @@
 
   function moveFocus(dx, dy) {
     clearFocus();
-
     if (dy !== 0) {
-      // Switch between transport (0) and actions (1) rows
       navRow = navRow === 0 ? 1 : 0;
-      // Adjust column to fit new row
       var row = navRow === 0 ? transportBtns : actionBtns;
       if (navCol >= row.length) navCol = row.length - 1;
     }
-
     if (dx !== 0) {
       var row = navRow === 0 ? transportBtns : actionBtns;
       navCol = navCol + dx;
       if (navCol < 0) navCol = 0;
       if (navCol >= row.length) navCol = row.length - 1;
     }
-
     var btn = (navRow === 0 ? transportBtns : actionBtns)[navCol];
     if (btn) btn.classList.add('focused');
     resetOsdTimer();
@@ -427,10 +412,11 @@
     if (btn) btn.click();
   }
 
-  // ========== Netflix-style seek ==========
+  // ========== Seek ==========
   function seekStep(seconds) {
+    if (!duration || duration <= 0) return;
     seekAccum += seconds;
-    seekTarget = Math.max(0, Math.min(currentTime + seekAccum, duration));
+    seekTarget = Math.max(0, Math.min((seekTarget >= 0 ? seekTarget : currentTime) + seconds, duration));
 
     // Show preview on timeline
     var pct = duration > 0 ? (seekTarget / duration * 100) : 0;
@@ -439,26 +425,25 @@
 
     isSeeking = true;
 
-    // Reset timer
+    // Commit after 1s pause
     if (seekTimer) clearTimeout(seekTimer);
     seekTimer = setTimeout(function() {
-      // Commit seek
       $video.currentTime = seekTarget;
       isSeeking = false;
       seekAccum = 0;
+      seekTarget = -1;
     }, 1000);
   }
 
   // ========== Play/Pause ==========
   function togglePlay() {
     if (isSeeking) {
-      // Commit pending seek first
       if (seekTimer) clearTimeout(seekTimer);
-      $video.currentTime = seekTarget;
+      $video.currentTime = seekTarget >= 0 ? seekTarget : currentTime;
       isSeeking = false;
       seekAccum = 0;
+      seekTarget = -1;
     }
-
     if ($video.paused) { $video.play(); isPlaying = true; }
     else { $video.pause(); isPlaying = false; }
     updatePlayBtn();
@@ -469,7 +454,12 @@
     saveProgress();
     $video.pause();
     $video.src = '';
-    window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+    // Go back to previous page or TV app
+    if (window.history.length > 1) {
+      window.history.back();
+    } else {
+      window.location.href = (localStorage.getItem(SERVER_KEY) || '') + '/tv/';
+    }
   }
 
   // ========== Popup Menu ==========
@@ -478,7 +468,6 @@
     popupFocus = 0;
     popupItems = [];
     if (osdTimer) clearTimeout(osdTimer);
-
     $popup.classList.remove('hidden');
 
     if (type === 'cc') renderCcPopup();
@@ -513,17 +502,23 @@
     });
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      if (idx === 0) { currentSubtitle = -1; subtitleCues = []; $subtitleOverlay.innerHTML = ''; }
-      else { currentSubtitle = idx - 1; if (subtitleTracks[currentSubtitle]) loadSubtitleVtt(subtitleTracks[currentSubtitle].url); }
+      if (idx === 0) {
+        currentSubtitle = -1;
+        subtitleCues = [];
+        $subtitleOverlay.innerHTML = '';
+      } else {
+        currentSubtitle = idx - 1;
+        if (subtitleTracks[currentSubtitle]) loadSubtitleVtt(subtitleTracks[currentSubtitle].url);
+      }
       closePopup();
     });
   }
 
   function renderAudioPopup() {
-    $popupHeader.textContent = 'Аудио';
+    $popupHeader.textContent = 'Аудио дорожки';
     var html = '';
     if (audioTracks.length === 0) {
-      html = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет дорожек</div>';
+      html = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет доступных дорожек</div>';
     } else {
       audioTracks.forEach(function(t, i) {
         html += renderPopupItem(t.name || 'Дорожка ' + (i+1), currentAudio === i);
@@ -532,6 +527,12 @@
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
       currentAudio = idx;
+      // Switch audio track on video element
+      if ($video.audioTracks) {
+        for (var i = 0; i < $video.audioTracks.length; i++) {
+          $video.audioTracks[i].enabled = (i === idx);
+        }
+      }
       closePopup();
     });
   }
@@ -539,17 +540,17 @@
   function renderQualityPopup() {
     $popupHeader.textContent = 'Качество';
     var html = '';
-    html += renderPopupItem('Auto (HLS)', true);
+    html += renderPopupItem('Авто (HLS)', true);
     $popupList.innerHTML = html;
     bindPopupClick(function() { closePopup(); });
   }
 
   function renderSpeedPopup() {
-    $popupHeader.textContent = 'Скорость';
+    $popupHeader.textContent = 'Скорость воспроизведения';
     var speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
     var html = '';
     speeds.forEach(function(s) {
-      html += renderPopupItem(s + 'x', playbackSpeed === s);
+      html += renderPopupItem(s + 'x', Math.abs(playbackSpeed - s) < 0.01);
     });
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
@@ -562,16 +563,29 @@
   function renderEpisodesPopup() {
     $popupHeader.textContent = 'Эпизоды';
     $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Загрузка...</div>';
-    // Fetch episode list from API
     apiFetch('/api/tv/' + movieId, function(err, data) {
       if (err || !data) {
         $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет данных</div>';
         return;
       }
-      // For now, show basic info
-      $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.5)">Список эпизодов будет доступен в следующем обновлении</div>';
+      var parsed = null;
+      try { parsed = JSON.parse(data); } catch(e) { return; }
+      if (!parsed || !parsed.seasons) {
+        $popupList.innerHTML = '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет эпизодов</div>';
+        return;
+      }
+      var html = '';
+      parsed.seasons.forEach(function(season) {
+        html += '<div class="popup-item section-header">Сезон ' + season.season_number + '</div>';
+        if (season.episodes) {
+          season.episodes.forEach(function(ep) {
+            html += '<div class="popup-item"><span>Серия ' + ep.episode_number + '</span><span style="color:rgba(255,255,255,0.5)">' + esc(ep.name || '') + '</span></div>';
+          });
+        }
+      });
+      $popupList.innerHTML = html || '<div class="popup-item" style="color:rgba(255,255,255,0.3)">Нет эпизодов</div>';
+      bindPopupClick(function() { closePopup(); });
     });
-    bindPopupClick(function() { closePopup(); });
   }
 
   function renderSettingsPopup() {
@@ -585,11 +599,8 @@
     html += renderPopupItem('Соотношение сторон', false);
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      if (idx === 3) { // Info
-        showInfoPopup();
-      } else {
-        closePopup();
-      }
+      if (idx === 3) showInfoPopup();
+      else closePopup();
     });
   }
 
@@ -600,6 +611,8 @@
     html += '<div class="popup-item"><span>Тип</span><span style="color:rgba(255,255,255,0.5)">' + (movieType === 'tv' ? 'Сериал' : 'Фильм') + '</span></div>';
     html += '<div class="popup-item"><span>Позиция</span><span style="color:rgba(255,255,255,0.5)">' + fmt(currentTime) + ' / ' + fmt(duration) + '</span></div>';
     html += '<div class="popup-item"><span>Скорость</span><span style="color:rgba(255,255,255,0.5)">' + playbackSpeed + 'x</span></div>';
+    html += '<div class="popup-item"><span>Аудио дорожек</span><span style="color:rgba(255,255,255,0.5)">' + audioTracks.length + '</span></div>';
+    html += '<div class="popup-item"><span>Субтитры</span><span style="color:rgba(255,255,255,0.5)">' + subtitleTracks.length + '</span></div>';
     $popupList.innerHTML = html;
     bindPopupClick(function() { closePopup(); });
   }
@@ -608,15 +621,10 @@
     var items = $popupList.querySelectorAll('.popup-item:not(.section-header)');
     popupItems = [];
     for (var i = 0; i < items.length; i++) popupItems.push(items[i]);
-
     popupItems.forEach(function(el, idx) {
       el.addEventListener('click', function() { handler(idx); });
     });
-
-    // Focus first item
-    if (popupItems.length > 0) {
-      popupItems[0].classList.add('focused');
-    }
+    if (popupItems.length > 0) popupItems[0].classList.add('focused');
   }
 
   function handlePopupKeys(e) {
@@ -665,20 +673,15 @@
     nextEpCountdown = 30;
     $nextEpPopup.classList.remove('hidden');
     $nextEpCountdownEl.textContent = nextEpCountdown;
-
     nextEpTimer = setInterval(function() {
       nextEpCountdown--;
       if ($nextEpCountdownEl) $nextEpCountdownEl.textContent = nextEpCountdown;
-      if (nextEpCountdown <= 0) {
-        clearInterval(nextEpTimer);
-        // Auto-play next (placeholder)
-        closeNextEp();
-      }
+      if (nextEpCountdown <= 0) { clearInterval(nextEpTimer); closeNextEp(); }
     }, 1000);
   }
 
   function closeNextEp() {
-    nextEpShown = true; // prevent re-showing
+    nextEpShown = true;
     $nextEpPopup.classList.add('hidden');
     if (nextEpTimer) clearInterval(nextEpTimer);
   }

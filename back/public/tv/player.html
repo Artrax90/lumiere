@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere Player</title>
-  <link rel="stylesheet" href="/tv/player.css?v=30">
+  <link rel="stylesheet" href="/tv/player.css?v=31">
 </head>
 <body>
   <div id="player">
@@ -12,7 +12,7 @@
 
     <!-- Top bar -->
     <div id="osd-top" class="osd-bar">
-      <button id="btn-back" class="osd-btn" tabindex="0">←</button>
+      <button id="btn-back" class="osd-btn" tabindex="0">← Назад</button>
       <div id="osd-title-wrap">
         <div id="osd-title"></div>
       </div>
@@ -49,12 +49,12 @@
 
       <!-- Controls row 2: actions -->
       <div id="controls-actions">
-        <button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">CC</button>
-        <button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Audio</button>
-        <button id="btn-quality" class="osd-btn osd-btn-action" tabindex="0">Quality</button>
-        <button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Speed</button>
-        <button id="btn-episodes" class="osd-btn osd-btn-action" tabindex="0">Episodes</button>
-        <button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Settings</button>
+        <button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button>
+        <button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button>
+        <button id="btn-quality" class="osd-btn osd-btn-action" tabindex="0">Качество</button>
+        <button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button>
+        <button id="btn-episodes" class="osd-btn osd-btn-action" tabindex="0">Эпизоды</button>
+        <button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button>
       </div>
     </div>
 
@@ -67,9 +67,9 @@
     <!-- Next episode popup -->
     <div id="next-ep-popup" class="hidden">
       <div id="next-ep-title">Следующий эпизод</div>
-      <div id="next-ep-timer">через <span id="next-ep-countdown">30</span></div>
+      <div id="next-ep-timer">через <span id="next-ep-countdown">30</span> сек</div>
       <div id="next-ep-buttons">
-        <button id="btn-next-ep-watch" class="next-ep-btn" tabindex="0">Смотреть</button>
+        <button id="btn-next-ep-watch" class="next-ep-btn next-ep-btn-primary" tabindex="0">Смотреть</button>
         <button id="btn-next-ep-cancel" class="next-ep-btn" tabindex="0">Отмена</button>
       </div>
     </div>
@@ -77,6 +77,6 @@
     <!-- Subtitle overlay -->
     <div id="subtitle-overlay"></div>
   </div>
-  <script src="/tv/player.js?v=30"></script>
+  <script src="/tv/player.js?v=31"></script>
 </body>
 </html>
