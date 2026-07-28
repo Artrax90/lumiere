@@ -1311,6 +1311,7 @@
 
   function handleMainKeys(code, e) {
     var isOnNav = document.querySelector('.nav-btn.focused') !== null;
+    var isOnCard = document.querySelector('.card.focused, .iptv-channel.focused, .iptv-ch-item.focused') !== null;
     var activeEl = document.activeElement;
     var isOnInput = activeEl && activeEl.tagName === 'INPUT';
 
