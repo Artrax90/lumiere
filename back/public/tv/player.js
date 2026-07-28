@@ -69,18 +69,18 @@
 
     $osdTitle.textContent = movieTitle;
 
-    // Build nav rows
+    // Build nav rows — order matches visual layout top-to-bottom
     navRows = [
-      [document.getElementById('btn-back')], // row 0
-      [ // row 1: transport
+      [document.getElementById('btn-back')], // row 0: back
+      [document.getElementById('timeline-wrap')], // row 1: scrubber (top)
+      [ // row 2: transport (middle)
         document.getElementById('btn-start'),
         document.getElementById('btn-rew'),
         document.getElementById('btn-play'),
         document.getElementById('btn-fwd'),
         document.getElementById('btn-end')
       ],
-      [document.getElementById('timeline-wrap')], // row 2: scrubber
-      [ // row 3: actions
+      [ // row 3: actions (bottom)
         document.getElementById('btn-cc'),
         document.getElementById('btn-audio'),
         document.getElementById('btn-speed'),
@@ -114,14 +114,24 @@
 
     function updateDuration() {
       var d = $video.duration;
-      // For HLS streams, duration might be Infinity — try seekable range
+      // Try multiple methods to get duration
       if (d && isFinite(d) && d > 0) {
         duration = d;
       } else if ($video.seekable && $video.seekable.length > 0) {
-        // Use seekable end as duration estimate
-        duration = $video.seekable.end($video.seekable.length - 1);
+        try {
+          duration = $video.seekable.end($video.seekable.length - 1);
+        } catch(e) {}
       }
-      if (duration > 0) updateTimeline();
+      // Also try buffered ranges
+      if ((!duration || duration <= 0) && $video.buffered && $video.buffered.length > 0) {
+        try {
+          duration = $video.buffered.end($video.buffered.length - 1);
+        } catch(e) {}
+      }
+      if (duration > 0) {
+        updateTimeline();
+        updateBuffer();
+      }
     }
 
     $video.ontimeupdate = function() {
@@ -155,9 +165,16 @@
   }
 
   function updateBuffer() {
-    if (!$bufferFill || !$video || !$video.buffered || $video.buffered.length === 0) return;
-    var end = $video.buffered.end($video.buffered.length - 1);
-    $bufferFill.style.width = (duration > 0 ? (end / duration * 100) : 0) + '%';
+    if (!$bufferFill || !$video) return;
+    try {
+      if ($video.buffered && $video.buffered.length > 0) {
+        var end = $video.buffered.end($video.buffered.length - 1);
+        var d = duration > 0 ? duration : ($video.duration || 1);
+        if (d > 0 && isFinite(d)) {
+          $bufferFill.style.width = ((end / d) * 100) + '%';
+        }
+      }
+    } catch(e) {}
   }
 
   function updateScrubberPreview() {
@@ -214,7 +231,8 @@
     var el = navRows[navRow] && navRows[navRow][navCol];
     if (el) {
       el.classList.add('focused');
-      if (navRow === 2) scrubberFocused = true;
+      // Scrubber is row 1 in new layout
+      if (navRow === 1 && el.id === 'timeline-wrap') scrubberFocused = true;
     }
   }
 
