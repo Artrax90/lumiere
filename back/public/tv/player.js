@@ -181,23 +181,35 @@
         var saved = positions[movieId];
         if (saved && typeof saved === 'object' && saved.time > 30) {
           var resumeTime = saved.time;
-          var resumeAttempts = 0;
-          var resumeInterval = setInterval(function() {
-            resumeAttempts++;
-            // Wait for video to be ready and have duration
-            var videoReady = player._videoEl && player._videoEl.readyState >= 2;
-            var hasDuration = duration > 0 && isFinite(duration);
-            if (videoReady && hasDuration) {
-              var target = Math.min(resumeTime, duration - 5);
-              if (target > 0) {
-                player.seekTo(target);
+          // Check if this is a torrent HLS stream — use hls-seek endpoint
+          var linkMatch = streamUrl.match(/link=([^&]+)/);
+          var indexMatch = streamUrl.match(/index=(\d+)/);
+          if (linkMatch) {
+            var link = decodeURIComponent(linkMatch[1]);
+            var index = indexMatch ? indexMatch[1] : '0';
+            var seekUrl = API + '/api/torrents/hls-seek?link=' + encodeURIComponent(link) + '&index=' + index + '&time=' + Math.floor(resumeTime);
+            console.log('[Resume] Seeking to', Math.floor(resumeTime), 'via hls-seek endpoint');
+            // Restart playback from seek position
+            player.stop();
+            streamUrl = seekUrl;
+            setTimeout(function() {
+              player.play(seekUrl);
+            }, 200);
+          } else {
+            // Non-torrent stream — use standard seek
+            var resumeAttempts = 0;
+            var resumeInterval = setInterval(function() {
+              resumeAttempts++;
+              var videoReady = player._videoEl && player._videoEl.readyState >= 2;
+              var hasDuration = duration > 0 && isFinite(duration);
+              if (videoReady && hasDuration) {
+                player.seekTo(Math.min(resumeTime, duration - 5));
+                clearInterval(resumeInterval);
+              } else if (resumeAttempts > 100) {
+                clearInterval(resumeInterval);
               }
-              clearInterval(resumeInterval);
-            } else if (resumeAttempts > 100) {
-              // Timeout after 20 seconds
-              clearInterval(resumeInterval);
-            }
-          }, 200);
+            }, 200);
+          }
         }
       } catch(e) {}
     }
