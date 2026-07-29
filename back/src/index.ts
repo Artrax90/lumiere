@@ -130,14 +130,10 @@ if (existsSync(publicDir)) {
     maxAge: 0,
     etag: false,
     lastModified: false,
-  });
-
-  // Add no-cache headers for /tv/ files
-  app.addHook('onSend', async (request, reply) => {
-    if (request.url && request.url.startsWith('/tv/')) {
-      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-      reply.header('Pragma', 'no-cache');
-      reply.header('Expires', '0');
+    setHeaders: function(res: any) {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.setHeader('Pragma', 'no-cache');
+      res.setHeader('Expires', '0');
     }
   });
 
