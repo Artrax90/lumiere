@@ -48,7 +48,13 @@
       $detail = document.getElementById('detail');
 
       var server = localStorage.getItem(SERVER_KEY);
-      if (server) API = server;
+      if (server) {
+        API = server;
+      } else {
+        // If no server URL in localStorage, use current origin
+        // This handles the case where .wgt navigates to the backend URL
+        API = window.location.origin;
+      }
 
       // Clear history if ?clear=1 in URL (Chrome 56 compatible)
       var searchStr = window.location.search.substring(1);

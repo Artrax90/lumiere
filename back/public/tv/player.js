@@ -60,7 +60,11 @@
     $subtitleOverlay = document.getElementById('subtitle-overlay');
 
     var server = localStorage.getItem(SERVER_KEY);
-    if (server) API = server;
+    if (server) {
+      API = server;
+    } else {
+      API = window.location.origin;
+    }
 
     var params = parseParams();
     movieTitle = params.title || '';
@@ -660,7 +664,7 @@
     saveProgress();
     stopBufferPolling();
     player.stop();
-    var server = localStorage.getItem(SERVER_KEY) || '';
+    var server = localStorage.getItem(SERVER_KEY) || window.location.origin;
     if (movieId) window.location.href = server + '/tv/?detail=' + movieId;
     else window.location.href = server + '/tv/';
   }
