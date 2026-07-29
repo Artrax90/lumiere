@@ -290,8 +290,42 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           console.error('HLS fatal error:', data);
-          setError(t('common.error'));
-          setLoading(false);
+          // Attempt reconnect for network/buffer errors
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.log('HLS: Attempting reconnect...');
+            setLoading(true);
+            setTimeout(() => {
+              if (hlsRef.current) {
+                hlsRef.current.destroy();
+              }
+              const newHls = new Hls({
+                maxBufferLength: 120,
+                maxMaxBufferLength: 300,
+                startLevel: -1,
+                debug: false,
+                fragLoadingTimeOut: 30000,
+                manifestLoadingTimeOut: 30000,
+                levelLoadingTimeOut: 30000,
+              });
+              hlsRef.current = newHls;
+              newHls.loadSource(url);
+              newHls.attachMedia(video);
+              newHls.on(Hls.Events.MANIFEST_PARSED, () => {
+                setLoading(false);
+                video.play().catch(() => {});
+              });
+              newHls.on(Hls.Events.ERROR, (_e, d) => {
+                if (d.fatal) {
+                  console.error('HLS reconnect failed:', d);
+                  setError(t('common.error'));
+                  setLoading(false);
+                }
+              });
+            }, 3000);
+          } else {
+            setError(t('common.error'));
+            setLoading(false);
+          }
         }
       });
     } else {

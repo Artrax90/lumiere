@@ -212,7 +212,25 @@
     };
     $video.onpause = function() { self._emit('paused'); };
     $video.onended = function() { self._isPlaying = false; self._emit('ended'); };
-    $video.onerror = function() { self._emit('error', { message: 'Video error' }); };
+    $video.onerror = function() {
+      self._emit('error', { message: 'Video error' });
+      // Attempt reconnect for HLS streams
+      if ($video.src && ($video.src.indexOf('.m3u8') >= 0 || $video.src.indexOf('/hls') >= 0)) {
+        console.log('[PlayerAdapter] Video error, attempting reconnect in 3s...');
+        setTimeout(function() {
+          if (self._videoEl) {
+            var savedTime = self._currentTime;
+            var currentSrc = $video.src;
+            $video.src = '';
+            $video.src = currentSrc;
+            $video.load();
+            $video.currentTime = savedTime;
+            $video.play().catch(function() {});
+            console.log('[PlayerAdapter] Reconnected at', savedTime);
+          }
+        }, 3000);
+      }
+    };
   };
 
   // ========== Unified API ==========
