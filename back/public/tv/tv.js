@@ -216,7 +216,18 @@
       var poster = (item.title && typeof item.title === 'object') ? (item.title.poster || '') : '';
       var imgSrc = imgUrl(poster);
 
-      card.innerHTML = '<div class="card-progress-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(name) + '" loading="lazy">' +
+      // If no poster, try to fetch from API
+      if (!imgSrc && item.id) {
+        imgSrc = ''; // Will be filled async
+        apiFetch('/api/movies/' + item.id, function(err, data) {
+          if (data && data.poster) {
+            var imgEl = card.querySelector('img');
+            if (imgEl) imgEl.src = imgUrl(data.poster);
+          }
+        });
+      }
+
+      card.innerHTML = '<div class="card-progress-wrap"><img class="card-img" src="' + esc(imgSrc || '') + '" alt="' + esc(name) + '" loading="lazy">' +
         '<div class="card-progress-bar"><div class="card-progress-fill" style="width:' + Math.min(100, (item.time / 7200) * 100) + '%"></div></div></div>' +
         '<div class="card-title">' + esc(name) + '</div>';
 
@@ -1013,10 +1024,12 @@
       } catch(e) {}
     }
 
+    var poster = (state.detail && state.detail.poster) || '';
+
     apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
       if (err || !data) {
         var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0';
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
         return;
       }
 
@@ -1028,7 +1041,7 @@
         }
       } else {
         var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0';
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
       }
     });
   }
@@ -1038,7 +1051,8 @@
     if (url.indexOf('/') === 0) url = API + url;
     var name = file.name || title;
     movieId = movieId || (state.detail && state.detail.id) || 0;
-    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId;
+    var poster = (state.detail && state.detail.poster) || '';
+    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
   }
 
   function showFileSelector(files, title, movieId) {

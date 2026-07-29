@@ -66,6 +66,7 @@
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
     var url = params.url || '';
+    var posterUrl = params.poster || '';
     referrerUrl = params.ref || '';
 
     $osdTitle.textContent = movieTitle;
@@ -491,7 +492,12 @@
     if (!movieId || currentTime < 10) return;
     try {
       var pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-      pos[movieId] = { time: Math.round(currentTime), timestamp: Date.now(), title: { name: movieTitle, poster: '', id: movieId } };
+      var existingPoster = (pos[movieId] && pos[movieId].title && pos[movieId].title.poster) || '';
+      pos[movieId] = {
+        time: Math.round(currentTime),
+        timestamp: Date.now(),
+        title: { name: movieTitle, poster: posterUrl || existingPoster, id: movieId }
+      };
       localStorage.setItem('playback_positions', JSON.stringify(pos));
     } catch(e) {}
   }
