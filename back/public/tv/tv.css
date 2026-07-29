@@ -74,7 +74,7 @@ body {
 }
 .nav-btn.active { color: var(--text); background: var(--surface-2); }
 .nav-btn.focused {
-  outline: 3px solid var(--accent); outline-offset: 3px;
+  box-shadow: 0 0 16px rgba(232,193,112,0.3);
   color: var(--text); background: var(--surface-2);
 }
 
@@ -135,8 +135,9 @@ body {
   transition: transform 0.2s, box-shadow 0.2s;
 }
 .card.focused {
-  transform: scale(1.08);
-  box-shadow: 0 0 0 3px var(--accent), 0 10px 32px rgba(232,193,112,0.25);
+  transform: scale(1.06);
+  box-shadow: 0 0 20px rgba(232,193,112,0.4), 0 0 40px rgba(232,193,112,0.15);
+  border-radius: 12px;
 }
 .card-img-wrap { position: relative; }
 .card-img {
@@ -285,8 +286,8 @@ body {
 
 .iptv-ch-item.focused {
   background: rgba(232,193,112,0.1);
-  outline: 3px solid var(--accent);
-  outline-offset: -3px;
+  box-shadow: 0 0 16px rgba(232,193,112,0.2);
+  border-color: rgba(232,193,112,0.2);
 }
 
 .iptv-ch-logo {
