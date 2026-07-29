@@ -170,6 +170,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               if (lanLoginRes.ok) {
                 const data = await lanLoginRes.json();
                 storeTokens(data.accessToken, data.refreshToken);
+                // Clear stale local watch data on fresh re-authentication
+                localStorage.removeItem('lumiere_watch_history');
+                localStorage.removeItem('playback_positions');
+                localStorage.removeItem('last_torrents');
                 setUser(data.user);
                 setLoading(false);
                 return;

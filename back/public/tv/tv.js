@@ -90,6 +90,9 @@
         apiPost('/api/auth/lan-login', {}, function(err2, loginData) {
           if (loginData && loginData.accessToken) {
             localStorage.setItem(TOKEN_KEY, loginData.accessToken);
+            // Clear stale watch data on fresh re-authentication
+            localStorage.removeItem('playback_positions');
+            localStorage.removeItem('last_torrents');
             state.user = loginData.user;
             startApp();
           } else { showError('Не удалось войти. Откройте приложение через браузер.'); }
