@@ -207,11 +207,11 @@
     if (!el) {
       el = document.createElement('div');
       el.id = 'debug-info';
-      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:600px;';
+      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:800px;word-break:break-all;';
       document.body.appendChild(el);
     }
     var avplayType = typeof webapis !== 'undefined' ? (webapis.avplay === null ? 'null' : typeof webapis.avplay) : 'n/a';
-    el.textContent = 'Engine: ' + player.engineType + ' | webapis: ' + (typeof webapis !== 'undefined') + ' | avplay: ' + avplayType;
+    el.textContent = 'Engine: ' + (player ? player.engineType : '?') + ' | hash: ' + torrHash + ' | dur: ' + Math.round(duration) + ' | url: ' + (streamUrl ? streamUrl.substring(0, 80) : 'none');
   }
 
   // ========== Track info from backend ==========
