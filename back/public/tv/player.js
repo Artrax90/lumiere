@@ -594,34 +594,37 @@
     var saveTime = currentTime;
     var wasPlaying = isPlaying;
 
-    // Pause
-    player.pause();
-
     // Build new URL with audio parameter
     var url = streamUrl || '';
-    if (url) {
-      // Add or replace audio parameter
-      if (url.indexOf('audio=') >= 0) {
-        url = url.replace(/audio=\d+/, 'audio=' + trackIndex);
-      } else {
-        url += (url.indexOf('?') >= 0 ? '&' : '?') + 'audio=' + trackIndex;
-      }
+    if (!url) return;
 
-      // Reload stream with new audio
-      player.stop();
+    // Add or replace audio parameter
+    if (url.indexOf('audio=') >= 0) {
+      url = url.replace(/audio=\d+/, 'audio=' + trackIndex);
+    } else {
+      url += (url.indexOf('?') >= 0 ? '&' : '?') + 'audio=' + trackIndex;
+    }
+
+    // Stop current playback (removes old video element)
+    player.stop();
+    streamUrl = url;
+    player.currentAudio = trackIndex;
+
+    // Small delay to ensure cleanup, then start new stream
+    setTimeout(function() {
       player.play(url);
-      player.currentAudio = trackIndex;
 
-      // Seek to saved position after a short delay
+      // Seek to saved position after stream loads
       var attempts = 0;
       var seekInterval = setInterval(function() {
         attempts++;
-        if (duration > 0 || attempts > 30) {
+        if (duration > 0 || attempts > 50) {
           if (saveTime > 0) player.seekTo(saveTime);
+          if (wasPlaying) player.resume();
           clearInterval(seekInterval);
         }
-      }, 300);
-    }
+      }, 200);
+    }, 100);
   }
 
   function renderSpeedPopup() {

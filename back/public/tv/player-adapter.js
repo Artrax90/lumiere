@@ -233,11 +233,22 @@
   PlayerAdapter.prototype.stop = function() {
     if (this.engineType === 'avplay') {
       try { webapis.avplay.stop(); webapis.avplay.close(); } catch(e) {}
+      if (this._avplayObj && this._avplayObj.parentNode) {
+        this._avplayObj.parentNode.removeChild(this._avplayObj);
+        this._avplayObj = null;
+      }
     } else if (this._videoEl) {
       this._videoEl.pause();
       this._videoEl.src = '';
+      if (this._videoEl.parentNode) {
+        this._videoEl.parentNode.removeChild(this._videoEl);
+      }
+      this._videoEl = null;
     }
     this._isPlaying = false;
+    this._duration = 0;
+    this._currentTime = 0;
+    this.engineType = 'none';
     this._emit('paused');
   };
 
