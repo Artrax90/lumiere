@@ -5,7 +5,10 @@
 
   // ========== Platform Detection ==========
   function isTizen() {
-    return typeof webapis !== 'undefined' && typeof webapis.avplay !== 'undefined';
+    var hasWebapis = typeof webapis !== 'undefined';
+    var hasAvplay = hasWebapis && webapis.avplay !== null && webapis.avplay !== undefined;
+    console.log('[PlayerAdapter] isTizen check: webapis=' + hasWebapis + ', avplay=' + hasAvplay + ', avplay type=' + (hasWebapis ? typeof webapis.avplay : 'n/a'));
+    return hasAvplay;
   }
 
   // ========== Player Adapter ==========
