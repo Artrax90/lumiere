@@ -123,7 +123,7 @@ body {
 /* Rows */
 .row { margin-bottom: 40px; position: relative; z-index: 1; }
 .row-title { font-size: 28px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
-.row-items { display: flex; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
+.row-items { display: flex; overflow-x: auto; padding: 10px 0; scrollbar-width: none; }
 .row-items::-webkit-scrollbar { display: none; }
 .row-items .card { margin-right: 16px; }
 
