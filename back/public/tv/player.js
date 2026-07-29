@@ -342,45 +342,53 @@
   // ========== Buffer from TorrServer ==========
   var torrHash = '';
   var bufferTimer = null;
+  var torrServerUrl = 'http://192.168.1.37:8090'; // TODO: make configurable
 
   function extractHashFromUrl(url) {
     var match = url.match(/link=([^&]+)/);
     if (!match) return '';
     var link = decodeURIComponent(match[1]);
-    // If it's a magnet link, extract the hash
     var btih = link.match(/btih:([a-fA-F0-9]+)/);
     if (btih) return btih[1];
-    // If it's already a hash
     if (/^[a-fA-F0-9]{40}$/.test(link)) return link;
     return '';
   }
 
   function startBufferPolling() {
     torrHash = extractHashFromUrl(streamUrl);
-    if (!torrHash) return;
+    if (!torrHash) { console.log('[Buffer] No hash found in URL'); return; }
+    console.log('[Buffer] Starting polling for hash:', torrHash);
 
-    // Poll TorrServer for download progress
-    bufferTimer = setInterval(function() {
-      var xhr = new XMLHttpRequest();
-      xhr.open('POST', 'http://192.168.1.37:8090/torrents', true);
-      xhr.setRequestHeader('Content-Type', 'application/json');
-      xhr.timeout = 3000;
-      xhr.onload = function() {
-        if (xhr.status === 200) {
-          try {
-            var list = JSON.parse(xhr.responseText);
-            for (var i = 0; i < list.length; i++) {
-              if (list[i].hash === torrHash && list[i].loaded_size && list[i].torrent_size) {
-                var pct = Math.min(100, (list[i].loaded_size / list[i].torrent_size) * 100);
+    // Poll immediately, then every 3s
+    pollBuffer();
+    bufferTimer = setInterval(pollBuffer, 3000);
+  }
+
+  function pollBuffer() {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', torrServerUrl + '/torrents', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 3000;
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var list = JSON.parse(xhr.responseText);
+          for (var i = 0; i < list.length; i++) {
+            if (list[i].hash === torrHash) {
+              var loaded = list[i].loaded_size || 0;
+              var total = list[i].torrent_size || 0;
+              if (total > 0) {
+                var pct = Math.min(100, (loaded / total) * 100);
                 if ($bufferFill) $bufferFill.style.width = pct + '%';
-                break;
               }
+              break;
             }
-          } catch(e) {}
-        }
-      };
-      xhr.send(JSON.stringify({ action: 'list' }));
-    }, 3000);
+          }
+        } catch(e) {}
+      }
+    };
+    xhr.onerror = function() {};
+    xhr.send(JSON.stringify({ action: 'list' }));
   }
 
   function stopBufferPolling() {
