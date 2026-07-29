@@ -65,7 +65,28 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
     await db.query('DELETE FROM watch_history WHERE user_id = $1', [userId]);
     return { success: true, message: 'History cleared' };
   });
+
+  // TEMPORARY: Clear all watch history (no auth, for testing)
+  app.delete('/api/sync/clear-all', async () => {
+    await db.query('DELETE FROM watch_history');
+    return { success: true, message: 'All history cleared' };
+  });
+
+  // Push sync data (batch update)
+  app.post('/api/sync/push', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;
+
+    // Reject push if history was cleared recently (within 5 minutes)
+    try {
+      const clearCheck = await db.query("SELECT value FROM settings WHERE key = 'history_cleared_at'");
+      if (clearCheck.rows.length > 0) {
+        const clearedAt = new Date(clearCheck.rows[0].value);
+        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);
+        if (clearedAt > fiveMinAgo) {
+          return { success: true, skipped: true, reason: 'History recently cleared' };
+        }
+      }
+    } catch {}
 
     const { watchHistory, favorites, iptvPlaylists } = request.body as {
       watchHistory?: Array<{
