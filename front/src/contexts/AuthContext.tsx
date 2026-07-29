@@ -142,6 +142,40 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (profile) {
           setUser(profile);
         } else {
+          // Token expired — try refresh token
+          const refreshToken = localStorage.getItem('lumiere_refresh');
+          if (refreshToken) {
+            try {
+              const refreshRes = await serverFetch('/api/auth/refresh', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ refreshToken }),
+              });
+              if (refreshRes.ok) {
+                const data = await refreshRes.json();
+                storeTokens(data.accessToken, data.refreshToken);
+                const newProfile = await fetchProfile(data.accessToken);
+                if (newProfile) {
+                  setUser(newProfile);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch {}
+          }
+          // Refresh failed — try LAN auto-login
+          if (isLocalIp) {
+            try {
+              const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
+              if (lanLoginRes.ok) {
+                const data = await lanLoginRes.json();
+                storeTokens(data.accessToken, data.refreshToken);
+                setUser(data.user);
+                setLoading(false);
+                return;
+              }
+            } catch {}
+          }
           clearTokens();
         }
       }
