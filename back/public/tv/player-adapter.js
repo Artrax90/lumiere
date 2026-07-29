@@ -80,16 +80,6 @@
         oncurrentplaytime: function(time) {
           self._currentTime = time / 1000;
           self._emit('timeUpdate', { currentTime: self._currentTime });
-          // Periodically update duration if not set
-          if (self._duration <= 0) {
-            try {
-              var totalDur = webapis.avplay.getDuration();
-              if (totalDur && totalDur > 0) {
-                self._duration = totalDur / 1000;
-                self._emit('durationChange', { duration: self._duration });
-              }
-            } catch(e) {}
-          }
         },
         onbufferingstart: function() {
           self._emit('bufferingStart');
@@ -169,6 +159,29 @@
 
         webapis.avplay.play();
         self._emit('playing');
+
+        // Polling for AVPlay — updates currentTime and duration continuously
+        // Handles case where oncurrentplaytime stops after reported duration
+        self._avplayPollTimer = setInterval(function() {
+          try {
+            var ct = webapis.avplay.getCurrentTime();
+            if (ct !== undefined && ct >= 0) {
+              self._currentTime = ct / 1000;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+            }
+          } catch(e) {}
+          try {
+            var dur = webapis.avplay.getDuration();
+            if (dur && dur > 0) {
+              var durSec = dur / 1000;
+              // Always update duration — MKV metadata can be wrong
+              if (Math.abs(durSec - self._duration) > 5) {
+                self._duration = durSec;
+                self._emit('durationChange', { duration: self._duration });
+              }
+            }
+          } catch(e) {}
+        }, 500);
       });
 
     } catch(e) {
@@ -281,6 +294,10 @@
   };
 
   PlayerAdapter.prototype.stop = function() {
+    if (this._avplayPollTimer) {
+      clearInterval(this._avplayPollTimer);
+      this._avplayPollTimer = null;
+    }
     if (this.engineType === 'avplay') {
       try { webapis.avplay.stop(); webapis.avplay.close(); } catch(e) {}
       if (this._avplayObj && this._avplayObj.parentNode) {
