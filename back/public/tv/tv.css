@@ -108,8 +108,20 @@ body {
   max-width: 650px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
+/* Home background — shows movie backdrop on card focus */
+.home-bg {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background-size: cover; background-position: center;
+  opacity: 0; transition: opacity 0.6s ease;
+  z-index: -1;
+  pointer-events: none;
+}
+.home-bg.visible {
+  opacity: 0.3;
+}
+
 /* Rows */
-.row { margin-bottom: 40px; }
+.row { margin-bottom: 40px; position: relative; z-index: 1; }
 .row-title { font-size: 28px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
 .row-items { display: flex; overflow-x: auto; padding-bottom: 10px; scrollbar-width: none; }
 .row-items::-webkit-scrollbar { display: none; }

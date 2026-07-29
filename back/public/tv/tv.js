@@ -1681,6 +1681,23 @@
     cards[index].classList.add('focused');
     scrollToCard(cards[index]);
     cards[index].focus();
+    // Set home background to movie backdrop
+    updateHomeBg(cards[index]);
+  }
+
+  function updateHomeBg(cardEl) {
+    var bg = document.getElementById('home-bg');
+    if (!bg) return;
+    var img = cardEl.querySelector('img');
+    if (img && img.src) {
+      bg.style.backgroundImage = 'url(' + img.src + ')';
+      bg.classList.add('visible');
+    }
+  }
+
+  function clearHomeBg() {
+    var bg = document.getElementById('home-bg');
+    if (bg) bg.classList.remove('visible');
   }
 
   function scrollToCard(el) {
@@ -1780,6 +1797,7 @@
 
   function clearCardFocus() {
     document.querySelectorAll('.card, .iptv-channel').forEach(function(c) { c.classList.remove('focused'); });
+    clearHomeBg();
   }
 
   function getVisibleCards() {
