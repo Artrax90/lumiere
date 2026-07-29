@@ -41,12 +41,30 @@ class SyncClient {
   } = { watchHistory: [], favorites: [] };
   private authFailed = false;
   private refreshAttempts = 0;
+  private serverWasEmpty = false;
 
   start(intervalMs: number = 30000) {
     if (this.syncInterval) return;
     this.authFailed = false;
     this.refreshAttempts = 0;
-    this.pull();
+    this.serverWasEmpty = false;
+    // First pull — check if server has data
+    this.pull().then(data => {
+      if (data && data.watchHistory.length === 0) {
+        this.serverWasEmpty = true;
+        // Server was cleared — clear local data too
+        const localHistory = this.getLocalWatchHistory();
+        if (localHistory.length > 0) {
+          localStorage.removeItem('lumiere_watch_history');
+          localStorage.removeItem('playback_positions');
+          localStorage.removeItem('last_torrents');
+        }
+        const localFavs = this.getLocalFavorites();
+        if (localFavs.length > 0) {
+          localStorage.removeItem('lumiere_favorites');
+        }
+      }
+    });
     this.syncInterval = setInterval(() => {
       if (this.authFailed) {
         if (this.refreshAttempts >= 3) {
@@ -57,7 +75,10 @@ class SyncClient {
         this.tryRefresh();
         return;
       }
-      this.push();
+      // Don't push if server was intentionally empty
+      if (!this.serverWasEmpty) {
+        this.push();
+      }
       this.pull();
     }, intervalMs);
   }
