@@ -19,7 +19,7 @@ export const config = {
   },
   jwt: {
     secret: process.env.JWT_SECRET || 'lumiere-secret-key-change-in-production-2024',
-    accessExpiry: process.env.JWT_ACCESS_EXPIRY || '15m',
+    accessExpiry: process.env.JWT_ACCESS_EXPIRY || '7d',
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
 };

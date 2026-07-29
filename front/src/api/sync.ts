@@ -39,11 +39,17 @@ class SyncClient {
     watchHistory: WatchHistoryItem[];
     favorites: FavoriteItem[];
   } = { watchHistory: [], favorites: [] };
+  private authFailed = false;
 
   start(intervalMs: number = 30000) {
     if (this.syncInterval) return;
+    this.authFailed = false;
     this.pull();
     this.syncInterval = setInterval(() => {
+      if (this.authFailed) {
+        this.tryRefresh();
+        return;
+      }
       this.push();
       this.pull();
     }, intervalMs);
@@ -56,6 +62,24 @@ class SyncClient {
     }
   }
 
+  private async tryRefresh() {
+    const refreshToken = localStorage.getItem('lumiere_refresh');
+    if (!refreshToken) return;
+    try {
+      const res = await serverFetch('/api/auth/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('lumiere_access', data.accessToken);
+        localStorage.setItem('lumiere_refresh', data.refreshToken);
+        this.authFailed = false;
+      }
+    } catch {}
+  }
+
   private getAuthHeaders(): Record<string, string> {
     const token = localStorage.getItem('lumiere_access');
     const headers: Record<string, string> = {};
@@ -63,11 +87,20 @@ class SyncClient {
     return headers;
   }
 
+  private handleAuthError(res: Response): boolean {
+    if (res.status === 401) {
+      this.authFailed = true;
+      return true;
+    }
+    return false;
+  }
+
   async pull(): Promise<SyncData | null> {
     try {
       const res = await serverFetch('/api/sync', {
         headers: this.getAuthHeaders(),
       });
+      if (this.handleAuthError(res)) return null;
       if (!res.ok) return null;
       const data = await res.json();
       return data;
@@ -98,6 +131,7 @@ class SyncClient {
         this.pendingChanges = { watchHistory: [], favorites: [] };
         return true;
       }
+      this.handleAuthError(res);
       return false;
     } catch {
       return false;
