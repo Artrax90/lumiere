@@ -126,7 +126,6 @@ if (existsSync(publicDir)) {
   await app.register(staticFiles, {
     root: publicDir,
     prefix: '/',
-    decorateReply: false,
   });
 
   // Serve /tv/ files with no-cache headers
@@ -137,11 +136,11 @@ if (existsSync(publicDir)) {
       reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
       reply.header('Pragma', 'no-cache');
       reply.header('Expires', '0');
-      return reply.sendFile(filePath, publicDir);
+      return reply.sendFile(filePath);
     }
     // Fallback to index.html for SPA
     reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
-    return reply.sendFile('tv/index.html', publicDir);
+    return reply.sendFile('tv/index.html');
   });
 
   // Redirect /tv to /tv/
