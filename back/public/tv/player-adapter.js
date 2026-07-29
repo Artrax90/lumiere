@@ -160,8 +160,25 @@
         webapis.avplay.play();
         self._emit('playing');
 
+        // DEBUG: Log AVPlay duration properties over time
+        var avplayDebugCount = 0;
+        self._avplayDebugTimer = setInterval(function() {
+          avplayDebugCount++;
+          var elapsed = avplayDebugCount * 5;
+          try {
+            var dur = webapis.avplay.getDuration();
+            var ct = webapis.avplay.getCurrentTime();
+            var streamInfo = '';
+            try { streamInfo = JSON.stringify(webapis.avplay.getCurrentStreamInfo()); } catch(e2) {}
+            var totalTrack = '';
+            try { totalTrack = webapis.avplay.getTotalTrackInfo(); } catch(e2) {}
+            console.log('[AVPlay-DEBUG] t=' + elapsed + 's | getDuration=' + dur + 'ms (' + (dur/1000).toFixed(1) + 's) | getCurrentTime=' + ct + 'ms | streamInfo=' + streamInfo);
+          } catch(e) {
+            console.log('[AVPlay-DEBUG] t=' + elapsed + 's | error: ' + e.message);
+          }
+        }, 5000);
+
         // Polling for AVPlay — updates currentTime and duration continuously
-        // Handles case where oncurrentplaytime stops after reported duration
         self._avplayPollTimer = setInterval(function() {
           try {
             var ct = webapis.avplay.getCurrentTime();
@@ -297,6 +314,10 @@
     if (this._avplayPollTimer) {
       clearInterval(this._avplayPollTimer);
       this._avplayPollTimer = null;
+    }
+    if (this._avplayDebugTimer) {
+      clearInterval(this._avplayDebugTimer);
+      this._avplayDebugTimer = null;
     }
     if (this.engineType === 'avplay') {
       try { webapis.avplay.stop(); webapis.avplay.close(); } catch(e) {}
