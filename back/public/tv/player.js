@@ -184,10 +184,17 @@
           var resumeAttempts = 0;
           var resumeInterval = setInterval(function() {
             resumeAttempts++;
-            if (duration > 0) {
-              player.seekTo(Math.min(resumeTime, duration - 5));
+            // Wait for video to be ready and have duration
+            var videoReady = player._videoEl && player._videoEl.readyState >= 2;
+            var hasDuration = duration > 0 && isFinite(duration);
+            if (videoReady && hasDuration) {
+              var target = Math.min(resumeTime, duration - 5);
+              if (target > 0) {
+                player.seekTo(target);
+              }
               clearInterval(resumeInterval);
-            } else if (resumeAttempts > 50) {
+            } else if (resumeAttempts > 100) {
+              // Timeout after 20 seconds
               clearInterval(resumeInterval);
             }
           }, 200);
