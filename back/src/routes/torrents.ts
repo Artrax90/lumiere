@@ -456,7 +456,16 @@ export function torrentRoutes(app: FastifyInstance) {
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
-    ffmpeg.on('close', () => activeSessions.delete(sessionId));
+    ffmpeg.on('close', (code, signal) => {
+      console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
+      activeSessions.delete(sessionId);
+    });
+    ffmpeg.stderr?.on('data', (chunk: Buffer) => {
+      const msg = chunk.toString().trim();
+      if (msg.includes('Error') || msg.includes('error') || msg.includes('Invalid') || msg.includes('failed')) {
+        console.error(`[FFmpeg] ${sessionId}: ${msg.substring(0, 200)}`);
+      }
+    });
 
     // Start background subtitle extraction (non-blocking)
     const subtitlePath = join(hlsDir, 'subs.vtt');

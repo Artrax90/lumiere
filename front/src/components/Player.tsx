@@ -293,32 +293,34 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         setSubtitleTracks(tracks);
       });
 
+      let reconnectAttempts = 0;
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           console.error('HLS fatal error:', data);
-          if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            console.log('HLS: Attempting reconnect with fresh session...');
-            setLoading(true);
-            // Save current position for resume
-            const savedTime = videoRef.current ? Math.floor(videoRef.current.currentTime) : 0;
-            setTimeout(() => {
-              if (hlsRef.current) {
-                hlsRef.current.destroy();
-              }
-              // Build new URL — use hls-seek for fresh FFmpeg session from saved position
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            reconnectAttempts++;
+            if (reconnectAttempts <= 3) {
+              // Try to recover network error by retrying load
+              console.log(`HLS: Network error, retry ${reconnectAttempts}/3...`);
+              setLoading(true);
+              setTimeout(() => {
+                if (hlsRef.current) {
+                  hlsRef.current.startLoad();
+                }
+              }, 2000);
+            } else {
+              // Too many retries — create fresh session from current position
+              console.log('HLS: Creating fresh session...');
+              const savedTime = videoRef.current ? Math.floor(videoRef.current.currentTime) : 0;
+              if (hlsRef.current) hlsRef.current.destroy();
               let reconnectUrl = url;
               if (url.includes('/api/torrents/hls') && savedTime > 30) {
-                // Extract link and index from original URL
                 const linkMatch = url.match(/link=([^&]+)/);
                 const indexMatch = url.match(/index=(\d+)/);
                 if (linkMatch) {
-                  const link = linkMatch[1];
-                  const index = indexMatch ? indexMatch[1] : '0';
-                  reconnectUrl = `/api/torrents/hls-seek?link=${link}&index=${index}&time=${savedTime}`;
-                  reconnectUrl = serverUrl(reconnectUrl);
+                  reconnectUrl = serverUrl(`/api/torrents/hls-seek?link=${linkMatch[1]}&index=${indexMatch ? indexMatch[1] : '0'}&time=${savedTime}`);
                 }
               }
-              console.log('HLS reconnect to:', reconnectUrl, 'at time:', savedTime);
               const newHls = new Hls({
                 maxBufferLength: 120,
                 maxMaxBufferLength: 300,
@@ -329,6 +331,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                 levelLoadingTimeOut: 30000,
               });
               hlsRef.current = newHls;
+              reconnectAttempts = 0;
               newHls.loadSource(reconnectUrl);
               newHls.attachMedia(video);
               newHls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -342,11 +345,17 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   setLoading(false);
                 }
               });
-            }, 3000);
+            }
+          } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+            console.log('HLS: Media error, trying recovery...');
+            hls.recoverMediaError();
           } else {
             setError(t('common.error'));
             setLoading(false);
           }
+        } else {
+          // Non-fatal error — just log
+          console.warn('HLS non-fatal error:', data);
         }
       });
     } else {
