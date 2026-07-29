@@ -130,7 +130,17 @@
     <div id="detail-content"></div>
   </div>
 
-   <script src="/tv/tv.js?v=514"></script>
+   <script>
+    // Clear history if ?clear=1
+    if (window.location.search.indexOf('clear=1') >= 0) {
+      localStorage.removeItem('playback_positions');
+      localStorage.removeItem('last_torrents');
+      localStorage.removeItem('lumiere_iptv_fav');
+      alert('История очищена! Страница будет перезагружена.');
+      window.location.href = '/tv/';
+    }
+  </script>
+  <script src="/tv/tv.js?v=515"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {
