@@ -7,7 +7,19 @@
   function isTizen() {
     var hasWebapis = typeof webapis !== 'undefined';
     var hasAvplay = hasWebapis && webapis.avplay !== null && webapis.avplay !== undefined;
-    console.log('[PlayerAdapter] isTizen check: webapis=' + hasWebapis + ', avplay=' + hasAvplay + ', avplay type=' + (hasWebapis ? typeof webapis.avplay : 'n/a'));
+    var hasTizen = typeof tizen !== 'undefined';
+    var hasWebOS = typeof webOS !== 'undefined';
+    console.log('[PlayerAdapter] Platform check:');
+    console.log('  typeof webapis:', typeof webapis);
+    console.log('  typeof tizen:', typeof tizen);
+    console.log('  typeof webOS:', typeof webOS);
+    console.log('  hasWebapis:', hasWebapis);
+    console.log('  hasAvplay:', hasAvplay);
+    if (hasWebapis) {
+      console.log('  webapis keys:', Object.keys(webapis).join(', '));
+      console.log('  webapis.avplay type:', typeof webapis.avplay);
+    }
+    console.log('  userAgent:', navigator.userAgent.substring(0, 100));
     return hasAvplay;
   }
 
