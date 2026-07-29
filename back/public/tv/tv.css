@@ -474,7 +474,7 @@ body {
 #detail-content { width: 100%; min-height: 100%; }
 
 .detail-hero {
-  position: relative; width: 100%; height: 600px;
+  position: relative; width: 100%; height: 500px;
   overflow: hidden; background: var(--surface);
 }
 .detail-hero-img { width: 100%; height: 100%; object-fit: cover; }
@@ -485,16 +485,12 @@ body {
 }
 
 .detail-overlay {
-  position: relative; margin-top: -260px; z-index: 2;
+  position: relative; margin-top: -380px; z-index: 2;
   padding: 0 60px 100px;
 }
 
-.detail-top-row { margin-bottom: 32px; }
-.detail-back-btn {
-  padding: 14px 28px; border: none; border-radius: 12px;
-  background: rgba(255,255,255,0.08); color: var(--text-dim);
-  font-size: 18px; cursor: pointer; transition: all 0.15s;
-}
+.detail-top-row { display: none; }
+.detail-back-btn { display: none; }
 .detail-back-btn.focused {
   outline: 3px solid var(--accent); outline-offset: 3px;
   background: rgba(110,231,183,0.12); color: var(--text);
