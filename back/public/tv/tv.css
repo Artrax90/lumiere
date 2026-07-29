@@ -485,7 +485,7 @@ body {
 }
 
 .detail-overlay {
-  position: relative; margin-top: -1150px; z-index: 2;
+  position: relative; margin-top: -1250px; z-index: 2;
   padding: 0 60px 100px;
 }
 
