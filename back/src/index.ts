@@ -127,14 +127,21 @@ if (existsSync(publicDir)) {
     root: publicDir,
     prefix: '/',
     decorateReply: false,
-    maxAge: 0,
-    etag: false,
-    lastModified: false,
-    setHeaders: function(res: any) {
-      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-      res.setHeader('Pragma', 'no-cache');
-      res.setHeader('Expires', '0');
+  });
+
+  // Serve /tv/ files with no-cache headers
+  app.get('/tv/*', async (request, reply) => {
+    const filePath = request.url.split('?')[0]; // Remove query params
+    const fullPath = join(publicDir, filePath);
+    if (existsSync(fullPath)) {
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      reply.header('Pragma', 'no-cache');
+      reply.header('Expires', '0');
+      return reply.sendFile(filePath, publicDir);
     }
+    // Fallback to index.html for SPA
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+    return reply.sendFile('tv/index.html', publicDir);
   });
 
   // Redirect /tv to /tv/
