@@ -1306,6 +1306,16 @@
         window.location.reload();
       });
     }
+
+    var clearHistoryBtn = document.getElementById('btn-clear-history');
+    if (clearHistoryBtn) {
+      clearHistoryBtn.addEventListener('click', function() {
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        renderContinueWatching();
+        alert('История просмотров очищена');
+      });
+    }
   }
 
   function switchSection(section) {
