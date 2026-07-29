@@ -227,9 +227,34 @@
     if (!el) {
       el = document.createElement('div');
       el.id = 'debug-info';
-      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:800px;word-break:break-all;';
+      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.85);color:#e8c170;padding:12px 16px;font-size:13px;font-family:monospace;border-radius:8px;max-width:900px;word-break:break-all;line-height:1.6;pointer-events:none;';
       document.body.appendChild(el);
     }
+    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
+    var lines = [];
+    lines.push('Engine: ' + (player ? player.engineType : '?'));
+    lines.push('currentTime: ' + Math.round(currentTime) + 's (' + fmt(currentTime) + ')');
+    lines.push('duration(API): ' + Math.round(duration) + 's (' + fmt(duration) + ')');
+
+    if (isAvplay) {
+      try {
+        var avDur = webapis.avplay.getDuration();
+        lines.push('AVPlay.getDuration(): ' + avDur + 'ms (' + (avDur/1000).toFixed(1) + 's)');
+      } catch(e) { lines.push('AVPlay.getDuration(): ERROR'); }
+      try {
+        var avCt = webapis.avplay.getCurrentTime();
+        lines.push('AVPlay.getCurrentTime(): ' + avCt + 'ms (' + (avCt/1000).toFixed(1) + 's)');
+      } catch(e) { lines.push('AVPlay.getCurrentTime(): ERROR'); }
+      try {
+        var streamInfo = webapis.avplay.getCurrentStreamInfo();
+        lines.push('streamInfo: ' + JSON.stringify(streamInfo));
+      } catch(e) { lines.push('streamInfo: N/A'); }
+      try {
+        var durProp = webapis.avplay.getStreamingProperty('DURATION_INFO');
+        lines.push('DURATION_INFO: ' + durProp);
+      } catch(e) { lines.push('DURATION_INFO: N/A'); }
+    }
+
     var videoBuffer = 'n/a';
     if (player && player._videoEl && player._videoEl.buffered && player._videoEl.buffered.length > 0) {
       var end = player._videoEl.buffered.end(player._videoEl.buffered.length - 1);
@@ -240,7 +265,9 @@
         videoBuffer = 'raw:' + Math.round(end);
       }
     }
-    el.textContent = 'Engine: ' + (player ? player.engineType : '?') + ' | hash: ' + (torrHash ? torrHash.substring(0,8) : 'none') + ' | dur: ' + Math.round(duration) + ' | vBuf: ' + videoBuffer;
+    lines.push('buffer: ' + videoBuffer);
+    lines.push('url: ' + (streamUrl ? streamUrl.substring(0, 80) + '...' : 'none'));
+    el.innerHTML = lines.join('<br>');
   }
 
   // ========== Track info from backend ==========
