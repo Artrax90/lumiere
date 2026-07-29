@@ -356,16 +356,18 @@
 
   function startBufferPolling() {
     torrHash = extractHashFromUrl(streamUrl);
-    if (!torrHash) { console.log('[Buffer] No hash found in URL:', streamUrl); return; }
-    console.log('[Buffer] Starting polling for hash:', torrHash);
-
-    // Poll immediately, then every 3s
+    var debugEl = document.getElementById('debug-info');
+    if (!torrHash) {
+      if (debugEl) debugEl.textContent += ' | NO HASH';
+      return;
+    }
+    if (debugEl) debugEl.textContent += ' | polling...';
     pollBuffer();
     bufferTimer = setInterval(pollBuffer, 3000);
-    console.log('[Buffer] Polling started');
   }
 
   function pollBuffer() {
+    var debugEl = document.getElementById('debug-info');
     var xhr = new XMLHttpRequest();
     xhr.open('POST', API + '/api/torrents/torrserver/list', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
@@ -383,21 +385,25 @@
               var loaded = list[i].loaded_size || 0;
               var total = list[i].torrent_size || 0;
               if (total > 0) {
-                var pct = Math.min(100, (loaded / total) * 100);
-                if ($bufferFill) {
-                  $bufferFill.style.width = pct + '%';
-                  console.log('[Buffer] Updated:', Math.round(pct) + '%', loaded + '/' + total);
-                }
+                var pct = Math.min(100, Math.round((loaded / total) * 100));
+                if ($bufferFill) $bufferFill.style.width = pct + '%';
+                if (debugEl) debugEl.textContent = 'Buffer: ' + pct + '% (' + Math.round(loaded/1048576) + 'MB/' + Math.round(total/1048576) + 'MB)';
               }
               found = true;
               break;
             }
           }
-          if (!found) console.log('[Buffer] Hash not found in TorrServer:', hashLower);
-        } catch(e) { console.log('[Buffer] Parse error:', e.message); }
-      } else { console.log('[Buffer] HTTP error:', xhr.status); }
+          if (!found && debugEl) debugEl.textContent += ' | hash not found';
+        } catch(e) {
+          if (debugEl) debugEl.textContent += ' | parse err';
+        }
+      } else {
+        if (debugEl) debugEl.textContent += ' | HTTP ' + xhr.status;
+      }
     };
-    xhr.onerror = function() { console.log('[Buffer] Network error'); };
+    xhr.onerror = function() {
+      if (debugEl) debugEl.textContent += ' | net err';
+    };
     xhr.send();
   }
 
