@@ -59,7 +59,7 @@ body { background: black; overflow: hidden; width: 1920px; height: 1080px; font-
   border-radius: 6px;
 }
 #timeline-wrap.focused {
-  outline: 3px solid #6ee7b7; outline-offset: 4px;
+  outline: 3px solid #e8c170; outline-offset: 4px;
 }
 #timeline-bar {
   position: relative; width: 100%; height: 6px;
@@ -99,7 +99,7 @@ body { background: black; overflow: hidden; width: 1920px; height: 1080px; font-
   border-radius: 10px; transition: all 0.15s;
 }
 .osd-btn.focused {
-  outline: 3px solid #6ee7b7; outline-offset: 3px;
+  outline: 3px solid #e8c170; outline-offset: 3px;
   color: white; background: rgba(110,231,183,0.15);
   transform: scale(1.05);
 }
@@ -119,7 +119,7 @@ body { background: black; overflow: hidden; width: 1920px; height: 1080px; font-
 }
 .osd-btn-play.focused {
   background: rgba(110,231,183,0.4);
-  border-color: #6ee7b7;
+  border-color: #e8c170;
 }
 .osd-btn-action {
   padding: 10px 20px; border-radius: 8px;

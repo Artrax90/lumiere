@@ -9,7 +9,7 @@
   --text: #e6e8ee;
   --text-dim: #9aa0ac;
   --text-mute: #5f6571;
-  --accent: #6ee7b7;
+  --accent: #e8c170;
   --warn: #fbbf24;
   --error: #f87171;
 }
@@ -37,7 +37,7 @@ body {
 .dot {
   width: 44px; height: 44px; border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 28px rgba(110,231,183,0.4);
+  box-shadow: 0 0 28px rgba(232,193,112,0.4);
 }
 .logo-text { font-size: 44px; font-weight: 600; color: var(--text); }
 .spinner {
@@ -124,7 +124,7 @@ body {
 }
 .card.focused {
   transform: scale(1.08);
-  box-shadow: 0 0 0 3px var(--accent), 0 10px 32px rgba(110,231,183,0.25);
+  box-shadow: 0 0 0 3px var(--accent), 0 10px 32px rgba(232,193,112,0.25);
 }
 .card-img-wrap { position: relative; }
 .card-img {
@@ -233,14 +233,14 @@ body {
 
 .iptv-cat-item.active {
   color: var(--accent);
-  background: rgba(110,231,183,0.08);
+  background: rgba(232,193,112,0.08);
 }
 
 .iptv-cat-item.focused {
   outline: 3px solid var(--accent);
   outline-offset: -3px;
   color: var(--text);
-  background: rgba(110,231,183,0.12);
+  background: rgba(232,193,112,0.12);
 }
 
 .iptv-cat-icon {
@@ -272,7 +272,7 @@ body {
 }
 
 .iptv-ch-item.focused {
-  background: rgba(110,231,183,0.1);
+  background: rgba(232,193,112,0.1);
   outline: 3px solid var(--accent);
   outline-offset: -3px;
 }
@@ -493,7 +493,7 @@ body {
 .detail-back-btn { display: none; }
 .detail-back-btn.focused {
   outline: 3px solid var(--accent); outline-offset: 3px;
-  background: rgba(110,231,183,0.12); color: var(--text);
+  background: rgba(232,193,112,0.12); color: var(--text);
 }
 
 .detail-main-row { display: flex; margin-bottom: 36px; }
@@ -552,7 +552,7 @@ body {
 }
 .detail-btn-icon-btn.focused {
   outline: 3px solid var(--accent); outline-offset: 3px;
-  background: rgba(110,231,183,0.12); color: var(--text);
+  background: rgba(232,193,112,0.12); color: var(--text);
 }
 
 /* Detail: Description */
@@ -579,8 +579,8 @@ body {
   cursor: pointer; transition: all 0.15s;
 }
 .detail-tab.active {
-  background: rgba(110,231,183,0.12);
-  border-color: rgba(110,231,183,0.3);
+  background: rgba(232,193,112,0.12);
+  border-color: rgba(232,193,112,0.3);
   color: var(--accent);
 }
 .detail-tab.focused {
@@ -597,7 +597,7 @@ body {
 }
 .detail-season-select:focus {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(110,231,183,0.2);
+  box-shadow: 0 0 0 3px rgba(232,193,112,0.2);
 }
 .detail-season-select option { background: var(--surface-2); color: var(--text); }
 
@@ -616,8 +616,8 @@ body {
   cursor: pointer; transition: all 0.15s;
 }
 .detail-source-item.focused {
-  background: rgba(110,231,183,0.06);
-  border-color: rgba(110,231,183,0.3);
+  background: rgba(232,193,112,0.06);
+  border-color: rgba(232,193,112,0.3);
   box-shadow: 0 0 0 3px var(--accent);
 }
 .detail-source-info { min-width: 0; flex: 1; }
@@ -629,7 +629,7 @@ body {
 .detail-source-play {
   font-size: 14px; font-weight: 600; color: var(--accent);
   padding: 8px 18px; border-radius: 24px;
-  background: rgba(110,231,183,0.12);
+  background: rgba(232,193,112,0.12);
   flex-shrink: 0; margin-left: 20px;
 }
 
@@ -642,8 +642,8 @@ body {
   cursor: pointer; transition: all 0.2s;
 }
 .torrent-item.focused {
-  background: rgba(110,231,183,0.08);
-  border-color: rgba(110,231,183,0.3);
+  background: rgba(232,193,112,0.08);
+  border-color: rgba(232,193,112,0.3);
   box-shadow: 0 0 0 3px var(--accent);
 }
 .detail-torrent-title {
@@ -708,8 +708,8 @@ body {
   cursor: pointer; transition: all 0.15s;
 }
 .file-item.focused {
-  background: rgba(110,231,183,0.06);
-  border-color: rgba(110,231,183,0.3);
+  background: rgba(232,193,112,0.06);
+  border-color: rgba(232,193,112,0.3);
   box-shadow: 0 0 0 3px var(--accent);
 }
 .file-item-name { font-size: 18px; font-weight: 500; color: var(--text); }
