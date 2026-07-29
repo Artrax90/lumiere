@@ -40,7 +40,6 @@ class SyncClient {
     favorites: FavoriteItem[];
   } = { watchHistory: [], favorites: [] };
   private authFailed = false;
-
   private refreshAttempts = 0;
 
   start(intervalMs: number = 30000) {
@@ -51,7 +50,6 @@ class SyncClient {
     this.syncInterval = setInterval(() => {
       if (this.authFailed) {
         if (this.refreshAttempts >= 3) {
-          // Too many failed refreshes — stop sync completely
           this.stop();
           return;
         }
@@ -72,7 +70,6 @@ class SyncClient {
   }
 
   private async tryRefresh() {
-    // Try refresh token
     const refreshToken = localStorage.getItem('lumiere_refresh');
     if (refreshToken) {
       try {
@@ -93,7 +90,6 @@ class SyncClient {
       } catch {}
     }
 
-    // Try LAN auto-login
     try {
       const base = getServerUrl();
       const lanRes = await fetch(`${base}/api/auth/lan-login`, { method: 'POST' });
@@ -106,8 +102,6 @@ class SyncClient {
         return;
       }
     } catch {}
-
-    // All attempts failed — will stop after max retries
   }
 
   private getAuthHeaders(): Record<string, string> {
@@ -240,52 +234,56 @@ class SyncClient {
     const serverData = await this.pull();
     if (!serverData) return;
 
-    // Merge watch history
+    // Merge watch history — if server is empty, clear local too
     const localHistory = this.getLocalWatchHistory();
-    const mergedHistory = new Map<string, WatchHistoryItem>();
-
-    for (const item of localHistory) {
-      const key = `${item.tmdbId}-${item.mediaType}`;
-      mergedHistory.set(key, item);
-    }
-
-    for (const item of serverData.watchHistory) {
-      const key = `${item.tmdbId}-${item.mediaType}`;
-      const existing = mergedHistory.get(key);
-      if (!existing || (item.progress || 0) > (existing.progress || 0)) {
+    if (serverData.watchHistory.length === 0 && localHistory.length > 0) {
+      localStorage.removeItem('lumiere_watch_history');
+      localStorage.removeItem('playback_positions');
+    } else {
+      const mergedHistory = new Map<string, WatchHistoryItem>();
+      for (const item of localHistory) {
+        const key = `${item.tmdbId}-${item.mediaType}`;
         mergedHistory.set(key, item);
       }
+      for (const item of serverData.watchHistory) {
+        const key = `${item.tmdbId}-${item.mediaType}`;
+        const existing = mergedHistory.get(key);
+        if (!existing || (item.progress || 0) > (existing.progress || 0)) {
+          mergedHistory.set(key, item);
+        }
+      }
+      localStorage.setItem('lumiere_watch_history', JSON.stringify(Array.from(mergedHistory.values())));
     }
 
-    localStorage.setItem('lumiere_watch_history', JSON.stringify(Array.from(mergedHistory.values())));
-
-    // Merge favorites
+    // Merge favorites — if server is empty, clear local too
     const localFavorites = this.getLocalFavorites();
-    const mergedFavorites = new Map<string, FavoriteItem>();
-
-    for (const item of localFavorites) {
-      const key = `${item.tmdbId}-${item.mediaType}`;
-      mergedFavorites.set(key, item);
+    if (serverData.favorites.length === 0 && localFavorites.length > 0) {
+      localStorage.removeItem('lumiere_favorites');
+    } else {
+      const mergedFavorites = new Map<string, FavoriteItem>();
+      for (const item of localFavorites) {
+        const key = `${item.tmdbId}-${item.mediaType}`;
+        mergedFavorites.set(key, item);
+      }
+      for (const item of serverData.favorites) {
+        const key = `${item.tmdbId}-${item.mediaType}`;
+        const existing = mergedFavorites.get(key);
+        if (!existing) {
+          mergedFavorites.set(key, item);
+        }
+      }
+      localStorage.setItem('lumiere_favorites', JSON.stringify(Array.from(mergedFavorites.values())));
     }
-
-    for (const item of serverData.favorites) {
-      const key = `${item.tmdbId}-${item.mediaType}`;
-      mergedFavorites.set(key, item);
-    }
-
-    localStorage.setItem('lumiere_favorites', JSON.stringify(Array.from(mergedFavorites.values())));
 
     // Merge IPTV playlists (server wins — replace local with server data)
     if (serverData.iptvPlaylists && serverData.iptvPlaylists.length > 0) {
       const localIptv = this.getLocalIptvPlaylists();
       const mergedIptv = new Map<string, IPTVPlaylist>();
 
-      // Add local playlists
       for (const item of localIptv) {
         mergedIptv.set(item.url, item);
       }
 
-      // Merge server playlists (server takes precedence for same URL)
       for (const item of serverData.iptvPlaylists) {
         mergedIptv.set(item.url, item);
       }
