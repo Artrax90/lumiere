@@ -246,7 +246,7 @@
         } catch(e) {}
       }
     };
-    xhr.send();
+    xhr.send('{}');
   }
 
   // ========== Duration from API ==========
@@ -273,7 +273,7 @@
         } catch(e) {}
       }
     };
-    xhr.send();
+    xhr.send('{}');
   }
 
   // ========== Subtitles ==========
@@ -288,7 +288,7 @@
         subtitleCues = parseVtt(xhr.responseText);
       }
     };
-    xhr.send();
+    xhr.send('{}');
   }
 
   function parseVtt(text) {
@@ -404,7 +404,7 @@
     xhr.onerror = function() {
       if (debugEl) debugEl.textContent += ' | net err';
     };
-    xhr.send();
+    xhr.send('{}');
   }
 
   function stopBufferPolling() {
