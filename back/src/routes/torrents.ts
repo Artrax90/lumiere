@@ -398,18 +398,34 @@ export function torrentRoutes(app: FastifyInstance) {
     // Check if session is already active
     const existingSession = activeSessions.get(sessionId);
     if (existingSession && existsSync(playlistPath)) {
-      let manifest = readFileSync(playlistPath, 'utf-8');
-      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-      reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Cache-Control', 'no-cache');
-      return reply.send(manifest);
+      // Check if manifest is stale (not updated for 30s = FFmpeg died)
+      const { statSync } = await import('fs');
+      const manifestStat = statSync(playlistPath);
+      const manifestAge = Date.now() - manifestStat.mtimeMs;
+      if (manifestAge > 30000) {
+        console.log(`[HLS] Session ${sessionId} manifest stale (${Math.round(manifestAge / 1000)}s), restarting FFmpeg`);
+        try { process.kill(existingSession.pid, 'SIGKILL'); } catch {}
+        activeSessions.delete(sessionId);
+        // Fall through to create new session
+      } else {
+        let manifest = readFileSync(playlistPath, 'utf-8');
+        manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+        reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+        reply.header('Access-Control-Allow-Origin', '*');
+        reply.header('Cache-Control', 'no-cache');
+        return reply.send(manifest);
+      }
     }
 
-    // Clean up old session if exists
+    // Clean up old session and HLS directory if exists
     if (existingSession) {
       try { process.kill(existingSession.pid, 'SIGKILL'); } catch {}
       activeSessions.delete(sessionId);
+    }
+    // Clean old HLS directory for fresh start
+    if (existsSync(hlsDir)) {
+      const { rmSync } = await import('fs');
+      try { rmSync(hlsDir, { recursive: true, force: true }); } catch {}
     }
 
     if (!existsSync(hlsDir)) {
