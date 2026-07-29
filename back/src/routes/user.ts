@@ -1,4 +1,4 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyInstance, FastifyReply } from 'fastify';
 import pool from '../db/pool.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
@@ -173,8 +173,18 @@ export function userRoutes(app: FastifyInstance) {
   }> = [];
 
   // Report current activity
-  app.post('/api/user/activity', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/user/activity', async (request: AuthenticatedRequest, reply: FastifyReply) => {
+    const authHeader = request.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { success: true }; // No auth, skip logging
+    }
+    const token = authHeader.slice(7);
+    const { verifyAccessToken } = await import('../services/auth.js');
+    const payload = verifyAccessToken(token);
+    if (!payload) {
+      return { success: true }; // Token expired, skip logging
+    }
+    const userId = payload.userId;
     const { action, titleId, titleName } = request.body as {
       action: string;
       titleId: number;
