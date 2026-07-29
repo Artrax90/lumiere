@@ -356,12 +356,13 @@
 
   function startBufferPolling() {
     torrHash = extractHashFromUrl(streamUrl);
-    if (!torrHash) { console.log('[Buffer] No hash found in URL'); return; }
+    if (!torrHash) { console.log('[Buffer] No hash found in URL:', streamUrl); return; }
     console.log('[Buffer] Starting polling for hash:', torrHash);
 
     // Poll immediately, then every 3s
     pollBuffer();
     bufferTimer = setInterval(pollBuffer, 3000);
+    console.log('[Buffer] Polling started');
   }
 
   function pollBuffer() {
@@ -376,21 +377,27 @@
         try {
           var list = JSON.parse(xhr.responseText);
           var hashLower = torrHash.toLowerCase();
+          var found = false;
           for (var i = 0; i < list.length; i++) {
             if (list[i].hash && list[i].hash.toLowerCase() === hashLower) {
               var loaded = list[i].loaded_size || 0;
               var total = list[i].torrent_size || 0;
               if (total > 0) {
                 var pct = Math.min(100, (loaded / total) * 100);
-                if ($bufferFill) $bufferFill.style.width = pct + '%';
+                if ($bufferFill) {
+                  $bufferFill.style.width = pct + '%';
+                  console.log('[Buffer] Updated:', Math.round(pct) + '%', loaded + '/' + total);
+                }
               }
+              found = true;
               break;
             }
           }
-        } catch(e) {}
-      }
+          if (!found) console.log('[Buffer] Hash not found in TorrServer:', hashLower);
+        } catch(e) { console.log('[Buffer] Parse error:', e.message); }
+      } else { console.log('[Buffer] HTTP error:', xhr.status); }
     };
-    xhr.onerror = function() {};
+    xhr.onerror = function() { console.log('[Buffer] Network error'); };
     xhr.send();
   }
 
