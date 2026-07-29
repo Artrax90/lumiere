@@ -171,7 +171,12 @@
     if (url) {
       streamUrl = url;
       player.play(url);
-      fetchDurationFromApi(url);
+      // Only fetch duration from API for FFmpeg HLS streams
+      // AVPlay gets duration from getDuration() directly
+      var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
+      if (!isAvplay) {
+        fetchDurationFromApi(url);
+      }
       loadTrackInfo(url);
       startBufferPolling();
     }

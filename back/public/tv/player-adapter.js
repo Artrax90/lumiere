@@ -80,6 +80,16 @@
         oncurrentplaytime: function(time) {
           self._currentTime = time / 1000;
           self._emit('timeUpdate', { currentTime: self._currentTime });
+          // Periodically update duration if not set
+          if (self._duration <= 0) {
+            try {
+              var totalDur = webapis.avplay.getDuration();
+              if (totalDur && totalDur > 0) {
+                self._duration = totalDur / 1000;
+                self._emit('durationChange', { duration: self._duration });
+              }
+            } catch(e) {}
+          }
         },
         onbufferingstart: function() {
           self._emit('bufferingStart');
@@ -137,12 +147,23 @@
           }
         } catch(e) { console.log('[AVPlay] Track info error:', e); }
 
-        // Get duration
+        // Get duration — try multiple methods for accuracy
         try {
           var durInfo = webapis.avplay.getStreamingProperty('DURATION_INFO');
           if (durInfo) {
             self._duration = parseInt(durInfo) / 1000;
             self._emit('durationChange', { duration: self._duration });
+          }
+        } catch(e) {}
+        // Also try getDuration() which may be more accurate for MKV
+        try {
+          var totalDur = webapis.avplay.getDuration();
+          if (totalDur && totalDur > 0) {
+            var durSec = totalDur / 1000;
+            if (durSec > self._duration) {
+              self._duration = durSec;
+              self._emit('durationChange', { duration: self._duration });
+            }
           }
         } catch(e) {}
 
