@@ -151,14 +151,14 @@
   function loadData() {
     apiFetch('/api/movies/trending', function(err, data) {
       if (data && data.results) {
-        renderRow('trending-items', data.results.slice(0, 12));
+        renderRow('trending-items', data.results.slice(0, 25));
       }
     });
 
     apiFetch('/api/movies/popular', function(err, data) {
       if (data && data.results) {
         state.movies = data.results;
-        renderRow('popular-items', data.results.slice(0, 12));
+        renderRow('popular-items', data.results.slice(0, 25));
         renderGrid('movies-grid', data.results);
       }
     });
@@ -166,7 +166,7 @@
     apiFetch('/api/tv/trending', function(err, data) {
       if (data && data.results) {
         state.tvShows = data.results;
-        renderRow('tv-items', data.results.slice(0, 12));
+        renderRow('tv-items', data.results.slice(0, 25));
         renderGrid('tv-grid', data.results);
       }
     });
@@ -1730,7 +1730,7 @@
       var rect = cards[i].getBoundingClientRect();
       if (rect.bottom > currentRect.top) continue;
       var hDist = Math.abs(rect.left - currentRect.left);
-      if (hDist > 50) continue;
+      if (hDist > 80) continue;
       var vDist = currentRect.top - rect.bottom;
       if (vDist < bestDist) { bestDist = vDist; bestIndex = i; }
     }
@@ -1739,7 +1739,7 @@
       clearCardFocus();
       state.focusedCard = bestIndex;
       cards[bestIndex].classList.add('focused');
-      scrollToCenter(cards[bestIndex]);
+      scrollToCard(cards[bestIndex]);
       cards[bestIndex].focus();
       return true;
     }
@@ -1759,7 +1759,7 @@
       var rect = cards[i].getBoundingClientRect();
       if (rect.top < currentRect.bottom) continue;
       var hDist = Math.abs(rect.left - currentRect.left);
-      if (hDist > 50) continue;
+      if (hDist > 80) continue;
       var vDist = rect.top - currentRect.bottom;
       if (vDist < bestDist) { bestDist = vDist; bestIndex = i; }
     }
@@ -1768,7 +1768,7 @@
       clearCardFocus();
       state.focusedCard = bestIndex;
       cards[bestIndex].classList.add('focused');
-      scrollToCenter(cards[bestIndex]);
+      scrollToCard(cards[bestIndex]);
       cards[bestIndex].focus();
     }
   }
