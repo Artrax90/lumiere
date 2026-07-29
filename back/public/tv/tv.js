@@ -1057,14 +1057,12 @@
       } catch(e) {}
     }
 
-    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
-
     apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
       if (err || !data) {
-        var fallbackUrl = isAvplay
-          ? '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
-          : '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        // Try direct stream first (like Lampa), fall back to FFmpeg HLS
+        var directUrl = API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0';
+        var hlsUrl = API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(directUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + '&fallback=' + encodeURIComponent(hlsUrl);
         return;
       }
 
@@ -1075,28 +1073,22 @@
           showFileSelector(data.files, title, movieId);
         }
       } else {
-        var fallbackUrl = isAvplay
-          ? '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
-          : '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        var directUrl = API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0';
+        var hlsUrl = API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(directUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + '&fallback=' + encodeURIComponent(hlsUrl);
       }
     });
   }
 
   function playFile(file, title, movieId) {
-    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
-    // AVPlay: use direct TorrServer stream (MKV native, HTTP Range seeking)
-    // Browser: use FFmpeg HLS
-    var url = '';
-    if (isAvplay && file.directUrl) {
-      url = file.directUrl;
-    } else {
-      url = file.streamUrl || '';
-    }
-    if (url.indexOf('/') === 0) url = API + url;
     var name = file.name || title;
     movieId = movieId || (state.detail && state.detail.id) || 0;
     var poster = (state.detail && state.detail.poster) || '';
+
+    // Always try direct TorrServer stream first (like Lampa does)
+    // Samsung TV browser can play MKV with H.264 natively
+    var directUrl = file.directUrl || '';
+    if (directUrl.indexOf('/') === 0) directUrl = API + directUrl;
 
     // Check for saved resume position
     var startParam = '';
@@ -1110,7 +1102,8 @@
       } catch(e) {}
     }
 
-    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam;
+    // Try direct stream first, fall back to FFmpeg HLS if it fails
+    window.location.href = '/tv/player.html?url=' + encodeURIComponent(directUrl) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam + '&fallback=' + encodeURIComponent(file.streamUrl || '');
   }
 
   function showFileSelector(files, title, movieId) {
