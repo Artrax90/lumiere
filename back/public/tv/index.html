@@ -133,11 +133,29 @@
    <script>
     // Clear history if ?clear=1
     if (window.location.search.indexOf('clear=1') >= 0) {
-      localStorage.removeItem('playback_positions');
-      localStorage.removeItem('last_torrents');
-      localStorage.removeItem('lumiere_iptv_fav');
-      alert('История очищена! Страница будет перезагружена.');
-      window.location.href = '/tv/';
+      // Clear server-side history first
+      var token = localStorage.getItem('lumiere_access');
+      var xhr = new XMLHttpRequest();
+      xhr.open('DELETE', '/api/sync/history', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      xhr.onload = function() {
+        // Then clear local storage
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        localStorage.removeItem('lumiere_iptv_fav');
+        alert('История очищена! Страница будет перезагружена.');
+        window.location.href = '/tv/';
+      };
+      xhr.onerror = function() {
+        // Even if server fails, clear local
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        localStorage.removeItem('lumiere_iptv_fav');
+        alert('История очищена! Страница будет перезагружена.');
+        window.location.href = '/tv/';
+      };
+      xhr.send();
     }
   </script>
   <script src="/tv/tv.js?v=515"></script>

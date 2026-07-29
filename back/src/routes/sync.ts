@@ -59,8 +59,12 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
     };
   });
 
-  // Push sync data (batch update)
-  app.post('/api/sync/push', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+  // Clear watch history for current user
+  app.delete('/api/sync/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    await db.query('DELETE FROM watch_history WHERE user_id = $1', [userId]);
+    return { success: true, message: 'History cleared' };
+  });
     const userId = request.user!.userId;
 
     const { watchHistory, favorites, iptvPlaylists } = request.body as {
