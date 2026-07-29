@@ -116,6 +116,8 @@
       currentTime = data.currentTime;
       if (!scrubberFocused) updateTimeline();
       updateSubtitleDisplay();
+      // Update buffer display from video element
+      updateBufferFromVideo();
     });
     player.on('durationChange', function(data) {
       if (data.duration > 0) duration = data.duration;
@@ -336,6 +338,22 @@
       }
     }
     $subtitleOverlay.innerHTML = '';
+  }
+
+  // ========== Buffer ==========
+  function updateBufferFromVideo() {
+    if (!player || !player._videoEl) return;
+    var video = player._videoEl;
+    try {
+      if (video.buffered && video.buffered.length > 0) {
+        var end = video.buffered.end(video.buffered.length - 1);
+        var d = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : 0);
+        if (d > 0) {
+          var pct = Math.min(100, (end / d) * 100);
+          if ($bufferFill) $bufferFill.style.width = pct + '%';
+        }
+      }
+    } catch(e) {}
   }
 
   // ========== Timeline ==========

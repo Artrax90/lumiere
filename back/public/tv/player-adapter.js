@@ -201,7 +201,15 @@
         self._emit('bufferingProgress', { percent: pct });
       }
     };
-    $video.onplaying = function() { self._emit('playing'); };
+    $video.onplaying = function() {
+      self._emit('playing');
+      // Force buffer update on play
+      if ($video.buffered && $video.buffered.length > 0) {
+        var end = $video.buffered.end($video.buffered.length - 1);
+        var pct = self._duration > 0 ? (end / self._duration * 100) : 0;
+        self._emit('bufferingProgress', { percent: pct });
+      }
+    };
     $video.onpause = function() { self._emit('paused'); };
     $video.onended = function() { self._isPlaying = false; self._emit('ended'); };
     $video.onerror = function() { self._emit('error', { message: 'Video error' }); };
