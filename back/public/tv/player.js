@@ -165,28 +165,13 @@
     });
     player.on('error', function(data) {
       console.error('[Player] Error:', data.message);
-      // Try fallback URL if direct stream fails
-      var fallbackUrl = params.fallback || '';
-      if (fallbackUrl && streamUrl !== fallbackUrl) {
-        console.log('[Player] Direct stream failed, trying FFmpeg HLS fallback');
-        streamUrl = fallbackUrl;
-        player.stop();
-        setTimeout(function() {
-          player.play(fallbackUrl);
-          fetchDurationFromApi(fallbackUrl);
-        }, 500);
-      }
     });
 
     // Start playback
     if (url) {
       streamUrl = url;
       player.play(url);
-      // Only fetch duration from API for FFmpeg HLS streams (not direct)
-      var isDirect = url.indexOf('/proxy') >= 0;
-      if (!isDirect) {
-        fetchDurationFromApi(url);
-      }
+      fetchDurationFromApi(url);
       loadTrackInfo(url);
       startBufferPolling();
     }
