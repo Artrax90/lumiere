@@ -1679,8 +1679,34 @@
     index = Math.max(0, Math.min(index, cards.length - 1));
     state.focusedCard = index;
     cards[index].classList.add('focused');
-    scrollToCenter(cards[index]);
+    scrollToCard(cards[index]);
     cards[index].focus();
+  }
+
+  function scrollToCard(el) {
+    if (!el) return;
+    // Find the scrollable parent (.row-items or .section)
+    var parent = el.parentElement;
+    while (parent && parent.id !== 'content') {
+      var style = window.getComputedStyle(parent);
+      if (style.overflowX === 'auto' || style.overflowX === 'scroll') {
+        // Horizontal scroll — center the card
+        var elLeft = el.offsetLeft;
+        var elW = el.offsetWidth;
+        var parentW = parent.clientWidth;
+        parent.scrollLeft = elLeft - (parentW / 2) + (elW / 2);
+        return;
+      }
+      parent = parent.parentElement;
+    }
+    // Fallback: vertical scroll
+    var content = document.getElementById('content');
+    if (content) {
+      var elTop = el.offsetTop;
+      var elH = el.offsetHeight;
+      var contentH = content.clientHeight;
+      content.scrollTop = elTop - (contentH / 2) + (elH / 2);
+    }
   }
 
   function focusCardDelta(delta) {
