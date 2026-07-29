@@ -1685,12 +1685,25 @@
 
   function scrollToCard(el) {
     if (!el) return;
-    // Find the scrollable parent (.row-items or .section)
+    // Always scroll #content vertically to keep card in view
+    var content = document.getElementById('content');
+    if (content) {
+      var elRect = el.getBoundingClientRect();
+      var contentRect = content.getBoundingClientRect();
+      // If card is above visible area, scroll up
+      if (elRect.top < contentRect.top + 60) {
+        content.scrollTop -= (contentRect.top + 60 - elRect.top);
+      }
+      // If card is below visible area, scroll down
+      if (elRect.bottom > contentRect.bottom - 20) {
+        content.scrollTop += (elRect.bottom - contentRect.bottom + 20);
+      }
+    }
+    // Also handle horizontal scroll within row-items
     var parent = el.parentElement;
     while (parent && parent.id !== 'content') {
       var style = window.getComputedStyle(parent);
       if (style.overflowX === 'auto' || style.overflowX === 'scroll') {
-        // Horizontal scroll — center the card
         var elLeft = el.offsetLeft;
         var elW = el.offsetWidth;
         var parentW = parent.clientWidth;
@@ -1698,14 +1711,6 @@
         return;
       }
       parent = parent.parentElement;
-    }
-    // Fallback: vertical scroll
-    var content = document.getElementById('content');
-    if (content) {
-      var elTop = el.offsetTop;
-      var elH = el.offsetHeight;
-      var contentH = content.clientHeight;
-      content.scrollTop = elTop - (contentH / 2) + (elH / 2);
     }
   }
 
