@@ -165,6 +165,7 @@
       streamUrl = url;
       player.play(url);
       fetchDurationFromApi(url);
+      startDurationPolling();
       loadTrackInfo(url);
       startBufferPolling();
     }
@@ -291,6 +292,37 @@
       }
     };
     xhr.send('{}');
+  }
+
+  // ========== Duration from HLS playlist (more accurate than FFprobe for MKV) ==========
+  var durationPollTimer = null;
+  function startDurationPolling() {
+    if (durationPollTimer) return;
+    durationPollTimer = setInterval(function() {
+      if (!streamUrl || streamUrl.indexOf('/api/torrents/hls') < 0) return;
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', streamUrl, true);
+      xhr.onload = function() {
+        if (xhr.status === 200 && xhr.responseText.indexOf('#EXTM3U') >= 0) {
+          var total = 0;
+          var lines = xhr.responseText.split('\n');
+          for (var i = 0; i < lines.length; i++) {
+            if (lines[i].indexOf('#EXTINF:') === 0) {
+              var val = parseFloat(lines[i].substring(8));
+              if (isFinite(val) && val > 0) total += val;
+            }
+          }
+          if (total > 0 && total > duration) {
+            duration = total;
+            updateTimeline();
+          }
+        }
+      };
+      xhr.send();
+    }, 10000); // Poll every 10 seconds
+  }
+  function stopDurationPolling() {
+    if (durationPollTimer) { clearInterval(durationPollTimer); durationPollTimer = null; }
   }
 
   // ========== Subtitles ==========
@@ -621,6 +653,7 @@
   function goBack() {
     saveProgress();
     stopBufferPolling();
+    stopDurationPolling();
     player.stop();
     var server = localStorage.getItem(SERVER_KEY) || '';
     if (movieId) window.location.href = server + '/tv/?detail=' + movieId;
