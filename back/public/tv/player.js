@@ -375,8 +375,9 @@
       if (xhr.status === 200) {
         try {
           var list = JSON.parse(xhr.responseText);
+          var hashLower = torrHash.toLowerCase();
           for (var i = 0; i < list.length; i++) {
-            if (list[i].hash === torrHash) {
+            if (list[i].hash && list[i].hash.toLowerCase() === hashLower) {
               var loaded = list[i].loaded_size || 0;
               var total = list[i].torrent_size || 0;
               if (total > 0) {
