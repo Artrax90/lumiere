@@ -37,6 +37,22 @@
       var server = localStorage.getItem(SERVER_KEY);
       if (server) API = server;
 
+      // Clear history if ?clear=1 in URL (Chrome 56 compatible)
+      var searchStr = window.location.search.substring(1);
+      var params = {};
+      searchStr.split('&').forEach(function(pair) {
+        var parts = pair.split('=');
+        if (parts.length === 2) params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+      });
+      if (params.clear === '1') {
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        console.log('[Lumiere] History cleared');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      }
+
       initAuth();
     } catch(e) {
       console.error('[Lumiere] Init error:', e);
