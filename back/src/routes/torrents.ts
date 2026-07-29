@@ -463,12 +463,18 @@ export function torrentRoutes(app: FastifyInstance) {
           const check = () => {
             attempts++;
             if (existsSync(playlistPath)) {
-              let manifest = readFileSync(playlistPath, 'utf-8');
-              manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-              reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-              reply.header('Access-Control-Allow-Origin', '*');
-              reply.header('Cache-Control', 'no-cache');
-              reply.send(manifest);
+              const content = readFileSync(playlistPath, 'utf-8');
+              if (content.includes('#EXTM3U') && content.includes('#EXTINF')) {
+                let manifest = content.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+                reply.header('Content-Type', 'application/vnd.apple.mpegurl');
+                reply.header('Access-Control-Allow-Origin', '*');
+                reply.header('Cache-Control', 'no-cache');
+                reply.send(manifest);
+              } else if (attempts < 50) {
+                setTimeout(check, 200);
+              } else {
+                reply.code(500).send({ error: 'FFmpeg resume timeout' });
+              }
             } else if (attempts < 50) {
               setTimeout(check, 200);
             } else {
@@ -481,6 +487,11 @@ export function torrentRoutes(app: FastifyInstance) {
         return;
       } else {
         let manifest = readFileSync(playlistPath, 'utf-8');
+        // Validate manifest is proper M3U8
+        if (!manifest.includes('#EXTM3U')) {
+          reply.code(503).send({ error: 'Manifest not ready' });
+          return;
+        }
         manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
         reply.header('Content-Type', 'application/vnd.apple.mpegurl');
         reply.header('Access-Control-Allow-Origin', '*');
@@ -591,6 +602,10 @@ export function torrentRoutes(app: FastifyInstance) {
 
     if (existsSync(playlistPath)) {
       let manifest = readFileSync(playlistPath, 'utf-8');
+      if (!manifest.includes('#EXTM3U')) {
+        reply.code(503).send({ error: 'Manifest not ready' });
+        return;
+      }
       manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
 
       reply.header('Content-Type', 'application/vnd.apple.mpegurl');
