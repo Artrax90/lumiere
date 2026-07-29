@@ -8,10 +8,11 @@
   var SERVER_KEY = 'lumiere_server';
 
   // Helper: get base URL for player navigation
-  // In .wgt context, __LUMIERE_BASE__ is set by launcher
-  // In browser context, use current origin
+  // Priority: __LUMIERE_BASE__ > localStorage > window.location.origin
   function getBaseUrl() {
     if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
+    var stored = localStorage.getItem(SERVER_KEY);
+    if (stored) return stored;
     return window.location.origin;
   }
 
