@@ -458,14 +458,14 @@ export function torrentRoutes(app: FastifyInstance) {
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
+      '-i', streamUrl,
     ];
-    // Seek BEFORE input — sends HTTP Range request to TorrServer
-    // Torrent engine prioritizes pieces at seek position
+    // Seek AFTER input — accurate seeking (reads stream, discards until seek point)
+    // -ss before -i uses byte offsets which are wrong for VBR MKV files
     if (seekTime > 0) {
       ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
     }
     ffmpegArgs.push(
-      '-i', streamUrl,
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
       '-c:v', 'copy',
@@ -771,8 +771,8 @@ export function torrentRoutes(app: FastifyInstance) {
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '10',
-        '-ss', String(seekTime),
         '-i', streamUrl,
+        '-ss', String(seekTime),
         '-map', '0:v:0',
         '-map', '0:a:0',
         '-c:v', 'copy',
