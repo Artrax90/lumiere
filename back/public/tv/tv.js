@@ -7,6 +7,19 @@
   var TOKEN_KEY = 'lumiere_access';
   var SERVER_KEY = 'lumiere_server';
 
+  // Helper: get base URL for player navigation
+  // In .wgt context, __LUMIERE_BASE__ is set by launcher
+  // In browser context, use current origin
+  function getBaseUrl() {
+    if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
+    return window.location.origin;
+  }
+
+  // Helper: construct player URL with absolute path
+  function playerUrl(params) {
+    return getBaseUrl() + '/tv/player.html' + params;
+  }
+
   // State
   var state = {
     section: 'home',
@@ -647,7 +660,7 @@
 
   function playChannel(ch) {
     if (!ch) return;
-    window.location.href = '/tv/player.html?url=' + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
+    window.location.href = playerUrl('?url=') + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
   }
 
   function showToast(msg) {
@@ -985,7 +998,7 @@
           var provider = item.getAttribute('data-provider');
           var id = item.getAttribute('data-id');
           var hlsUrl = '/api/online/hls/' + provider + '/' + encodeURIComponent(id);
-          window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name);
+          window.location.href = playerUrl('?url=') + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name);
         });
       });
     });
@@ -1064,7 +1077,7 @@
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        window.location.href = playerUrl('?url=') + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
         return;
       }
 
@@ -1078,7 +1091,7 @@
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        window.location.href = playerUrl('?url=') + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
       }
     });
   }
@@ -1110,7 +1123,7 @@
       } catch(e) {}
     }
 
-    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam;
+    window.location.href = playerUrl('?url=') + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam;
   }
 
   function showFileSelector(files, title, movieId) {
@@ -1408,7 +1421,7 @@
         for (var ci = 0; ci < iptvState.channels.length; ci++) {
           if (iptvState.channels[ci].id === lpChannelId) {
             var ch = iptvState.channels[ci];
-            window.location.href = '/tv/player.html?url=' + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
+            window.location.href = playerUrl('?url=') + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
             break;
           }
         }
