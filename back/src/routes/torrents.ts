@@ -422,14 +422,13 @@ export function torrentRoutes(app: FastifyInstance) {
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
+      '-i', streamUrl,
     ];
-    // Seek before input for fast seeking (input seeking)
+    // Seek AFTER input for non-seekable streams (like TorrServer)
     if (seekTime > 0) {
       ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
     }
     ffmpegArgs.push(
-      '-i', streamUrl,
-      '-ss', seekTime > 0 ? '0' : '0', // Fine-tune after input if seeking
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
       '-c:v', 'copy',
