@@ -1057,10 +1057,14 @@
       } catch(e) {}
     }
 
+    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
+
     apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
       if (err || !data) {
-        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        var fallbackUrl = isAvplay
+          ? '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
+          : '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
         return;
       }
 
@@ -1071,14 +1075,24 @@
           showFileSelector(data.files, title, movieId);
         }
       } else {
-        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        var fallbackUrl = isAvplay
+          ? '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
+          : '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
+        window.location.href = '/tv/player.html?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
       }
     });
   }
 
   function playFile(file, title, movieId) {
-    var url = file.streamUrl || '';
+    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
+    // AVPlay: use direct TorrServer stream (MKV native, HTTP Range seeking)
+    // Browser: use FFmpeg HLS
+    var url = '';
+    if (isAvplay && file.directUrl) {
+      url = file.directUrl;
+    } else {
+      url = file.streamUrl || '';
+    }
     if (url.indexOf('/') === 0) url = API + url;
     var name = file.name || title;
     movieId = movieId || (state.detail && state.detail.id) || 0;

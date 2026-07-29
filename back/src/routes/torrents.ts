@@ -228,6 +228,7 @@ export function torrentRoutes(app: FastifyInstance) {
           size: f.length,
           sizeFormatted: formatSize(f.length),
           streamUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
+          directUrl: `/api/torrents/proxy?link=${encodeURIComponent(magnet)}&index=${f.id}`,
           externalSubs: matchingSubs,
         } as any;
       });
@@ -243,7 +244,7 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
-  // Proxy TorrServer streams (direct)
+  // Proxy TorrServer streams (direct) — supports Range for AVPlay seeking
   app.get('/api/torrents/proxy', async (req, reply) => {
     const { link, index } = req.query as { link?: string; index?: string };
 
@@ -253,17 +254,27 @@ export function torrentRoutes(app: FastifyInstance) {
 
     try {
       const url = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+
+      // Forward Range header from client for seeking
+      const headers: Record<string, string> = {};
+      const rangeHeader = req.headers.range;
+      if (rangeHeader) {
+        headers['Range'] = rangeHeader;
+      }
+
       const res = await fetch(url, {
+        headers,
         signal: AbortSignal.timeout(60000),
       });
 
-      if (!res.ok) {
+      if (!res.ok && res.status !== 206) {
         return reply.code(res.status).send({ error: 'TorrServer stream error' });
       }
 
       // Forward the response headers with CORS
       const contentType = res.headers.get('content-type') || 'video/mp4';
       const contentLength = res.headers.get('content-length');
+      const contentRange = res.headers.get('content-range');
       reply.header('Content-Type', contentType);
       reply.header('Accept-Ranges', 'bytes');
       reply.header('Access-Control-Allow-Origin', '*');
@@ -271,6 +282,12 @@ export function torrentRoutes(app: FastifyInstance) {
       reply.header('Access-Control-Allow-Headers', 'Range');
       reply.header('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
       if (contentLength) reply.header('Content-Length', contentLength);
+      if (contentRange) reply.header('Content-Range', contentRange);
+
+      // Return 206 for partial content (Range requests)
+      if (res.status === 206) {
+        reply.code(206);
+      }
 
       // Pipe the response body directly
       return reply.send(res.body);
