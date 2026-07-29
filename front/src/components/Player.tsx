@@ -175,7 +175,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    const url = serverUrl(title.videoUrl!);
+    let url = serverUrl(title.videoUrl!);
+
+    // Add start parameter for HLS resume — FFmpeg starts from saved position
+    if (isHls && initialTime && initialTime > 30 && url.includes('/api/torrents/hls')) {
+      const separator = url.includes('?') ? '&' : '?';
+      url = url + separator + 'start=' + Math.floor(initialTime);
+    }
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
