@@ -16,6 +16,8 @@
   var movieId = 0;
   var referrerUrl = '';
   var isBuffering = false;
+  var subtitleCues = [];
+  var currentSubtitleIdx = -1;
 
   // Navigation
   var navRows = [];
@@ -89,17 +91,12 @@
     // Initialize player adapter
     player = new PlayerAdapter('player');
 
-    // Debug info — show engine type on screen
-    var debugInfo = document.createElement('div');
-    debugInfo.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:600px;';
-    var avplayType = typeof webapis !== 'undefined' ? (webapis.avplay === null ? 'null' : typeof webapis.avplay) : 'n/a';
-    debugInfo.textContent = 'Engine: ' + player.engineType + ' | webapis: ' + (typeof webapis !== 'undefined') + ' | avplay type: ' + avplayType + ' | url: ' + (url ? url.substring(0, 60) : 'none');
-    document.body.appendChild(debugInfo);
-
     // Listen for player events
     player.on('loaded', function() {
       isPlaying = true;
       updatePlayBtn();
+      // Update debug info after engine is determined
+      updateDebugInfo();
     });
     player.on('playing', function() {
       isPlaying = true;
@@ -117,6 +114,7 @@
     player.on('timeUpdate', function(data) {
       currentTime = data.currentTime;
       if (!scrubberFocused) updateTimeline();
+      updateSubtitleDisplay();
     });
     player.on('durationChange', function(data) {
       if (data.duration > 0) duration = data.duration;
@@ -160,6 +158,7 @@
     if (url) {
       player.play(url);
       fetchDurationFromApi(url);
+      loadTrackInfo(url);
     }
 
     setupControls();
@@ -199,6 +198,54 @@
     return p;
   }
 
+  // ========== Debug ==========
+  function updateDebugInfo() {
+    var el = document.getElementById('debug-info');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'debug-info';
+      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:600px;';
+      document.body.appendChild(el);
+    }
+    var avplayType = typeof webapis !== 'undefined' ? (webapis.avplay === null ? 'null' : typeof webapis.avplay) : 'n/a';
+    el.textContent = 'Engine: ' + player.engineType + ' | webapis: ' + (typeof webapis !== 'undefined') + ' | avplay: ' + avplayType;
+  }
+
+  // ========== Track info from backend ==========
+  function loadTrackInfo(url) {
+    var linkMatch = url.match(/link=([^&]+)/);
+    var indexMatch = url.match(/index=(\d+)/);
+    if (!linkMatch) return;
+    var link = decodeURIComponent(linkMatch[1]);
+    var index = indexMatch ? indexMatch[1] : '0';
+
+    // Get audio/subtitle tracks from backend
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + '/api/torrents/tracks?link=' + encodeURIComponent(link) + '&index=' + index, true);
+    xhr.timeout = 10000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data.audioTracks && data.audioTracks.length > 0) {
+            player.audioTracks = data.audioTracks;
+            player._emit('audioTracksChanged', { tracks: data.audioTracks });
+          }
+          if (data.subtitleTracks && data.subtitleTracks.length > 0) {
+            player.subtitleTracks = data.subtitleTracks;
+            player.subtitleTracks.forEach(function(st) {
+              st.url = '/api/torrents/subtitle-file?link=' + encodeURIComponent(link) + '&index=' + st.id;
+            });
+            player._emit('subtitleTracksChanged', { tracks: data.subtitleTracks });
+          }
+        } catch(e) {}
+      }
+    };
+    xhr.send();
+  }
+
   // ========== Duration from API ==========
   function fetchDurationFromApi(url) {
     var linkMatch = url.match(/link=([^&]+)/);
@@ -224,6 +271,69 @@
       }
     };
     xhr.send();
+  }
+
+  // ========== Subtitles ==========
+  function loadSubtitleVtt(url) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + url, true);
+    xhr.timeout = 10000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        subtitleCues = parseVtt(xhr.responseText);
+      }
+    };
+    xhr.send();
+  }
+
+  function parseVtt(text) {
+    var cues = [];
+    var blocks = text.replace(/\r\n/g, '\n').split('\n\n');
+    for (var b = 0; b < blocks.length; b++) {
+      var lines = blocks[b].split('\n');
+      for (var l = 0; l < lines.length; l++) {
+        if (lines[l].indexOf('-->') > 0) {
+          var parts = lines[l].split('-->');
+          var start = parseVttTime(parts[0].trim());
+          var end = parseVttTime(parts[1].trim());
+          var txt = [];
+          for (var t = l + 1; t < lines.length; t++) {
+            if (lines[t].trim()) txt.push(lines[t].trim());
+          }
+          if (txt.length > 0) cues.push({ start: start, end: end, text: txt.join('\n') });
+          break;
+        }
+      }
+    }
+    return cues;
+  }
+
+  function parseVttTime(s) {
+    var p = s.split(':');
+    if (p.length === 3) {
+      var sp = p[2].split('.');
+      return parseInt(p[0]) * 3600 + parseInt(p[1]) * 60 + parseInt(sp[0]) + (sp[1] ? parseInt(sp[1]) / 1000 : 0);
+    } else if (p.length === 2) {
+      var sp2 = p[1].split('.');
+      return parseInt(p[0]) * 60 + parseInt(sp2[0]) + (sp2[1] ? parseInt(sp2[1]) / 1000 : 0);
+    }
+    return 0;
+  }
+
+  function updateSubtitleDisplay() {
+    if (subtitleCues.length === 0 || currentSubtitleIdx < 0) {
+      $subtitleOverlay.innerHTML = '';
+      return;
+    }
+    for (var i = 0; i < subtitleCues.length; i++) {
+      if (currentTime >= subtitleCues[i].start && currentTime < subtitleCues[i].end) {
+        $subtitleOverlay.innerHTML = '<span class="sub-text">' + esc(subtitleCues[i].text) + '</span>';
+        return;
+      }
+    }
+    $subtitleOverlay.innerHTML = '';
   }
 
   // ========== Timeline ==========
@@ -440,14 +550,21 @@
     $popupHeader.textContent = 'Субтитры';
     var tracks = player.getSubtitleTracks();
     var html = '';
-    html += renderPopupItem('Выключены', player.currentSubtitle === -1);
+    html += renderPopupItem('Выключены', currentSubtitleIdx === -1);
     tracks.forEach(function(t, i) {
-      html += renderPopupItem(t.name || 'Дорожка ' + (i+1), player.currentSubtitle === i);
+      html += renderPopupItem(t.name || t.lang || 'Дорожка ' + (i+1), currentSubtitleIdx === i);
     });
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      if (idx === 0) { player.setSubtitleTrack(-1); $subtitleOverlay.innerHTML = ''; }
-      else { player.setSubtitleTrack(idx - 1); }
+      if (idx === 0) {
+        currentSubtitleIdx = -1;
+        subtitleCues = [];
+        $subtitleOverlay.innerHTML = '';
+      } else {
+        currentSubtitleIdx = idx - 1;
+        var track = tracks[currentSubtitleIdx];
+        if (track && track.url) loadSubtitleVtt(track.url);
+      }
       closePopup();
     });
   }
