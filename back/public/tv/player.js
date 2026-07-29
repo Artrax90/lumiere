@@ -228,6 +228,7 @@
     var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
     var lines = [];
     lines.push('Engine: ' + (player ? player.engineType : '?'));
+    lines.push('webapis: ' + (typeof webapis) + ' | avplay: ' + (isAvplay ? 'YES' : 'NO') + ' | tizen: ' + (typeof tizen !== 'undefined' ? 'YES' : 'NO'));
     lines.push('currentTime: ' + Math.round(currentTime) + 's (' + fmt(currentTime) + ')');
     lines.push('duration(API): ' + Math.round(duration) + 's (' + fmt(duration) + ')');
 
