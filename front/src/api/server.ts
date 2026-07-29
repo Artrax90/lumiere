@@ -25,29 +25,45 @@ let refreshPromise: Promise<boolean> | null = null;
 async function tryRefreshToken(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
+    // Try refresh token
     const refreshToken = localStorage.getItem('lumiere_refresh');
-    if (!refreshToken) return false;
+    if (refreshToken) {
+      try {
+        const base = getServerUrl();
+        const res = await fetch(`${base}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('lumiere_access', data.accessToken);
+          localStorage.setItem('lumiere_refresh', data.refreshToken);
+          return true;
+        }
+      } catch {}
+    }
+
+    // Try LAN auto-login
     try {
       const base = getServerUrl();
-      const res = await fetch(`${base}/api/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const lanRes = await fetch(`${base}/api/auth/lan-login`, { method: 'POST' });
+      if (lanRes.ok) {
+        const data = await lanRes.json();
         localStorage.setItem('lumiere_access', data.accessToken);
         localStorage.setItem('lumiere_refresh', data.refreshToken);
         return true;
       }
-      return false;
-    } catch {
-      return false;
-    } finally {
-      refreshPromise = null;
-    }
+    } catch {}
+
+    return false;
   })();
-  return refreshPromise;
+
+  try {
+    return await refreshPromise;
+  } finally {
+    refreshPromise = null;
+  }
 }
 
 export async function serverFetch(path: string, init?: RequestInit): Promise<Response> {

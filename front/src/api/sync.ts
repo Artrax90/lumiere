@@ -1,6 +1,6 @@
 // Sync API client for cross-device synchronization
 
-import { serverFetch } from './server';
+import { serverFetch, getServerUrl } from './server';
 
 interface WatchHistoryItem {
   tmdbId: number;
@@ -41,12 +41,21 @@ class SyncClient {
   } = { watchHistory: [], favorites: [] };
   private authFailed = false;
 
+  private refreshAttempts = 0;
+
   start(intervalMs: number = 30000) {
     if (this.syncInterval) return;
     this.authFailed = false;
+    this.refreshAttempts = 0;
     this.pull();
     this.syncInterval = setInterval(() => {
       if (this.authFailed) {
+        if (this.refreshAttempts >= 3) {
+          // Too many failed refreshes — stop sync completely
+          this.stop();
+          return;
+        }
+        this.refreshAttempts++;
         this.tryRefresh();
         return;
       }
@@ -63,21 +72,42 @@ class SyncClient {
   }
 
   private async tryRefresh() {
+    // Try refresh token
     const refreshToken = localStorage.getItem('lumiere_refresh');
-    if (!refreshToken) return;
+    if (refreshToken) {
+      try {
+        const base = getServerUrl();
+        const res = await fetch(`${base}/api/auth/refresh`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refreshToken }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          localStorage.setItem('lumiere_access', data.accessToken);
+          localStorage.setItem('lumiere_refresh', data.refreshToken);
+          this.authFailed = false;
+          this.refreshAttempts = 0;
+          return;
+        }
+      } catch {}
+    }
+
+    // Try LAN auto-login
     try {
-      const res = await serverFetch('/api/auth/refresh', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (res.ok) {
-        const data = await res.json();
+      const base = getServerUrl();
+      const lanRes = await fetch(`${base}/api/auth/lan-login`, { method: 'POST' });
+      if (lanRes.ok) {
+        const data = await lanRes.json();
         localStorage.setItem('lumiere_access', data.accessToken);
         localStorage.setItem('lumiere_refresh', data.refreshToken);
         this.authFailed = false;
+        this.refreshAttempts = 0;
+        return;
       }
     } catch {}
+
+    // All attempts failed — will stop after max retries
   }
 
   private getAuthHeaders(): Record<string, string> {
