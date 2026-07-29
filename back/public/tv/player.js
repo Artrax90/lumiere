@@ -116,6 +116,10 @@
       currentTime = data.currentTime;
       if (!scrubberFocused) updateTimeline();
       updateSubtitleDisplay();
+      // Update buffer from video element (primary source)
+      updateBufferFromVideo();
+      // Update debug
+      updateDebugInfo();
     });
     player.on('durationChange', function(data) {
       if (data.duration > 0) duration = data.duration;
@@ -204,14 +208,15 @@
   // ========== Debug ==========
   function updateDebugInfo() {
     var el = document.getElementById('debug-info');
-    if (!el) {
-      el = document.createElement('div');
-      el.id = 'debug-info';
-      el.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:800px;word-break:break-all;';
-      document.body.appendChild(el);
-    }
+    if (!el) return;
     var avplayType = typeof webapis !== 'undefined' ? (webapis.avplay === null ? 'null' : typeof webapis.avplay) : 'n/a';
-    el.textContent = 'Engine: ' + (player ? player.engineType : '?') + ' | hash: ' + torrHash + ' | dur: ' + Math.round(duration) + ' | url: ' + (streamUrl ? streamUrl.substring(0, 80) : 'none');
+    var videoBuffer = 'n/a';
+    if (player && player._videoEl && player._videoEl.buffered && player._videoEl.buffered.length > 0) {
+      var end = player._videoEl.buffered.end(player._videoEl.buffered.length - 1);
+      var d = duration > 0 ? duration : 1;
+      videoBuffer = Math.round((end / d) * 100) + '%';
+    }
+    el.textContent = 'Engine: ' + (player ? player.engineType : '?') + ' | hash: ' + (torrHash ? torrHash.substring(0,8) : 'none') + ' | dur: ' + Math.round(duration) + ' | vBuf: ' + videoBuffer;
   }
 
   // ========== Track info from backend ==========
@@ -337,6 +342,22 @@
       }
     }
     $subtitleOverlay.innerHTML = '';
+  }
+
+  // ========== Buffer from video element ==========
+  function updateBufferFromVideo() {
+    if (!player || !player._videoEl) return;
+    var v = player._videoEl;
+    try {
+      if (v.buffered && v.buffered.length > 0) {
+        var end = v.buffered.end(v.buffered.length - 1);
+        var d = duration > 0 ? duration : (isFinite(v.duration) ? v.duration : 0);
+        if (d > 0) {
+          var pct = Math.min(100, Math.round((end / d) * 100));
+          if ($bufferFill) $bufferFill.style.width = pct + '%';
+        }
+      }
+    } catch(e) {}
   }
 
   // ========== Buffer from TorrServer ==========
