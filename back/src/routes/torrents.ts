@@ -377,17 +377,18 @@ export function torrentRoutes(app: FastifyInstance) {
   const activeSessions = new Map<string, { pid: number; hlsDir: string }>();
 
   app.get('/api/torrents/hls', async (req, reply) => {
-    const { link, index, audio } = req.query as { link?: string; index?: string; audio?: string };
+    const { link, index, audio, start } = req.query as { link?: string; index?: string; audio?: string; start?: string };
 
     if (!link) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
     const audioIndex = parseInt(audio || '0', 10) || 0;
+    const seekTime = parseFloat(start || '0') || 0;
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
-    // Include audio index in session ID so different audio tracks get different sessions
-    const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}`).digest('hex').slice(0, 32);
+    // Include audio index and seek time in session ID
+    const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}`).digest('hex').slice(0, 32);
     const hlsDir = `/tmp/hls-${sessionId}`;
 
     const { mkdirSync, existsSync, readFileSync } = await import('fs');
@@ -417,12 +418,18 @@ export function torrentRoutes(app: FastifyInstance) {
 
     // Start FFmpeg with selected audio track
     const { spawn } = await import('child_process');
-    const ffmpeg = spawn('ffmpeg', [
+    const ffmpegArgs = [
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
+    ];
+    // Seek before input for fast seeking (input seeking)
+    if (seekTime > 0) {
+      ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
+    }
+    ffmpegArgs.push(
       '-i', streamUrl,
-      '-ss', '0',
+      '-ss', seekTime > 0 ? '0' : '0', // Fine-tune after input if seeking
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
       '-c:v', 'copy',
@@ -437,7 +444,8 @@ export function torrentRoutes(app: FastifyInstance) {
       '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
       '-y',
       playlistPath,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    );
+    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
     ffmpeg.on('close', () => activeSessions.delete(sessionId));

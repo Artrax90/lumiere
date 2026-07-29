@@ -1026,9 +1026,21 @@
 
     var poster = (state.detail && state.detail.poster) || '';
 
+    // Check for saved resume position
+    var startParam = '';
+    if (movieId) {
+      try {
+        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var saved = positions[movieId];
+        if (saved && typeof saved === 'object' && saved.time > 30) {
+          startParam = '&start=' + Math.floor(saved.time);
+        }
+      } catch(e) {}
+    }
+
     apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
       if (err || !data) {
-        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0';
+        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
         window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
         return;
       }
@@ -1040,7 +1052,7 @@
           showFileSelector(data.files, title, movieId);
         }
       } else {
-        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0';
+        var hlsUrl = '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
         window.location.href = '/tv/player.html?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
       }
     });
@@ -1052,7 +1064,20 @@
     var name = file.name || title;
     movieId = movieId || (state.detail && state.detail.id) || 0;
     var poster = (state.detail && state.detail.poster) || '';
-    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+
+    // Check for saved resume position
+    var startParam = '';
+    if (movieId) {
+      try {
+        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var saved = positions[movieId];
+        if (saved && typeof saved === 'object' && saved.time > 30) {
+          startParam = '&start=' + Math.floor(saved.time);
+        }
+      } catch(e) {}
+    }
+
+    window.location.href = '/tv/player.html?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam;
   }
 
   function showFileSelector(files, title, movieId) {
