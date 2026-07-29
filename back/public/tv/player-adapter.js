@@ -40,9 +40,12 @@
 
   // ========== Play ==========
   PlayerAdapter.prototype.play = function(url) {
+    console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
     if (isTizen()) {
+      console.log('[PlayerAdapter] Using AVPlay engine');
       this._playAvplay(url);
     } else {
+      console.log('[PlayerAdapter] Using HTML5 video engine');
       this._playVideo(url);
     }
   };
@@ -50,6 +53,7 @@
   // ========== AVPlay Engine ==========
   PlayerAdapter.prototype._playAvplay = function(url) {
     var self = this;
+    console.log('[AVPlay] Starting playback:', url.substring(0, 100));
     try {
       // Create AVPlay object element
       var obj = document.createElement('object');
@@ -57,9 +61,12 @@
       obj.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
       this.container.appendChild(obj);
       this._avplayObj = obj;
+      console.log('[AVPlay] Object element created');
 
       webapis.avplay.open(url);
+      console.log('[AVPlay] Stream opened');
       webapis.avplay.setDisplayRect(0, 0, window.innerWidth, window.innerHeight);
+      console.log('[AVPlay] Display rect set');
 
       // Set listener for events
       webapis.avplay.setListener({

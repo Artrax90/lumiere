@@ -89,6 +89,12 @@
     // Initialize player adapter
     player = new PlayerAdapter('player');
 
+    // Debug info — show engine type on screen
+    var debugInfo = document.createElement('div');
+    debugInfo.style.cssText = 'position:fixed;top:10px;left:10px;z-index:999;background:rgba(0,0,0,0.8);color:#6ee7b7;padding:10px;font-size:14px;border-radius:8px;max-width:400px;';
+    debugInfo.textContent = 'Engine: ' + player.engineType + ' | webapis: ' + (typeof webapis !== 'undefined') + ' | avplay: ' + (typeof webapis !== 'undefined' && webapis.avplay ? 'yes' : 'no');
+    document.body.appendChild(debugInfo);
+
     // Listen for player events
     player.on('loaded', function() {
       isPlaying = true;
