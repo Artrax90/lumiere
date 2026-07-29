@@ -18,6 +18,7 @@
   var isBuffering = false;
   var subtitleCues = [];
   var currentSubtitleIdx = -1;
+  var streamUrl = '';
 
   // Navigation
   var navRows = [];
@@ -156,6 +157,7 @@
 
     // Start playback
     if (url) {
+      streamUrl = url;
       player.play(url);
       fetchDurationFromApi(url);
       loadTrackInfo(url);
@@ -582,9 +584,44 @@
     }
     $popupList.innerHTML = html;
     bindPopupClick(function(idx) {
-      player.setAudioTrack(idx);
+      switchAudioTrack(idx);
       closePopup();
     });
+  }
+
+  function switchAudioTrack(trackIndex) {
+    // Save current state
+    var saveTime = currentTime;
+    var wasPlaying = isPlaying;
+
+    // Pause
+    player.pause();
+
+    // Build new URL with audio parameter
+    var url = streamUrl || '';
+    if (url) {
+      // Add or replace audio parameter
+      if (url.indexOf('audio=') >= 0) {
+        url = url.replace(/audio=\d+/, 'audio=' + trackIndex);
+      } else {
+        url += (url.indexOf('?') >= 0 ? '&' : '?') + 'audio=' + trackIndex;
+      }
+
+      // Reload stream with new audio
+      player.stop();
+      player.play(url);
+      player.currentAudio = trackIndex;
+
+      // Seek to saved position after a short delay
+      var attempts = 0;
+      var seekInterval = setInterval(function() {
+        attempts++;
+        if (duration > 0 || attempts > 30) {
+          if (saveTime > 0) player.seekTo(saveTime);
+          clearInterval(seekInterval);
+        }
+      }, 300);
+    }
   }
 
   function renderSpeedPopup() {
