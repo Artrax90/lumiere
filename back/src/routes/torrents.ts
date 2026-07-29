@@ -398,106 +398,16 @@ export function torrentRoutes(app: FastifyInstance) {
     // Check if session is already active
     const existingSession = activeSessions.get(sessionId);
     if (existingSession && existsSync(playlistPath)) {
-      // Check if manifest is stale (not updated for 30s = FFmpeg died)
-      const { statSync, readdirSync } = await import('fs');
-      const manifestStat = statSync(playlistPath);
-      const manifestAge = Date.now() - manifestStat.mtimeMs;
-      if (manifestAge > 30000) {
-        // Find last segment number to resume from correct position
-        let lastSegId = 0;
-        try {
-          const files = readdirSync(hlsDir);
-          for (const f of files) {
-            const m = f.match(/^seg-(\d+)\.ts$/);
-            if (m) lastSegId = Math.max(lastSegId, parseInt(m[1]));
-          }
-        } catch {}
-        const resumeSeconds = lastSegId * 6; // 6s per segment
-        console.log(`[HLS] Session ${sessionId} stale (${Math.round(manifestAge / 1000)}s), lastSeg=${lastSegId}, resuming from ${resumeSeconds}s`);
-        try { process.kill(existingSession.pid, 'SIGKILL'); } catch {}
-        activeSessions.delete(sessionId);
-        // Clean and restart with seek
-        if (existsSync(hlsDir)) {
-          const { rmSync } = await import('fs');
-          try { rmSync(hlsDir, { recursive: true, force: true }); } catch {}
-        }
-        mkdirSync(hlsDir, { recursive: true });
-        // Start FFmpeg from resume position (inline, same as initial start)
-        const { spawn: spawnResume } = await import('child_process');
-        const resumeArgs = [
-          '-reconnect', '1',
-          '-reconnect_streamed', '1',
-          '-reconnect_delay_max', '5',
-          '-i', streamUrl,
-        ];
-        if (resumeSeconds > 0) {
-          resumeArgs.push('-ss', String(resumeSeconds));
-        }
-        resumeArgs.push(
-          '-map', '0:v:0',
-          '-map', `0:a:${audioIndex}`,
-          '-c:v', 'copy',
-          '-c:a', 'aac',
-          '-b:a', '192k',
-          '-ac', '2',
-          '-f', 'hls',
-          '-hls_time', '6',
-          '-hls_list_size', '0',
-          '-hls_flags', 'append_list',
-          '-hls_segment_type', 'mpegts',
-          '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-          '-y',
-          playlistPath,
-        );
-        const resumeFfmpeg = spawnResume('ffmpeg', resumeArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-        activeSessions.set(sessionId, { pid: resumeFfmpeg.pid!, hlsDir });
-        resumeFfmpeg.on('close', () => activeSessions.delete(sessionId));
-        // Log stderr for debugging
-        resumeFfmpeg.stderr?.on('data', (chunk: Buffer) => {
-          const msg = chunk.toString().trim();
-          if (msg.includes('error') || msg.includes('Error')) console.log(`[FFmpeg-resume] ${msg}`);
-        });
-        // Wait for first segment then return manifest
-        const waitForSeg = () => {
-          let attempts = 0;
-          const check = () => {
-            attempts++;
-            if (existsSync(playlistPath)) {
-              const content = readFileSync(playlistPath, 'utf-8');
-              if (content.includes('#EXTM3U') && content.includes('#EXTINF')) {
-                let manifest = content.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-                reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-                reply.header('Access-Control-Allow-Origin', '*');
-                reply.header('Cache-Control', 'no-cache');
-                reply.send(manifest);
-              } else if (attempts < 50) {
-                setTimeout(check, 200);
-              } else {
-                reply.code(500).send({ error: 'FFmpeg resume timeout' });
-              }
-            } else if (attempts < 50) {
-              setTimeout(check, 200);
-            } else {
-              reply.code(500).send({ error: 'FFmpeg resume timeout' });
-            }
-          };
-          check();
-        };
-        waitForSeg();
-        return;
-      } else {
-        let manifest = readFileSync(playlistPath, 'utf-8');
-        // Validate manifest is proper M3U8
-        if (!manifest.includes('#EXTM3U')) {
-          reply.code(503).send({ error: 'Manifest not ready' });
-          return;
-        }
+      let manifest = readFileSync(playlistPath, 'utf-8');
+      // Validate manifest is proper M3U8 before serving
+      if (manifest.includes('#EXTM3U') && manifest.includes('#EXTINF')) {
         manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
         reply.header('Content-Type', 'application/vnd.apple.mpegurl');
         reply.header('Access-Control-Allow-Origin', '*');
         reply.header('Cache-Control', 'no-cache');
         return reply.send(manifest);
       }
+      // Manifest exists but not valid yet — fall through to wait
     }
 
     // Clean up old session and HLS directory if exists

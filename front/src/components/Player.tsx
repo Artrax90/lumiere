@@ -296,14 +296,29 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       hls.on(Hls.Events.ERROR, (_event, data) => {
         if (data.fatal) {
           console.error('HLS fatal error:', data);
-          // Attempt reconnect for network/buffer errors
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR || data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-            console.log('HLS: Attempting reconnect...');
+            console.log('HLS: Attempting reconnect with fresh session...');
             setLoading(true);
+            // Save current position for resume
+            const savedTime = videoRef.current ? Math.floor(videoRef.current.currentTime) : 0;
             setTimeout(() => {
               if (hlsRef.current) {
                 hlsRef.current.destroy();
               }
+              // Build new URL — use hls-seek for fresh FFmpeg session from saved position
+              let reconnectUrl = url;
+              if (url.includes('/api/torrents/hls') && savedTime > 30) {
+                // Extract link and index from original URL
+                const linkMatch = url.match(/link=([^&]+)/);
+                const indexMatch = url.match(/index=(\d+)/);
+                if (linkMatch) {
+                  const link = linkMatch[1];
+                  const index = indexMatch ? indexMatch[1] : '0';
+                  reconnectUrl = `/api/torrents/hls-seek?link=${link}&index=${index}&time=${savedTime}`;
+                  reconnectUrl = serverUrl(reconnectUrl);
+                }
+              }
+              console.log('HLS reconnect to:', reconnectUrl, 'at time:', savedTime);
               const newHls = new Hls({
                 maxBufferLength: 120,
                 maxMaxBufferLength: 300,
@@ -314,7 +329,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                 levelLoadingTimeOut: 30000,
               });
               hlsRef.current = newHls;
-              newHls.loadSource(url);
+              newHls.loadSource(reconnectUrl);
               newHls.attachMedia(video);
               newHls.on(Hls.Events.MANIFEST_PARSED, () => {
                 setLoading(false);
