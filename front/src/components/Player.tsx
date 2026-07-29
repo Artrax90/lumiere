@@ -185,8 +185,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
     if (isHls && Hls.isSupported()) {
       const hls = new Hls({
-        maxBufferLength: 120,
-        maxMaxBufferLength: 300,
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        maxBufferSize: 60 * 1000 * 1000, // 60 MB
         startLevel: -1,
         debug: false,
         fragLoadingTimeOut: 30000,
@@ -322,8 +324,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                 }
               }
               const newHls = new Hls({
-                maxBufferLength: 120,
-                maxMaxBufferLength: 300,
+                maxBufferLength: 30,
+                maxMaxBufferLength: 60,
+                backBufferLength: 30,
+                maxBufferSize: 60 * 1000 * 1000,
                 startLevel: -1,
                 debug: false,
                 fragLoadingTimeOut: 30000,
@@ -674,8 +678,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
     // Create new HLS instance with startPosition
     const hls = new Hls({
-      maxBufferLength: 120,
-      maxMaxBufferLength: 300,
+      maxBufferLength: 30,
+      maxMaxBufferLength: 60,
+      backBufferLength: 30,
+      maxBufferSize: 60 * 1000 * 1000,
       startLevel: -1,
       debug: false,
       fragLoadingTimeOut: 30000,

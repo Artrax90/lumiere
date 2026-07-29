@@ -106,8 +106,10 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
     import('hls.js').then(({ default: Hls }) => {
       if (Hls.isSupported()) {
         const hls = new Hls({
-          maxBufferLength: 120,
-          maxMaxBufferLength: 300,
+          maxBufferLength: 30,
+          maxMaxBufferLength: 60,
+          backBufferLength: 30,
+          maxBufferSize: 60 * 1000 * 1000,
         });
         hlsRef.current = hls;
 
