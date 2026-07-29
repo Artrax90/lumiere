@@ -366,9 +366,11 @@
 
   function pollBuffer() {
     var xhr = new XMLHttpRequest();
-    xhr.open('POST', torrServerUrl + '/torrents', true);
+    xhr.open('POST', API + '/api/torrents/torrserver/list', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.timeout = 3000;
+    xhr.timeout = 5000;
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.onload = function() {
       if (xhr.status === 200) {
         try {
@@ -388,7 +390,7 @@
       }
     };
     xhr.onerror = function() {};
-    xhr.send(JSON.stringify({ action: 'list' }));
+    xhr.send();
   }
 
   function stopBufferPolling() {

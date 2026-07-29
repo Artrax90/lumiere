@@ -828,6 +828,20 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
+  // Proxy TorrServer /torrents API (for buffer polling from TV/browser)
+  app.post('/api/torrents/torrserver/list', async () => {
+    try {
+      const res = await fetch(`${TORRSERVER_URL}/torrents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }),
+      });
+      return await res.json();
+    } catch {
+      return [];
+    }
+  });
+
   // Get JacRed status
   app.get('/api/torrents/jacred/status', async () => {
     try {
