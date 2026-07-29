@@ -116,8 +116,6 @@
       currentTime = data.currentTime;
       if (!scrubberFocused) updateTimeline();
       updateSubtitleDisplay();
-      // Update buffer display from video element
-      updateBufferFromVideo();
     });
     player.on('durationChange', function(data) {
       if (data.duration > 0) duration = data.duration;
@@ -163,6 +161,7 @@
       player.play(url);
       fetchDurationFromApi(url);
       loadTrackInfo(url);
+      startBufferPolling();
     }
 
     setupControls();
@@ -340,20 +339,52 @@
     $subtitleOverlay.innerHTML = '';
   }
 
-  // ========== Buffer ==========
-  function updateBufferFromVideo() {
-    if (!player || !player._videoEl) return;
-    var video = player._videoEl;
-    try {
-      if (video.buffered && video.buffered.length > 0) {
-        var end = video.buffered.end(video.buffered.length - 1);
-        var d = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : 0);
-        if (d > 0) {
-          var pct = Math.min(100, (end / d) * 100);
-          if ($bufferFill) $bufferFill.style.width = pct + '%';
+  // ========== Buffer from TorrServer ==========
+  var torrHash = '';
+  var bufferTimer = null;
+
+  function extractHashFromUrl(url) {
+    var match = url.match(/link=([^&]+)/);
+    if (!match) return '';
+    var link = decodeURIComponent(match[1]);
+    // If it's a magnet link, extract the hash
+    var btih = link.match(/btih:([a-fA-F0-9]+)/);
+    if (btih) return btih[1];
+    // If it's already a hash
+    if (/^[a-fA-F0-9]{40}$/.test(link)) return link;
+    return '';
+  }
+
+  function startBufferPolling() {
+    torrHash = extractHashFromUrl(streamUrl);
+    if (!torrHash) return;
+
+    // Poll TorrServer for download progress
+    bufferTimer = setInterval(function() {
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', 'http://192.168.1.37:8090/torrents', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.timeout = 3000;
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          try {
+            var list = JSON.parse(xhr.responseText);
+            for (var i = 0; i < list.length; i++) {
+              if (list[i].hash === torrHash && list[i].loaded_size && list[i].torrent_size) {
+                var pct = Math.min(100, (list[i].loaded_size / list[i].torrent_size) * 100);
+                if ($bufferFill) $bufferFill.style.width = pct + '%';
+                break;
+              }
+            }
+          } catch(e) {}
         }
-      }
-    } catch(e) {}
+      };
+      xhr.send(JSON.stringify({ action: 'list' }));
+    }, 3000);
+  }
+
+  function stopBufferPolling() {
+    if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
   }
 
   // ========== Timeline ==========
@@ -527,6 +558,7 @@
 
   function goBack() {
     saveProgress();
+    stopBufferPolling();
     player.stop();
     var server = localStorage.getItem(SERVER_KEY) || '';
     if (movieId) window.location.href = server + '/tv/?detail=' + movieId;
