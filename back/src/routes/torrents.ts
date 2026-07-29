@@ -347,43 +347,42 @@ export function torrentRoutes(app: FastifyInstance) {
 
     try {
       const { execSync } = await import('child_process');
-      // Get video stream info: nb_frames + avg_frame_rate for accurate duration
-      const result = execSync(
-        `ffprobe -v quiet -print_format json -show_streams -select_streams v:0 "${streamUrl}"`,
-        { timeout: 30000 }
-      ).toString();
+      // Try to get accurate duration with large probesize
+      let dur = 0;
 
-      const data = JSON.parse(result);
-      const videoStream = data.streams?.[0];
+      // Method 1: format-level duration with large probesize
+      try {
+        const fmtResult = execSync(
+          `ffprobe -v quiet -print_format json -show_format -probesize 50000000 -analyzeduration 50000000 "${streamUrl}"`,
+          { timeout: 30000 }
+        ).toString();
+        const fmtData = JSON.parse(fmtResult);
+        dur = parseFloat(fmtData.format?.duration || '0');
+      } catch {}
 
-      if (videoStream) {
-        // Try stream-level duration first
-        let dur = parseFloat(videoStream.duration || '0');
-
-        // If no duration, calculate from nb_frames and frame rate
-        if (dur <= 0 && videoStream.nb_frames && videoStream.avg_frame_rate) {
-          const frames = parseInt(videoStream.nb_frames);
-          const fpsParts = videoStream.avg_frame_rate.split('/');
-          const fps = parseInt(fpsParts[0]) / (parseInt(fpsParts[1]) || 1);
-          if (frames > 0 && fps > 0) {
-            dur = frames / fps;
-          }
-        }
-
-        // If still no duration, try format-level
-        if (dur <= 0) {
-          const fmtResult = execSync(
-            `ffprobe -v quiet -print_format json -show_format "${streamUrl}"`,
-            { timeout: 15000 }
+      // Method 2: stream-level duration if format is wrong
+      if (dur <= 0) {
+        try {
+          const streamResult = execSync(
+            `ffprobe -v quiet -print_format json -show_streams -select_streams v:0 "${streamUrl}"`,
+            { timeout: 30000 }
           ).toString();
-          const fmtData = JSON.parse(fmtResult);
-          dur = parseFloat(fmtData.format?.duration || '0');
-        }
-
-        return { duration: dur, formatted: formatTime(dur) };
+          const streamData = JSON.parse(streamResult);
+          const videoStream = streamData.streams?.[0];
+          if (videoStream) {
+            dur = parseFloat(videoStream.duration || '0');
+            // Try nb_frames / fps
+            if (dur <= 0 && videoStream.nb_frames && videoStream.avg_frame_rate) {
+              const frames = parseInt(videoStream.nb_frames);
+              const fpsParts = videoStream.avg_frame_rate.split('/');
+              const fps = parseInt(fpsParts[0]) / (parseInt(fpsParts[1]) || 1);
+              if (frames > 0 && fps > 0) dur = frames / fps;
+            }
+          }
+        } catch {}
       }
 
-      return { duration: 0, formatted: '0:00' };
+      return { duration: dur, formatted: formatTime(dur) };
     } catch (err: any) {
       console.error('FFprobe error:', err.message);
       return { duration: 0, formatted: '0:00' };

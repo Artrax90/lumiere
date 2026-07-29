@@ -115,6 +115,10 @@
     });
     player.on('timeUpdate', function(data) {
       currentTime = data.currentTime;
+      // If currentTime exceeds reported duration, update duration (MKV metadata can be wrong)
+      if (duration > 0 && currentTime > duration - 5) {
+        duration = currentTime + 60; // Extend by 1 minute
+      }
       if (!scrubberFocused) updateTimeline();
       updateSubtitleDisplay();
       // Update buffer from video element (primary source)
@@ -123,7 +127,10 @@
       updateDebugInfo();
     });
     player.on('durationChange', function(data) {
-      if (data.duration > 0) duration = data.duration;
+      // Use video element duration if it's larger than API duration (MKV metadata can be wrong)
+      if (data.duration > 0 && (duration <= 0 || data.duration > duration + 10)) {
+        duration = data.duration;
+      }
       updateTimeline();
     });
     player.on('bufferingStart', function() {

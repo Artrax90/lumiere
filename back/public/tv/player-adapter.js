@@ -179,17 +179,20 @@
 
     $video.ontimeupdate = function() {
       self._currentTime = $video.currentTime;
-      if ($video.duration && isFinite($video.duration)) self._duration = $video.duration;
+      // Update duration from video element — use if finite and reasonable
+      if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
+        self._duration = $video.duration;
+      }
       self._emit('timeUpdate', { currentTime: self._currentTime });
     };
     $video.onloadedmetadata = function() {
-      if ($video.duration && isFinite($video.duration)) {
+      if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
         self._duration = $video.duration;
         self._emit('durationChange', { duration: self._duration });
       }
     };
     $video.ondurationchange = function() {
-      if ($video.duration && isFinite($video.duration)) {
+      if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
         self._duration = $video.duration;
         self._emit('durationChange', { duration: self._duration });
       }
