@@ -218,15 +218,58 @@
     this.container.appendChild($video);
     this._videoEl = $video;
 
-    $video.src = url;
-    $video.play().then(function() {
-      self.engineType = 'video';
-      self._isPlaying = true;
-      self._emit('loaded');
-      self._emit('playing');
-    }).catch(function(e) {
-      self._emit('error', { message: e.message });
-    });
+    // Use hls.js for HLS streams (better duration/seeking than native)
+    var isHls = url.indexOf('.m3u8') >= 0 || url.indexOf('/hls') >= 0;
+    if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+      console.log('[PlayerAdapter] Using hls.js for HLS stream');
+      var hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        maxBufferSize: 60 * 1000 * 1000,
+        startLevel: -1,
+        debug: false,
+      });
+      self._hls = hls;
+      hls.loadSource(url);
+      hls.attachMedia($video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, function(_e, data) {
+        self.engineType = 'video';
+        self._isPlaying = true;
+        self._emit('loaded');
+        self._emit('playing');
+        // Get duration from hls.js (sum of all segment durations)
+        if (data && data.totalduration && isFinite(data.totalduration) && data.totalduration > 0) {
+          self._duration = data.totalduration;
+          self._emit('durationChange', { duration: self._duration });
+        }
+        $video.play().catch(function() {});
+      });
+
+      hls.on(Hls.Events.ERROR, function(_e, data) {
+        if (data.fatal) {
+          console.error('[HLS] Fatal error:', data.type, data.details);
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.log('[HLS] Recovering network error...');
+            hls.startLoad();
+          } else {
+            self._emit('error', { message: 'HLS error: ' + data.details });
+          }
+        }
+      });
+    } else {
+      // Native video playback
+      $video.src = url;
+      $video.play().then(function() {
+        self.engineType = 'video';
+        self._isPlaying = true;
+        self._emit('loaded');
+        self._emit('playing');
+      }).catch(function(e) {
+        self._emit('error', { message: e.message });
+      });
+    }
 
     $video.ontimeupdate = function() {
       self._currentTime = $video.currentTime;
@@ -318,6 +361,10 @@
     if (this._avplayDebugTimer) {
       clearInterval(this._avplayDebugTimer);
       this._avplayDebugTimer = null;
+    }
+    if (this._hls) {
+      try { this._hls.destroy(); } catch(e) {}
+      this._hls = null;
     }
     if (this.engineType === 'avplay') {
       try { webapis.avplay.stop(); webapis.avplay.close(); } catch(e) {}
