@@ -217,8 +217,12 @@
     var videoBuffer = 'n/a';
     if (player && player._videoEl && player._videoEl.buffered && player._videoEl.buffered.length > 0) {
       var end = player._videoEl.buffered.end(player._videoEl.buffered.length - 1);
-      var d = duration > 0 ? duration : 1;
-      videoBuffer = Math.round((end / d) * 100) + '%';
+      var d = duration > 0 ? duration : 0;
+      if (isFinite(end) && end > 0 && d > 0) {
+        videoBuffer = Math.round((end / d) * 100) + '%';
+      } else {
+        videoBuffer = 'raw:' + Math.round(end);
+      }
     }
     el.textContent = 'Engine: ' + (player ? player.engineType : '?') + ' | hash: ' + (torrHash ? torrHash.substring(0,8) : 'none') + ' | dur: ' + Math.round(duration) + ' | vBuf: ' + videoBuffer;
   }
@@ -355,11 +359,11 @@
     try {
       if (v.buffered && v.buffered.length > 0) {
         var end = v.buffered.end(v.buffered.length - 1);
-        var d = duration > 0 ? duration : 1;
-        if (isFinite(end) && d > 0) {
-          var pct = Math.min(100, Math.round((end / d) * 100));
-          if ($bufferFill && pct > 0) $bufferFill.style.width = pct + '%';
-        }
+        if (!isFinite(end) || end <= 0) return;
+        var d = duration > 0 ? duration : 0;
+        if (d <= 0) return;
+        var pct = Math.min(100, Math.round((end / d) * 100));
+        if ($bufferFill && pct > 0) $bufferFill.style.width = pct + '%';
       }
     } catch(e) {}
   }
