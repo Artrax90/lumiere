@@ -1,5 +1,4 @@
 // Lumiere TV Player — with PlayerAdapter (Chrome 56 compatible)
-// SPA mode: exposes initPlayer() and destroyPlayer() globally
 (function() {
   'use strict';
 
@@ -45,7 +44,7 @@
   // Player Adapter
   var player = null;
 
-  // ========== Init (SPA mode — called from tv.js openPlayer) ==========
+  // ========== Init (SPA: called from tv.js openPlayer) ==========
   window.initPlayer = function(params) {
     $osd = document.getElementById('osd');
     $osdTitle = document.getElementById('osd-title');
@@ -67,12 +66,11 @@
       API = window.location.origin;
     }
 
-    // Use params from initPlayer() call (SPA mode)
+    // Use params from initPlayer() call
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
     var url = params.url || '';
     var posterUrl = params.poster || '';
-    var startTime = parseInt(params.start) || 0;
     referrerUrl = params.ref || '';
 
     $osdTitle.textContent = movieTitle;
@@ -676,7 +674,7 @@
 
   function goBack() {
     saveProgress();
-    // SPA: close player instead of navigating
+    // SPA: close player, return to main app
     if (typeof closePlayer === 'function') {
       closePlayer();
     } else {

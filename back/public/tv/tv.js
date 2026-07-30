@@ -7,27 +7,29 @@
   var TOKEN_KEY = 'lumiere_access';
   var SERVER_KEY = 'lumiere_server';
 
-  // Helper: get base URL for API calls
+  // Helper: get base URL for player navigation
+  // In .wgt context, __LUMIERE_BASE__ is set by launcher
+  // In browser context, use current origin
   function getBaseUrl() {
     if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
-    var stored = localStorage.getItem(SERVER_KEY);
-    if (stored) return stored;
     return window.location.origin;
   }
 
-  // SPA: open player by injecting HTML into DOM (preserves .wgt context for AVPlay)
+  // Player base URL — same as getBaseUrl() when running in .wgt SPA mode
+  function getPlayerBaseUrl() {
+    return getBaseUrl();
+  }
+
+  // SPA: open player by injecting HTML into DOM
   function openPlayer(params) {
-    // Parse params like "?url=...&title=...&id=..."
     var p = {};
     params.substring(1).split('&').forEach(function(pair) {
       var parts = pair.split('=');
       if (parts.length === 2) p[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
     });
 
-    // Build player HTML (same structure as player.html)
-    var playerHtml = '<div id="player"><video id="video" playsinline></video><div id="osd"><div id="osd-top"><button id="btn-back" class="osd-btn" tabindex="0">← Назад</button><div id="osd-title-wrap"><div id="osd-title"></div></div></div><div id="center-play" class="hidden"><div id="center-play-icon">▶</div></div><div id="osd-bottom"><div id="timeline-row"><span id="time-current">0:00</span><div id="timeline-wrap" tabindex="0"><div id="timeline-bar"><div id="timeline-buffer"></div><div id="timeline-fill"></div><div id="timeline-thumb"></div></div></div><span id="time-total">0:00</span></div><div id="controls-transport"><button id="btn-start" class="osd-btn osd-btn-round" tabindex="0">⏮</button><button id="btn-rew" class="osd-btn osd-btn-round" tabindex="0">⏪</button><button id="btn-play" class="osd-btn osd-btn-play" tabindex="0">❚❚</button><button id="btn-fwd" class="osd-btn osd-btn-round" tabindex="0">⏩</button><button id="btn-end" class="osd-btn osd-btn-round" tabindex="0">⏭</button></div><div id="controls-actions"><button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button><button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button><button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button><button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button></div></div></div><div id="popup" class="hidden"><div id="popup-header"></div><div id="popup-list"></div></div><div id="subtitle-overlay"></div></div>';
+    var playerHtml = '<div id="player"><video id="video" playsinline></video><div id="osd"><div id="osd-top"><button id="btn-back" class="osd-btn" tabindex="0">\u2190 Назад</button><div id="osd-title-wrap"><div id="osd-title"></div></div></div><div id="center-play" class="hidden"><div id="center-play-icon">\u25b6</div></div><div id="osd-bottom"><div id="timeline-row"><span id="time-current">0:00</span><div id="timeline-wrap" tabindex="0"><div id="timeline-bar"><div id="timeline-buffer"></div><div id="timeline-fill"></div><div id="timeline-thumb"></div></div></div><span id="time-total">0:00</span></div><div id="controls-transport"><button id="btn-start" class="osd-btn osd-btn-round" tabindex="0">\u23ee</button><button id="btn-rew" class="osd-btn osd-btn-round" tabindex="0">\u23ea</button><button id="btn-play" class="osd-btn osd-btn-play" tabindex="0">\u275a\u275a</button><button id="btn-fwd" class="osd-btn osd-btn-round" tabindex="0">\u23e9</button><button id="btn-end" class="osd-btn osd-btn-round" tabindex="0">\u23ed</button></div><div id="controls-actions"><button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button><button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button><button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button><button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button></div></div></div><div id="popup" class="hidden"><div id="popup-header"></div><div id="popup-list"></div></div><div id="subtitle-overlay"></div></div>';
 
-    // Hide main app, show player container
     var app = document.getElementById('app');
     var detail = document.getElementById('detail');
     var playerContainer = document.getElementById('player-container');
@@ -39,7 +41,7 @@
       playerContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9000;background:#000;';
     }
 
-    // Initialize player with parsed params
+    // Initialize player
     if (typeof initPlayer === 'function') {
       initPlayer({
         url: p.url || '',
@@ -60,7 +62,6 @@
       playerContainer.innerHTML = '';
     }
     if (app) app.classList.remove('hidden');
-    // Destroy player
     if (typeof destroyPlayer === 'function') {
       destroyPlayer();
     }
@@ -94,13 +95,7 @@
       $detail = document.getElementById('detail');
 
       var server = localStorage.getItem(SERVER_KEY);
-      if (server) {
-        API = server;
-      } else {
-        // If no server URL in localStorage, use current origin
-        // This handles the case where .wgt navigates to the backend URL
-        API = window.location.origin;
-      }
+      if (server) API = server;
 
       // Clear history if ?clear=1 in URL (Chrome 56 compatible)
       var searchStr = window.location.search.substring(1);
