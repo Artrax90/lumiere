@@ -1,4 +1,5 @@
 // Lumiere TV Player — with PlayerAdapter (Chrome 56 compatible)
+// SPA mode: exposes initPlayer() and destroyPlayer() globally
 (function() {
   'use strict';
 
@@ -44,8 +45,8 @@
   // Player Adapter
   var player = null;
 
-  // ========== Init ==========
-  window.addEventListener('DOMContentLoaded', function() {
+  // ========== Init (SPA mode — called from tv.js openPlayer) ==========
+  window.initPlayer = function(params) {
     $osd = document.getElementById('osd');
     $osdTitle = document.getElementById('osd-title');
     $timeCurrent = document.getElementById('time-current');
@@ -66,11 +67,12 @@
       API = window.location.origin;
     }
 
-    var params = parseParams();
+    // Use params from initPlayer() call (SPA mode)
     movieTitle = params.title || '';
     movieId = parseInt(params.id) || 0;
     var url = params.url || '';
     var posterUrl = params.poster || '';
+    var startTime = parseInt(params.start) || 0;
     referrerUrl = params.ref || '';
 
     $osdTitle.textContent = movieTitle;
@@ -208,7 +210,19 @@
         }
       } catch(e) {}
     }
-  });
+  };
+
+  // ========== Destroy (SPA cleanup) ==========
+  window.destroyPlayer = function() {
+    stopBufferPolling();
+    if (player) { player.stop(); player = null; }
+    isPlaying = false;
+    scrubberFocused = false;
+    movieId = 0;
+    movieTitle = '';
+    currentTime = 0;
+    duration = 0;
+  };
 
   function parseParams() {
     var search = window.location.search.substring(1);
@@ -662,11 +676,14 @@
 
   function goBack() {
     saveProgress();
-    stopBufferPolling();
-    player.stop();
-    var server = localStorage.getItem(SERVER_KEY) || window.location.origin;
-    if (movieId) window.location.href = server + '/tv/?detail=' + movieId;
-    else window.location.href = server + '/tv/';
+    // SPA: close player instead of navigating
+    if (typeof closePlayer === 'function') {
+      closePlayer();
+    } else {
+      stopBufferPolling();
+      player.stop();
+      window.location.href = '/tv/';
+    }
   }
 
   // ========== Popup ==========

@@ -7,8 +7,7 @@
   var TOKEN_KEY = 'lumiere_access';
   var SERVER_KEY = 'lumiere_server';
 
-  // Helper: get base URL for player navigation
-  // Priority: __LUMIERE_BASE__ > localStorage > window.location.origin
+  // Helper: get base URL for API calls
   function getBaseUrl() {
     if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
     var stored = localStorage.getItem(SERVER_KEY);
@@ -16,9 +15,55 @@
     return window.location.origin;
   }
 
-  // Helper: construct player URL with absolute path
-  function playerUrl(params) {
-    return getBaseUrl() + '/tv/player.html' + params;
+  // SPA: open player by injecting HTML into DOM (preserves .wgt context for AVPlay)
+  function openPlayer(params) {
+    // Parse params like "?url=...&title=...&id=..."
+    var p = {};
+    params.substring(1).split('&').forEach(function(pair) {
+      var parts = pair.split('=');
+      if (parts.length === 2) p[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+    });
+
+    // Build player HTML (same structure as player.html)
+    var playerHtml = '<div id="player"><video id="video" playsinline></video><div id="osd"><div id="osd-top"><button id="btn-back" class="osd-btn" tabindex="0">← Назад</button><div id="osd-title-wrap"><div id="osd-title"></div></div></div><div id="center-play" class="hidden"><div id="center-play-icon">▶</div></div><div id="osd-bottom"><div id="timeline-row"><span id="time-current">0:00</span><div id="timeline-wrap" tabindex="0"><div id="timeline-bar"><div id="timeline-buffer"></div><div id="timeline-fill"></div><div id="timeline-thumb"></div></div></div><span id="time-total">0:00</span></div><div id="controls-transport"><button id="btn-start" class="osd-btn osd-btn-round" tabindex="0">⏮</button><button id="btn-rew" class="osd-btn osd-btn-round" tabindex="0">⏪</button><button id="btn-play" class="osd-btn osd-btn-play" tabindex="0">❚❚</button><button id="btn-fwd" class="osd-btn osd-btn-round" tabindex="0">⏩</button><button id="btn-end" class="osd-btn osd-btn-round" tabindex="0">⏭</button></div><div id="controls-actions"><button id="btn-cc" class="osd-btn osd-btn-action" tabindex="0">Субтитры</button><button id="btn-audio" class="osd-btn osd-btn-action" tabindex="0">Аудио</button><button id="btn-speed" class="osd-btn osd-btn-action" tabindex="0">Скорость</button><button id="btn-settings" class="osd-btn osd-btn-action" tabindex="0">Настройки</button></div></div></div><div id="popup" class="hidden"><div id="popup-header"></div><div id="popup-list"></div></div><div id="subtitle-overlay"></div></div>';
+
+    // Hide main app, show player container
+    var app = document.getElementById('app');
+    var detail = document.getElementById('detail');
+    var playerContainer = document.getElementById('player-container');
+    if (app) app.classList.add('hidden');
+    if (detail) detail.classList.add('hidden');
+    if (playerContainer) {
+      playerContainer.innerHTML = playerHtml;
+      playerContainer.classList.remove('hidden');
+      playerContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9000;background:#000;';
+    }
+
+    // Initialize player with parsed params
+    if (typeof initPlayer === 'function') {
+      initPlayer({
+        url: p.url || '',
+        title: p.title || '',
+        id: parseInt(p.id) || 0,
+        poster: p.poster || '',
+        start: parseInt(p.start) || 0
+      });
+    }
+  }
+
+  // SPA: close player and return to main app
+  function closePlayer() {
+    var playerContainer = document.getElementById('player-container');
+    var app = document.getElementById('app');
+    if (playerContainer) {
+      playerContainer.classList.add('hidden');
+      playerContainer.innerHTML = '';
+    }
+    if (app) app.classList.remove('hidden');
+    // Destroy player
+    if (typeof destroyPlayer === 'function') {
+      destroyPlayer();
+    }
   }
 
   // State
@@ -667,7 +712,7 @@
 
   function playChannel(ch) {
     if (!ch) return;
-    window.location.href = playerUrl('?url=') + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
+    openPlayer('?url=' + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name));
   }
 
   function showToast(msg) {
@@ -1005,7 +1050,7 @@
           var provider = item.getAttribute('data-provider');
           var id = item.getAttribute('data-id');
           var hlsUrl = '/api/online/hls/' + provider + '/' + encodeURIComponent(id);
-          window.location.href = playerUrl('?url=') + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name);
+          openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name));
         });
       });
     });
@@ -1084,7 +1129,7 @@
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = playerUrl('?url=') + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        openPlayer('?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster));
         return;
       }
 
@@ -1098,7 +1143,7 @@
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        window.location.href = playerUrl('?url=') + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster);
+        openPlayer('?url=' + encodeURIComponent(fallbackUrl) + '&title=' + encodeURIComponent(title) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster));
       }
     });
   }
@@ -1130,7 +1175,7 @@
       } catch(e) {}
     }
 
-    window.location.href = playerUrl('?url=') + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam;
+    openPlayer('?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&poster=' + encodeURIComponent(poster) + startParam);
   }
 
   function showFileSelector(files, title, movieId) {
@@ -1428,7 +1473,7 @@
         for (var ci = 0; ci < iptvState.channels.length; ci++) {
           if (iptvState.channels[ci].id === lpChannelId) {
             var ch = iptvState.channels[ci];
-            window.location.href = playerUrl('?url=') + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name);
+            openPlayer('?url=' + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name));
             break;
           }
         }
