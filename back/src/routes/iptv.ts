@@ -20,12 +20,21 @@ interface EpgProgram {
 }
 
 // Parse M3U8 playlist
-function parseM3U(content: string): IptvChannel[] {
+function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string } {
   const channels: IptvChannel[] = [];
   const lines = content.split('\n');
+  let epgUrl: string | undefined;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
+
+    if (line.startsWith('#EXTM3U')) {
+      const epgMatch = line.match(/(?:url-tvg|x-tvg-url)="([^"]*)"/i);
+      if (epgMatch) {
+        epgUrl = epgMatch[1].trim();
+      }
+      continue;
+    }
 
     if (line.startsWith('#EXTINF:')) {
       // Parse channel info from EXTINF line
@@ -66,7 +75,27 @@ function parseM3U(content: string): IptvChannel[] {
     }
   }
 
-  return channels;
+  return { channels, epgUrl };
+}
+
+function parseXmltvDate(str: string): number {
+  const m = str.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\s*([+-])(\d{2})(\d{2}))?/);
+  if (!m) return 0;
+  const year = parseInt(m[1], 10);
+  const month = parseInt(m[2], 10) - 1;
+  const day = parseInt(m[3], 10);
+  const hour = parseInt(m[4], 10);
+  const min = parseInt(m[5], 10);
+  const sec = parseInt(m[6], 10);
+  let utcMs = Date.UTC(year, month, day, hour, min, sec);
+  if (m[7]) {
+    const tzSign = m[7] === '-' ? -1 : 1;
+    const tzHours = parseInt(m[8], 10);
+    const tzMins = parseInt(m[9], 10);
+    const tzOffsetMs = tzSign * (tzHours * 60 + tzMins) * 60 * 1000;
+    utcMs -= tzOffsetMs;
+  }
+  return utcMs;
 }
 
 // Parse EPG XML — returns programs by channel ID, channel name→ID mapping, and icons
@@ -100,7 +129,11 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
     }
   }
 
-  // Parse programmes
+  // Parse programmes with smart cutoff: current program + upcoming programs for next 36 hours
+  const nowMs = Date.now();
+  const cutoffMs = nowMs - 45 * 60 * 1000; // Ended less than 45m ago or currently airing
+  const maxFutureMs = nowMs + 36 * 3600 * 1000; // Next 36 hours
+
   const programmeRegex = /<programme\s+start="([^"]*)"\s+stop="([^"]*)"\s+channel="([^"]*)"[^>]*>([\s\S]*?)<\/programme>/g;
   const titleRegex = /<title[^>]*>([^<]*)<\/title>/;
   const descRegex = /<desc[^>]*>([^<]*)<\/desc>/;
@@ -110,8 +143,20 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
     const start = match[1];
     const stop = match[2];
     const channel = match[3];
-    const content = match[4];
 
+    const stopMs = parseXmltvDate(stop);
+    const startMs = parseXmltvDate(start);
+
+    // Skip programs that ended more than 45 min ago or start beyond 36h in future
+    if (stopMs < cutoffMs || startMs > maxFutureMs) continue;
+
+    if (!programs.has(channel)) {
+      programs.set(channel, []);
+    }
+    const channelList = programs.get(channel)!;
+    if (channelList.length >= 25) continue; // Current + up to 24 upcoming programs (full day & next day)
+
+    const content = match[4];
     const titleMatch = titleRegex.exec(content);
     const descMatch = descRegex.exec(content);
 
@@ -120,13 +165,10 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
       title: titleMatch?.[1] || 'Unknown Program',
       start,
       stop,
-      desc: descMatch?.[1],
+      desc: descMatch?.[1] ? descMatch[1].slice(0, 200) : undefined,
     };
 
-    if (!programs.has(channel)) {
-      programs.set(channel, []);
-    }
-    programs.get(channel)!.push(program);
+    channelList.push(program);
   }
 
   return { programs, channelMap, iconMap };
@@ -167,7 +209,7 @@ export function iptvRoutes(app: FastifyInstance) {
       }
 
       const content = await res.text();
-      const channels = parseM3U(content);
+      const { channels, epgUrl } = parseM3U(content);
 
       // Extract unique groups
       const groups = [...new Set(channels.map(ch => ch.group))];
@@ -175,6 +217,7 @@ export function iptvRoutes(app: FastifyInstance) {
       return {
         channels,
         groups,
+        epgUrl: epgUrl || '',
         total: channels.length,
       };
     } catch (err: any) {
@@ -183,12 +226,30 @@ export function iptvRoutes(app: FastifyInstance) {
     }
   });
 
+interface CachedEpg {
+  data: { epg: Record<string, any>; channelMap: Record<string, string>; iconMap: Record<string, string>; channels: number };
+  timestamp: number;
+}
+const epgCache = new Map<string, CachedEpg>();
+const EPG_CACHE_TTL = 3600 * 4 * 1000; // 4 hours
+
   // Parse EPG from URL
   app.post('/api/iptv/epg', async (req, reply) => {
-    const { url } = req.body as { url?: string };
+    let { url } = req.body as { url?: string };
 
     if (!url) {
       return reply.code(400).send({ error: 'URL required' });
+    }
+
+    // Rewrite iptvx.one/EPG to official lite version to prevent exceeding V8 512MB string buffer
+    if (/iptvx\.one\/(epg)?$/i.test(url)) {
+      url = 'https://iptvx.one/epg/epg_lite.xml.gz';
+    }
+
+    // Check cache
+    const cached = epgCache.get(url);
+    if (cached && (Date.now() - cached.timestamp < EPG_CACHE_TTL)) {
+      return cached.data;
     }
 
     try {
@@ -220,7 +281,7 @@ export function iptvRoutes(app: FastifyInstance) {
       const { programs, channelMap, iconMap } = parseEpg(content);
 
       // Convert Maps to objects for JSON response
-      const epgObject: Record<string, Array<{ title: string; start: string; stop: string; desc?: string; startTime: string; startDate: string; stopTime: string; stopDate: string }>> = {};
+      const epgObject: Record<string, Array<{ title: string; start: string; stop: string; startMs: number; stopMs: number; desc?: string; startTime: string; startDate: string; stopTime: string; stopDate: string }>> = {};
 
       for (const [channel, channelPrograms] of programs.entries()) {
         epgObject[channel] = channelPrograms.map(p => {
@@ -230,6 +291,8 @@ export function iptvRoutes(app: FastifyInstance) {
             title: p.title,
             start: p.start,
             stop: p.stop,
+            startMs: parseXmltvDate(p.start),
+            stopMs: parseXmltvDate(p.stop),
             desc: p.desc,
             startTime: startFormatted.time,
             startDate: startFormatted.date,
@@ -251,12 +314,16 @@ export function iptvRoutes(app: FastifyInstance) {
         iconMapObject[id] = icon;
       }
 
-      return {
+      const result = {
         epg: epgObject,
         channelMap: channelMapObject,
         iconMap: iconMapObject,
         channels: Object.keys(epgObject).length,
       };
+
+      epgCache.set(url, { data: result, timestamp: Date.now() });
+
+      return result;
     } catch (err: any) {
       console.error('EPG parse error:', err.message);
       return reply.code(500).send({ error: err.message });

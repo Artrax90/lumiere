@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tv, Search, Play, Star, Plus, Trash2, Loader2 } from 'lucide-react';
+import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Pencil, X } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch, getServerUrl } from '@/api/server';
 import { syncClient } from '@/api/sync';
@@ -31,13 +31,17 @@ interface IPTVViewProps {
 const IPTV_STORAGE_KEY = 'lumiere_iptv';
 const FAVORITES_STORAGE_KEY = 'lumiere_iptv_favorites';
 
+const DEFAULT_PLAYLIST = { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' };
+
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
     const data = localStorage.getItem(IPTV_STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
-  } catch {
-    return [];
-  }
+    if (data) {
+      const parsed = JSON.parse(data);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return [DEFAULT_PLAYLIST];
 }
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
@@ -59,6 +63,30 @@ function saveFavorites(favorites: Set<string>) {
   localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
 }
 
+function getChannelMonogram(name: string): string {
+  if (!name) return 'TV';
+  const clean = name.replace(/^(HD|FHD|4K|SD)\s*/i, '').trim();
+  const words = clean.split(/\s+/).filter(Boolean);
+  if (words.length >= 2) {
+    return (words[0][0] + words[1][0]).toUpperCase();
+  }
+  return clean.slice(0, 3).toUpperCase();
+}
+
+function getChannelColor(name: string): string {
+  const colors = [
+    'from-amber-500/25 to-amber-700/35 text-amber-200 border-amber-400/30',
+    'from-blue-500/25 to-blue-700/35 text-blue-200 border-blue-400/30',
+    'from-emerald-500/25 to-emerald-700/35 text-emerald-200 border-emerald-400/30',
+    'from-purple-500/25 to-purple-700/35 text-purple-200 border-purple-400/30',
+    'from-rose-500/25 to-rose-700/35 text-rose-200 border-rose-400/30',
+    'from-indigo-500/25 to-indigo-700/35 text-indigo-200 border-indigo-400/30',
+  ];
+  let sum = 0;
+  for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
+  return colors[sum % colors.length];
+}
+
 export default function IPTVView({ onPlay }: IPTVViewProps) {
   const { t } = useTranslation();
   const initialPlaylists = getSavedPlaylists();
@@ -68,60 +96,25 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   // Load IPTV playlists from sync API
   useEffect(() => {
     let active = true;
-    let attempts = 0;
 
-    const loadFromSync = () => {
-      const token = localStorage.getItem('lumiere_access');
-      const base = getServerUrl();
-      console.log('[IPTV] attempt', attempts + 1, 'token:', token ? 'yes' : 'NO', 'base:', base);
-
-      if (!token || !base) {
-        console.log('[IPTV] waiting for token/server...');
-        if (attempts < 30 && active) {
-          attempts++;
-          setTimeout(loadFromSync, 1000);
+    const loadFromSync = async () => {
+      try {
+        const res = await serverFetch('/api/sync');
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active && data.iptvPlaylists && data.iptvPlaylists.length > 0) {
+          localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
+          setPlaylists([...data.iptvPlaylists]);
         }
-        return;
+      } catch (e) {
+        console.warn('[IPTV] Sync load error:', e);
       }
-
-      const url = `${base}/api/sync`;
-      console.log('[IPTV] fetching:', url);
-
-      const xhr = new XMLHttpRequest();
-      xhr.open('GET', url, true);
-      xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-      xhr.timeout = 10000;
-
-      xhr.onload = () => {
-        console.log('[IPTV] response status:', xhr.status);
-        if (!active || xhr.status !== 200) return;
-        try {
-          const data = JSON.parse(xhr.responseText);
-          console.log('[IPTV] playlists from server:', data.iptvPlaylists?.length || 0);
-          if (data.iptvPlaylists && data.iptvPlaylists.length > 0) {
-            // Save directly to localStorage and update state (no push back to server)
-            localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
-            console.log('[IPTV] saved to localStorage, updating state...');
-            setPlaylists([...data.iptvPlaylists]);
-          }
-        } catch (e) {
-          console.warn('[IPTV] parse error:', e);
-        }
-      };
-
-      xhr.onerror = (e) => {
-        console.warn('[IPTV] XHR error:', e);
-        if (attempts < 10 && active) {
-          attempts++;
-          setTimeout(loadFromSync, 3000);
-        }
-      };
-
-      xhr.send();
     };
 
-    const timer = setTimeout(loadFromSync, 2000);
-    return () => { active = false; clearTimeout(timer); };
+    loadFromSync();
+    return () => {
+      active = false;
+    };
   }, []);
   const [channels, setChannels] = useState<IPTVChannel[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
@@ -138,6 +131,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [newPlaylistUrl, setNewPlaylistUrl] = useState('');
   const [newPlaylistName, setNewPlaylistName] = useState('');
   const [newEpgUrl, setNewEpgUrl] = useState('');
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [editPlaylistName, setEditPlaylistName] = useState('');
+  const [editPlaylistUrl, setEditPlaylistUrl] = useState('');
+  const [editEpgUrl, setEditEpgUrl] = useState('');
   const [selectedChannel, setSelectedChannel] = useState<IPTVChannel | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
@@ -252,8 +249,65 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     setShowAddForm(false);
   };
 
+  // Start editing existing playlist
+  const startEditPlaylist = (index: number, e: React.MouseEvent) => {
+    e.stopPropagation();
+    const pl = playlists[index];
+    if (!pl) return;
+    setEditingIndex(index);
+    setEditPlaylistName(pl.name);
+    setEditPlaylistUrl(pl.url);
+    setEditEpgUrl(pl.epgUrl || '');
+    setShowAddForm(false);
+  };
+
+  // Save edited playlist
+  const saveEditedPlaylist = () => {
+    if (editingIndex === null || !editPlaylistUrl.trim()) return;
+    const oldPl = playlists[editingIndex];
+    const newName = editPlaylistName.trim() || oldPl.name;
+    const newUrl = editPlaylistUrl.trim();
+    const newEpg = editEpgUrl.trim() || undefined;
+
+    const updated = [...playlists];
+    updated[editingIndex] = {
+      name: newName,
+      url: newUrl,
+      epgUrl: newEpg,
+    };
+
+    setPlaylists(updated);
+    savePlaylists(updated);
+
+    // If active playlist was edited
+    if (selectedPlaylist === editingIndex) {
+      if (newUrl !== oldPl.url) {
+        // Stream URL changed, reload whole playlist
+        loadPlaylist(editingIndex);
+      } else if (newEpg !== oldPl.epgUrl) {
+        // Only EPG changed: load new EPG or reset
+        if (newEpg) {
+          loadEpg(newEpg);
+        } else {
+          setEpgData({});
+          setChannelMap({});
+          setIconMap({});
+        }
+      }
+    }
+
+    setEditingIndex(null);
+  };
+
+  const cancelEditPlaylist = () => {
+    setEditingIndex(null);
+  };
+
   // Remove playlist
   const removePlaylist = (index: number) => {
+    if (editingIndex === index) {
+      setEditingIndex(null);
+    }
     const newPlaylists = playlists.filter((_, i) => i !== index);
     setPlaylists(newPlaylists);
     savePlaylists(newPlaylists);
@@ -373,6 +427,24 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return '';
   };
 
+  const parseEpgTimestamp = (ts?: string): number => {
+    if (!ts) return 0;
+    const match = ts.match(/^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})/);
+    if (!match) {
+      const parsed = Date.parse(ts);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    const [, y, m, d, h, min, s] = match;
+    const tzMatch = ts.match(/([+-])(\d{2})(\d{2})$/);
+    if (tzMatch) {
+      const sign = tzMatch[1] === '+' ? -1 : 1;
+      const offsetMin = (parseInt(tzMatch[2]) * 60 + parseInt(tzMatch[3])) * sign;
+      const utc = Date.UTC(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(h), parseInt(min), parseInt(s));
+      return utc + offsetMin * 60 * 1000;
+    }
+    return new Date(parseInt(y), parseInt(m) - 1, parseInt(d), parseInt(h), parseInt(min), parseInt(s)).getTime();
+  };
+
   // Get programs for channel (starting from current time)
   const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
     if (!channel) return [];
@@ -380,27 +452,39 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     if (!epgId || !epgData[epgId]) return [];
 
     const allPrograms = epgData[epgId];
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hours}:${minutes}`;
+    const now = Date.now();
 
-    // Find current program index and return from there
     let startIndex = 0;
     for (let i = 0; i < allPrograms.length; i++) {
-      if (allPrograms[i].startTime <= currentTime && allPrograms[i].stopTime > currentTime) {
-        startIndex = i;
-        break;
-      }
-      if (allPrograms[i].startTime > currentTime) {
-        startIndex = i;
-        break;
+      const p = allPrograms[i];
+      const startMs = parseEpgTimestamp(p.start);
+      const stopMs = parseEpgTimestamp(p.stop);
+
+      if (startMs > 0 && stopMs > 0) {
+        if (startMs <= now && stopMs > now) {
+          startIndex = i;
+          break;
+        }
+        if (startMs > now) {
+          startIndex = i;
+          break;
+        }
+      } else {
+        const hours = String(new Date().getHours()).padStart(2, '0');
+        const minutes = String(new Date().getMinutes()).padStart(2, '0');
+        const currentTime = `${hours}:${minutes}`;
+        if (p.startTime <= currentTime && p.stopTime > currentTime) {
+          startIndex = i;
+          break;
+        }
+        if (p.startTime > currentTime) {
+          startIndex = i;
+          break;
+        }
       }
     }
 
-    const result = allPrograms.slice(startIndex);
-    console.log(`[IPTV] ${channel.name}: ${allPrograms.length} total, startIndex=${startIndex}, returning=${result.length}, time=${currentTime}`);
-    return result;
+    return allPrograms.slice(startIndex);
   };
 
   // Get current program for channel
@@ -408,14 +492,21 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     const programs = getPrograms(channel);
     if (programs.length === 0) return null;
 
-    const now = new Date();
-    const hours = String(now.getHours()).padStart(2, '0');
-    const minutes = String(now.getMinutes()).padStart(2, '0');
-    const currentTime = `${hours}:${minutes}`;
-
+    const now = Date.now();
     for (const program of programs) {
-      if (program.startTime <= currentTime && program.stopTime > currentTime) {
-        return program;
+      const startMs = parseEpgTimestamp(program.start);
+      const stopMs = parseEpgTimestamp(program.stop);
+      if (startMs > 0 && stopMs > 0) {
+        if (startMs <= now && stopMs > now) {
+          return program;
+        }
+      } else {
+        const hours = String(new Date().getHours()).padStart(2, '0');
+        const minutes = String(new Date().getMinutes()).padStart(2, '0');
+        const currentTime = `${hours}:${minutes}`;
+        if (program.startTime <= currentTime && program.stopTime > currentTime) {
+          return program;
+        }
       }
     }
 
@@ -429,12 +520,14 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     const title: Title = {
       id: 0,
       name: channel.name,
+      description: program ? `${t('common.now')}: ${program.title}` : '',
       overview: program ? `${t('common.now')}: ${program.title}` : '',
       poster: getChannelLogo(channel),
       backdrop: getChannelLogo(channel),
       year: 0,
       runtime: '',
-      rating: 0,
+      rating: '',
+      score: 0,
       genres: [],
       type: 'live',
       videoUrl: channel.url,
@@ -476,11 +569,19 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 <Tv className="h-4 w-4" />
                 {playlist.name}
                 <button
+                  onClick={(e) => startEditPlaylist(index, e)}
+                  title="Редактировать плейлист"
+                  className="ml-1.5 text-white/30 hover:text-amber-300 transition-colors"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                <button
                   onClick={(e) => {
                     e.stopPropagation();
                     removePlaylist(index);
                   }}
-                  className="ml-1 text-white/30 hover:text-red-400"
+                  title="Удалить плейлист"
+                  className="ml-1 text-white/30 hover:text-red-400 transition-colors"
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -489,7 +590,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
           ))}
 
           <button
-            onClick={() => setShowAddForm(!showAddForm)}
+            onClick={() => {
+              setEditingIndex(null);
+              setShowAddForm(!showAddForm);
+            }}
             className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium text-white/60 bg-white/5 border border-white/10 hover:bg-white/10 transition-cinematic"
           >
             <span className="flex items-center gap-2">
@@ -498,6 +602,73 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             </span>
           </button>
         </div>
+
+        {/* Edit playlist form */}
+        {editingIndex !== null && (
+          <div className="mb-6 rounded-[16px] bg-white/5 border border-amber-300/30 p-6 animate-row-reveal">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Pencil className="h-4 w-4 text-amber-300" />
+                <h3 className="text-[15px] font-medium text-amber-200">
+                  Редактировать плейлист
+                </h3>
+              </div>
+              <button
+                onClick={cancelEditPlaylist}
+                className="text-white/40 hover:text-white transition-colors"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="grid gap-4 md:grid-cols-3">
+              <div>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.playlistName')}</label>
+                <input
+                  type="text"
+                  value={editPlaylistName}
+                  onChange={(e) => setEditPlaylistName(e.target.value)}
+                  placeholder="Мой плейлист"
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.playlistUrl')}</label>
+                <input
+                  type="text"
+                  value={editPlaylistUrl}
+                  onChange={(e) => setEditPlaylistUrl(e.target.value)}
+                  placeholder="https://example.com/playlist.m3u8"
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] text-white/50 mb-2">{t('iptv.epgUrl')}</label>
+                <input
+                  type="text"
+                  value={editEpgUrl}
+                  onChange={(e) => setEditEpgUrl(e.target.value)}
+                  placeholder="https://example.com/epg.xml"
+                  className="w-full rounded-lg bg-white/5 border border-white/10 px-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
+                />
+              </div>
+            </div>
+            <div className="mt-4 flex gap-2">
+              <button
+                onClick={saveEditedPlaylist}
+                disabled={!editPlaylistUrl.trim()}
+                className="rounded-full bg-amber-300 text-black py-2.5 px-6 text-[13px] font-semibold transition-cinematic hover:scale-[1.02] disabled:opacity-50"
+              >
+                {t('common.save', 'Сохранить')}
+              </button>
+              <button
+                onClick={cancelEditPlaylist}
+                className="rounded-full bg-white/5 text-white/60 py-2.5 px-6 text-[13px] font-medium border border-white/10 hover:bg-white/10 transition-cinematic"
+              >
+                {t('common.cancel')}
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Add playlist form */}
         {showAddForm && (
@@ -683,20 +854,24 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 {t('iptv.favorites')} {favorites.size > 0 && `(${favorites.size})`}
               </button>
               {/* Then other groups */}
-              {groups.filter(g => g !== 'Favorites').map((g) => (
-                <button
-                  key={g}
-                  onClick={() => { setSelectedGroup(g); setShowFavorites(false); }}
-                  className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
-                  style={{
-                    background: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                    color: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                    border: !showFavorites && selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                  }}
-                >
-                  {g}
-                </button>
-              ))}
+              {groups.filter(g => g !== 'Favorites').map((g) => {
+                const count = g === 'All' ? channels.length : channels.filter(c => c.group === g).length;
+                return (
+                  <button
+                    key={g}
+                    onClick={() => { setSelectedGroup(g); setShowFavorites(false); }}
+                    className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic flex items-center gap-1.5"
+                    style={{
+                      background: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                      border: !showFavorites && selectedGroup === g ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                    }}
+                  >
+                    <span>{g === 'All' ? 'Все' : g}</span>
+                    <span className="text-[11px] opacity-50">({count})</span>
+                  </button>
+                );
+              })}
             </div>
 
             {/* EPG Grid - Full TV Guide */}
@@ -725,24 +900,38 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                     >
                       {/* Channel info */}
                       <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
-                        <div className="relative h-9 w-9 overflow-hidden rounded-lg bg-white/5 shrink-0">
+                        <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/5 shrink-0">
                           {getChannelLogo(ch) ? (
-                            <img src={getChannelLogo(ch)} alt={ch.name} className="h-full w-full object-cover" loading="lazy" />
+                            <img
+                              src={getChannelLogo(ch)}
+                              alt={ch.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                              onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                            />
                           ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <Tv className="h-4 w-4 text-white/20" />
+                            <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[11px] tracking-wider ${getChannelColor(ch.name)}`}>
+                              {getChannelMonogram(ch.name)}
                             </div>
                           )}
                         </div>
                         <div className="min-w-0 flex-1">
-                          <div className="truncate text-[12px] font-medium text-white/85">{ch.name}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate text-[12px] font-medium text-white/90">{ch.name}</span>
+                            {/\b4k\b/i.test(ch.name) && (
+                              <span className="shrink-0 rounded-[4px] bg-amber-400/20 px-1 py-0.5 text-[9px] font-bold text-amber-300">4K</span>
+                            )}
+                            {/\b(fhd|1080)\b/i.test(ch.name) && (
+                              <span className="shrink-0 rounded-[4px] bg-blue-400/20 px-1 py-0.5 text-[9px] font-bold text-blue-300">FHD</span>
+                            )}
+                          </div>
                         </div>
                         <button
                           onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full"
+                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110"
                           aria-label="Favorite"
                         >
-                          <Star className={`h-3 w-3 ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/20'}`} strokeWidth={1.5} />
+                          <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/20 hover:text-white/50'}`} strokeWidth={1.5} />
                         </button>
                       </div>
 

@@ -1,0 +1,13 @@
+{
+  "name": "lumiere",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lumiere Media Server & Streaming Platform",
+  "scripts": {
+    "test": "npm --prefix front test && npm --prefix back test",
+    "test:back": "npm --prefix back test",
+    "test:front": "npm --prefix front test",
+    "build": "npm --prefix front run build && npm --prefix back run build",
+    "start": "npm --prefix back start"
+  }
+}

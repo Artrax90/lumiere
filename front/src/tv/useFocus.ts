@@ -12,9 +12,10 @@ interface UseFocusOptions {
   initialFocus?: string;
   onBack?: () => void;
   onExit?: () => void;
+  enabled?: boolean;
 }
 
-export function useFocus({ elements, initialFocus, onBack, onExit }: UseFocusOptions) {
+export function useFocus({ elements, initialFocus, onBack, onExit, enabled = true }: UseFocusOptions) {
   const [focusedId, setFocusedId] = useState<string | null>(initialFocus || null);
   const elementsRef = useRef(elements);
   elementsRef.current = elements;
@@ -29,6 +30,16 @@ export function useFocus({ elements, initialFocus, onBack, onExit }: UseFocusOpt
   }, []);
 
   const handleKeyDown = useCallback((e: KeyboardEvent) => {
+    // Never intercept typing in inputs, textareas, or contentEditable elements
+    const activeEl = document.activeElement as HTMLElement | null;
+    const targetEl = e.target as HTMLElement | null;
+    const isInput = (el: HTMLElement | null) =>
+      Boolean(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable));
+
+    if (isInput(activeEl) || isInput(targetEl)) {
+      return;
+    }
+
     const els = elementsRef.current;
     if (els.length === 0) return;
 
@@ -105,7 +116,19 @@ export function useFocus({ elements, initialFocus, onBack, onExit }: UseFocusOpt
 
   // Samsung TV keydown handler
   useEffect(() => {
+    if (!enabled) return;
+
     const handler = (e: KeyboardEvent) => {
+      // Never intercept typing in inputs, textareas, or contentEditable elements
+      const activeEl = document.activeElement as HTMLElement | null;
+      const targetEl = e.target as HTMLElement | null;
+      const isInput = (el: HTMLElement | null) =>
+        Boolean(el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable));
+
+      if (isInput(activeEl) || isInput(targetEl)) {
+        return;
+      }
+
       // Samsung Back key
       if (e.keyCode === 10009) {
         onBack?.();
@@ -131,7 +154,7 @@ export function useFocus({ elements, initialFocus, onBack, onExit }: UseFocusOpt
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [handleKeyDown, onBack, onExit]);
+  }, [enabled, handleKeyDown, onBack, onExit]);
 
   return {
     focusedId,

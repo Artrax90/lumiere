@@ -8,6 +8,9 @@ const SALT_ROUNDS = 10;
 export interface TokenPayload {
   userId: number;
   email: string;
+  role?: string;
+  isKids?: boolean;
+  name?: string;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -43,17 +46,21 @@ export function verifyRefreshToken(token: string): TokenPayload | null {
 }
 
 export async function saveRefreshToken(userId: number, refreshToken: string): Promise<void> {
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + 7);
+  try {
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
 
-  await pool.query(
-    'INSERT INTO sessions (user_id, refresh_token, expires_at) VALUES ($1, $2, $3)',
-    [userId, refreshToken, expiresAt]
-  );
+    await pool.query(
+      'INSERT INTO sessions (user_id, refresh_token, expires_at) VALUES ($1, $2, $3)',
+      [userId, refreshToken, expiresAt]
+    );
+  } catch {}
 }
 
 export async function deleteRefreshToken(refreshToken: string): Promise<void> {
-  await pool.query('DELETE FROM sessions WHERE refresh_token = $1', [refreshToken]);
+  try {
+    await pool.query('DELETE FROM sessions WHERE refresh_token = $1', [refreshToken]);
+  } catch {}
 }
 
 export async function deleteExpiredTokens(): Promise<void> {

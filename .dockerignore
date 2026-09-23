@@ -1,0 +1,12 @@
+.git
+.gitignore
+node_modules
+front/node_modules
+back/node_modules
+front/dist
+back/dist
+*.log
+scratch
+.gemini
+Lumiere-debug.apk
+Lumiere-tizen.wgt

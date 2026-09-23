@@ -92,7 +92,7 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
           </div>
           <div className="no-scrollbar flex gap-5 overflow-x-auto pb-4">
             {anime.map((t, i) => (
-              <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}>
+              <div key={t.id} className="shrink-0 animate-stagger-in" style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}>
                 <Card title={t} variant="portrait" onSelect={onSelect} rank={i + 1} />
               </div>
             ))}

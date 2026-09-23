@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
-import { ChevronDown, Star, ArrowUpDown } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { ChevronDown, Star, ArrowUpDown, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
+import { apiFetch } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
 import { useGenres } from '@/hooks/useGenres';
 import SafeImg from './SafeImg';
@@ -20,12 +21,45 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('rating');
   const [showSort, setShowSort] = useState(false);
+  const [page, setPage] = useState(1);
+  const [allMovies, setAllMovies] = useState<Title[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
 
-  const { data: movies } = usePopular('movie');
+  const { data: initialMovies } = usePopular('movie', 1);
   const { data: genres } = useGenres('movie');
 
+  useEffect(() => {
+    if (initialMovies && initialMovies.length > 0) {
+      setAllMovies(initialMovies);
+    }
+  }, [initialMovies]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const res = await apiFetch<{ results: Title[] }>('/api/movies/popular', { page: String(nextPage) });
+      if (res.results && res.results.length > 0) {
+        setAllMovies((prev) => {
+          const existingIds = new Set(prev.map((m) => m.id));
+          const newItems = res.results.filter((m) => !existingIds.has(m.id));
+          return [...prev, ...newItems];
+        });
+        setPage(nextPage);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error('Failed to load more movies:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
   const filteredMovies = useMemo(() => {
-    let list = movies;
+    let list = allMovies.length > 0 ? allMovies : initialMovies;
     if (activeGenre) list = list.filter((t) => t.genres.includes(activeGenre));
     list = [...list].sort((a, b) => {
       if (sortBy === 'rating') return b.score - a.score;
@@ -34,7 +68,7 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
       return 0;
     });
     return list;
-  }, [movies, activeGenre, sortBy]);
+  }, [allMovies, initialMovies, activeGenre, sortBy]);
 
   const featured = filteredMovies[0];
   const rest = filteredMovies.slice(1);
@@ -133,6 +167,25 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
             </div>
           ))}
         </div>
+
+        {hasMore && (
+          <div className="mt-12 flex justify-center">
+            <button
+              onClick={loadMore}
+              disabled={loadingMore}
+              className="flex items-center gap-2 rounded-full glass px-8 py-3 text-[14px] font-medium text-white/80 transition-cinematic hover:bg-white/10 hover:text-white disabled:opacity-50"
+            >
+              {loadingMore ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>Загрузка...</span>
+                </>
+              ) : (
+                <span>Загрузить ещё</span>
+              )}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -1,24 +1,28 @@
 export type Lang = 'ru' | 'en';
 
+export type MediaType = 'movie' | 'tv' | 'anime' | 'show' | 'documentary' | 'live';
+
 export interface Title {
   id: number;
-  tmdbId: number;
+  tmdbId?: number;
   name: string;
-  type: 'movie' | 'tv' | 'anime';
+  type: MediaType;
   year: number;
   runtime: string;
   rating: string;
   score: number;
   genres: string[];
   description: string;
+  overview?: string;
   backdrop: string;
   poster: string;
-  logoText: string;
+  logoText?: string;
   mood?: 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
   badges?: string[];
   director?: string;
-  cast?: { name: string; role: string; image: string }[];
+  cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
+  seasonsCount?: number;
   progress?: number;
   videoUrl?: string;
   episode?: string;

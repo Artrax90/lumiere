@@ -3,61 +3,92 @@ import type { Pool } from 'pg';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 export function syncRoutes(app: FastifyInstance, db: Pool) {
-  // Get all sync data for the current user
-  app.get('/api/sync', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+  // Handler for getting all sync data for the current user
+  const handleGetSync = async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;
 
-    // Get watch history with playback positions
-    const historyResult = await db.query(
-      `SELECT tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at
-       FROM watch_history
-       WHERE user_id = $1
-       ORDER BY updated_at DESC`,
-      [userId]
-    );
+    try {
+      // Get watch history with playback positions
+      const historyResult = await db.query(
+        `SELECT tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at
+         FROM watch_history
+         WHERE user_id = $1
+         ORDER BY updated_at DESC`,
+        [userId]
+      );
 
-    // Get favorites
-    const favoritesResult = await db.query(
-      `SELECT tmdb_id, media_type, title_name, poster, added_at
-       FROM favorites
-       WHERE user_id = $1
-       ORDER BY added_at DESC`,
-      [userId]
-    );
+      // Get favorites
+      const favoritesResult = await db.query(
+        `SELECT tmdb_id, media_type, title_name, poster, added_at
+         FROM favorites
+         WHERE user_id = $1
+         ORDER BY added_at DESC`,
+        [userId]
+      );
 
-    // Get IPTV playlists
-    const iptvResult = await db.query(
-      `SELECT name, url, epg_url
-       FROM iptv_playlists
-       WHERE user_id = $1`,
-      [userId]
-    );
+      // Get IPTV playlists
+      const iptvResult = await db.query(
+        `SELECT name, url, epg_url
+         FROM iptv_playlists
+         WHERE user_id = $1`,
+        [userId]
+      );
 
-    return {
-      watchHistory: historyResult.rows.map(row => ({
-        tmdbId: row.tmdb_id,
-        mediaType: row.media_type,
-        titleName: row.title_name,
-        poster: row.poster,
-        progress: row.progress,
-        timestamp: row.timestamp,
-        updatedAt: row.updated_at,
-      })),
-      favorites: favoritesResult.rows.map(row => ({
-        tmdbId: row.tmdb_id,
-        mediaType: row.media_type,
-        titleName: row.title_name,
-        poster: row.poster,
-        addedAt: row.added_at,
-      })),
-      iptvPlaylists: iptvResult.rows.map(row => ({
-        name: row.name,
-        url: row.url,
-        epgUrl: row.epg_url || '',
-      })),
-      syncedAt: new Date().toISOString(),
-    };
-  });
+      let iptvRows = iptvResult.rows;
+      if (iptvRows.length === 0) {
+        const defaultPl = {
+          name: 'Основной',
+          url: 'https://loganettv.github.io/playlists/all.m3u',
+          epg_url: ''
+        };
+        try {
+          await db.query(
+            `INSERT INTO iptv_playlists (user_id, name, url, epg_url, updated_at)
+             VALUES ($1, $2, $3, $4, NOW())`,
+            [userId, defaultPl.name, defaultPl.url, defaultPl.epg_url]
+          );
+        } catch {}
+        iptvRows = [defaultPl];
+      }
+
+      return {
+        watchHistory: historyResult.rows.map(row => ({
+          tmdbId: row.tmdb_id,
+          mediaType: row.media_type,
+          titleName: row.title_name,
+          poster: row.poster,
+          progress: row.progress,
+          timestamp: row.timestamp,
+          updatedAt: row.updated_at,
+        })),
+        favorites: favoritesResult.rows.map(row => ({
+          tmdbId: row.tmdb_id,
+          mediaType: row.media_type,
+          titleName: row.title_name,
+          poster: row.poster,
+          addedAt: row.added_at,
+        })),
+        iptvPlaylists: iptvRows.map(row => ({
+          name: row.name,
+          url: row.url,
+          epgUrl: row.epg_url || '',
+        })),
+        syncedAt: new Date().toISOString(),
+      };
+    } catch (err: any) {
+      console.warn('Sync fetch query warning (DB offline or initializing):', err.message);
+      return {
+        watchHistory: [],
+        favorites: [],
+        iptvPlaylists: [],
+        syncedAt: new Date().toISOString(),
+      };
+    }
+  };
+
+  // Get all sync data for the current user
+  app.get('/api/sync', { preHandler: requireAuth }, handleGetSync);
+  app.get('/api/sync/pull', { preHandler: requireAuth }, handleGetSync);
 
   // Clear watch history for current user
   app.delete('/api/sync/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
@@ -66,11 +97,6 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
     return { success: true, message: 'History cleared' };
   });
 
-  // TEMPORARY: Clear all watch history (no auth, for testing)
-  app.delete('/api/sync/clear-all', async () => {
-    await db.query('DELETE FROM watch_history');
-    return { success: true, message: 'All history cleared' };
-  });
 
   // Push sync data (batch update)
   app.post('/api/sync/push', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {

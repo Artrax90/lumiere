@@ -8,67 +8,65 @@ interface Props {
   style?: React.CSSProperties;
   loading?: 'lazy' | 'eager';
   onLoad?: () => void;
+  onError?: () => void;
 }
 
-// Load images via fetch() so Capacitor's native HTTP handler intercepts them
-export default function SafeImg({ src, alt, className, style, loading, onLoad }: Props) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+export default function SafeImg({ src, alt, className, style, loading, onLoad, onError }: Props) {
   const fullUrl = serverUrl(src);
+  const [imgSrc, setImgSrc] = useState(fullUrl);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (!fullUrl) {
-      console.log('[SafeImg] empty URL for:', alt);
+    setImgSrc(serverUrl(src));
+    setFailed(false);
+  }, [src]);
+
+  const handleError = () => {
+    // If native app and direct image load failed, attempt a fetch -> blob fallback
+    const isNative = typeof window !== 'undefined' &&
+      (window.location.protocol === 'capacitor:' || window.location.protocol === 'file:' ||
+       (window.location.protocol === 'https:' && window.location.hostname === 'localhost') ||
+       (window.location.protocol === 'http:' && window.location.hostname === 'localhost'));
+
+    if (isNative && fullUrl && !imgSrc.startsWith('blob:')) {
+      fetch(fullUrl)
+        .then(res => {
+          if (!res.ok) throw new Error('Fetch failed');
+          return res.blob();
+        })
+        .then(blob => {
+          const blobUrl = URL.createObjectURL(blob);
+          setImgSrc(blobUrl);
+        })
+        .catch(() => {
+          setFailed(true);
+          onError?.();
+        });
       return;
     }
 
-    let revoked = false;
-    let currentBlob: string | null = null;
+    setFailed(true);
+    onError?.();
+  };
 
-    // Only use fetch→blob for cross-origin (native app)
-    const isNative = window.location.protocol === 'capacitor:' || window.location.protocol === 'file:' ||
-      (window.location.protocol === 'https:' && window.location.hostname === 'localhost');
-
-    if (!isNative) {
-      setBlobUrl(fullUrl);
-      return;
-    }
-
-    console.log('[SafeImg] fetching:', fullUrl.substring(0, 80));
-
-    fetch(fullUrl)
-      .then(res => {
-        if (!res.ok) {
-          console.warn('[SafeImg] fetch not ok:', res.status, fullUrl);
-          throw new Error('Failed');
-        }
-        return res.blob();
-      })
-      .then(blob => {
-        if (revoked) return;
-        currentBlob = URL.createObjectURL(blob);
-        setBlobUrl(currentBlob);
-      })
-      .catch((err) => {
-        console.warn('[SafeImg] fetch failed:', fullUrl, err.message);
-        if (!revoked) setBlobUrl(fullUrl); // fallback to direct URL
-      });
-
-    return () => {
-      revoked = true;
-      if (currentBlob) URL.revokeObjectURL(currentBlob);
-    };
-  }, [fullUrl]);
-
-  if (!blobUrl) return null;
+  if (!fullUrl || failed) {
+    return (
+      <div
+        className={`bg-white/[0.03] flex items-center justify-center ${className || ''}`}
+        style={style}
+      />
+    );
+  }
 
   return (
     <img
-      src={blobUrl}
+      src={imgSrc}
       alt={alt}
       className={className}
       style={style}
       loading={loading}
       onLoad={onLoad}
+      onError={handleError}
     />
   );
 }

@@ -22,4 +22,14 @@ export const config = {
     accessExpiry: process.env.JWT_ACCESS_EXPIRY || '7d',
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
+  torrserver: {
+    url: process.env.TORRSERVER_URL || 'http://localhost:8090',
+  },
+  jacred: {
+    url: process.env.JACRED_URL || process.env.jacredUrl || 'http://ns3bg91xvuqfvq9h.cfhttp.top',
+  },
+  downloads: {
+    qbUrl: process.env.QB_URL || 'http://localhost:6003',
+  },
 };
+

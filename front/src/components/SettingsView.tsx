@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw } from 'lucide-react';
+import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, Key, LayoutList, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
+import ActiveSessionsView from './ActiveSessionsView';
 import { apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
+import { getServerUrl } from '@/api/server';
+import { getHomeShelves, syncHomeShelvesFromServer, saveHomeShelves, DEFAULT_SHELVES, type HomeShelfConfig } from '@/utils/homeShelves';
 
 interface SettingsViewProps {
   onClose: () => void;
@@ -25,11 +28,15 @@ interface UserItem {
   email: string;
   name: string;
   avatar: string;
+  role: string;
+  isKids: boolean;
+  hasPin: boolean;
+  pin?: string;
   createdAt: string;
 }
 
 export default function SettingsView({ onClose }: SettingsViewProps) {
-  const { user } = useAuth();
+  const { user, switchProfile } = useAuth();
   const { t, i18n } = useTranslation();
   const [active, setActive] = useState('appearance');
   const [mobileCategory, setMobileCategory] = useState<string | null>(null);
@@ -68,6 +75,9 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const [newUserName, setNewUserName] = useState('');
   const [newUserEmail, setNewUserEmail] = useState('');
   const [newUserPassword, setNewUserPassword] = useState('');
+  const [newUserRole, setNewUserRole] = useState<'user' | 'admin'>('user');
+  const [newUserPin, setNewUserPin] = useState('');
+  const [newUserIsKids, setNewUserIsKids] = useState(false);
   const [userError, setUserError] = useState('');
   const [userLoading, setUserLoading] = useState(false);
   const [usersLoaded, setUsersLoaded] = useState(false);
@@ -82,7 +92,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
         return;
       }
       const data = await res.json();
-      setUsers(data.users);
+      setUsers(data.users || []);
       setUsersLoaded(true);
     } catch {
       setUsersLoaded(true);
@@ -95,7 +105,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
     }
   }, [active, usersLoaded]);
 
-  const isAdmin = users.length > 0 && user && user.id === users[0]?.id;
+  const isAdmin = user?.role === 'admin' || (users.length > 0 && user && user.id === users[0]?.id);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,10 +116,16 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
         email: newUserEmail,
         password: newUserPassword,
         name: newUserName,
+        role: newUserRole,
+        pin: newUserPin,
+        isKids: newUserIsKids,
       });
       setNewUserName('');
       setNewUserEmail('');
       setNewUserPassword('');
+      setNewUserRole('user');
+      setNewUserPin('');
+      setNewUserIsKids(false);
       await loadUsers();
     } catch (err: any) {
       setUserError(err.message);
@@ -136,11 +152,14 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const categories = [
     { id: 'appearance', label: t('settings.appearance'), desc: t('settings.appearanceDesc'), icon: Monitor },
     { id: 'playback', label: t('settings.playback'), desc: t('settings.playbackDesc'), icon: Play },
+    { id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key },
+    { id: 'home_layout', label: 'Главная страница', desc: 'Порядок и видимость полок рекомендаций', icon: LayoutList },
     { id: 'audio', label: t('settings.audio'), desc: t('settings.audioDesc'), icon: Volume2 },
     { id: 'subtitles', label: t('settings.subtitles'), desc: t('settings.subtitlesDesc'), icon: Captions },
     { id: 'network', label: t('settings.network'), desc: t('settings.networkDesc'), icon: Wifi },
     { id: 'plugins', label: t('settings.plugins'), desc: t('settings.pluginsDesc'), icon: Puzzle },
     { id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User },
+    { id: 'sessions', label: 'Сессии и мониторинг', desc: 'Кто что смотрит сейчас и история просмотров', icon: Activity },
     { id: 'activity', label: t('settings.activity'), desc: t('settings.activityDesc'), icon: Film },
     { id: 'remote', label: t('settings.remote'), desc: t('settings.remoteDesc'), icon: Gamepad2 },
     { id: 'developer', label: t('settings.developer'), desc: t('settings.developerDesc'), icon: Code },
@@ -313,6 +332,16 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
               </div>
             )}
 
+            {/* TMDB Catalog */}
+            {active === 'tmdb' && (
+              <TmdbConfig />
+            )}
+
+            {/* Home Layout */}
+            {active === 'home_layout' && (
+              <HomeLayoutSettings />
+            )}
+
             {/* Accounts / Users */}
             {active === 'accounts' && (
               <div className="mt-8 space-y-6">
@@ -323,81 +352,162 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                   </div>
                 ) : isAdmin ? (
                   <>
-                    <p className="text-[13px] text-white/50">{t('settings.accountsDesc')}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-[13px] text-white/50">{t('settings.accountsDesc')}</p>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          switchProfile();
+                        }}
+                        className="rounded-full bg-white/[0.06] border border-white/[0.1] px-4 py-1.5 text-[12px] font-medium text-amber-300/90 hover:bg-white/[0.12] hover:text-amber-200 transition-cinematic"
+                      >
+                        Сменить профиль
+                      </button>
+                    </div>
 
                     {/* Create user form */}
-                    <form onSubmit={handleCreateUser} className="space-y-4 rounded-[14px] border border-white/[0.06] p-5">
-                      <div className="text-[14px] font-medium text-white/85">{t('settings.newUser')}</div>
+                    <form onSubmit={handleCreateUser} className="space-y-4 rounded-[16px] glass-panel border border-white/[0.08] p-6 shadow-xl">
+                      <div className="text-[14px] font-medium text-white/90">Создать нового пользователя</div>
                       <div className="grid gap-3 md:grid-cols-2">
-                        <input
-                          type="text"
-                          value={newUserName}
-                          onChange={(e) => setNewUserName(e.target.value)}
-                          placeholder={t('settings.name')}
-                          required
-                          className="rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/30"
-                        />
-                        <input
-                          type="email"
-                          value={newUserEmail}
-                          onChange={(e) => setNewUserEmail(e.target.value)}
-                          placeholder="Email"
-                          required
-                          className="rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/30"
-                        />
+                        <div>
+                          <label className="block text-[11px] font-medium text-white/40 mb-1.5">Имя пользователя</label>
+                          <input
+                            type="text"
+                            value={newUserName}
+                            onChange={(e) => setNewUserName(e.target.value)}
+                            placeholder="Например, Мама, Дети, Папа"
+                            required
+                            className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-white/40 mb-1.5">Email (логин)</label>
+                          <input
+                            type="email"
+                            value={newUserEmail}
+                            onChange={(e) => setNewUserEmail(e.target.value)}
+                            placeholder="user@example.com"
+                            required
+                            className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40"
+                          />
+                        </div>
                       </div>
-                      <div className="flex gap-3">
-                        <input
-                          type="password"
-                          value={newUserPassword}
-                          onChange={(e) => setNewUserPassword(e.target.value)}
-                          placeholder={t('settings.password')}
-                          required
-                          minLength={6}
-                          className="flex-1 rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/30"
-                        />
+
+                      <div className="grid gap-3 md:grid-cols-3">
+                        <div>
+                          <label className="block text-[11px] font-medium text-white/40 mb-1.5">Пароль</label>
+                          <input
+                            type="password"
+                            value={newUserPassword}
+                            onChange={(e) => setNewUserPassword(e.target.value)}
+                            placeholder="Минимум 4 символа"
+                            required
+                            minLength={4}
+                            className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-white/40 mb-1.5">Роль</label>
+                          <select
+                            value={newUserRole}
+                            onChange={(e) => setNewUserRole(e.target.value as any)}
+                            className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white focus:outline-none focus:border-amber-300/40"
+                          >
+                            <option value="user" className="bg-neutral-900 text-white">Пользователь</option>
+                            <option value="admin" className="bg-neutral-900 text-white">Администратор</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-medium text-white/40 mb-1.5">PIN-код (4 цифры, опция)</label>
+                          <input
+                            type="password"
+                            maxLength={4}
+                            value={newUserPin}
+                            onChange={(e) => setNewUserPin(e.target.value.replace(/\D/g, ''))}
+                            placeholder="Например 1234"
+                            className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40 font-mono tracking-widest"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-2 border-t border-white/[0.06]">
+                        <label className="flex items-center gap-2.5 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={newUserIsKids}
+                            onChange={(e) => setNewUserIsKids(e.target.checked)}
+                            className="h-4 w-4 rounded bg-white/10 border-white/20 text-amber-400 focus:ring-0"
+                          />
+                          <span className="text-[13px] text-white/70">Детский профиль (фильтрация контента 18+)</span>
+                        </label>
+
                         <button
                           type="submit"
                           disabled={userLoading}
-                          className="flex items-center gap-2 rounded-[10px] bg-amber-300/90 px-5 py-2.5 text-[13px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90 disabled:opacity-50"
+                          className="flex items-center gap-2 rounded-[10px] bg-amber-300/90 px-6 py-2.5 text-[13px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90 disabled:opacity-50 shadow-lg shadow-amber-500/10"
                         >
-                          <Plus className="h-3.5 w-3.5" />{t('settings.create')}
+                          <Plus className="h-3.5 w-3.5" />Создать аккаунт
                         </button>
                       </div>
+
                       {userError && (
-                        <div className="text-[12px] text-red-400/80">{userError}</div>
+                        <div className="rounded-[8px] bg-red-500/10 border border-red-500/20 px-3.5 py-2 text-[12px] text-red-300">
+                          {userError}
+                        </div>
                       )}
                     </form>
 
                     {/* Users list */}
                     <div className="space-y-2">
-                      <div className="text-[13px] font-medium text-white/70">{t('settings.users')} ({users.length})</div>
-                      {users.map((u, i) => (
-                        <div key={u.id} className="flex items-center justify-between rounded-[12px] bg-white/[0.03] border border-white/[0.05] px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-200/70 to-amber-600/40 text-[12px] font-semibold text-black/60">
-                              {u.name.charAt(0).toUpperCase()}
+                      <div className="text-[13px] font-medium text-white/70">Пользователи ({users.length})</div>
+                      {users.map((u) => {
+                        const isSelf = user && u.id === user.id;
+                        return (
+                          <div key={u.id} className="flex items-center justify-between rounded-[14px] bg-white/[0.03] border border-white/[0.05] p-4 transition-cinematic hover:bg-white/[0.05]">
+                            <div className="flex items-center gap-3.5">
+                              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-amber-200/70 to-amber-600/40 text-[14px] font-bold text-black/70 shadow-sm">
+                                {u.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-[14px] font-medium text-white/90">{u.name}</span>
+                                  {isSelf && (
+                                    <span className="text-[10px] text-white/40 bg-white/[0.06] px-1.5 py-0.5 rounded">Вы</span>
+                                  )}
+                                </div>
+                                <div className="text-[12px] text-white/40">{u.email}</div>
+                              </div>
                             </div>
-                            <div>
-                              <div className="text-[13px] font-medium text-white/85">{u.name}</div>
-                              <div className="text-[11px] text-white/40">{u.email}</div>
+                            <div className="flex items-center gap-2.5">
+                              {u.role === 'admin' && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-amber-300/80 bg-amber-300/10 px-2.5 py-1 rounded-full border border-amber-300/20">
+                                  Админ
+                                </span>
+                              )}
+                              {u.isKids && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-purple-300/80 bg-purple-300/10 px-2.5 py-1 rounded-full border border-purple-300/20">
+                                  Детский
+                                </span>
+                              )}
+                              {u.hasPin && (
+                                <span className="text-[10px] font-semibold uppercase tracking-wider text-blue-300/80 bg-blue-300/10 px-2.5 py-1 rounded-full border border-blue-300/20">
+                                  PIN: ****
+                                </span>
+                              )}
+                              {!isSelf && (
+                                <button
+                                  onClick={() => handleDeleteUser(u.id)}
+                                  className="ml-2 p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-cinematic"
+                                  title="Удалить пользователя"
+                                >
+                                  <Trash2 className="h-4 w-4" strokeWidth={1.5} />
+                                </button>
+                              )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-3">
-                            {i === 0 && (
-                              <span className="text-[10px] font-medium text-amber-300/70 bg-amber-300/10 px-2 py-0.5 rounded-full">Admin</span>
-                            )}
-                            {i > 0 && (
-                              <button
-                                onClick={() => handleDeleteUser(u.id)}
-                                className="text-white/30 hover:text-red-400/80 transition-cinematic"
-                              >
-                                <Trash2 className="h-4 w-4" strokeWidth={1.5} />
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </>
                 ) : (
@@ -446,11 +556,20 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
               </div>
             )}
 
+            {/* Active Sessions & History Monitoring */}
+            {active === 'sessions' && (
+              <div className="mt-6">
+                <ActiveSessionsView />
+              </div>
+            )}
+
             {/* Activity Monitor */}
             {active === 'activity' && (
               <div className="mt-6 space-y-6">
-                <ActivityHeatmap />
-                <ActivityMonitor />
+                <ActiveSessionsView />
+                <div className="pt-6 border-t border-white/[0.08]">
+                  <ActivityHeatmap />
+                </div>
               </div>
             )}
 
@@ -552,7 +671,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                   <div className="mb-3 text-[13px] font-medium text-white/70">API эндпоинты</div>
                   <div className="space-y-2">
                     {[
-                      { label: 'Backend API', value: 'http://192.168.1.37:3000' },
+                      { label: 'Backend API', value: getServerUrl() },
                       { label: 'JacRed API', value: 'http://ns3bg91xvuqfvq9h.cfhttp.top' },
                       { label: 'TorrServer', value: 'http://localhost:8090' },
                       { label: 'qBittorrent', value: 'http://localhost:6003' },
@@ -600,7 +719,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
             )}
 
             {/* Default fallback */}
-            {!['appearance', 'playback', 'audio', 'subtitles', 'network', 'plugins', 'accounts', 'activity', 'remote', 'developer', 'about'].includes(active) && (
+            {!['appearance', 'playback', 'tmdb', 'home_layout', 'audio', 'subtitles', 'network', 'plugins', 'accounts', 'activity', 'remote', 'developer', 'about'].includes(active) && (
               <div className="mt-8">
                 <p className="text-[14px] leading-relaxed text-white/55">
                   Настройки «{categories.find((c) => c.id === active)?.label}» появятся здесь.
@@ -790,6 +909,435 @@ function JacRedConfig() {
         <div className="text-[11px] text-white/30">
           Текущий: {customUrl || selectedUrl}
         </div>
+      </div>
+    </div>
+  );
+}
+
+function TmdbConfig() {
+  const [token, setToken] = useState('');
+  const [proxyUrl, setProxyUrl] = useState('');
+  const [maskedToken, setMaskedToken] = useState('');
+  const [configured, setConfigured] = useState(false);
+  const [online, setOnline] = useState<boolean | null>(null);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchConfig = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/settings/tmdb');
+      const data = await res.json();
+      setConfigured(data.configured);
+      setMaskedToken(data.tokenMasked || '');
+      setProxyUrl(data.proxyUrl || '');
+      setOnline(data.online);
+      setStatusMessage(data.message || '');
+    } catch {
+      setOnline(false);
+      setStatusMessage('Ошибка связи с сервером');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 4500);
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await fetch('/api/settings/tmdb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: token.trim() || undefined,
+          proxyUrl: proxyUrl.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Ошибка сохранения настроек');
+      }
+      setOnline(data.online);
+      setStatusMessage(data.message);
+      if (data.tokenMasked) setMaskedToken(data.tokenMasked);
+      setToken('');
+      showToast(data.online ? 'success' : 'error', data.message || 'Настройки TMDB успешно сохранены');
+    } catch (err: any) {
+      showToast('error', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch('/api/settings/tmdb/test', { method: 'POST' });
+      const data = await res.json();
+      setOnline(data.ok);
+      setStatusMessage(data.message || (data.ok ? 'Соединение с TMDB работает' : 'Ошибка соединения'));
+      showToast(data.ok ? 'success' : 'error', data.message || 'Проверка завершена');
+    } catch {
+      setOnline(false);
+      showToast('error', 'Не удалось связаться с сервером');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 space-y-6">
+      {/* Toast Alert */}
+      {toast && (
+        <div
+          className={`flex items-center gap-3 rounded-[12px] p-4 text-[13px] animate-fade-in border ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          )}
+          <span>{toast.text}</span>
+        </div>
+      )}
+
+      {/* Connection Status Card */}
+      <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-amber-400/10 text-amber-300">
+              <Film className="h-5 w-5" strokeWidth={1.75} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-medium text-white/90">Статус каталога TMDB</span>
+                {loading ? (
+                  <span className="flex items-center gap-1 text-[11px] text-white/40">
+                    <RefreshCw className="h-3 w-3 animate-spin" /> Проверка...
+                  </span>
+                ) : online ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Подключено
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 text-[11px] font-medium text-rose-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                    Не подключено
+                  </span>
+                )}
+              </div>
+              <p className="mt-0.5 text-[12px] text-white/40">
+                {loading ? 'Инициализация проверки TMDB...' : statusMessage || (online ? 'Постеры, описания и коллекции доступны' : 'Требуется настройка ключа или прокси')}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleTest}
+            disabled={testing || loading}
+            className="flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-4 py-2 text-[12px] font-medium text-white/70 transition-cinematic hover:bg-white/[0.08] hover:text-white disabled:opacity-50"
+            title="Проверить текущее соединение"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${testing ? 'animate-spin' : ''}`} />
+            <span>Проверить</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Main Settings Form */}
+      <form onSubmit={handleSave} className="space-y-6">
+        {/* Token Section */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-[14px] font-medium text-white/85 flex items-center gap-2">
+              <Key className="h-4 w-4 text-amber-300/80" strokeWidth={1.5} />
+              API-токен или API-ключ TMDB
+            </label>
+            {maskedToken && (
+              <span className="text-[11px] font-mono text-white/40">
+                Текущий: {maskedToken}
+              </span>
+            )}
+          </div>
+          <p className="mb-3 text-[12px] leading-relaxed text-white/45">
+            Поддерживается как современный API Read Access Token v4 (длинная строка на <code>eyJ...</code>), так и классический API Key v3 (32 символа).
+          </p>
+
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={maskedToken ? 'Оставьте пустым, чтобы сохранить текущий токен' : 'Вставьте ваш токен или ключ...'}
+              className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 pr-11 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(!showToken)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/75 transition-cinematic"
+              title={showToken ? 'Скрыть токен' : 'Показать токен'}
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <a
+              href="https://www.themoviedb.org/settings/api"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[12px] text-amber-300/80 hover:text-amber-200 transition-cinematic hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Получить бесплатный токен на themoviedb.org
+            </a>
+            {token && (
+              <button
+                type="button"
+                onClick={() => setToken('')}
+                className="text-[11px] text-white/40 hover:text-white/70 transition-cinematic"
+              >
+                Очистить поле
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Proxy Section */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-[14px] font-medium text-white/85 flex items-center gap-2">
+              <Wifi className="h-4 w-4 text-amber-300/80" strokeWidth={1.5} />
+              Прокси-сервер (TMDB Proxy URL)
+            </label>
+            <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300/80">
+              Для регионов с блокировками
+            </span>
+          </div>
+          <p className="mb-3 text-[12px] leading-relaxed text-white/45">
+            Если сервер находится в РФ или другом регионе с ограничениями доступа к themoviedb.org, укажите SOCKS5 или HTTP прокси.
+          </p>
+
+          <input
+            type="text"
+            value={proxyUrl}
+            onChange={(e) => setProxyUrl(e.target.value)}
+            placeholder="socks5h://user:password@host:port или https://workers.dev/..."
+            className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+          />
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-white/30">Быстрые действия:</span>
+            <button
+              type="button"
+              onClick={() => setProxyUrl('')}
+              className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-white/60 transition-cinematic hover:bg-white/[0.08] hover:text-white"
+            >
+              Отключить прокси (прямой доступ)
+            </button>
+            <button
+              type="button"
+              onClick={() => setProxyUrl('socks5h://proxyuser23:23012003@80.211.143.155:12243')}
+              className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-white/60 transition-cinematic hover:bg-white/[0.08] hover:text-white"
+            >
+              Рабочий SOCKS5 (по умолчанию)
+            </button>
+          </div>
+        </div>
+
+        {/* Save Bar */}
+        <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
+          <div className="text-[12px] text-white/40">
+            Изменения вступают в силу немедленно без перезапуска сервера.
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2.5 rounded-full bg-amber-300/90 px-6 py-2.5 text-[13px] font-semibold text-black/85 shadow-lg shadow-amber-300/10 transition-cinematic hover:bg-amber-200 hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Сохранение и проверка...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Сохранить и применить</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function HomeLayoutSettings() {
+  const [shelves, setShelves] = useState<HomeShelfConfig[]>(getHomeShelves);
+  const [toast, setToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    syncHomeShelvesFromServer().then((remote) => {
+      if (remote && remote.length > 0) setShelves(remote);
+    });
+  }, []);
+
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  const moveShelf = (index: number, direction: 'up' | 'down') => {
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= shelves.length) return;
+
+    const updated = [...shelves];
+    const [moved] = updated.splice(index, 1);
+    updated.splice(targetIndex, 0, moved);
+
+    setShelves(updated);
+    saveHomeShelves(updated);
+    showToast('Порядок полок обновлен');
+  };
+
+  const toggleShelf = (id: string) => {
+    const updated = shelves.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s));
+    setShelves(updated);
+    saveHomeShelves(updated);
+    showToast('Видимость полки обновлена');
+  };
+
+  const handleReset = () => {
+    setShelves(DEFAULT_SHELVES);
+    saveHomeShelves(DEFAULT_SHELVES);
+    showToast('Порядок полок сброшен по умолчанию');
+  };
+
+  return (
+    <div className="mt-8 space-y-6 animate-fade-in">
+      {/* Toast Alert */}
+      {toast && (
+        <div className="flex items-center gap-2 rounded-[12px] bg-emerald-500/10 border border-emerald-500/30 p-3.5 text-[13px] text-emerald-300 animate-fade-in">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          <span>{toast}</span>
+        </div>
+      )}
+
+      {/* Explanatory Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+        <div>
+          <h3 className="text-[15px] font-medium text-white/90 flex items-center gap-2">
+            <LayoutList className="h-4 w-4 text-amber-300" strokeWidth={1.5} />
+            Порядок полок на главной странице
+          </h3>
+          <p className="mt-1 text-[12px] text-white/45">
+            Используйте кнопки ↑ и ↓, чтобы перемещать полки выше или ниже. Переключатель скрывает или отображает полку.
+          </p>
+        </div>
+
+        <button
+          onClick={handleReset}
+          className="flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] px-3.5 py-1.5 text-[12px] font-medium text-white/70 hover:text-white transition-cinematic"
+        >
+          <RotateCcw className="h-3.5 w-3.5" />
+          <span>По умолчанию</span>
+        </button>
+      </div>
+
+      {/* Shelves List */}
+      <div className="space-y-2.5">
+        {shelves.map((shelf, idx) => {
+          const isFirst = idx === 0;
+          const isLast = idx === shelves.length - 1;
+
+          return (
+            <div
+              key={shelf.id}
+              className={`flex items-center justify-between gap-4 rounded-[14px] p-4 transition-cinematic border ${
+                shelf.enabled
+                  ? 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.05]'
+                  : 'bg-white/[0.01] border-white/[0.03] opacity-40'
+              }`}
+            >
+              <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                {/* Position Badge */}
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-[12px] font-bold text-amber-300/80">
+                  {idx + 1}
+                </div>
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`text-[14px] font-medium ${shelf.enabled ? 'text-white/90' : 'text-white/40'}`}>
+                      {shelf.label}
+                    </span>
+                    {!shelf.enabled && (
+                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] text-white/40">
+                        Скрыта
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-0.5 truncate text-[11px] text-white/40">
+                    {shelf.description}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons: Up, Down, Toggle */}
+              <div className="flex items-center gap-2 shrink-0">
+                {/* Up button */}
+                <button
+                  onClick={() => moveShelf(idx, 'up')}
+                  disabled={isFirst}
+                  title="Поднять выше"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 hover:bg-amber-300 hover:text-black hover:border-amber-300 transition-cinematic disabled:opacity-20 disabled:pointer-events-none"
+                >
+                  <ArrowUp className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+
+                {/* Down button */}
+                <button
+                  onClick={() => moveShelf(idx, 'down')}
+                  disabled={isLast}
+                  title="Опустить ниже"
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-white/[0.04] text-white/60 hover:bg-amber-300 hover:text-black hover:border-amber-300 transition-cinematic disabled:opacity-20 disabled:pointer-events-none"
+                >
+                  <ArrowDown className="h-3.5 w-3.5" strokeWidth={2} />
+                </button>
+
+                {/* Toggle switch */}
+                <button
+                  onClick={() => toggleShelf(shelf.id)}
+                  className="relative ml-2 h-6 w-11 rounded-full transition-cinematic"
+                  style={{ background: shelf.enabled ? 'rgba(232,193,112,0.85)' : 'rgba(255,255,255,0.12)' }}
+                  aria-label={shelf.label}
+                >
+                  <span
+                    className="absolute top-0.5 h-5 w-5 rounded-full bg-white shadow-md transition-all duration-300"
+                    style={{ left: shelf.enabled ? '22px' : '2px' }}
+                  />
+                </button>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

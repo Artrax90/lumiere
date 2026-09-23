@@ -5,6 +5,8 @@ import type {
   TitleResult,
   Episode,
   Genre,
+  PersonDetails,
+  PersonCredit,
 } from './types.js';
 
 interface TmdbTitle {
@@ -63,6 +65,47 @@ export class TmdbProvider implements MetadataProvider {
 
   async popular(mediaType: 'movie' | 'tv', page = 1, lang?: Lang): Promise<TitleResult> {
     const data = await this.client.get(`/${mediaType}/popular`, {
+      page: String(page),
+      language: this.client.lang(lang),
+    });
+    return {
+      results: data.results.map((t: TmdbTitle) => this.mapTitle(t, mediaType)),
+      page: data.page,
+      totalPages: data.total_pages,
+      totalResults: data.total_results,
+    };
+  }
+
+  async topRated(mediaType: 'movie' | 'tv', page = 1, lang?: Lang): Promise<TitleResult> {
+    const data = await this.client.get(`/${mediaType}/top_rated`, {
+      page: String(page),
+      language: this.client.lang(lang),
+    });
+    return {
+      results: data.results.map((t: TmdbTitle) => this.mapTitle(t, mediaType)),
+      page: data.page,
+      totalPages: data.total_pages,
+      totalResults: data.total_results,
+    };
+  }
+
+  async nowPlaying(page = 1, lang?: Lang): Promise<TitleResult> {
+    const data = await this.client.get('/movie/now_playing', {
+      page: String(page),
+      language: this.client.lang(lang),
+    });
+    return {
+      results: data.results.map((t: TmdbTitle) => this.mapTitle(t, 'movie')),
+      page: data.page,
+      totalPages: data.total_pages,
+      totalResults: data.total_results,
+    };
+  }
+
+  async discoverGenre(mediaType: 'movie' | 'tv', genreId: number, page = 1, lang?: Lang): Promise<TitleResult> {
+    const data = await this.client.get(`/discover/${mediaType}`, {
+      with_genres: String(genreId),
+      sort_by: 'popularity.desc',
       page: String(page),
       language: this.client.lang(lang),
     });
@@ -158,6 +201,57 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
+  async person(id: number, lang?: Lang): Promise<PersonDetails> {
+    const [personData, creditsData] = await Promise.all([
+      this.client.get(`/person/${id}`, { language: this.client.lang(lang) }),
+      this.client.get(`/person/${id}/combined_credits`, { language: this.client.lang(lang) }),
+    ]);
+
+    const rawCredits = [...(creditsData.cast || []), ...(creditsData.crew || [])];
+    const seen = new Set<number>();
+    const credits: PersonCredit[] = [];
+
+    // Sort by popularity / vote_count descending
+    rawCredits.sort((a: any, b: any) => (b.vote_count || 0) - (a.vote_count || 0));
+
+    for (const item of rawCredits) {
+      if (!item.id || seen.has(item.id)) continue;
+      if (!item.poster_path) continue;
+      seen.add(item.id);
+
+      const date = item.release_date || item.first_air_date || '';
+      const year = date ? parseInt(date.slice(0, 4)) : 0;
+      const title = item.title || item.name || '';
+      const type = item.media_type === 'tv' ? 'tv' : 'movie';
+
+      credits.push({
+        id: item.id,
+        title,
+        type,
+        poster: this.client.posterUrl(item.poster_path),
+        backdrop: this.client.backdropUrl(item.backdrop_path),
+        year,
+        score: Math.round((item.vote_average || 0) * 10) / 10,
+        character: item.character || '',
+        job: item.job || '',
+      });
+
+      if (credits.length >= 40) break;
+    }
+
+    return {
+      id: personData.id,
+      name: personData.name || '',
+      biography: personData.biography || '',
+      profile: this.client.imageUrl(personData.profile_path, 'h632') || this.client.profileUrl(personData.profile_path),
+      birthday: personData.birthday || '',
+      deathday: personData.deathday || '',
+      placeOfBirth: personData.place_of_birth || '',
+      knownForDepartment: personData.known_for_department || '',
+      credits,
+    };
+  }
+
   private mapDetails(
     details: TmdbDetails,
     credits: TmdbCredits,
@@ -172,8 +266,11 @@ export class TmdbProvider implements MetadataProvider {
     base.genres = (details.genres || []).map((g) => g.name);
     base.rating = (details as any).certification || '';
 
-    if (mediaType === 'tv' && details.episode_run_time?.[0]) {
-      base.runtime = `${details.episode_run_time[0]}m`;
+    if (mediaType === 'tv') {
+      base.seasonsCount = details.seasons?.filter((s) => s.season_number > 0).length || (details as any).number_of_seasons || 1;
+      if (details.episode_run_time?.[0]) {
+        base.runtime = `${details.episode_run_time[0]}m`;
+      }
     } else if (details.runtime) {
       base.runtime = `${Math.floor(details.runtime / 60)}h ${details.runtime % 60}m`;
     }
@@ -181,7 +278,8 @@ export class TmdbProvider implements MetadataProvider {
     const director = credits.crew.find((c) => c.job === 'Director');
     if (director) base.director = director.name;
 
-    base.cast = credits.cast.slice(0, 6).map((c) => ({
+    base.cast = credits.cast.slice(0, 16).map((c) => ({
+      id: c.id,
       name: c.name,
       role: c.character,
       image: this.client.profileUrl(c.profile_path),

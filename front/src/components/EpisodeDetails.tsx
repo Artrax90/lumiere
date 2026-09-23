@@ -1,21 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, ChevronLeft, ChevronRight, Clock, Calendar, Star } from 'lucide-react';
+import { Play, ChevronLeft, ChevronRight, Clock, Calendar, Star, Magnet, Loader2, Sparkles } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
 import { useSeason } from '@/hooks/useSeason';
+import TorrentSearch from './TorrentSearch';
 
 interface EpisodeDetailsProps {
   episode: Episode;
+  series?: Title;
   onBack: () => void;
-  onPlay: (title: Title) => void;
+  onPlay: (title: Title, externalSubs?: any[]) => void;
   onSelectEpisode: (ep: Episode) => void;
 }
 
-export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisode }: EpisodeDetailsProps) {
+export default function EpisodeDetails({ episode, series: initialSeries, onBack, onPlay, onSelectEpisode }: EpisodeDetailsProps) {
   const { t } = useTranslation();
   const [imgLoaded, setImgLoaded] = useState(false);
-  const { data: series } = useDetails(episode.seriesId, 'tv');
+  const { data: fetchedSeries, loading: seriesLoading } = useDetails(initialSeries ? null : episode.seriesId, 'tv');
+  const series = initialSeries || fetchedSeries;
   const { data: seasonEpisodes } = useSeason(episode.seriesId, episode.season);
   const currentIdx = seasonEpisodes.findIndex((e) => e.id === episode.id);
   const prevEp = currentIdx > 0 ? seasonEpisodes[currentIdx - 1] : null;
@@ -26,18 +29,47 @@ export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisod
     window.scrollTo({ top: 0, behavior: 'instant' });
   }, [episode.id]);
 
-  if (!series) return null;
+  if (!series) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center p-8 text-center animate-fade-in text-white/80">
+        <Loader2 className="h-10 w-10 animate-spin text-amber-300 mb-4" />
+        <h2 className="text-[18px] font-medium text-white/90">Загрузка информации об эпизоде...</h2>
+        <p className="mt-1 text-[13px] text-white/45">Сезон {episode.season}, Серия {episode.episode}</p>
+        <button
+          onClick={onBack}
+          className="mt-6 rounded-full glass px-6 py-2.5 text-[13px] font-medium text-white/80 hover:text-white"
+        >
+          Назад к сериалу
+        </button>
+      </div>
+    );
+  }
+
+  const torrentsRef = useRef<HTMLDivElement>(null);
+  const episodeQuery = `${series.name} S${String(episode.season).padStart(2, '0')}E${String(episode.episode).padStart(2, '0')}`;
+  const episodeTitle: Title = {
+    ...series,
+    name: episodeQuery,
+    logoText: `${series.name} — ${t('episode.season')}${episode.season} ${t('episode.episode')}${episode.episode}`,
+  };
+
+  const backdropSrc = episode.thumbnail || series.backdrop || series.poster;
+
+  const scrollToTorrents = () => {
+    torrentsRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
   return (
     <div className="min-h-screen w-full animate-fade-in">
       <div className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
         {!imgLoaded && <div className="absolute inset-0 skeleton" />}
         <img
-          src={episode.thumbnail}
+          src={backdropSrc}
           alt={episode.title}
           onLoad={() => setImgLoaded(true)}
+          onError={() => setImgLoaded(true)}
           className="absolute inset-0 h-full w-full object-cover"
-          style={{ opacity: imgLoaded ? 1 : 0, filter: 'saturate(1.05) contrast(1.05)', transform: 'scale(1.06)', transition: 'opacity 800ms ease-out, transform 8s ease-out' }}
+          style={{ opacity: imgLoaded ? 1 : 0.4, filter: 'saturate(1.05) contrast(1.05)', transform: 'scale(1.06)', transition: 'opacity 800ms ease-out, transform 8s ease-out' }}
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-[#08080a]/40 to-transparent" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#08080a]/80 to-transparent" />
@@ -72,23 +104,53 @@ export default function EpisodeDetails({ episode, onBack, onPlay, onSelectEpisod
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1000px] px-8 lg:px-12">
+      <div className="relative z-10 mx-auto max-w-[1100px] px-8 lg:px-12">
         <div className="-mt-6 flex items-center gap-3 animate-detail-rise" style={{ animationDelay: '100ms' }}>
           <button
-            onClick={() => onPlay(series)}
+            onClick={scrollToTorrents}
             className="flex items-center gap-2.5 rounded-full bg-white px-7 py-3.5 text-[14px] font-semibold text-black transition-cinematic hover:scale-[1.03] active:scale-95"
             style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.22)' }}
           >
-            <Play className="h-4 w-4 fill-current" />{episode.progress ? t('common.continue') : t('common.watch')}
+            <Play className="h-4 w-4 fill-current" />{episode.progress ? t('common.continue') : 'Выбрать торрент и смотреть'}
           </button>
         </div>
 
-        <div className="mt-10 max-w-2xl animate-detail-rise" style={{ animationDelay: '150ms' }}>
-          <h3 className="mb-3 text-display text-[18px] font-medium text-white/85">{t('episode.description')}</h3>
-          <p className="text-[16px] leading-[1.75] text-white/72">{episode.synopsis}</p>
+        {/* Torrents section right at the top for instant access */}
+        <div ref={torrentsRef} className="mt-8 border-t border-white/[0.06] pt-6 animate-detail-rise" style={{ animationDelay: '150ms' }}>
+          <div className="mb-4 flex items-center gap-3">
+            <h3 className="text-display text-[20px] font-medium tracking-tight text-white/90">
+              Торренты и файлы серии
+            </h3>
+            <span className="text-[12px] text-amber-300/80 bg-amber-400/10 px-2.5 py-0.5 rounded-full font-medium">
+              S{String(episode.season).padStart(2, '0')}E{String(episode.episode).padStart(2, '0')}
+            </span>
+          </div>
+          <TorrentSearch
+            title={episodeTitle}
+            onPlay={(url, epName, extSubs) =>
+              onPlay(
+                {
+                  ...series,
+                  name: `${series.name} — ${epName || `S${episode.season}E${episode.episode}`}`,
+                  videoUrl: url,
+                  episode: epName || `S${episode.season}E${episode.episode}`,
+                },
+                extSubs
+              )
+            }
+          />
         </div>
 
-        <div className="mt-10 flex items-center justify-between border-t border-white/[0.06] pt-6 animate-detail-rise" style={{ animationDelay: '200ms' }}>
+        {/* Episode description */}
+        {episode.synopsis && (
+          <div className="mt-10 max-w-3xl rounded-[16px] border border-white/[0.06] bg-white/[0.02] p-6 animate-detail-rise" style={{ animationDelay: '200ms' }}>
+            <h3 className="mb-2 text-display text-[16px] font-medium text-white/85">{t('episode.description')}</h3>
+            <p className="text-[14px] leading-[1.7] text-white/70">{episode.synopsis}</p>
+          </div>
+        )}
+
+        {/* Previous / Next episode nav */}
+        <div className="mt-8 flex items-center justify-between border-t border-white/[0.06] pt-6 animate-detail-rise" style={{ animationDelay: '220ms' }}>
           {prevEp ? (
             <button onClick={() => onSelectEpisode(prevEp)} className="group flex items-center gap-3 rounded-[14px] glass-panel p-3 text-left transition-cinematic hover:bg-white/[0.06]">
               <ChevronLeft className="h-5 w-5 text-white/40 transition-cinematic group-hover:text-white/80" strokeWidth={1.5} />

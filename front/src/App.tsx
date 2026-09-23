@@ -72,7 +72,6 @@ import Home from '@/components/Home';
 import MovieDetails from '@/components/MovieDetails';
 import SearchView from '@/components/SearchView';
 import Player from '@/components/Player';
-import LiveTV from '@/components/LiveTV';
 import SettingsView from '@/components/SettingsView';
 import CollectionsView from '@/components/CollectionsView';
 import MoviesLibrary from '@/components/MoviesLibrary';
@@ -84,14 +83,18 @@ import PluginStore from '@/components/PluginStore';
 import DownloadManager from '@/components/DownloadManager';
 import NotificationsView from '@/components/NotificationsView';
 import IPTVView from '@/components/IPTVView';
+import MyView from '@/components/MyView';
 
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
-  const { user, loading, needsSetup, serverReady } = useAuth();
+  const { user, loading, needsSetup, serverReady, connectionError } = useAuth();
   const [section, setSection] = useState<NavSection>('home');
   const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
+  const [selectedShow, setSelectedShow] = useState<Title | null>(null);
+  const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [selectedEpisode, setSelectedEpisode] = useState<Episode | null>(null);
+  const [activeEpisodeId, setActiveEpisodeId] = useState<string | null>(null);
   const [playing, setPlaying] = useState<Title | null>(null);
   const [playingExternalSubs, setPlayingExternalSubs] = useState<any[]>([]);
   const [mood, setMood] = useState<Mood>('warm');
@@ -112,7 +115,8 @@ export default function App() {
   ];
 
   useFocus({
-    elements: tvNavElements,
+    elements: tv ? tvNavElements : [],
+    enabled: tv,
     initialFocus: 'nav-home',
     onBack: () => {
       if (section !== 'home') handleNavigate('home');
@@ -140,15 +144,33 @@ export default function App() {
   }, []);
 
   const handleSelect = useCallback((title: Title) => {
+    if (title.type === 'tv' || title.type === 'show') {
+      let initSeason = 1;
+      try {
+        const saved = localStorage.getItem(`last_season_${title.id}`);
+        if (saved) initSeason = parseInt(saved, 10) || 1;
+      } catch {}
+      setSelectedShow(title);
+      setSelectedSeason(initSeason);
+      setActiveEpisodeId(null);
+      setSelectedEpisode(null);
+      setSelectedTitle(null);
+      setSection('shows');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      return;
+    }
     setSelectedTitle(title);
     setSelectedEpisode(null);
-    setSection('home');
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const lastSavedTime = useRef(0);
 
   const handlePlay = useCallback((title: Title, externalSubs?: any[]) => {
+    if (!title.videoUrl) {
+      handleSelect(title);
+      return;
+    }
     setPlaying(title);
     setPlayingExternalSubs(externalSubs || []);
     lastSavedTime.current = 0;
@@ -163,7 +185,7 @@ export default function App() {
         titleName: title.name,
       }),
     }).catch(() => {});
-  }, []);
+  }, [handleSelect]);
 
   const handleTimeUpdate = useCallback((time: number) => {
     // Save position every 5 seconds
@@ -187,17 +209,31 @@ export default function App() {
     if (playing) {
       savePlaybackPosition(playing.id, lastSavedTime.current, playing);
     }
+    const isShow = playing?.type === 'tv' || playing?.type === 'anime' || Boolean((playing as any)?.episode);
     setPlaying(null);
-  }, [playing]);
+    // Return directly to the series view with the current season & active episode highlighted
+    if (selectedEpisode) {
+      setSelectedEpisode(null);
+      setSection('shows');
+    } else if (isShow) {
+      setSection('shows');
+    }
+  }, [playing, selectedEpisode]);
 
   const handleEpisodeSelect = useCallback((ep: Episode) => {
     setSelectedEpisode(ep);
+    setSelectedSeason(ep.season);
+    setActiveEpisodeId(ep.id);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
   const handleNavigate = useCallback((s: NavSection) => {
     setSelectedTitle(null);
     setSelectedEpisode(null);
+    if (s !== 'shows') {
+      setSelectedShow(null);
+      setActiveEpisodeId(null);
+    }
     setSection(s);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
@@ -216,6 +252,9 @@ export default function App() {
           handlePlayerExit();
         } else if (selectedEpisode) {
           setSelectedEpisode(null);
+          setSection('shows');
+        } else if (selectedShow) {
+          setSelectedShow(null);
         } else if (selectedTitle) {
           setSelectedTitle(null);
         } else if (section === 'settings') {
@@ -233,10 +272,10 @@ export default function App() {
     });
 
     return () => { removeListener?.(); };
-  }, [playing, selectedEpisode, selectedTitle, section, handlePlayerExit]);
+  }, [playing, selectedEpisode, selectedShow, selectedTitle, section, handlePlayerExit]);
 
   if (!serverReady) {
-    return <ServerSetup onConnected={() => {}} />;
+    return <ServerSetup onConnected={() => {}} initialError={connectionError} />;
   }
 
   if (loading) {
@@ -275,7 +314,7 @@ export default function App() {
         <TopNav active={section} onNavigate={handleNavigate} />
       )}
 
-      <main className="pb-20 md:pb-0">
+      <main className="pb-20 xl:pb-0">
         {playing ? (
           tv ? (
             <TvPlayer
@@ -296,7 +335,11 @@ export default function App() {
         ) : selectedEpisode ? (
           <EpisodeDetails
             episode={selectedEpisode}
-            onBack={() => setSelectedEpisode(null)}
+            series={selectedShow || undefined}
+            onBack={() => {
+              setSelectedEpisode(null);
+              setSection('shows');
+            }}
             onPlay={handlePlay}
             onSelectEpisode={handleEpisodeSelect}
           />
@@ -321,18 +364,27 @@ export default function App() {
           )
         ) : section === 'search' ? (
           <SearchView onSelect={handleSelect} />
-        ) : section === 'live' ? (
-          <LiveTV onSelect={handlePlay} titles={trendingMovies} />
-        ) : section === 'iptv' ? (
+        ) : (section === 'live' || section === 'iptv') ? (
           <IPTVView onPlay={handlePlay} />
         ) : section === 'settings' ? (
           <SettingsView onClose={() => setSection('home')} />
         ) : section === 'collections' ? (
           <CollectionsView onSelect={handleSelect} />
+        ) : section === 'my' ? (
+          <MyView onSelect={handleSelect} />
         ) : section === 'movies' ? (
           <MoviesLibrary onSelect={handleSelect} />
         ) : section === 'shows' ? (
-          <TVShows onSelect={handleSelect} onPlay={handlePlay} onEpisodeSelect={handleEpisodeSelect} />
+          <TVShows
+            onSelect={handleSelect}
+            onPlay={handlePlay}
+            onEpisodeSelect={handleEpisodeSelect}
+            selectedShow={selectedShow}
+            onSelectShow={setSelectedShow}
+            season={selectedSeason}
+            onSelectSeason={setSelectedSeason}
+            activeEpisodeId={activeEpisodeId}
+          />
         ) : section === 'anime' ? (
           <AnimeView onSelect={handleSelect} onPlay={handlePlay} />
         ) : section === 'profile' ? (

@@ -13,6 +13,20 @@ services:
       POSTGRES_DB: ${DB_NAME:-lumiere}
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./src/db/migrations.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+
+  torrserver:
+    image: ghcr.io/yourok/torrserver:latest
+    container_name: lumiere-torrserver
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - TS_PORT=8090
+      - TS_DONTKILL=1
+    volumes:
+      - torrserver-data:/opt/torrserver/db
 
 volumes:
   pgdata:
+  torrserver-data:

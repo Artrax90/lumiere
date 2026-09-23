@@ -4,3 +4,10 @@ dist/
 *.log
 /tmp/
 .DS_Store
+scratch/
+out.txt
+*.manifest.tmp
+*.idsig
+torrserver/
+back/data/
+

@@ -1,21 +1,132 @@
-import { useState, useMemo } from 'react';
-import { Play, Star, Clock, ChevronRight } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
+import { Star, Clock, ChevronRight, Play, Loader2 } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
+import { apiFetch } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
+import { useDetails } from '@/hooks/useDetails';
 import { useSeason } from '@/hooks/useSeason';
 import SafeImg from './SafeImg';
+import SeasonTorrentBrowser from './SeasonTorrentBrowser';
 
 interface TVShowsProps {
   onSelect: (title: Title) => void;
   onPlay: (title: Title) => void;
   onEpisodeSelect?: (episode: Episode) => void;
+  selectedShow?: Title | null;
+  onSelectShow?: (show: Title | null) => void;
+  season?: number;
+  onSelectSeason?: (season: number) => void;
+  activeEpisodeId?: string | null;
 }
 
-export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
-  const { data: shows } = usePopular('tv');
-  const [selectedShow, setSelectedShow] = useState<Title | null>(null);
-  const [season, setSeason] = useState(1);
+export default function TVShows({
+  onSelect,
+  onPlay,
+  onEpisodeSelect,
+  selectedShow: controlledShow,
+  onSelectShow,
+  season: controlledSeason,
+  onSelectSeason,
+  activeEpisodeId,
+}: TVShowsProps) {
+  const [page, setPage] = useState(1);
+  const [allShows, setAllShows] = useState<Title[]>([]);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(true);
+
+  const { data: initialShows } = usePopular('tv', 1);
+  const [internalSelectedShow, setInternalSelectedShow] = useState<Title | null>(null);
+  const [internalSeason, setInternalSeason] = useState(1);
+
+  const selectedShow = controlledShow !== undefined ? controlledShow : internalSelectedShow;
+  const setSelectedShow = onSelectShow || setInternalSelectedShow;
+
+  const season = controlledSeason !== undefined ? controlledSeason : internalSeason;
+  const setSeason = onSelectSeason || setInternalSeason;
+
+  const { data: showDetails } = useDetails(selectedShow?.id || null, 'tv');
   const { data: showEpisodes } = useSeason(selectedShow?.id || null, selectedShow ? season : null);
+
+  useEffect(() => {
+    if (initialShows && initialShows.length > 0) {
+      setAllShows(initialShows);
+    }
+  }, [initialShows]);
+
+  // Scroll to active episode if present
+  useEffect(() => {
+    if (activeEpisodeId && showEpisodes.length > 0) {
+      const timer = setTimeout(() => {
+        const el = document.getElementById(`episode-${activeEpisodeId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 150);
+      return () => clearTimeout(timer);
+    }
+  }, [activeEpisodeId, showEpisodes]);
+
+  const loadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const nextPage = page + 1;
+      const res = await apiFetch<{ results: Title[] }>('/api/tv/popular', { page: String(nextPage) });
+      if (res.results && res.results.length > 0) {
+        setAllShows((prev) => {
+          const existingIds = new Set(prev.map((s) => s.id));
+          const newItems = res.results.filter((s) => !existingIds.has(s.id));
+          return [...prev, ...newItems];
+        });
+        setPage(nextPage);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error('Failed to load more shows:', err);
+    } finally {
+      setLoadingMore(false);
+    }
+  };
+
+  const displayShows = allShows.length > 0 ? allShows : initialShows;
+
+  const totalSeasons = showDetails?.seasonsCount || Math.max(season, 1);
+  const seasonList = useMemo(
+    () => Array.from({ length: Math.max(1, Math.min(totalSeasons, 30)) }, (_, i) => i + 1),
+    [totalSeasons]
+  );
+
+  // Only clamp if showDetails has definitively loaded with a valid seasonsCount
+  useEffect(() => {
+    if (showDetails?.seasonsCount && season > showDetails.seasonsCount) {
+      setSeason(1);
+    }
+  }, [showDetails?.seasonsCount, season, setSeason]);
+
+  // Save active season for the selected show
+  useEffect(() => {
+    if (selectedShow?.id && season) {
+      try {
+        localStorage.setItem(`last_season_${selectedShow.id}`, String(season));
+      } catch {}
+    }
+  }, [selectedShow?.id, season]);
+
+  // Restore saved season when show changes
+  useEffect(() => {
+    if (selectedShow?.id) {
+      try {
+        const saved = localStorage.getItem(`last_season_${selectedShow.id}`);
+        if (saved) {
+          const s = parseInt(saved, 10);
+          if (s > 0 && s !== season) {
+            setSeason(s);
+          }
+        }
+      } catch {}
+    }
+  }, [selectedShow?.id]);
 
   if (selectedShow) {
     return (
@@ -51,13 +162,13 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
 
           <p className="mt-8 max-w-2xl text-[15px] leading-[1.7] text-white/70 animate-detail-rise" style={{ animationDelay: '150ms' }}>{selectedShow.description}</p>
 
-          <div className="mt-10 animate-detail-rise" style={{ animationDelay: '200ms' }}>
+          <div id="episodes-section" className="mt-10 animate-detail-rise scroll-mt-20" style={{ animationDelay: '200ms' }}>
             <div className="mb-5 flex items-center gap-3">
               <h3 className="text-display text-[20px] font-medium tracking-tight text-white/90">Эпизоды</h3>
               <div className="h-px flex-1 bg-white/[0.06]" />
             </div>
             <div className="mb-6 flex gap-2 overflow-x-auto no-scrollbar">
-              {[1, 2, 3, 4, 5].map((s) => (
+              {seasonList.map((s) => (
                 <button
                   key={s}
                   onClick={() => setSeason(s)}
@@ -73,35 +184,13 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
               ))}
             </div>
 
-            <div className="space-y-3">
-              {showEpisodes.map((ep, i) => (
-                <button
-                  key={ep.id}
-                  onClick={() => onSelect(selectedShow)}
-                  className="group/ep flex w-full items-center gap-4 rounded-[14px] glass-panel p-3 text-left transition-cinematic hover:bg-white/[0.06] animate-stagger-in"
-                  style={{ animationDelay: `${250 + i * 50}ms` }}
-                >
-                  <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-[10px]">
-                    <img src={ep.thumbnail} alt={ep.title} className="absolute inset-0 h-full w-full object-cover transition-cinematic group-hover/ep:scale-105" loading="lazy" />
-                    <div className="absolute inset-0 bg-black/20" />
-                    <div className="absolute inset-0 flex items-center justify-center opacity-0 transition-cinematic group-hover/ep:opacity-100">
-                      <Play className="h-6 w-6 fill-white text-white" />
-                    </div>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-white/40">{ep.episode}</span>
-                      <h4 className="truncate text-[14px] font-medium text-white/90">{ep.title}</h4>
-                    </div>
-                    <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-white/45">{ep.synopsis}</p>
-                    <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/35">
-                      <Clock className="h-3 w-3" strokeWidth={1.5} />{ep.runtime}
-                      <span className="text-white/15">·</span>{ep.aired}
-                    </div>
-                  </div>
-                </button>
-              ))}
-            </div>
+            <SeasonTorrentBrowser
+              show={selectedShow}
+              season={season}
+              tmdbEpisodes={showEpisodes}
+              onPlay={onPlay}
+              activeEpisodeId={activeEpisodeId}
+            />
           </div>
           <div className="h-20" />
         </div>
@@ -123,7 +212,7 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
           <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {shows.map((show, i) => (
+            {displayShows.map((show, i) => (
               <button key={show.id} onClick={() => setSelectedShow(show)} className="group text-left animate-stagger-in" style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}>
                 <div className="relative aspect-[2/3] overflow-hidden rounded-[12px] card-edge transition-cinematic group-hover:card-edge-hover group-hover:scale-[1.04]" style={{ transition: 'transform 420ms cubic-bezier(0.16, 1, 0.3, 1)' }}>
                   <SafeImg src={show.poster} alt={show.name} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
@@ -137,6 +226,25 @@ export default function TVShows({ onSelect, onPlay }: TVShowsProps) {
               </button>
             ))}
           </div>
+
+          {hasMore && (
+            <div className="mt-12 flex justify-center">
+              <button
+                onClick={loadMore}
+                disabled={loadingMore}
+                className="flex items-center gap-2 rounded-full glass px-8 py-3 text-[14px] font-medium text-white/80 transition-cinematic hover:bg-white/10 hover:text-white disabled:opacity-50"
+              >
+                {loadingMore ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Загрузка...</span>
+                  </>
+                ) : (
+                  <span>Загрузить ещё</span>
+                )}
+              </button>
+            </div>
+          )}
         </section>
       </div>
     </div>

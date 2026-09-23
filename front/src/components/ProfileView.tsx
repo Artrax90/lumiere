@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Clock, Heart, Trophy, Monitor, Star, LogOut } from 'lucide-react';
 import type { Title } from '@/api/client';
-import { usePopular } from '@/hooks/usePopular';
+import { serverFetch } from '@/api/server';
 import { useAuth } from '@/contexts/AuthContext';
 import Card from './Card';
 
@@ -16,37 +16,100 @@ const tabs = [
   { id: 'devices', label: 'Устройства', icon: Monitor },
 ];
 
-const profileStats = {
-  totalHours: 847,
-  titlesWatched: 213,
-  completionRate: 78,
-  topGenres: [
-    { name: 'Sci-Fi', count: 42, pct: 100 },
-    { name: 'Drama', count: 38, pct: 90 },
-    { name: 'Thriller', count: 24, pct: 57 },
-    { name: 'Anime', count: 19, pct: 45 },
-    { name: 'Documentary', count: 15, pct: 36 },
-  ],
-  achievements: [
-    { id: 'a1', name: 'Киноман', desc: 'Посмотрели 100+ фильмов', icon: '🎬', unlocked: true },
-    { id: 'a2', name: 'Ночная сова', desc: 'Смотрели после 2:00 20 раз', icon: '🦉', unlocked: true },
-    { id: 'a3', name: 'Перфекционист', desc: 'Закончили 5 полных сериалов', icon: '✅', unlocked: true },
-    { id: 'a4', name: 'Коллекционер 4K', desc: 'Скачали 10 фильмов в 4K', icon: '💎', unlocked: true },
-    { id: 'a5', name: 'Мировой путешественник', desc: 'Смотрели фильмы из 15 стран', icon: '🌍', unlocked: false },
-    { id: 'a6', name: 'Фестивальный гурман', desc: 'Посмотрели 20 лауреатов премий', icon: '🏆', unlocked: false },
-  ],
-  devices: [
-    { id: 'd1', name: 'Apple TV 4K', location: 'Гостиная', lastActive: 'Сейчас', current: true },
-    { id: 'd2', name: 'Lumière TV', location: 'Спальня', lastActive: '2ч назад', current: false },
-    { id: 'd3', name: 'iPhone 16 Pro', location: 'Мобильный', lastActive: 'Вчера', current: false },
-  ],
-};
-
 export default function ProfileView({ onSelect }: ProfileViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const { user, logout } = useAuth();
-  const { data: popular } = usePopular('movie');
-  const favorites = popular.filter((t) => t.score >= 7).slice(0, 6);
+  const [favorites, setFavorites] = useState<Title[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    serverFetch('/api/user/favorites')
+      .then((res) => res.json())
+      .then((data) => {
+        if (!active || !data.favorites) return;
+        const titles: Title[] = data.favorites.map((f: any) => ({
+          id: f.tmdbId,
+          name: f.titleName,
+          type: f.mediaType || 'movie',
+          poster: f.poster || '',
+          backdrop: f.poster || '',
+          year: 0,
+          score: 0,
+          genres: [],
+          runtime: '',
+          rating: '',
+          description: '',
+          logoText: f.titleName,
+        }));
+        setFavorites(titles);
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, []);
+
+  const stats = useMemo(() => {
+    try {
+      const raw = localStorage.getItem('playback_positions');
+      const positions = raw ? JSON.parse(raw) : {};
+      let totalSeconds = 0;
+      let watchedCount = 0;
+      const genreCounts: Record<string, number> = {};
+
+      for (const val of Object.values(positions)) {
+        const time = typeof val === 'object' && val !== null ? (val as any).time || 0 : Number(val || 0);
+        if (time > 30) {
+          totalSeconds += time;
+          watchedCount++;
+          const t = typeof val === 'object' && val !== null ? (val as any).title : null;
+          if (t && Array.isArray(t.genres)) {
+            for (const g of t.genres) {
+              genreCounts[g] = (genreCounts[g] || 0) + 1;
+            }
+          }
+        }
+      }
+
+      const totalHours = Math.round(totalSeconds / 3600);
+      const topGenres = Object.entries(genreCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([name, count], _, arr) => ({
+          name,
+          count,
+          pct: arr[0] ? Math.round((count / arr[0][1]) * 100) : 100,
+        }));
+
+      return {
+        totalHours,
+        watchedCount,
+        topGenres,
+      };
+    } catch {
+      return { totalHours: 0, watchedCount: 0, topGenres: [] };
+    }
+  }, []);
+
+  const achievements = useMemo(() => [
+    { id: 'a1', name: 'Первый сеанс', desc: 'Запустили первый фильм или серию', icon: '🎬', unlocked: stats.watchedCount >= 1 },
+    { id: 'a2', name: 'Киноман', desc: 'Посмотрели более 5 фильмов или серий', icon: '🍿', unlocked: stats.watchedCount >= 5 },
+    { id: 'a3', name: 'Марафонец', desc: 'Провели более 10 часов за просмотром', icon: '⏱️', unlocked: stats.totalHours >= 10 },
+    { id: 'a4', name: 'Коллекционер', desc: 'Добавили тайтлы в избранное', icon: '⭐', unlocked: favorites.length > 0 },
+    { id: 'a5', name: 'Знаток IPTV', desc: 'Подключили собственный плейлист каналов', icon: '📡', unlocked: !!localStorage.getItem('lumiere_iptv') },
+  ], [stats, favorites.length]);
+
+  const devices = useMemo(() => [
+    {
+      id: 'd1',
+      name: window.navigator.userAgent.includes('Tizen')
+        ? 'Samsung Smart TV'
+        : window.navigator.userAgent.includes('Mobile')
+        ? 'Мобильное устройство'
+        : 'Веб-клиент (ПК / Ноутбук)',
+      location: window.location.hostname === 'localhost' ? 'Локальный сеанс' : window.location.hostname,
+      lastActive: 'Сейчас',
+      current: true,
+    }
+  ], []);
 
   return (
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
@@ -81,10 +144,10 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
         </div>
 
         <div className="mb-10 grid grid-cols-2 gap-4 md:grid-cols-4 animate-row-reveal">
-          <StatCard label="Часов просмотрено" value={profileStats.totalHours} suffix="ч" />
-          <StatCard label="Просмотрено фильмов" value={profileStats.titlesWatched} />
-          <StatCard label="Процент завершения" value={profileStats.completionRate} suffix="%" />
-          <StatCard label="Достижения" value={profileStats.achievements.filter((a) => a.unlocked).length} suffix={`/${profileStats.achievements.length}`} />
+          <StatCard label="Часов просмотрено" value={stats.totalHours} suffix="ч" />
+          <StatCard label="Просмотрено тайтлов" value={stats.watchedCount} />
+          <StatCard label="В избранном" value={favorites.length} />
+          <StatCard label="Достижения" value={achievements.filter((a) => a.unlocked).length} suffix={`/${achievements.length}`} />
         </div>
 
         <div className="mb-8 flex gap-1 overflow-x-auto border-b border-white/[0.06] animate-row-reveal no-scrollbar">
@@ -113,34 +176,49 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
                 <h3 className="text-display text-[20px] font-medium tracking-tight text-white/90">Популярные жанры</h3>
                 <div className="h-px flex-1 bg-white/[0.06]" />
               </div>
-              <div className="space-y-3">
-                {profileStats.topGenres.map((g) => (
-                  <div key={g.name} className="flex items-center gap-4">
-                    <div className="w-24 text-[13px] font-medium text-white/70">{g.name}</div>
-                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
-                      <div className="h-full rounded-full" style={{ width: `${g.pct}%`, background: 'linear-gradient(90deg, rgba(232,193,112,0.6), rgba(232,193,112,0.9))' }} />
+              {stats.topGenres.length > 0 ? (
+                <div className="space-y-3">
+                  {stats.topGenres.map((g) => (
+                    <div key={g.name} className="flex items-center gap-4">
+                      <div className="w-24 text-[13px] font-medium text-white/70">{g.name}</div>
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div className="h-full rounded-full" style={{ width: `${g.pct}%`, background: 'linear-gradient(90deg, rgba(232,193,112,0.6), rgba(232,193,112,0.9))' }} />
+                      </div>
+                      <div className="w-10 text-right text-[12px] text-white/40">{g.count}</div>
                     </div>
-                    <div className="w-10 text-right text-[12px] text-white/40">{g.count}</div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="py-8 text-center text-white/35 text-[13px]">
+                  История просмотров пуста. Смотрите фильмы и сериалы, чтобы формировать статистику жанров.
+                </div>
+              )}
             </section>
           </div>
         )}
 
         {activeTab === 'favorites' && (
-          <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 animate-fade-in">
-            {favorites.map((t, i) => (
-              <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 50, 600)}ms` }}>
-                <Card title={t} variant="portrait" onSelect={onSelect} fill />
-              </div>
-            ))}
-          </div>
+          favorites.length > 0 ? (
+            <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 animate-fade-in">
+              {favorites.map((t, i) => (
+                <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 50, 600)}ms` }}>
+                  <Card title={t} variant="portrait" onSelect={onSelect} fill />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="py-16 text-center text-white/40 animate-fade-in">
+              <p className="text-[15px] font-medium text-white/70">В избранном пока ничего нет</p>
+              <p className="mt-1 text-[13px] text-white/35">
+                Добавляйте понравившиеся фильмы и сериалы на странице просмотра или каталоге
+              </p>
+            </div>
+          )
         )}
 
         {activeTab === 'achievements' && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-fade-in">
-            {profileStats.achievements.map((a, i) => (
+            {achievements.map((a, i) => (
               <div
                 key={a.id}
                 className="flex items-center gap-4 rounded-[16px] glass-panel p-5 animate-stagger-in"
@@ -161,7 +239,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
 
         {activeTab === 'devices' && (
           <div className="space-y-3 animate-fade-in">
-            {profileStats.devices.map((d, i) => (
+            {devices.map((d, i) => (
               <div key={d.id} className="flex items-center gap-4 rounded-[14px] glass-panel p-4 animate-stagger-in" style={{ animationDelay: `${i * 60}ms` }}>
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5">
                   <Monitor className="h-4 w-4 text-white/50" strokeWidth={1.5} />

@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
 
@@ -96,14 +96,19 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   const [streamError, setStreamError] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('seeders');
   const [seasonFilter, setSeasonFilter] = useState<number | null>(null);
+  const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
+  const [searchQuery, setSearchQuery] = useState(title.name);
 
-  const search = async () => {
+  const searchWithQuery = async (queryText?: string) => {
+    const q = queryText !== undefined ? queryText : searchQuery;
+    if (!q.trim()) return;
     setLoading(true);
     setSearched(true);
     setFiles(null);
     try {
-      const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(title.name)}`);
+      const altParam = title.logoText && title.logoText !== q ? `&alt=${encodeURIComponent(title.logoText.trim())}` : '';
+      const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(q.trim())}${altParam}`);
       const data = await res.json();
       setResults(data.results || []);
     } catch {
@@ -116,9 +121,10 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   useEffect(() => {
     const last = getLastTorrent(title.id);
     setLastTorrentId(last?.hash || null);
-    // Auto-search on mount
-    search();
-  }, [title.id]);
+    setSearchQuery(title.name);
+    // Auto-search on mount or title change
+    searchWithQuery(title.name);
+  }, [title.id, title.name]);
 
   const sortedResults = useMemo(() => {
     let filtered = [...results];
@@ -131,6 +137,18 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       });
     }
 
+    // Filter by quality
+    if (qualityFilter === '4k') {
+      filtered = filtered.filter((r) => {
+        const t = r.title.toLowerCase();
+        return t.includes('2160') || t.includes('4k') || t.includes('uhd');
+      });
+    } else if (qualityFilter === '1080p') {
+      filtered = filtered.filter((r) => r.title.toLowerCase().includes('1080'));
+    } else if (qualityFilter === '720p') {
+      filtered = filtered.filter((r) => r.title.toLowerCase().includes('720'));
+    }
+
     // Sort
     filtered.sort((a, b) => {
       if (sortBy === 'seeders') return b.seeders - a.seeders;
@@ -140,7 +158,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     });
 
     return filtered;
-  }, [results, sortBy, seasonFilter]);
+  }, [results, sortBy, seasonFilter, qualityFilter]);
 
   // Extract available seasons from results
   const availableSeasons = useMemo(() => {
@@ -260,16 +278,46 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
           <Magnet className="h-4 w-4 text-amber-300/70" strokeWidth={1.5} />
           {t('movie.torrents')}
         </h3>
-        {!searched && (
-          <button
-            onClick={search}
-            className="flex items-center gap-2 rounded-full bg-white/[0.06] border border-white/[0.08] px-4 py-2 text-[12px] font-medium text-white/70 transition-cinematic hover:bg-white/[0.1] hover:text-white"
-          >
-            <Download className="h-3 w-3" strokeWidth={1.5} />
-            {t('torrents.search')}
-          </button>
-        )}
       </div>
+
+      {/* Editable search query input */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          searchWithQuery();
+        }}
+        className="flex items-center gap-2"
+      >
+        <div className="relative flex-1">
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={title.name}
+            className="w-full rounded-full bg-white/[0.05] border border-white/10 px-4 py-2 pl-9 text-[13px] text-white placeholder:text-white/30 focus:border-amber-300/40 focus:outline-none transition-colors"
+          />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+          {searchQuery && searchQuery !== title.name && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery(title.name);
+                searchWithQuery(title.name);
+              }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-white/40 hover:text-white"
+            >
+              ✕
+            </button>
+          )}
+        </div>
+        <button
+          type="submit"
+          disabled={loading || !searchQuery.trim()}
+          className="rounded-full bg-white/10 text-white border border-white/15 px-4 py-2 text-[12px] font-medium transition-cinematic hover:bg-amber-300/20 hover:text-amber-200 hover:border-amber-300/30 disabled:opacity-40"
+        >
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Искать'}
+        </button>
+      </form>
 
       {loading && (
         <div className="flex items-center gap-3 text-[13px] text-white/50 py-4">
@@ -279,30 +327,69 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       )}
 
       {streamError && (
-        <div className="text-[12px] text-red-400/80 py-2 rounded-lg bg-red-400/10 px-4">{streamError}</div>
+        <div className="flex items-center justify-between text-[12px] text-red-400/90 py-2.5 rounded-lg bg-red-400/10 border border-red-400/20 px-4">
+          <span>{streamError}</span>
+          <button
+            onClick={() => setStreamError('')}
+            className="text-[11px] text-white/50 hover:text-white transition-colors ml-2 shrink-0"
+            title="Закрыть"
+          >
+            ✕
+          </button>
+        </div>
       )}
 
       {/* Sort and filter controls */}
       {!loading && results.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 py-2">
-          {/* Sort buttons */}
-          <div className="flex items-center gap-1">
-            <ArrowUpDown className="h-3.5 w-3.5 text-white/40" />
-            {(['seeders', 'size', 'date'] as SortKey[]).map((key) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(key)}
-                className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                style={{
-                  background: sortBy === key ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                  color: sortBy === key ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                  border: sortBy === key ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                }}
-              >
-                {key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center justify-between gap-3 py-2 border-b border-white/[0.06] pb-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Sort buttons */}
+            <div className="flex items-center gap-1">
+              <ArrowUpDown className="h-3.5 w-3.5 text-white/40" />
+              {(['seeders', 'size', 'date'] as SortKey[]).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => setSortBy(key)}
+                  className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                  style={{
+                    background: sortBy === key ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                    color: sortBy === key ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                    border: sortBy === key ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  {key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
+                </button>
+              ))}
+            </div>
+
+            {/* Quality buttons */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-white/30 mr-1">Качество:</span>
+              {[
+                { id: 'all', label: 'Все' },
+                { id: '4k', label: '4K' },
+                { id: '1080p', label: '1080p' },
+                { id: '720p', label: '720p' },
+              ].map((q) => (
+                <button
+                  key={q.id}
+                  onClick={() => setQualityFilter(q.id as any)}
+                  className="rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-cinematic"
+                  style={{
+                    background: qualityFilter === q.id ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                    color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                    border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  {q.label}
+                </button>
+              ))}
+            </div>
           </div>
+
+          <span className="text-[11px] text-white/40">
+            Найдено {sortedResults.length} раздач
+          </span>
 
           {/* Season filter */}
           {availableSeasons.length > 0 && (

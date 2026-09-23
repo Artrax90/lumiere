@@ -1,12 +1,25 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
-import { serverFetch, hasServerUrl, setServerUrl, getServerUrl } from '@/api/server';
+import { serverFetch, hasServerUrl, setServerUrl, getServerUrl, checkServerHealth, clearServerUrl } from '@/api/server';
+import { isTizen } from '@/hooks/usePlatform';
 
 export interface User {
   id: number;
   email: string;
   name: string;
   avatar: string;
+  role?: string;
+  isKids?: boolean;
   createdAt: string;
+}
+
+export interface Profile {
+  id: number;
+  name: string;
+  email: string;
+  avatar: string;
+  role: string;
+  isKids: boolean;
+  hasPin: boolean;
 }
 
 interface AuthContextType {
@@ -14,9 +27,15 @@ interface AuthContextType {
   loading: boolean;
   needsSetup: boolean;
   isLan: boolean;
+  profiles: Profile[];
   serverReady: boolean;
+  connectionError: string | null;
+  fetchProfiles: () => Promise<Profile[]>;
+  quickLogin: (userId: number, pin?: string) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
+  switchProfile: () => void;
+  changeServer: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -41,12 +60,17 @@ function clearTokens() {
   localStorage.removeItem('lumiere_refresh');
 }
 
-// Detect native platform without importing Capacitor
+import { Capacitor } from '@capacitor/core';
+
+// Detect native platform reliably across Android, iOS and Tizen
 function isNativeApp(): boolean {
+  if (typeof window === 'undefined') return false;
+  if (Capacitor.isNativePlatform()) return true;
+  if (isTizen()) return true;
   const p = window.location.protocol;
-  if (p === 'capacitor:' || p === 'file:') return true;
-  // Capacitor with androidScheme:'https' uses https://localhost
-  if (p === 'https:' && window.location.hostname === 'localhost') return true;
+  if (p === 'capacitor:' || p === 'file:' || p.startsWith('wgt-')) return true;
+  // Capacitor with androidScheme:'https' or 'http' uses localhost
+  if ((p === 'https:' || p === 'http:') && window.location.hostname === 'localhost') return true;
   return false;
 }
 
@@ -55,17 +79,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [isLan, setIsLan] = useState(false);
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
   const native = isNativeApp();
 
   // On web: set server URL to current origin immediately
   // On native: wait for user to enter server URL
   const [serverReady, setServerReady] = useState(() => {
     if (!native) {
-      setServerUrl(window.location.origin);
-      return true;
+      if (window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost') {
+        setServerUrl(window.location.origin);
+        return true;
+      }
     }
     return hasServerUrl();
   });
+
+  const changeServer = useCallback(() => {
+    clearServerUrl();
+    clearTokens();
+    localStorage.removeItem('lumiere_user');
+    localStorage.removeItem('lumiere_active_profile');
+    setUser(null);
+    setConnectionError(null);
+    setServerReady(false);
+  }, []);
 
   const fetchProfile = useCallback(async (token: string) => {
     try {
@@ -77,6 +115,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {
       return null;
     }
+  }, []);
+
+  const fetchProfiles = useCallback(async (): Promise<Profile[]> => {
+    try {
+      const res = await serverFetch('/api/auth/profiles');
+      if (res.ok) {
+        const data = await res.json();
+        const list = data.profiles || [];
+        setProfiles(list);
+        return list;
+      }
+    } catch {}
+    return [];
   }, []);
 
   // Poll for server URL on native
@@ -96,44 +147,44 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     const init = async () => {
       setLoading(true);
+      setConnectionError(null);
+
+      const currentServer = getServerUrl();
+      const isHealthy = await checkServerHealth(currentServer);
+      if (!isHealthy) {
+        console.warn('[AuthContext] Server health check failed for:', currentServer);
+        setConnectionError(`Не удалось подключиться к ${currentServer}`);
+        setServerReady(false);
+        setLoading(false);
+        return;
+      }
 
       // Check if server needs initial setup
       try {
         const statusRes = await serverFetch('/api/setup/status');
-        if (!statusRes.ok) { setLoading(false); return; }
-        const status = await statusRes.json();
-        if (status.needsSetup) {
-          setNeedsSetup(true);
-          setLoading(false);
-          return;
+        if (statusRes.ok) {
+          const status = await statusRes.json();
+          if (status.needsSetup) {
+            setNeedsSetup(true);
+            setLoading(false);
+            return;
+          }
         }
       } catch {
         setLoading(false);
         return;
       }
 
-      // Auto-login if server is a local IP (works on both native and web/TV)
-      const serverHost = new URL(getServerUrl()).hostname;
-      const isLocalIp = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(serverHost);
-
-      if (isLocalIp) {
-        try {
-          const lanRes = await serverFetch('/api/auth/lan-status');
+      // Check LAN status
+      let lanDetected = false;
+      try {
+        const lanRes = await serverFetch('/api/auth/lan-status');
+        if (lanRes.ok) {
           const lanData = await lanRes.json();
-          setIsLan(lanData.isLan);
-
-          if (lanData.isLan) {
-            const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
-            if (lanLoginRes.ok) {
-              const data = await lanLoginRes.json();
-              storeTokens(data.accessToken, data.refreshToken);
-              setUser(data.user);
-              setLoading(false);
-              return;
-            }
-          }
-        } catch {}
-      }
+          lanDetected = !!lanData.isLan;
+          setIsLan(lanDetected);
+        }
+      } catch {}
 
       // Check existing token
       const token = getAccessToken();
@@ -141,6 +192,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const profile = await fetchProfile(token);
         if (profile) {
           setUser(profile);
+          setLoading(false);
+          return;
         } else {
           // Token expired — try refresh token
           const refreshToken = localStorage.getItem('lumiere_refresh');
@@ -163,31 +216,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               }
             } catch {}
           }
-          // Refresh failed — try LAN auto-login
-          if (isLocalIp) {
-            try {
-              const lanLoginRes = await serverFetch('/api/auth/lan-login', { method: 'POST' });
-              if (lanLoginRes.ok) {
-                const data = await lanLoginRes.json();
-                storeTokens(data.accessToken, data.refreshToken);
-                // Clear stale local watch data on fresh re-authentication
-                localStorage.removeItem('lumiere_watch_history');
-                localStorage.removeItem('playback_positions');
-                localStorage.removeItem('last_torrents');
-                setUser(data.user);
-                setLoading(false);
-                return;
-              }
-            } catch {}
-          }
           clearTokens();
         }
+      }
+
+      // If not logged in and on LAN, fetch profile list for the profile picker
+      if (lanDetected) {
+        await fetchProfiles();
       }
 
       setLoading(false);
     };
     init();
-  }, [serverReady, fetchProfile, native]);
+  }, [serverReady, fetchProfile, fetchProfiles, native]);
+
+  const quickLogin = useCallback(async (userId: number, pin?: string) => {
+    const res = await serverFetch('/api/auth/quick-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, pin }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Ошибка входа');
+    storeTokens(data.accessToken, data.refreshToken);
+    setUser(data.user);
+  }, []);
 
   const login = useCallback(async (email: string, password: string) => {
     const res = await serverFetch('/api/auth/login', {
@@ -214,10 +267,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     clearTokens();
     setUser(null);
-  }, []);
+    if (isLan) {
+      await fetchProfiles();
+    }
+  }, [isLan, fetchProfiles]);
+
+  const switchProfile = useCallback(() => {
+    clearTokens();
+    setUser(null);
+    if (isLan) {
+      fetchProfiles();
+    }
+  }, [isLan, fetchProfiles]);
 
   return (
-    <AuthContext.Provider value={{ user, loading, needsSetup, isLan, serverReady, login, logout }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        loading,
+        needsSetup,
+        isLan,
+        profiles,
+        serverReady,
+        connectionError,
+        fetchProfiles,
+        quickLogin,
+        login,
+        logout,
+        switchProfile,
+        changeServer,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   );

@@ -15,8 +15,33 @@ export interface Title {
   poster: string;
   logoText: string;
   director?: string;
-  cast?: { name: string; role: string; image: string }[];
+  cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
+  seasonsCount?: number;
+}
+
+export interface PersonCredit {
+  id: number;
+  title: string;
+  type: 'movie' | 'tv';
+  poster: string;
+  backdrop: string;
+  year: number;
+  score: number;
+  character?: string;
+  job?: string;
+}
+
+export interface PersonDetails {
+  id: number;
+  name: string;
+  biography: string;
+  profile: string;
+  birthday?: string;
+  deathday?: string;
+  placeOfBirth?: string;
+  knownForDepartment?: string;
+  credits: PersonCredit[];
 }
 
 export interface Episode {
@@ -53,4 +78,5 @@ export interface MetadataProvider {
   similar(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<Title[]>;
   seasonDetails(tvId: number, seasonNumber: number, lang?: Lang): Promise<Episode[]>;
   genres(mediaType: 'movie' | 'tv', lang?: Lang): Promise<Genre[]>;
+  person?(id: number, lang?: Lang): Promise<PersonDetails>;
 }

@@ -13,7 +13,7 @@ interface ShowcaseRowProps {
 
 export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = false }: ShowcaseRowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [hovered, setHovered] = useState<string | null>(null);
+  const [hovered, setHovered] = useState<number | null>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
   const [imgLoaded, setImgLoaded] = useState<Record<string, boolean>>({});
@@ -80,7 +80,7 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
           style={{ opacity: canRight ? 1 : 0, background: 'linear-gradient(to left, rgba(5,5,6,0.9) 0%, rgba(5,5,6,0.4) 50%, transparent 100%)' }}
         />
 
-        <div ref={scrollRef} className="no-scrollbar flex gap-6 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14">
+        <div ref={scrollRef} className="no-scrollbar flex gap-6 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14">
           {titles.map((t, i) => {
             const isHovered = hovered === t.id;
             return (

@@ -1,7 +1,30 @@
 import type { FastifyInstance } from 'fastify';
+import os from 'os';
+import { join } from 'path';
+import { execSync, spawn } from 'child_process';
+import { config } from '../config.js';
 
-let jacredUrl = process.env.jacredUrl || 'http://ns3bg91xvuqfvq9h.cfhttp.top';
-const TORRSERVER_URL = process.env.TORRSERVER_URL || 'http://localhost:8090';
+let jacredUrl = config.jacred.url;
+const TORRSERVER_URL = config.torrserver.url;
+
+function isFfmpegAvailable(): boolean {
+  try {
+    execSync('ffmpeg -version', { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function getHlsTmpBase(): string {
+  if (process.env.HLS_TMP_DIR) return process.env.HLS_TMP_DIR;
+  if (process.platform === 'win32') return join(os.tmpdir(), 'lumiere-hls');
+  return '/tmp';
+}
+
+function getHlsDir(sessionId: string): string {
+  return join(getHlsTmpBase(), `hls-${sessionId}`);
+}
 
 interface JacRedResult {
   Title: string;
@@ -75,48 +98,118 @@ function extractSubLang(filename: string): string {
   return 'und';
 }
 
+const JACRED_MIRRORS = [
+  'http://ns3bg91xvuqfvq9h.cfhttp.top',
+  'http://jacred.xyz',
+  'http://jacred.me',
+];
+
+async function fetchFromJacRed(targetUrl: string, query: string, category?: string): Promise<JacRedResult[]> {
+  try {
+    const catParam = category ? `&category[]=${category}` : '';
+    const url = `${targetUrl}/api/v2.0/indexers/all/results?query=${encodeURIComponent(query)}${catParam}`;
+    const res = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      signal: AbortSignal.timeout(12000),
+    });
+    if (!res.ok) return [];
+    const data = (await res.json()) as { Results?: JacRedResult[] };
+    return data.Results || [];
+  } catch {
+    return [];
+  }
+}
+
 export function torrentRoutes(app: FastifyInstance) {
-  // Search torrents via JacRed
+  // Search torrents via JacRed with multi-indexer aggregation & smart fallback
   app.get('/api/torrents/search', async (req, reply) => {
-    const { q, category } = req.query as { q?: string; category?: string };
+    const { q, alt, category } = req.query as { q?: string; alt?: string; category?: string };
 
     if (!q) {
       return reply.code(400).send({ error: 'Query required' });
     }
 
     try {
-      const catParam = category ? `&category[]=${category}` : '';
-      const url = `${jacredUrl}/api/v2.0/indexers/all/results?query=${encodeURIComponent(q)}${catParam}`;
+      const activeUrl = jacredUrl;
+      const mirrors = [activeUrl, ...JACRED_MIRRORS.filter((m) => m !== activeUrl)];
 
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        signal: AbortSignal.timeout(30000),
-      });
+      // 1. Primary search
+      let rawResults = await fetchFromJacRed(mirrors[0], q, category);
 
-      if (!res.ok) {
-        return reply.code(res.status).send({ error: 'JacRed error' });
+      // If primary mirror returned 0, try secondary mirror
+      if (rawResults.length === 0 && mirrors.length > 1) {
+        rawResults = await fetchFromJacRed(mirrors[1], q, category);
       }
 
-      const data = await res.json() as { Results?: JacRedResult[] };
-      const results: TorrentItem[] = (data.Results || [])
-        .filter((r) => r.MagnetUri || r.Link)
-        .map((r) => ({
-          id: r.Guid,
+      // 2. If results are few (< 15), generate smart query variants
+      if (rawResults.length < 15) {
+        const extraQueries: string[] = [];
+
+        // Alternative title (e.g. original English or localized title)
+        if (alt && alt.trim() && alt.trim().toLowerCase() !== q.trim().toLowerCase()) {
+          extraQueries.push(alt.trim());
+        }
+
+        // Replace Roman numerals with Arabic numerals
+        const withArabic = q
+          .replace(/(^|[\s.,])VIII([\s.,]|$)/gi, '$18$2')
+          .replace(/(^|[\s.,])VII([\s.,]|$)/gi, '$17$2')
+          .replace(/(^|[\s.,])VI([\s.,]|$)/gi, '$16$2')
+          .replace(/(^|[\s.,])IV([\s.,]|$)/gi, '$14$2')
+          .replace(/(^|[\s.,])V([\s.,]|$)/gi, '$15$2')
+          .replace(/(^|[\s.,])III([\s.,]|$)/gi, '$13$2')
+          .replace(/(^|[\s.,])II([\s.,]|$)/gi, '$12$2');
+        if (withArabic !== q) extraQueries.push(withArabic.trim());
+
+        // Subtitle split by colon or em-dash (e.g. "Человек-паук: Новый день" -> "Человек-паук")
+        if (q.includes(':') || q.includes(' — ') || q.includes(' - ')) {
+          const mainTitle = q.split(/\s*[:—]\s*|\s+-\s+/)[0].trim();
+          if (mainTitle.length >= 3 && mainTitle !== q) {
+            extraQueries.push(mainTitle);
+          }
+        }
+
+        // Run extra queries in parallel
+        if (extraQueries.length > 0) {
+          const extraResults = await Promise.all(
+            extraQueries.slice(0, 3).map((query) => fetchFromJacRed(mirrors[0], query, category))
+          );
+          for (const resList of extraResults) {
+            rawResults.push(...resList);
+          }
+        }
+      }
+
+      // Deduplicate by magnet hash or guid
+      const seen = new Set<string>();
+      const results: TorrentItem[] = [];
+
+      for (const r of rawResults) {
+        const link = r.MagnetUri || r.Link || '';
+        if (!link) continue;
+        const key = link.startsWith('magnet:') ? link.split('&')[0].toLowerCase() : (r.Guid || r.Title);
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        results.push({
+          id: r.Guid || key,
           title: r.Title,
           tracker: Array.isArray(r.Tracker) ? r.Tracker.join(', ') : r.Tracker,
           category: r.CategoryDesc || 'Unknown',
           size: r.Size,
           sizeFormatted: formatSize(r.Size),
-          seeders: r.Seeders,
-          peers: r.Peers,
-          magnet: r.MagnetUri || '',
+          seeders: r.Seeders || 0,
+          peers: r.Peers || 0,
+          magnet: r.MagnetUri || r.Link || '',
           link: r.Link || '',
           details: r.Details || '',
           date: r.PublishDate,
-        }))
-        .sort((a, b) => b.seeders - a.seeders);
+        });
+      }
+
+      results.sort((a, b) => b.seeders - a.seeders);
 
       return { results };
     } catch (err: any) {
@@ -145,40 +238,56 @@ export function torrentRoutes(app: FastifyInstance) {
           poster: '',
           save_to_db: false,
         }),
+        signal: AbortSignal.timeout(15000),
       });
 
       if (!addRes.ok) {
         const errText = await addRes.text();
-        return reply.code(500).send({ error: `TorrServer add error: ${errText}` });
+        return reply.code(502).send({ error: `TorrServer ошибка добавления: ${errText || addRes.statusText}` });
       }
 
       const addData = await addRes.json() as { hash?: string };
       const hash = addData.hash;
 
       if (!hash) {
-        return reply.code(500).send({ error: 'No hash returned from TorrServer' });
+        return reply.code(500).send({ error: 'Не получен хэш торрента от TorrServer' });
       }
 
-      // Step 2: Get file list via stat endpoint
-      // Use hash directly (not magnet) for stat
-      const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${hash}&index=-1&stat`);
-      if (!statRes.ok) {
-        return reply.code(500).send({ error: 'TorrServer stat error' });
-      }
-
-      const stat = await statRes.json() as {
+      // Step 2: Get file list via stat endpoint with retry to give TorrServer time to retrieve metadata
+      let stat: {
         file_stats?: Array<{ id: number; path: string; length: number }>;
         hash?: string;
         name?: string;
         stat?: number;
-      };
+      } = {};
+
+      const maxAttempts = 5;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${hash}&index=-1&stat`, {
+            signal: AbortSignal.timeout(8000),
+          });
+          if (statRes.ok) {
+            stat = await statRes.json() as any;
+            if (stat.file_stats && stat.file_stats.length > 0) {
+              break;
+            }
+          }
+        } catch (statErr: any) {
+          console.warn(`Stat fetch attempt ${attempt + 1} failed:`, statErr.message);
+        }
+
+        if (attempt < maxAttempts - 1) {
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
 
       if (!stat.file_stats?.length) {
         return reply.code(200).send({
           hash,
           name: title,
           files: [],
-          error: 'Torrent is loading. Try again in a few seconds.',
+          error: 'Поиск пиров и загрузка метаданных торрента... Повторите попытку через пару секунд.',
         });
       }
 
@@ -221,14 +330,19 @@ export function torrentRoutes(app: FastifyInstance) {
           lang: extractSubLang(sf.path),
         }));
 
+        const fileName = f.path.split('/').pop() || f.path;
+        const host = req.headers.host ? req.headers.host.split(':')[0] : '192.168.1.77';
+        const torrHost = TORRSERVER_URL.replace(/localhost|127\.0\.0\.1/, host);
+        const directTorrUrl = `${torrHost}/stream/${encodeURIComponent(fileName)}?link=${encodeURIComponent(magnet)}&index=${f.id}&play`;
+
         return {
           id: f.id,
-          name: f.path.split('/').pop() || f.path,
+          name: fileName,
           path: f.path,
           size: f.length,
           sizeFormatted: formatSize(f.length),
           streamUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
-          directUrl: `/api/torrents/proxy?link=${encodeURIComponent(magnet)}&index=${f.id}`,
+          directUrl: directTorrUrl,
           externalSubs: matchingSubs,
         } as any;
       });
@@ -239,8 +353,19 @@ export function torrentRoutes(app: FastifyInstance) {
         files,
       };
     } catch (err: any) {
-      console.error('TorrServer error:', err.message);
-      return reply.code(500).send({ error: err.message });
+      console.error('TorrServer stream error:', err);
+      const isConnectionError =
+        err.message?.includes('fetch failed') ||
+        err.code === 'ECONNREFUSED' ||
+        err.cause?.code === 'ECONNREFUSED' ||
+        err.name === 'TimeoutError' ||
+        err.name === 'AbortError';
+
+      const errorMsg = isConnectionError
+        ? `Не удалось подключиться к TorrServer (${TORRSERVER_URL}). Проверьте, что TorrServer запущен и доступен.`
+        : (err.message || 'Ошибка обработки торрента');
+
+      return reply.code(502).send({ error: errorMsg });
     }
   });
 
@@ -347,8 +472,11 @@ export function torrentRoutes(app: FastifyInstance) {
 
       return { audioTracks, subtitleTracks };
     } catch (err: any) {
-      console.error('Track probe error:', err.message);
-      return reply.code(500).send({ error: err.message });
+      console.warn('Track probe warning:', err.message);
+      return {
+        audioTracks: [{ id: 0, lang: 'und', name: 'Основная аудиодорожка', channels: 2 }],
+        subtitleTracks: [],
+      };
     }
   });
 
@@ -401,7 +529,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
       return { duration: dur, formatted: formatTime(dur) };
     } catch (err: any) {
-      console.error('FFprobe error:', err.message);
+      console.warn('FFprobe error:', err.message);
       return { duration: 0, formatted: '0:00' };
     }
   });
@@ -427,13 +555,17 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
+    if (!isFfmpegAvailable()) {
+      return reply.redirect(`/api/torrents/proxy?link=${encodeURIComponent(link)}&index=${index || 0}`);
+    }
+
     const audioIndex = parseInt(audio || '0', 10) || 0;
     const seekTime = parseFloat(start || '0') || 0;
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
     // Include audio index and seek time in session ID
     const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}`).digest('hex').slice(0, 32);
-    const hlsDir = `/tmp/hls-${sessionId}`;
+    const hlsDir = getHlsDir(sessionId);
 
     const { mkdirSync, existsSync, readFileSync } = await import('fs');
     const { join } = await import('path');
@@ -501,6 +633,10 @@ export function torrentRoutes(app: FastifyInstance) {
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
     activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
+    ffmpeg.on('error', (err) => {
+      console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
+      activeSessions.delete(sessionId);
+    });
     ffmpeg.on('close', (code, signal) => {
       console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
       activeSessions.delete(sessionId);
@@ -526,6 +662,9 @@ export function torrentRoutes(app: FastifyInstance) {
       '-y',
       subtitlePath,
     ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    subFfmpeg.on('error', (err) => {
+      console.warn(`Subtitle FFmpeg error:`, err.message);
+    });
     subFfmpeg.on('close', (code) => {
       const size = subExistsSync(subtitlePath) ? subStatSync(subtitlePath).size : 0;
       console.log(`Subtitle extraction finished for session ${sessionId}: code=${code}, size=${size}`);
@@ -591,8 +730,7 @@ export function torrentRoutes(app: FastifyInstance) {
     }
 
     const { readFileSync, existsSync } = await import('fs');
-    const { join } = await import('path');
-    const subtitlePath = join(`/tmp/hls-${session}`, 'subs.vtt');
+    const subtitlePath = join(getHlsDir(session), 'subs.vtt');
 
     if (!existsSync(subtitlePath)) {
       reply.code(404);
@@ -773,7 +911,7 @@ export function torrentRoutes(app: FastifyInstance) {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       // Use random session ID - each seek gets a fresh directory, no cleanup needed
       const sessionId = Math.random().toString(36).slice(2, 15) + Date.now().toString(36);
-      const hlsDir = `/tmp/hls-${sessionId}`;
+      const hlsDir = getHlsDir(sessionId);
 
       const { mkdirSync, readFileSync } = await import('fs');
       const { join } = await import('path');
@@ -807,6 +945,11 @@ export function torrentRoutes(app: FastifyInstance) {
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
       activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
+
+      ffmpeg.on('error', (err) => {
+        console.error(`[FFmpeg] Seek session ${sessionId} spawn error:`, err.message);
+        activeSessions.delete(sessionId);
+      });
 
       ffmpeg.on('close', () => {
         activeSessions.delete(sessionId);
@@ -860,12 +1003,11 @@ export function torrentRoutes(app: FastifyInstance) {
     }
 
     const { readFileSync, existsSync } = await import('fs');
-    const { join } = await import('path');
 
     // Support subdirectories: video/, audio-0/, audio-1/, etc.
     const segPath = dir
-      ? join(`/tmp/hls-${session}`, dir, `seg-${id}.ts`)
-      : join(`/tmp/hls-${session}`, `seg-${id}.ts`);
+      ? join(getHlsDir(session), dir, `seg-${id}.ts`)
+      : join(getHlsDir(session), `seg-${id}.ts`);
 
     // Wait for segment to be available
     const waitForFile = () => new Promise<boolean>((resolve) => {

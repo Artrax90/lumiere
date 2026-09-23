@@ -1,7 +1,8 @@
 // Platform detection for Lumiere (Web / Android / Tizen TV)
 
 export function isTizen(): boolean {
-  return typeof window !== 'undefined' && typeof (window as any).tizen !== 'undefined';
+  if (typeof window === 'undefined') return false;
+  return typeof (window as any).tizen !== 'undefined' || /Tizen|SmartTV/i.test(navigator.userAgent);
 }
 
 export function isAndroid(): boolean {

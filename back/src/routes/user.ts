@@ -7,22 +7,35 @@ export function userRoutes(app: FastifyInstance) {
   app.get('/api/user/profile', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;
 
-    const result = await pool.query(
-      'SELECT id, email, name, avatar, created_at FROM users WHERE id = $1',
-      [userId]
-    );
+    try {
+      const result = await pool.query(
+        'SELECT id, email, name, avatar, role, is_kids, created_at FROM users WHERE id = $1',
+        [userId]
+      );
 
-    if (result.rows.length === 0) {
-      return { error: 'User not found' };
-    }
+      if (result.rows.length > 0) {
+        const user = result.rows[0];
+        return {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          avatar: user.avatar,
+          role: user.role || 'user',
+          isKids: !!user.is_kids,
+          createdAt: user.created_at,
+        };
+      }
+    } catch {}
 
-    const user = result.rows[0];
+    // Fallback for user from token
     return {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      avatar: user.avatar,
-      createdAt: user.created_at,
+      id: userId || 1,
+      email: request.user?.email || '',
+      name: request.user?.name || 'Пользователь',
+      avatar: '',
+      role: request.user?.role || 'user',
+      isKids: !!request.user?.isKids,
+      createdAt: new Date().toISOString(),
     };
   });
 
@@ -62,6 +75,44 @@ export function userRoutes(app: FastifyInstance) {
       avatar: user.avatar,
       createdAt: user.created_at,
     };
+  });
+
+  // Get user preferences (e.g. home page shelf order, visibility)
+  app.get('/api/user/preferences', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    try {
+      const result = await pool.query(
+        'SELECT preferences FROM user_preferences WHERE user_id = $1',
+        [userId]
+      );
+      if (result.rows.length > 0) {
+        return { preferences: result.rows[0].preferences || {} };
+      }
+    } catch (err: any) {
+      console.warn('Error fetching preferences:', err.message);
+    }
+    return { preferences: {} };
+  });
+
+  // Save / Update user preferences
+  app.put('/api/user/preferences', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    const { preferences } = (request.body as { preferences?: Record<string, any> }) || {};
+    const prefData = preferences || {};
+
+    try {
+      await pool.query(
+        `INSERT INTO user_preferences (user_id, preferences, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
+        [userId, JSON.stringify(prefData)]
+      );
+      return { success: true, preferences: prefData };
+    } catch (err: any) {
+      console.error('Error saving preferences:', err.message);
+      return { error: 'Failed to save preferences' };
+    }
   });
 
   // Get favorites
@@ -112,6 +163,73 @@ export function userRoutes(app: FastifyInstance) {
 
     await pool.query(
       'DELETE FROM favorites WHERE user_id = $1 AND tmdb_id = $2',
+      [userId, parseInt(tmdbId)]
+    );
+
+    return { success: true };
+  });
+
+  // Get watchlist ("Буду смотреть")
+  app.get('/api/user/watchlist', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+
+    const result = await pool.query(
+      'SELECT id, tmdb_id, media_type, title_name, poster, added_at FROM watchlist WHERE user_id = $1 ORDER BY added_at DESC',
+      [userId]
+    );
+
+    return { watchlist: result.rows.map((r) => ({
+      id: r.id,
+      tmdbId: r.tmdb_id,
+      mediaType: r.media_type,
+      titleName: r.title_name,
+      poster: r.poster,
+      addedAt: r.added_at,
+    })) };
+  });
+
+  // Add to watchlist
+  app.post('/api/user/watchlist', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    const { tmdbId, mediaType, titleName, poster } = request.body as {
+      tmdbId?: number; mediaType?: string; titleName?: string; poster?: string;
+    };
+
+    if (!tmdbId || !mediaType || !titleName) {
+      return { error: 'tmdbId, mediaType, and titleName are required' };
+    }
+
+    const result = await pool.query(
+      `INSERT INTO watchlist (user_id, tmdb_id, media_type, title_name, poster)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (user_id, tmdb_id, media_type) DO NOTHING
+       RETURNING id`,
+      [userId, tmdbId, mediaType, titleName, poster || '']
+    );
+
+    return { success: true, id: result.rows[0]?.id };
+  });
+
+  // Remove from watchlist
+  app.delete('/api/user/watchlist/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    const { tmdbId } = request.params as { tmdbId: string };
+
+    await pool.query(
+      'DELETE FROM watchlist WHERE user_id = $1 AND tmdb_id = $2',
+      [userId, parseInt(tmdbId)]
+    );
+
+    return { success: true };
+  });
+
+  // Remove from history ("Просмотрено")
+  app.delete('/api/user/history/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    const { tmdbId } = request.params as { tmdbId: string };
+
+    await pool.query(
+      'DELETE FROM watch_history WHERE user_id = $1 AND tmdb_id = $2',
       [userId, parseInt(tmdbId)]
     );
 

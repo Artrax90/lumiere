@@ -19,7 +19,45 @@ export class TmdbClient {
     private proxyUrl?: string,
   ) {
     if (proxyUrl) {
+      this.initAgent(proxyUrl);
+    }
+  }
+
+  private initAgent(proxyUrl: string) {
+    try {
       this.agent = new SocksProxyAgent(proxyUrl);
+    } catch {
+      this.agent = undefined;
+    }
+  }
+
+  updateConfig(token: string, proxyUrl?: string) {
+    this.token = token;
+    this.proxyUrl = proxyUrl && proxyUrl.trim() ? proxyUrl.trim() : undefined;
+    if (this.proxyUrl) {
+      this.initAgent(this.proxyUrl);
+    } else {
+      this.agent = undefined;
+    }
+  }
+
+  getConfig() {
+    return {
+      token: this.token,
+      proxyUrl: this.proxyUrl || '',
+      configured: !!this.token,
+    };
+  }
+
+  async testConnection(): Promise<{ ok: boolean; message?: string }> {
+    try {
+      const data = await this.get('/configuration');
+      if (data && data.images) {
+        return { ok: true, message: 'Соединение с TMDB установлено' };
+      }
+      return { ok: false, message: 'Некорректный ответ от TMDB' };
+    } catch (err: any) {
+      return { ok: false, message: err.message || 'Ошибка подключения' };
     }
   }
 

@@ -9,16 +9,31 @@ export default function ActivityHeatmap() {
   const [activities, setActivities] = useState<ActivityDay[]>([]);
 
   useEffect(() => {
-    // Generate mock activity data for the last 365 days
-    // In a real implementation, this would come from the backend
+    // Count real activities from localStorage and watch_history
+    const dateCounts: Record<string, number> = {};
+
+    try {
+      const raw = localStorage.getItem('playback_positions');
+      if (raw) {
+        const positions = JSON.parse(raw);
+        for (const val of Object.values(positions)) {
+          if (typeof val === 'object' && val !== null && (val as any).timestamp) {
+            const dateStr = new Date((val as any).timestamp).toISOString().split('T')[0];
+            dateCounts[dateStr] = (dateCounts[dateStr] || 0) + 1;
+          }
+        }
+      }
+    } catch {}
+
     const data: ActivityDay[] = [];
     const now = new Date();
     for (let i = 364; i >= 0; i--) {
       const date = new Date(now);
       date.setDate(date.getDate() - i);
+      const dateStr = date.toISOString().split('T')[0];
       data.push({
-        date: date.toISOString().split('T')[0],
-        count: Math.floor(Math.random() * 5), // Mock data
+        date: dateStr,
+        count: dateCounts[dateStr] || 0,
       });
     }
     setActivities(data);

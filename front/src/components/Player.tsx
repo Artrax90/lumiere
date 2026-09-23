@@ -32,10 +32,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const progressRef = useRef<HTMLDivElement>(null);
 
   const [playing, setPlaying] = useState(true);
+  const playingRef = useRef(true);
+  playingRef.current = playing;
   const [buffered, setBuffered] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [showControls, setShowControls] = useState(true);
+  const showControlsRef = useRef(true);
+  showControlsRef.current = showControls;
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -48,7 +52,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [subtitleText, setSubtitleText] = useState('');
   const subtitleCuesRef = useRef<Array<{ start: number; end: number; text: string }>>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const isDraggingRef = useRef(false);
+  isDraggingRef.current = isDragging;
   const realDurationRef = useRef<number>(0); // Duration from FFprobe (for torrents)
+  const lastTouchTimeRef = useRef<number>(0);
 
   // HLS-specific state
   const [qualityLevels, setQualityLevels] = useState<Array<{ height: number; index: number }>>([]);
@@ -59,17 +66,83 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [currentSubtitle, setCurrentSubtitle] = useState(-1); // -1 = off
 
   const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>('none');
+  const settingsPanelRef = useRef<SettingsPanel>('none');
+  settingsPanelRef.current = settingsPanel;
 
   const hasVideo = !!title.videoUrl;
   const isHls = hasVideo && (title.videoUrl!.includes('.m3u') || title.videoUrl!.includes('m3u8') || title.videoUrl!.includes('/hls'));
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
-    if (hideTimer.current) clearTimeout(hideTimer.current);
-    hideTimer.current = setTimeout(() => {
-      if (playing) setShowControls(false);
-    }, 4000);
-  }, [playing]);
+    showControlsRef.current = true;
+    if (hideTimer.current) {
+      clearTimeout(hideTimer.current);
+      hideTimer.current = undefined;
+    }
+    // Only auto-hide if playing, not dragging, and no settings modal is open
+    if (playingRef.current && settingsPanelRef.current === 'none' && !isDraggingRef.current) {
+      hideTimer.current = setTimeout(() => {
+        if (playingRef.current && settingsPanelRef.current === 'none' && !isDraggingRef.current) {
+          setShowControls(false);
+          showControlsRef.current = false;
+        }
+      }, 3500);
+    }
+  }, []);
+
+  // When playback pauses or settings modal opens, keep controls visible without hiding
+  useEffect(() => {
+    if (!playing || settingsPanel !== 'none') {
+      setShowControls(true);
+      showControlsRef.current = true;
+      if (hideTimer.current) {
+        clearTimeout(hideTimer.current);
+        hideTimer.current = undefined;
+      }
+    } else {
+      resetHideTimer();
+    }
+  }, [playing, settingsPanel, resetHideTimer]);
+
+  // Jellyfin-style active session heartbeat
+  const sessionIdRef = useRef<string>('web-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7));
+  const currentProgressRef = useRef({ time: 0, dur: 0, paused: false });
+  currentProgressRef.current = { time: currentTime, dur: duration || realDurationRef.current, paused: !playing };
+
+  useEffect(() => {
+    const sendHeartbeat = async () => {
+      try {
+        const res = await serverFetch('/api/sessions/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: sessionIdRef.current,
+            deviceType: Capacitor.isNativePlatform() ? 'mobile' : 'web',
+            deviceName: Capacitor.isNativePlatform() ? 'Mobile App' : 'Web Browser',
+            mediaType: (title.type === 'live' ? 'iptv' : title.type) || 'movie',
+            mediaId: title.id,
+            mediaTitle: title.titleName || title.name || 'Видео',
+            mediaPoster: title.poster || '',
+            currentTime: Math.round(currentProgressRef.current.time || 0),
+            duration: Math.round(currentProgressRef.current.dur || 0),
+            isPaused: currentProgressRef.current.paused,
+          }),
+        });
+        if (res && res.terminate) {
+          onExit();
+        }
+      } catch {}
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 10000);
+    return () => {
+      clearInterval(interval);
+      serverFetch('/api/sessions/stop', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: sessionIdRef.current }),
+      }).catch(() => {});
+    };
+  }, [title, onExit]);
 
   const parseVttTime = (time: string): number => {
     const parts = time.split(':');
@@ -461,8 +534,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           break;
         case 'ArrowRight':
           e.preventDefault();
-          if (isFinite(video.duration)) {
-            video.currentTime = Math.min(video.duration, video.currentTime + 10);
+          {
+            const maxDur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
+            video.currentTime = Math.min(maxDur, video.currentTime + 10);
           }
           break;
         case 'ArrowUp':
@@ -496,7 +570,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [playing, isFullscreen, resetHideTimer, onExit, settingsPanel]);
+  }, [playing, isFullscreen, resetHideTimer, onExit, settingsPanel, duration]);
 
   // Fullscreen change detection
   useEffect(() => {
@@ -554,21 +628,37 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
     lastTapRef.current = { time: now, x };
 
+    // Capture controls visibility state at the exact moment of the tap
+    const wasVisible = showControlsRef.current;
+
     // Delayed single-tap (wait for possible double-tap)
     if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
     singleTapTimer.current = setTimeout(() => {
-      if (!showControls) {
+      // If a settings menu is currently open, a tap on the video dismisses the modal first
+      if (settingsPanelRef.current !== 'none') {
+        setSettingsPanel('none');
+        resetHideTimer();
+        return;
+      }
+
+      if (!wasVisible) {
         resetHideTimer();
       } else {
-        togglePlay();
+        setShowControls(false);
+        showControlsRef.current = false;
+        if (hideTimer.current) {
+          clearTimeout(hideTimer.current);
+          hideTimer.current = undefined;
+        }
       }
-    }, 300);
+    }, 280);
   };
 
   const skip = (seconds: number) => {
     const video = videoRef.current;
-    if (video && isFinite(video.duration)) {
-      video.currentTime = Math.max(0, Math.min(video.currentTime + seconds, video.duration));
+    if (video) {
+      const maxDur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
+      video.currentTime = Math.max(0, Math.min(video.currentTime + seconds, maxDur));
     }
   };
 
@@ -828,7 +918,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     <div
       ref={containerRef}
       className="fixed inset-0 z-[100] bg-black select-none"
-      onMouseMove={resetHideTimer}
+      onTouchStart={() => {
+        lastTouchTimeRef.current = Date.now();
+      }}
+      onMouseMove={() => {
+        // Ignore synthetic mousemove triggered by touch on Android/touch devices
+        if (Date.now() - lastTouchTimeRef.current < 800) return;
+        resetHideTimer();
+      }}
       onClick={handleVideoAreaClick}
     >
       {/* Video */}
@@ -888,8 +985,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           opacity: showControls ? 1 : 0,
           transform: showControls ? 'translateY(0)' : 'translateY(-100%)',
           background: 'linear-gradient(180deg, rgba(0,0,0,0.7) 0%, transparent 100%)',
+          pointerEvents: showControls ? 'auto' : 'none',
         }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={resetHideTimer}
+        onTouchMove={resetHideTimer}
       >
         <div className="flex items-center justify-between px-6 py-4">
           <button
@@ -898,11 +998,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           >
             <ChevronLeft className="h-4 w-4" />{t('common.back')}
           </button>
-          <div className="text-center">
-            <div className="text-[15px] font-medium text-white">
-              {title.episode ? `${title.name} — ${title.episode}` : title.name}
+          <div className="text-center max-w-xl truncate px-4">
+            <div className="text-[15px] font-semibold text-white truncate">
+              {title.name}
             </div>
-            <div className="text-[11px] text-white/50">{title.year} · {title.runtime}</div>
+            {title.episode && (
+              <div className="text-[12px] font-medium text-amber-300/90 truncate mt-0.5">
+                {title.episode}
+              </div>
+            )}
+            <div className="text-[11px] text-white/50 mt-0.5">
+              {title.year ? `${title.year} · ` : ''}{title.runtime || ''}
+            </div>
           </div>
           <div className="text-[12px] text-white/50">{fmtTime(currentTime)}</div>
         </div>
@@ -924,8 +1031,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           opacity: showControls ? 1 : 0,
           transform: showControls ? 'translateY(0)' : 'translateY(100%)',
           background: 'linear-gradient(0deg, rgba(0,0,0,0.8) 0%, transparent 100%)',
+          pointerEvents: showControls ? 'auto' : 'none',
         }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={resetHideTimer}
+        onTouchMove={resetHideTimer}
       >
         {/* Timeline */}
         <div className="px-6 mb-2">

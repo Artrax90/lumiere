@@ -1,7 +1,51 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
 import SafeImg from './SafeImg';
+
+function CardMarqueeTitle({ name, featured, hovered }: { name: string; featured?: boolean; hovered?: boolean }) {
+  const containerRef = useRef<HTMLHeadingElement>(null);
+  const textRef = useRef<HTMLSpanElement>(null);
+  const [shift, setShift] = useState(0);
+
+  useEffect(() => {
+    if (hovered && containerRef.current && textRef.current) {
+      const overflow = textRef.current.scrollWidth - containerRef.current.clientWidth;
+      if (overflow > 4) {
+        setShift(overflow + 8);
+      } else {
+        setShift(0);
+      }
+    } else {
+      setShift(0);
+    }
+  }, [hovered, name]);
+
+  const duration = Math.max(3.5, Math.min(10, (shift / 30) + 2));
+
+  return (
+    <h3
+      ref={containerRef}
+      className="mt-2.5 overflow-hidden whitespace-nowrap font-medium text-white/90"
+      style={{
+        fontSize: featured ? 14 : 13,
+        textOverflow: shift > 0 ? 'clip' : 'ellipsis',
+      }}
+      title={name}
+    >
+      <span
+        ref={textRef}
+        className="inline-block transition-transform"
+        style={{
+          transform: shift > 0 ? `translateX(-${shift}px)` : 'translateX(0)',
+          transition: shift > 0 ? `transform ${duration}s cubic-bezier(0.42, 0, 0.58, 1) 0.6s` : 'transform 0.3s ease-out',
+        }}
+      >
+        {name}
+      </span>
+    </h3>
+  );
+}
 
 interface CardProps {
   title: Title;
@@ -228,22 +272,18 @@ export default function Card({
 
       {/* Metadata below card — quiet, calmer */}
       <div
+        className="w-full max-w-full overflow-hidden"
         style={{ opacity: hovered ? 1 : 0.62, transition: 'opacity 400ms ease-out' }}
       >
-        <h3
-          className="mt-2.5 truncate font-medium text-white/90"
-          style={{ fontSize: featured ? 14 : 13 }}
-        >
-          {title.name}
-        </h3>
-        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/38">
-          <span>{title.year}</span>
-          <span className="text-white/15">·</span>
+        <CardMarqueeTitle name={title.name} featured={featured} hovered={hovered} />
+        <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/38 min-w-0">
+          <span className="shrink-0">{title.year}</span>
+          <span className="shrink-0 text-white/15">·</span>
           <span className="truncate">{title.genres.slice(0, 2).join(', ')}</span>
           {title.score > 0 && (
             <>
-              <span className="text-white/15">·</span>
-              <span className="flex items-center gap-0.5">
+              <span className="shrink-0 text-white/15">·</span>
+              <span className="shrink-0 flex items-center gap-0.5">
                 <Star className="h-[9px] w-[9px] text-amber-300/55" fill="currentColor" strokeWidth={0} />
                 {title.score}
               </span>

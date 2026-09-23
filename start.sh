@@ -1,32 +1,30 @@
-#!/bin/bash
-export NVM_DIR="$HOME/.nvm"
-[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+#!/usr/bin/env bash
+set -e
+
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$DIR"
 
 echo "========================================="
-echo "  Lumiere — Запуск серверов"
+echo "  Lumiere Media Server — Запуск"
 echo "========================================="
-echo ""
-echo "  Frontend: http://192.168.1.37:5173"
-echo "  Backend:  http://localhost:3000"
-echo "  PostgreSQL: localhost:5433"
-echo ""
-echo "  Для остановки: Ctrl+C"
-echo "========================================="
-echo ""
 
-cd /home/mimo/lumiere/back
-echo "[1/2] Запуск бэкенда..."
-node --import tsx src/index.ts &
-BE_PID=$!
+# Check Node.js
+if ! command -v node >/dev/null 2>&1; then
+  echo "❌ Node.js не найден. Установите Node.js 20+."
+  exit 1
+fi
 
-cd /home/mimo/lumiere/front
-echo "[2/2] Запуск фронтенда..."
-node node_modules/.bin/vite --host 0.0.0.0 &
-FE_PID=$!
+# Ensure .env exists
+if [ ! -f "$DIR/back/.env" ] && [ -f "$DIR/.env" ]; then
+  cp "$DIR/.env" "$DIR/back/.env"
+fi
 
+echo "[1/2] Проверка сборки бэкенда..."
+cd "$DIR/back"
+npm run build
+
+echo "[2/2] Запуск сервера Lumiere..."
+echo "  Backend & Web: http://localhost:3000"
+echo "  Smart TV:      http://localhost:3000/tv/"
 echo ""
-echo "Backend PID: $BE_PID"
-echo "Frontend PID: $FE_PID"
-echo ""
-
-wait
+exec node dist/index.js

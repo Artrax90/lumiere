@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: lumiere-db
+    restart: unless-stopped
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER:-lumiere}
+      POSTGRES_PASSWORD: ${DB_PASS:-lumiere123}
+      POSTGRES_DB: ${DB_NAME:-lumiere}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./back/src/db/migrations.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-lumiere} -d ${DB_NAME:-lumiere}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lumiere-net
+
+  torrserver:
+    image: ghcr.io/yourok/torrserver:latest
+    container_name: lumiere-torrserver
+    restart: unless-stopped
+    ports:
+      - "8090:8090"
+    environment:
+      - TS_PORT=8090
+      - TS_DONTKILL=1
+    volumes:
+      - torrserver-data:/opt/torrserver/db
+    networks:
+      - lumiere-net
+
+  lumiere:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lumiere-app
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-lumiere}
+      DB_PASS: ${DB_PASS:-lumiere123}
+      DB_NAME: ${DB_NAME:-lumiere}
+      TORRSERVER_URL: http://torrserver:8090
+      JACRED_URL: ${JACRED_URL:-http://ns3bg91xvuqfvq9h.cfhttp.top}
+      TMDB_TOKEN: ${TMDB_TOKEN:-}
+      TMDB_PROXY_URL: ${TMDB_PROXY_URL:-}
+      JWT_SECRET: ${JWT_SECRET:-lumiere-secret-key-change-in-production-2024}
+      JWT_ACCESS_EXPIRY: ${JWT_ACCESS_EXPIRY:-15m}
+      JWT_REFRESH_EXPIRY: ${JWT_REFRESH_EXPIRY:-7d}
+      INVITE_REGISTRATION: ${INVITE_REGISTRATION:-true}
+      ADMIN_SECRET: ${ADMIN_SECRET:-lumiere-admin-2024}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      torrserver:
+        condition: service_started
+    volumes:
+      - hls-temp:/tmp
+    networks:
+      - lumiere-net
+
+volumes:
+  pgdata:
+    driver: local
+  torrserver-data:
+    driver: local
+  hls-temp:
+    driver: local
+
+networks:
+  lumiere-net:
+    driver: bridge

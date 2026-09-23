@@ -14,10 +14,28 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return provider.popular('tv', page ? parseInt(page) : 1, lang);
   });
 
+  app.get('/api/tv/top_rated', async (req) => {
+    const { page, lang } = req.query as { page?: string; lang?: Lang };
+    return provider.topRated('tv', page ? parseInt(page) : 1, lang);
+  });
+
+  app.get('/api/tv/genre/:genreId', async (req) => {
+    const { genreId } = req.params as { genreId: string };
+    const { page, lang } = req.query as { page?: string; lang?: Lang };
+    return provider.discoverGenre('tv', parseInt(genreId), page ? parseInt(page) : 1, lang);
+  });
+
   app.get('/api/tv/:id', async (req) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };
     return provider.details(parseInt(id), 'tv', lang);
+  });
+
+  app.get('/api/tv/:id/similar', async (req) => {
+    const { id } = req.params as { id: string };
+    const { lang } = req.query as { lang?: Lang };
+    const results = await provider.similar(parseInt(id), 'tv', lang);
+    return { results };
   });
 
   app.get('/api/tv/:id/season/:seasonNumber', async (req) => {

@@ -153,12 +153,13 @@ export default function ContentRow({
 
         <div
           ref={scrollRef}
-          className="no-scrollbar flex gap-5 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14"
+          className="no-scrollbar flex gap-5 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14"
           style={{ scrollSnapType: 'x proximity' }}
         >
           {titles.map((title, i) => (
             <div
               key={title.id}
+              className="shrink-0"
               style={{
                 scrollSnapAlign: 'start',
                 animation: `stagger-in 0.5s cubic-bezier(0.16, 1, 0.3, 1) both`,

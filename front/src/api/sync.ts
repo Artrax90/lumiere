@@ -48,23 +48,12 @@ class SyncClient {
     this.authFailed = false;
     this.refreshAttempts = 0;
     this.serverWasEmpty = false;
-    // First pull — check if server has data
-    this.pull().then(data => {
-      if (data && data.watchHistory.length === 0) {
-        this.serverWasEmpty = true;
-        // Server was cleared — clear local data too
-        const localHistory = this.getLocalWatchHistory();
-        if (localHistory.length > 0) {
-          localStorage.removeItem('lumiere_watch_history');
-          localStorage.removeItem('playback_positions');
-          localStorage.removeItem('last_torrents');
-        }
-        const localFavs = this.getLocalFavorites();
-        if (localFavs.length > 0) {
-          localStorage.removeItem('lumiere_favorites');
-        }
-      }
-    });
+
+    // Initial merge with server
+    this.mergeWithServer().then(() => {
+      this.push().catch(() => {});
+    }).catch(() => {});
+
     this.syncInterval = setInterval(() => {
       if (this.authFailed) {
         if (this.refreshAttempts >= 3) {
@@ -75,11 +64,8 @@ class SyncClient {
         this.tryRefresh();
         return;
       }
-      // Don't push if server was intentionally empty
-      if (!this.serverWasEmpty) {
-        this.push();
-      }
-      this.pull();
+      this.push().catch(() => {});
+      this.mergeWithServer().catch(() => {});
     }, intervalMs);
   }
 
@@ -241,10 +227,16 @@ class SyncClient {
   getLocalIptvPlaylists(): IPTVPlaylist[] {
     try {
       const data = localStorage.getItem(IPTV_STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    const defaultPlaylists: IPTVPlaylist[] = [
+      { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }
+    ];
+    this.saveLocalIptvPlaylists(defaultPlaylists);
+    return defaultPlaylists;
   }
 
   saveLocalIptvPlaylists(playlists: IPTVPlaylist[]) {
@@ -255,62 +247,59 @@ class SyncClient {
     const serverData = await this.pull();
     if (!serverData) return;
 
-    // Merge watch history — if server is empty, clear local too
+    // Merge watch history
     const localHistory = this.getLocalWatchHistory();
-    if (serverData.watchHistory.length === 0 && localHistory.length > 0) {
-      localStorage.removeItem('lumiere_watch_history');
-      localStorage.removeItem('playback_positions');
-    } else {
-      const mergedHistory = new Map<string, WatchHistoryItem>();
-      for (const item of localHistory) {
-        const key = `${item.tmdbId}-${item.mediaType}`;
+    const mergedHistory = new Map<string, WatchHistoryItem>();
+    for (const item of localHistory) {
+      const key = `${item.tmdbId}-${item.mediaType}`;
+      mergedHistory.set(key, item);
+    }
+    for (const item of serverData.watchHistory || []) {
+      const key = `${item.tmdbId}-${item.mediaType}`;
+      const existing = mergedHistory.get(key);
+      if (!existing || (item.progress || 0) > (existing.progress || 0)) {
         mergedHistory.set(key, item);
       }
-      for (const item of serverData.watchHistory) {
-        const key = `${item.tmdbId}-${item.mediaType}`;
-        const existing = mergedHistory.get(key);
-        if (!existing || (item.progress || 0) > (existing.progress || 0)) {
-          mergedHistory.set(key, item);
-        }
-      }
+    }
+    if (mergedHistory.size > 0) {
       localStorage.setItem('lumiere_watch_history', JSON.stringify(Array.from(mergedHistory.values())));
     }
 
-    // Merge favorites — if server is empty, clear local too
+    // Merge favorites
     const localFavorites = this.getLocalFavorites();
-    if (serverData.favorites.length === 0 && localFavorites.length > 0) {
-      localStorage.removeItem('lumiere_favorites');
-    } else {
-      const mergedFavorites = new Map<string, FavoriteItem>();
-      for (const item of localFavorites) {
-        const key = `${item.tmdbId}-${item.mediaType}`;
+    const mergedFavorites = new Map<string, FavoriteItem>();
+    for (const item of localFavorites) {
+      const key = `${item.tmdbId}-${item.mediaType}`;
+      mergedFavorites.set(key, item);
+    }
+    for (const item of serverData.favorites || []) {
+      const key = `${item.tmdbId}-${item.mediaType}`;
+      const existing = mergedFavorites.get(key);
+      if (!existing) {
         mergedFavorites.set(key, item);
       }
-      for (const item of serverData.favorites) {
-        const key = `${item.tmdbId}-${item.mediaType}`;
-        const existing = mergedFavorites.get(key);
-        if (!existing) {
-          mergedFavorites.set(key, item);
-        }
-      }
+    }
+    if (mergedFavorites.size > 0) {
       localStorage.setItem('lumiere_favorites', JSON.stringify(Array.from(mergedFavorites.values())));
     }
 
-    // Merge IPTV playlists (server wins — replace local with server data)
-    if (serverData.iptvPlaylists && serverData.iptvPlaylists.length > 0) {
-      const localIptv = this.getLocalIptvPlaylists();
-      const mergedIptv = new Map<string, IPTVPlaylist>();
-
-      for (const item of localIptv) {
-        mergedIptv.set(item.url, item);
-      }
-
-      for (const item of serverData.iptvPlaylists) {
-        mergedIptv.set(item.url, item);
-      }
-
-      this.saveLocalIptvPlaylists(Array.from(mergedIptv.values()));
+    // Merge IPTV playlists
+    const localIptv = this.getLocalIptvPlaylists();
+    const mergedIptv = new Map<string, IPTVPlaylist>();
+    for (const item of localIptv) {
+      mergedIptv.set(item.url, item);
     }
+    for (const item of serverData.iptvPlaylists || []) {
+      mergedIptv.set(item.url, item);
+    }
+    if (mergedIptv.size === 0) {
+      mergedIptv.set('https://loganettv.github.io/playlists/all.m3u', {
+        name: 'Основной',
+        url: 'https://loganettv.github.io/playlists/all.m3u',
+        epgUrl: '',
+      });
+    }
+    this.saveLocalIptvPlaylists(Array.from(mergedIptv.values()));
   }
 }
 

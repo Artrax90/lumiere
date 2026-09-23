@@ -6,6 +6,7 @@
     "anime": "Аниме",
     "live": "Эфир",
     "iptv": "IPTV",
+    "my": "Моё",
     "collections": "Коллекции",
     "search": "Поиск",
     "settings": "Настройки",
@@ -14,6 +15,7 @@
   "common": {
     "watch": "Смотреть",
     "continue": "Продолжить",
+    "details": "Подробнее",
     "back": "Назад",
     "search": "Поиск",
     "loading": "Загрузка...",
