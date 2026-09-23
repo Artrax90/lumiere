@@ -59,12 +59,29 @@ async function runSuite() {
     let res = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: 'local@lumiere', password: 'local' }),
+      body: JSON.stringify({ email: 'test@lumiere.local', password: 'password123' }),
     });
     if (res.ok) {
       const data = await res.json();
       token = data.accessToken;
       return;
+    }
+    // Check if initial admin setup needed
+    const sRes = await fetch(`${BASE_URL}/api/setup/status`);
+    if (sRes.ok) {
+      const sData = await sRes.json();
+      if (sData.needsSetup) {
+        const setupRes = await fetch(`${BASE_URL}/api/setup/admin`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: 'test@lumiere.local', password: 'password123', name: 'Test Admin' }),
+        });
+        if (setupRes.ok) {
+          const setupData = await setupRes.json();
+          token = setupData.accessToken;
+          return;
+        }
+      }
     }
     // Fallback: LAN profiles quick-login
     const pRes = await fetch(`${BASE_URL}/api/auth/profiles`);
