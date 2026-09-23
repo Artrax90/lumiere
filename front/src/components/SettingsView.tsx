@@ -526,7 +526,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                   name="TorrServer"
                   desc="Стриминг торрентов без скачивания"
                   icon="📡"
-                  url="http://localhost:8090"
+                  url={`http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8590`}
                   statusUrl="/api/torrents/torrserver/status"
                 />
                 {/* qBittorrent */}
@@ -673,7 +673,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                     {[
                       { label: 'Backend API', value: getServerUrl() },
                       { label: 'JacRed API', value: 'http://ns3bg91xvuqfvq9h.cfhttp.top' },
-                      { label: 'TorrServer', value: 'http://localhost:8090' },
+                      { label: 'TorrServer', value: `http://${typeof window !== 'undefined' ? window.location.hostname : 'localhost'}:8590` },
                       { label: 'qBittorrent', value: 'http://localhost:6003' },
                     ].map((item) => (
                       <div key={item.label} className="flex items-center justify-between rounded-[10px] bg-white/[0.03] border border-white/[0.05] px-4 py-3">

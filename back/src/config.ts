@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 export const config = {
-  port: parseInt(process.env.PORT || '3000'),
+  port: parseInt(process.env.PORT || '3500'),
   tmdb: {
     token: process.env.TMDB_TOKEN || process.env.TMDB_API_KEY || '',
     proxyUrl: process.env.TMDB_PROXY_URL || undefined,
@@ -23,7 +23,7 @@ export const config = {
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
   torrserver: {
-    url: process.env.TORRSERVER_URL || 'http://localhost:8090',
+    url: process.env.TORRSERVER_URL || 'http://localhost:8590',
   },
   jacred: {
     url: process.env.JACRED_URL || process.env.jacredUrl || 'http://ns3bg91xvuqfvq9h.cfhttp.top',

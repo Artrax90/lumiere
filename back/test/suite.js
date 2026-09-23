@@ -3,7 +3,7 @@
  * Validates backend APIs, TorrServer, JacRed, Auth, and Static Delivery.
  */
 
-const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3000';
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3500';
 
 async function runSuite() {
   console.log('====================================================');

@@ -36,7 +36,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 
 ENV NODE_ENV=production
-ENV PORT=3000
+ENV PORT=3500
 
 # Install production dependencies only
 COPY back/package*.json ./
@@ -51,9 +51,9 @@ COPY back/public/tv ./public/tv
 # Copy compiled web frontend into public root
 COPY --from=front-builder /app/front/dist/ ./public/
 
-EXPOSE 3000
+EXPOSE 3500
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:3000/api/health || exit 1
+  CMD curl -f http://localhost:3500/api/health || exit 1
 
 CMD ["node", "dist/index.js"]

@@ -25,9 +25,9 @@ services:
     container_name: lumiere-torrserver
     restart: unless-stopped
     ports:
-      - "8090:8090"
+      - "${TORRSERVER_PORT:-8590}:8590"
     environment:
-      - TS_PORT=8090
+      - TS_PORT=8590
       - TS_DONTKILL=1
     volumes:
       - torrserver-data:/opt/torrserver/db
@@ -41,16 +41,16 @@ services:
     container_name: lumiere-app
     restart: unless-stopped
     ports:
-      - "${PORT:-3000}:3000"
+      - "${PORT:-3500}:3500"
     environment:
       NODE_ENV: production
-      PORT: 3000
+      PORT: 3500
       DB_HOST: postgres
       DB_PORT: 5432
       DB_USER: ${DB_USER:-lumiere}
       DB_PASS: ${DB_PASS:-lumiere123}
       DB_NAME: ${DB_NAME:-lumiere}
-      TORRSERVER_URL: http://torrserver:8090
+      TORRSERVER_URL: ${TORRSERVER_URL:-http://torrserver:8590}
       JACRED_URL: ${JACRED_URL:-http://ns3bg91xvuqfvq9h.cfhttp.top}
       TMDB_TOKEN: ${TMDB_TOKEN:-}
       TMDB_PROXY_URL: ${TMDB_PROXY_URL:-}

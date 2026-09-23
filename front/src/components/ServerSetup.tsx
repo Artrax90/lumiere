@@ -10,7 +10,7 @@ interface Props {
 
 export default function ServerSetup({ onConnected, initialError }: Props) {
   const { t } = useTranslation();
-  const placeholderHost = '192.168.1.100:3000';
+  const placeholderHost = '192.168.1.100:3500';
   const [url, setUrl] = useState(() => {
     const current = getServerUrl();
     if (current && !current.startsWith('file:') && !current.startsWith('wgt-')) {

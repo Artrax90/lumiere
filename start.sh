@@ -24,7 +24,7 @@ cd "$DIR/back"
 npm run build
 
 echo "[2/2] Запуск сервера Lumiere..."
-echo "  Backend & Web: http://localhost:3000"
-echo "  Smart TV:      http://localhost:3000/tv/"
+echo "  Backend & Web: http://localhost:3500"
+echo "  Smart TV:      http://localhost:3500/tv/"
 echo ""
 exec node dist/index.js

@@ -23,7 +23,7 @@
 
 **Торрент-интеграция:**
 - **JacRed** — удалённый API (`ns3bg91xvuqfvq9h.cfhttp.top`) для поиска торрентов
-- **TorrServer** — стриминг торрентов (контейнер на порту 8090)
+- **TorrServer** — стриминг торрентов (контейнер на порту 8590)
 - **qBittorrent** — менеджер загрузок (контейнер на порту 6003)
 
 **API эндпоинты:**
@@ -67,7 +67,7 @@ Backend (Fastify)
     ↓
 Сервисы (Docker)
     ├── PostgreSQL (порт 5433)
-    ├── TorrServer (порт 8090)
+    ├── TorrServer (порт 8590)
     ├── qBittorrent (порт 6003)
     └── Jackett (порт 6004, не используется)
 ```
@@ -113,7 +113,7 @@ Backend (Fastify)
 | Сервис | Порт | Статус |
 |--------|------|--------|
 | PostgreSQL | 5433 | ✅ Работает |
-| TorrServer | 8090 | ✅ Работает |
+| TorrServer | 8590 | ✅ Работает |
 | qBittorrent | 6003 | ✅ Работает |
 | Jackett | 6004 | ⚠️ Не используется |
 
@@ -126,7 +126,7 @@ Backend (Fastify)
 - Настройки: Settings → Плагины → JacRed
 
 **TorrServer:**
-- URL: `http://localhost:8090`
+- URL: `http://localhost:8590`
 - Настройки: Settings → Плагины → TorrServer
 
 **FFmpeg:**

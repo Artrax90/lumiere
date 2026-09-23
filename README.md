@@ -71,7 +71,7 @@ docker compose up -d
 
 ### 3. Откройте в браузере:
 Перейдите по адресу:
-👉 **[http://localhost:3000](http://localhost:3000)** *(или `http://<IP_вашего_сервера>:3000` в домашней сети)*.
+👉 **[http://localhost:3500](http://localhost:3500)** *(или `http://<IP_вашего_сервера>:3500` в домашней сети)*.
 
 При первом открытии появится мастер первоначальной настройки:
 1. Задайте имя, email и пароль первого пользователя (Администратора).
@@ -91,7 +91,8 @@ cp .env.example .env
 
 | Переменная | По умолчанию | Описание |
 |---|---|---|
-| `PORT` | `3000` | Порт веб-сервера и REST API |
+| `PORT` | `3500` | Порт веб-сервера и REST API |
+| `TORRSERVER_PORT` | `8590` | Порт TorrServer на хост-машине |
 | `TMDB_TOKEN` | *пусто* | API Read Access Token от TMDB ([получить бесплатно](https://www.themoviedb.org/settings/api)) |
 | `TMDB_PROXY_URL` | *пусто* | SOCKS5 или HTTP прокси для TMDB (если сервис заблокирован у вашего провайдера) |
 | `DB_HOST` | `postgres` | Хост базы данных PostgreSQL |
@@ -99,7 +100,7 @@ cp .env.example .env
 | `DB_USER` | `lumiere` | Пользователь БД |
 | `DB_PASS` | `lumiere123` | Пароль БД |
 | `DB_NAME` | `lumiere` | Имя базы данных |
-| `TORRSERVER_URL`| `http://torrserver:8090` | Адрес сервиса TorrServer для стриминга торрентов |
+| `TORRSERVER_URL`| `http://torrserver:8590` | Адрес сервиса TorrServer для стриминга торрентов |
 | `JACRED_URL` | `http://ns3bg91xvuqfvq9h.cfhttp.top` | Адрес торрент-парсера JacRed |
 | `JWT_SECRET` | *секрет* | Секретный ключ для подписи токенов авторизации |
 | `INVITE_REGISTRATION` | `true` | Регистрация новых пользователей только по инвайт-кодам |
@@ -114,7 +115,7 @@ cp .env.example .env
 ### 🤖 Android TV / Google TV / Android Mobile
 Универсальный APK-пакет уже собран и готов к установке:
 - **Файл в репозитории**: `Lumiere.apk`
-- **Прямая загрузка с вашего сервера**: `http://<IP_СЕРВЕРА>:3000/Lumiere.apk`
+- **Прямая загрузка с вашего сервера**: `http://<IP_СЕРВЕРА>:3500/Lumiere.apk`
 - Подробные инструкции по установке через **Downloader**, флешку или **ADB**:
   📖 См. **[Руководство по установке на Android TV](ANDROID-TV-INSTALL-GUIDE.md)**
 
@@ -122,11 +123,11 @@ cp .env.example .env
 Для телевизоров Samsung доступны несколько вариантов:
 1. **Media Station X (MSX)** — *Самый простой способ (1 минута без ПК)*:
    - Установите приложение **Media Station X** из официального магазина Samsung Apps.
-   - В меню *Settings → Start Parameter* укажите: `<IP_СЕРВЕРА>:3000/msx`
+   - В меню *Settings → Start Parameter* укажите: `<IP_СЕРВЕРА>:3500/msx`
 2. **Нативный пакет (.wgt)**:
    - Файл `Lumiere.wgt` можно установить через Tizen Studio или утилиту SDB.
 3. **Браузер ТВ**:
-   - Откройте встроенный браузер и перейдите на `http://<IP_СЕРВЕРА>:3000/tv/`
+   - Откройте встроенный браузер и перейдите на `http://<IP_СЕРВЕРА>:3500/tv/`
 - 📖 См. подробнее **[Руководство по установке на Samsung Tizen](TIZEN-INSTALL-GUIDE.md)**
 
 ---
@@ -139,7 +140,7 @@ cp .env.example .env
 - **Node.js** 20+ и **npm**
 - **PostgreSQL** 14+
 - **FFmpeg** и **FFprobe** в системном `PATH`
-- **TorrServer** (MatriX) запущенный на порту `8090`
+- **TorrServer** (MatriX) запущенный на порту `8590`
 
 ### Шаги установки:
 
@@ -167,7 +168,7 @@ npm run build
 node dist/index.js
 ```
 
-Сервер будет доступен по адресу: `http://localhost:3000`.
+Сервер будет доступен по адресу: `http://localhost:3500`.
 
 Для быстрого запуска в Windows можно использовать готовый скрипт:
 ```cmd

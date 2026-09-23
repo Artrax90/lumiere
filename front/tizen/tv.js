@@ -404,7 +404,7 @@
     if (token) {
       apiFetch('/api/setup/status', function(err, setupData) {
         if (setupData && setupData.needsSetup) {
-          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + window.location.hostname + ':3000)');
+          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
           return;
         }
         apiFetch('/api/user/profile', function(err2, profile) {
@@ -420,7 +420,7 @@
     } else {
       apiFetch('/api/setup/status', function(err, setupData) {
         if (setupData && setupData.needsSetup) {
-          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + window.location.hostname + ':3000)');
+          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
           return;
         }
         loadProfilesAndShowPicker();

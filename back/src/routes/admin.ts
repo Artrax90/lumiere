@@ -4,6 +4,7 @@ import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { readdirSync, statSync, existsSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import os from 'os';
+import { config } from '../config.js';
 
 export function adminRoutes(app: FastifyInstance, db: Pool) {
   // Server status
@@ -24,7 +25,7 @@ export function adminRoutes(app: FastifyInstance, db: Pool) {
 
     // TorrServer
     try {
-      const res = await fetch('http://localhost:8090/echo', { signal: AbortSignal.timeout(2000) });
+      const res = await fetch(`${config.torrserver.url}/echo`, { signal: AbortSignal.timeout(2000) });
       services.push({ name: 'TorrServer', online: res.ok });
     } catch {
       services.push({ name: 'TorrServer', online: false });
