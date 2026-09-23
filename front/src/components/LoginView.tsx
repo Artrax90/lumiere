@@ -23,6 +23,9 @@ export default function LoginView() {
     setPinDigits([]);
     if (p.hasPin) {
       setSelectedProfile(p);
+    } else if (p.role === 'admin') {
+      setShowPasswordForm(true);
+      setEmail(p.email);
     } else {
       try {
         setPinLoading(true);

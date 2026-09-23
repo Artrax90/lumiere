@@ -24,13 +24,41 @@ function getClientIp(req: any): string {
   if (forwarded) {
     return (typeof forwarded === 'string' ? forwarded : forwarded[0]).split(',')[0].trim();
   }
+  const realIp = req.headers['x-real-ip'];
+  if (realIp) {
+    return (typeof realIp === 'string' ? realIp : realIp[0]).trim();
+  }
   return req.ip || req.socket?.remoteAddress || '';
 }
 
-function isLanRequest(clientIp: string): boolean {
+function isLanRequest(req: any): boolean {
+  // 1. Host header check: if accessed through a public domain or public IP, it is NEVER LAN!
+  const hostHeader = req.headers['host'] || req.headers['x-forwarded-host'];
+  if (hostHeader) {
+    const rawHost = (typeof hostHeader === 'string' ? hostHeader : hostHeader[0]).split(':')[0].toLowerCase().trim();
+    if (rawHost && rawHost !== 'localhost' && rawHost !== '127.0.0.1' && rawHost !== '::1' && !rawHost.endsWith('.local')) {
+      const hostParts = rawHost.split('.').map(Number);
+      if (hostParts.length === 4 && hostParts.every((p: number) => !isNaN(p) && p >= 0 && p <= 255)) {
+        const isPrivate =
+          hostParts[0] === 10 ||
+          (hostParts[0] === 172 && hostParts[1] >= 16 && hostParts[1] <= 31) ||
+          (hostParts[0] === 192 && hostParts[1] === 168);
+        if (!isPrivate) {
+          return false; // Public IP in Host header -> External connection!
+        }
+      } else {
+        // Domain name (e.g. lumiere.example.com, ngrok, trycloudflare, etc.) -> External connection!
+        return false;
+      }
+    }
+  }
+
+  // 2. Client IP check
+  const clientIp = getClientIp(req);
   if (!clientIp) return false;
   const cleanIp = clientIp.replace(/^::ffff:/, '').trim();
 
+  // Loopback
   if (
     cleanIp === '127.0.0.1' ||
     cleanIp === '::1' ||
@@ -40,26 +68,29 @@ function isLanRequest(clientIp: string): boolean {
     return true;
   }
 
-  // RFC 1918 Private Addresses & CGNAT (VPN/overlays)
   const parts = cleanIp.split('.').map(Number);
   if (parts.length === 4 && parts.every((p) => !isNaN(p) && p >= 0 && p <= 255)) {
-    if (parts[0] === 10) return true; // 10.0.0.0/8
-    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true; // 172.16.0.0/12
-    if (parts[0] === 192 && parts[1] === 168) return true; // 192.168.0.0/16
-    if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true; // 100.64.0.0/10
-  }
+    // 10.0.0.0/8 and 192.168.0.0/16 are home/office LANs
+    if (parts[0] === 10) return true;
+    if (parts[0] === 192 && parts[1] === 168) return true;
 
-  // Check against all local interface subnets
-  const interfaces = os.networkInterfaces();
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name] || []) {
-      if (iface.family === 'IPv4' && !iface.internal) {
-        const ifaceParts = iface.address.split('.');
-        const subnet = ifaceParts.slice(0, 3).join('.');
-        if (cleanIp.startsWith(subnet + '.')) {
-          return true;
+    // 172.16.0.0/12: in Docker, 172.17.x.x - 172.31.x.x is the internal docker network.
+    // If incoming connection comes from the docker bridge gateway (e.g. 172.18.0.1),
+    // it's external port forwarding, NOT a trusted LAN client!
+    if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) {
+      const interfaces = os.networkInterfaces();
+      for (const name of Object.keys(interfaces)) {
+        for (const iface of interfaces[name] || []) {
+          if (iface.family === 'IPv4' && !iface.internal) {
+            const ifaceParts = iface.address.split('.').map(Number);
+            if (ifaceParts[0] === parts[0] && ifaceParts[1] === parts[1]) {
+              // Matches container's docker bridge subnet -> external forwarded by docker-proxy!
+              return false;
+            }
+          }
         }
       }
+      return true;
     }
   }
 
@@ -81,13 +112,12 @@ export function authRoutes(app: FastifyInstance) {
   // Check if current request is from LAN
   app.get('/api/auth/lan-status', async (req) => {
     const clientIp = getClientIp(req);
-    return { isLan: isLanRequest(clientIp), clientIp };
+    return { isLan: isLanRequest(req), clientIp };
   });
 
   // Get list of user profiles (LAN only)
   app.get('/api/auth/profiles', async (req, reply) => {
-    const clientIp = getClientIp(req);
-    if (!isLanRequest(clientIp)) {
+    if (!isLanRequest(req)) {
       return reply.code(403).send({ error: 'Profiles list is only available in LAN' });
     }
 
@@ -117,8 +147,7 @@ export function authRoutes(app: FastifyInstance) {
 
   // Quick login into a profile without password (LAN only, PIN required if configured)
   app.post('/api/auth/quick-login', async (req, reply) => {
-    const clientIp = getClientIp(req);
-    if (!isLanRequest(clientIp)) {
+    if (!isLanRequest(req)) {
       return reply.code(403).send({ error: 'Quick login only available from local network' });
     }
 
@@ -138,6 +167,11 @@ export function authRoutes(app: FastifyInstance) {
       }
 
       const user = result.rows[0];
+
+      // Admin role must require PIN or password! Never allow 1-click passwordless admin login
+      if (user.role === 'admin' && (!user.pin || user.pin.trim() === '')) {
+        return reply.code(403).send({ error: 'Для входа в профиль администратора требуется пароль' });
+      }
 
       // Verify PIN if set
       if (user.pin && user.pin.trim() !== '') {
@@ -178,14 +212,13 @@ export function authRoutes(app: FastifyInstance) {
 
   // Legacy fallback for LAN login (auto-login if single profile without PIN)
   app.post('/api/auth/lan-login', async (req, reply) => {
-    const clientIp = getClientIp(req);
-    if (!isLanRequest(clientIp)) {
+    if (!isLanRequest(req)) {
       return reply.code(403).send({ error: 'LAN login only available from local network' });
     }
 
     try {
       const result = await pool.query(
-        "SELECT id, email, name, avatar, role, is_kids, pin FROM users ORDER BY (pin IS NOT NULL AND pin != '') ASC, id ASC LIMIT 1"
+        "SELECT id, email, name, avatar, role, is_kids, pin FROM users WHERE role != 'admin' ORDER BY (pin IS NOT NULL AND pin != '') ASC, id ASC LIMIT 1"
       );
 
       if (result.rows.length > 0) {

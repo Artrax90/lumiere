@@ -101,6 +101,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem('lumiere_user');
     localStorage.removeItem('lumiere_active_profile');
     setUser(null);
+    setProfiles([]);
+    setIsLan(false);
     setConnectionError(null);
     setServerReady(false);
   }, []);
@@ -223,6 +225,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // If not logged in and on LAN, fetch profile list for the profile picker
       if (lanDetected) {
         await fetchProfiles();
+      } else {
+        setProfiles([]);
       }
 
       setLoading(false);
@@ -269,6 +273,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     if (isLan) {
       await fetchProfiles();
+    } else {
+      setProfiles([]);
     }
   }, [isLan, fetchProfiles]);
 
@@ -277,6 +283,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
     if (isLan) {
       fetchProfiles();
+    } else {
+      setProfiles([]);
     }
   }, [isLan, fetchProfiles]);
 
