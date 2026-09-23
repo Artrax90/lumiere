@@ -87,7 +87,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // On native: wait for user to enter server URL
   const [serverReady, setServerReady] = useState(() => {
     if (!native) {
-      if (window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost') {
+      if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
         setServerUrl(window.location.origin);
         return true;
       }

@@ -129,13 +129,13 @@
     if (btnCc) topBtns.push(btnCc);
 
     // Server & API
-    var server = localStorage.getItem(SERVER_KEY);
-    if (server && server.indexOf('192.168.1.37') === -1) {
+    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url');
+    if (server) {
       API = server;
     } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
       API = window.location.origin;
     } else {
-      API = 'http://192.168.1.77:3000';
+      API = '';
     }
 
     // Parameters

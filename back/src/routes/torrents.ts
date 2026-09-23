@@ -331,7 +331,7 @@ export function torrentRoutes(app: FastifyInstance) {
         }));
 
         const fileName = f.path.split('/').pop() || f.path;
-        const host = req.headers.host ? req.headers.host.split(':')[0] : '192.168.1.77';
+        const host = req.headers.host ? req.headers.host.split(':')[0] : (req.hostname || 'localhost');
         const torrHost = TORRSERVER_URL.replace(/localhost|127\.0\.0\.1/, host);
         const directTorrUrl = `${torrHost}/stream/${encodeURIComponent(fileName)}?link=${encodeURIComponent(magnet)}&index=${f.id}&play`;
 
@@ -544,9 +544,9 @@ export function torrentRoutes(app: FastifyInstance) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
-  // HLS transcoding endpoint — remuxes MKV/AVI to HLS via FFmpeg
-  // Track active FFmpeg sessions
-  const activeSessions = new Map<string, { pid: number; hlsDir: string }>();
+  // Track active FFmpeg sessions and subtitle extraction processes
+  const activeSessions = new Map<string, { pid: number; hlsDir: string; streamKey: string }>();
+  const activeSubtitles = new Map<string, { pid: number }>();
 
   app.get('/api/torrents/hls', async (req, reply) => {
     const { link, index, audio, start } = req.query as { link?: string; index?: string; audio?: string; start?: string };
@@ -586,6 +586,16 @@ export function torrentRoutes(app: FastifyInstance) {
       // Manifest exists but not valid yet — fall through to wait
     }
 
+    const streamKey = `${link}-${index || 0}`;
+
+    // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
+    for (const [sId, sess] of activeSessions.entries()) {
+      if (sess.streamKey === streamKey && sId !== sessionId) {
+        try { process.kill(sess.pid, 'SIGKILL'); } catch {}
+        activeSessions.delete(sId);
+      }
+    }
+
     // Clean up old session and HLS directory if exists
     if (existingSession) {
       try { process.kill(existingSession.pid, 'SIGKILL'); } catch {}
@@ -607,13 +617,13 @@ export function torrentRoutes(app: FastifyInstance) {
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
-      '-i', streamUrl,
     ];
-    // Seek AFTER input — accurate seeking (reads stream, discards until seek point)
-    // -ss before -i uses byte offsets which are wrong for VBR MKV files
+    // Input seek (-ss before -i) allows FFmpeg to use HTTP Range requests directly to TorrServer
+    // avoiding sequential decoding of thousands of frames
     if (seekTime > 0) {
       ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
     }
+    ffmpegArgs.push('-i', streamUrl);
     ffmpegArgs.push(
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
@@ -632,7 +642,7 @@ export function torrentRoutes(app: FastifyInstance) {
     );
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
+    activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, streamKey });
     ffmpeg.on('error', (err) => {
       console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
       activeSessions.delete(sessionId);
@@ -648,38 +658,42 @@ export function torrentRoutes(app: FastifyInstance) {
       }
     });
 
-    // Start background subtitle extraction (non-blocking)
+    // Start background subtitle extraction (non-blocking) - at most once per torrent streamKey
     const subtitlePath = join(hlsDir, 'subs.vtt');
     const { existsSync: subExistsSync, statSync: subStatSync } = await import('fs');
-    console.log(`Starting subtitle extraction for session ${sessionId}`);
-    const subFfmpeg = spawn('ffmpeg', [
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
-      '-i', streamUrl,
-      '-map', '0:s:0',
-      '-c:s', 'webvtt',
-      '-y',
-      subtitlePath,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
-    subFfmpeg.on('error', (err) => {
-      console.warn(`Subtitle FFmpeg error:`, err.message);
-    });
-    subFfmpeg.on('close', (code) => {
-      const size = subExistsSync(subtitlePath) ? subStatSync(subtitlePath).size : 0;
-      console.log(`Subtitle extraction finished for session ${sessionId}: code=${code}, size=${size}`);
-    });
-    subFfmpeg.stderr.on('data', (data) => {
-      // Log FFmpeg errors for debugging
-      const msg = data.toString();
-      if (msg.includes('Error') || msg.includes('error')) {
-        console.error(`Subtitle FFmpeg error: ${msg.substring(0, 200)}`);
-      }
-    });
-    // Kill subtitle extraction after 3 minutes
-    setTimeout(() => {
-      try { subFfmpeg.kill('SIGKILL'); } catch {}
-    }, 180000);
+    if (!activeSubtitles.has(streamKey) && !subExistsSync(subtitlePath)) {
+      console.log(`Starting subtitle extraction for streamKey ${streamKey}`);
+      const subFfmpeg = spawn('ffmpeg', [
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+        '-i', streamUrl,
+        '-map', '0:s:0',
+        '-c:s', 'webvtt',
+        '-y',
+        subtitlePath,
+      ], { stdio: ['pipe', 'pipe', 'pipe'] });
+      activeSubtitles.set(streamKey, { pid: subFfmpeg.pid! });
+      subFfmpeg.on('error', (err) => {
+        console.warn(`Subtitle FFmpeg error:`, err.message);
+        activeSubtitles.delete(streamKey);
+      });
+      subFfmpeg.on('close', (code) => {
+        const size = subExistsSync(subtitlePath) ? subStatSync(subtitlePath).size : 0;
+        console.log(`Subtitle extraction finished for streamKey ${streamKey}: code=${code}, size=${size}`);
+        activeSubtitles.delete(streamKey);
+      });
+      subFfmpeg.stderr.on('data', (data) => {
+        const msg = data.toString();
+        if (msg.includes('Error') || msg.includes('error')) {
+          console.error(`Subtitle FFmpeg error: ${msg.substring(0, 200)}`);
+        }
+      });
+      setTimeout(() => {
+        try { subFfmpeg.kill('SIGKILL'); } catch {}
+        activeSubtitles.delete(streamKey);
+      }, 120000);
+    }
 
     // Wait for playlist
     const waitForPlaylist = () => new Promise<void>((resolve) => {
@@ -908,6 +922,14 @@ export function torrentRoutes(app: FastifyInstance) {
 
     try {
       const seekTime = parseFloat(time);
+      const streamKey = `${link}-${index || 0}`;
+      // Clean up previous sessions for this torrent file
+      for (const [sId, sess] of activeSessions.entries()) {
+        if (sess.streamKey === streamKey) {
+          try { process.kill(sess.pid, 'SIGKILL'); } catch {}
+          activeSessions.delete(sId);
+        }
+      }
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       // Use random session ID - each seek gets a fresh directory, no cleanup needed
       const sessionId = Math.random().toString(36).slice(2, 15) + Date.now().toString(36);
@@ -926,8 +948,8 @@ export function torrentRoutes(app: FastifyInstance) {
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '10',
-        '-i', streamUrl,
         '-ss', String(seekTime),
+        '-i', streamUrl,
         '-map', '0:v:0',
         '-map', '0:a:0',
         '-c:v', 'copy',
@@ -944,7 +966,7 @@ export function torrentRoutes(app: FastifyInstance) {
         playlistPath,
       ], { stdio: ['pipe', 'pipe', 'pipe'] });
 
-      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir });
+      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, streamKey });
 
       ffmpeg.on('error', (err) => {
         console.error(`[FFmpeg] Seek session ${sessionId} spawn error:`, err.message);

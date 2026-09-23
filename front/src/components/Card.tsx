@@ -90,12 +90,22 @@ export default function Card({
   const cardWidth = featured ? Math.round(baseWidth * 1.35) : baseWidth;
   const radius = featured ? 'rounded-[16px]' : 'rounded-[12px]';
 
+  const handleMouseEnter = () => {
+    if (typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+      setHovered(true);
+    }
+  };
+
+  const handleMouseLeave = () => {
+    setHovered(false);
+  };
+
   return (
     <div
-      className={`group/card relative cursor-pointer ${fill ? 'w-full' : 'shrink-0'}`}
+      className={`group/card relative cursor-pointer active:scale-[0.98] transition-transform ${fill ? 'w-full' : 'shrink-0'}`}
       style={fill ? undefined : { width: cardWidth }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       onClick={() => onSelect(title)}
     >
       {/* Rank numeral — oversized, sits behind the card for trending rows */}

@@ -15,6 +15,11 @@ export interface Title {
   poster: string;
   logoText: string;
   director?: string;
+  originalTitle?: string;
+  countries?: string[];
+  releaseDate?: string;
+  tagline?: string;
+  productionCompanies?: string[];
   cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
   seasonsCount?: number;

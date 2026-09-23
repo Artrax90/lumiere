@@ -330,7 +330,7 @@ export default function ActiveSessionsView() {
                               Сезон {sess.season}, Серия {sess.episode}
                             </span>
                           )}
-                          {(sess.mediaType === 'iptv' || sess.mediaType === 'live') && (
+                          {((sess.mediaType as string) === 'iptv' || (sess.mediaType as string) === 'live') && (
                             <span className="text-sky-300/80 font-medium">ТВ-трансляция</span>
                           )}
                           {sess.clientIp && (

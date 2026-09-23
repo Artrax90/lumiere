@@ -35,8 +35,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const playingRef = useRef(true);
   playingRef.current = playing;
   const [buffered, setBuffered] = useState(0);
-  const [currentTime, setCurrentTime] = useState(0);
+  const [bufferedRange, setBufferedRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [currentTime, setCurrentTime] = useState(initialTime || 0);
   const [duration, setDuration] = useState(0);
+  const seekOffsetRef = useRef<number>(initialTime && initialTime > 30 && title.videoUrl?.includes('/api/torrents/hls') ? Math.floor(initialTime) : 0);
   const [showControls, setShowControls] = useState(true);
   const showControlsRef = useRef(true);
   showControlsRef.current = showControls;
@@ -54,6 +56,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [isDragging, setIsDragging] = useState(false);
   const isDraggingRef = useRef(false);
   isDraggingRef.current = isDragging;
+  const isSeekingRef = useRef(false);
+  const controlsJustOpenedRef = useRef<number>(0);
+  const touchFractionRef = useRef<number>(0);
   const realDurationRef = useRef<number>(0); // Duration from FFprobe (for torrents)
   const lastTouchTimeRef = useRef<number>(0);
 
@@ -120,15 +125,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             deviceName: Capacitor.isNativePlatform() ? 'Mobile App' : 'Web Browser',
             mediaType: (title.type === 'live' ? 'iptv' : title.type) || 'movie',
             mediaId: title.id,
-            mediaTitle: title.titleName || title.name || 'Видео',
+            mediaTitle: (title as any).titleName || title.name || 'Видео',
             mediaPoster: title.poster || '',
             currentTime: Math.round(currentProgressRef.current.time || 0),
             duration: Math.round(currentProgressRef.current.dur || 0),
             isPaused: currentProgressRef.current.paused,
           }),
         });
-        if (res && res.terminate) {
-          onExit();
+        if (res && res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.terminate) {
+            onExit();
+          }
         }
       } catch {}
     };
@@ -235,7 +243,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       // Skip if we're in the middle of an audio switch
       if (audioSwitchRef.current) return;
       if (video.readyState >= 2) { // HAVE_CURRENT_DATA
-        video.currentTime = initialTime;
+        if (!isHls || !title.videoUrl?.includes('/api/torrents/hls') || !seekOffsetRef.current) {
+          video.currentTime = initialTime;
+        }
       }
     };
 
@@ -283,7 +293,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         setQualityLevels(levels);
         // Seek to initial time if provided
         if (initialTime && initialTime > 0) {
-          video.currentTime = initialTime;
+          if (!isHls || !title.videoUrl?.includes('/api/torrents/hls') || !seekOffsetRef.current) {
+            video.currentTime = initialTime;
+          }
         }
         video.play().catch(() => {});
 
@@ -467,28 +479,44 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     if (!video) return;
 
     const handleTimeUpdate = () => {
-      if (!isDragging) {
-        setCurrentTime(video.currentTime);
+      if (!isDragging && !isSeekingRef.current) {
+        const offset = seekOffsetRef.current || 0;
+        const effectiveTime = offset + video.currentTime;
+        setCurrentTime(effectiveTime);
         // Only update duration from video if we don't have a real duration from FFprobe
         if (video.duration && isFinite(video.duration) && realDurationRef.current === 0) {
-          setDuration(video.duration);
+          setDuration(offset + video.duration);
         }
         // Save playback position (throttled by parent)
         if (onTimeUpdate) {
-          onTimeUpdate(video.currentTime);
+          onTimeUpdate(effectiveTime);
         }
       }
     };
     const onProgress = () => {
-      const dur = realDurationRef.current > 0 ? realDurationRef.current : video.duration;
-      if (video.buffered.length > 0 && dur && isFinite(dur)) {
-        setBuffered(video.buffered.end(video.buffered.length - 1) / dur);
+      const dur = realDurationRef.current > 0 ? realDurationRef.current : (duration > 0 ? duration : video.duration);
+      if (video.buffered.length > 0 && dur && isFinite(dur) && dur > 0) {
+        const offset = seekOffsetRef.current || 0;
+        const bStart = Math.max(0, offset + video.buffered.start(0));
+        const bEnd = Math.min(dur, offset + video.buffered.end(video.buffered.length - 1));
+        setBufferedRange({
+          start: Math.max(0, (bStart / dur) * 100),
+          end: Math.min(100, (bEnd / dur) * 100),
+        });
+        setBuffered(Math.min(1, bEnd / dur));
       }
     };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     const onWaiting = () => setLoading(true);
-    const onPlaying = () => setLoading(false);
+    const onPlaying = () => {
+      setLoading(false);
+      isSeekingRef.current = false;
+    };
+    const onCanPlay = () => {
+      setLoading(false);
+      isSeekingRef.current = false;
+    };
     const onLoadedMetadata = () => {
       // Only update duration from video if we don't have a real duration from FFprobe
       if (isFinite(video.duration) && realDurationRef.current === 0) {
@@ -502,6 +530,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     video.addEventListener('pause', onPause);
     video.addEventListener('waiting', onWaiting);
     video.addEventListener('playing', onPlaying);
+    video.addEventListener('canplay', onCanPlay);
     video.addEventListener('loadedmetadata', onLoadedMetadata);
 
     return () => {
@@ -511,6 +540,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       video.removeEventListener('pause', onPause);
       video.removeEventListener('waiting', onWaiting);
       video.removeEventListener('playing', onPlaying);
+      video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
     };
   }, [isDragging, onTimeUpdate]);
@@ -642,6 +672,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       }
 
       if (!wasVisible) {
+        controlsJustOpenedRef.current = Date.now();
         resetHideTimer();
       } else {
         setShowControls(false);
@@ -651,14 +682,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           hideTimer.current = undefined;
         }
       }
-    }, 280);
+    }, 250);
   };
 
   const skip = (seconds: number) => {
     const video = videoRef.current;
-    if (video) {
-      const maxDur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
-      video.currentTime = Math.max(0, Math.min(video.currentTime + seconds, maxDur));
+    if (!video) return;
+    const dur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
+    const target = Math.max(0, Math.min(currentTime + seconds, dur));
+    if (dur > 0 && isFinite(dur)) {
+      seek(target / dur);
+    } else {
+      video.currentTime = Math.max(0, video.currentTime + seconds);
     }
   };
 
@@ -666,9 +701,68 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const video = videoRef.current;
     if (!video || !isFinite(duration) || duration <= 0) return;
 
-    const targetTime = fraction * duration;
-    // Simple seek — hls.js handles buffering within the transcoded range
-    video.currentTime = targetTime;
+    const targetTime = Math.max(0, Math.min(fraction * duration, duration));
+    setCurrentTime(targetTime);
+
+    if (isHls && title.videoUrl?.includes('/api/torrents/hls')) {
+      const offset = seekOffsetRef.current || 0;
+      const localTarget = targetTime - offset;
+      let isBuffered = false;
+
+      if (video.buffered && video.buffered.length > 0 && localTarget >= 0) {
+        for (let i = 0; i < video.buffered.length; i++) {
+          if (localTarget >= video.buffered.start(i) && localTarget <= video.buffered.end(i) - 0.5) {
+            isBuffered = true;
+            break;
+          }
+        }
+      }
+
+      if (isBuffered) {
+        video.currentTime = localTarget;
+      } else {
+        // Outside buffer: reload HLS starting from targetTime offset
+        const newOffset = Math.floor(targetTime);
+        seekOffsetRef.current = newOffset;
+        isSeekingRef.current = true;
+        setLoading(true);
+
+        // Update buffered range to start at the new position immediately
+        setBufferedRange({
+          start: Math.max(0, (newOffset / duration) * 100),
+          end: Math.max(0, (newOffset / duration) * 100),
+        });
+
+        let cleanUrl = title.videoUrl!;
+        cleanUrl = cleanUrl.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+        const separator = cleanUrl.includes('?') ? '&' : '?';
+        const newSeekUrl = serverUrl(`${cleanUrl}${separator}start=${newOffset}&audio=${currentAudioIndex}`);
+
+        video.currentTime = 0;
+
+        if (hlsRef.current) {
+          hlsRef.current.stopLoad();
+          hlsRef.current.loadSource(newSeekUrl);
+          hlsRef.current.startLoad(0);
+          hlsRef.current.once(Hls.Events.MANIFEST_PARSED, () => {
+            video.currentTime = 0;
+            video.play().catch(() => {});
+          });
+        } else {
+          video.src = newSeekUrl;
+          video.load();
+          video.currentTime = 0;
+          video.play().catch(() => {});
+        }
+
+        // Safety fallback: allow timeupdate after 5s even if events are missed
+        setTimeout(() => {
+          isSeekingRef.current = false;
+        }, 5000);
+      }
+    } else {
+      video.currentTime = targetTime;
+    }
   };
 
   const toggleFullscreen = () => {
@@ -710,6 +804,38 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     };
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
+  };
+
+  const handleTimelineTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    resetHideTimer();
+    const touch = e.touches[0];
+    if (!touch || !progressRef.current || !isFinite(duration) || duration <= 0) return;
+    setIsDragging(true);
+    isDraggingRef.current = true;
+    const rect = progressRef.current.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+    touchFractionRef.current = fraction;
+    setCurrentTime(fraction * duration);
+  };
+
+  const handleTimelineTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    resetHideTimer();
+    const touch = e.touches[0];
+    if (!touch || !progressRef.current || !isFinite(duration) || duration <= 0) return;
+    const rect = progressRef.current.getBoundingClientRect();
+    const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
+    touchFractionRef.current = fraction;
+    setCurrentTime(fraction * duration);
+  };
+
+  const handleTimelineTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    resetHideTimer();
+    setIsDragging(false);
+    isDraggingRef.current = false;
+    seek(touchFractionRef.current);
   };
 
   const handleTimelineHover = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -760,13 +886,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       hlsRef.current = null;
     }
 
-    // Build new URL with audio parameter
+    // Build new URL with audio parameter and current offset
     const fullUrl = serverUrl(title.videoUrl);
     const urlObj = new URL(fullUrl, window.location.origin);
     urlObj.searchParams.set('audio', String(id));
+    const effectiveCurTime = (seekOffsetRef.current || 0) + saveTime;
+    if (effectiveCurTime > 10) {
+      urlObj.searchParams.set('start', String(Math.floor(effectiveCurTime)));
+      seekOffsetRef.current = Math.floor(effectiveCurTime);
+    }
     const newUrl = urlObj.toString();
 
-    // Create new HLS instance with startPosition
+    // Create new HLS instance
     const hls = new Hls({
       maxBufferLength: 30,
       maxMaxBufferLength: 60,
@@ -777,7 +908,6 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       fragLoadingTimeOut: 30000,
       manifestLoadingTimeOut: 30000,
       levelLoadingTimeOut: 30000,
-      startPosition: saveTime > 0 ? saveTime : -1,
     });
     hlsRef.current = hls;
 
@@ -786,10 +916,6 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
     hls.on(Hls.Events.MANIFEST_PARSED, () => {
       setLoading(false);
-      // Double-check position restore
-      if (saveTime > 0 && Math.abs(video.currentTime - saveTime) > 2) {
-        video.currentTime = saveTime;
-      }
       // Resume playback if it was playing before
       if (wasPlaying) {
         video.play().catch(() => {});
@@ -894,7 +1020,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const interval = setInterval(() => {
       const video = videoRef.current;
       if (!video) return;
-      const t = video.currentTime;
+      const t = (seekOffsetRef.current || 0) + video.currentTime;
       const cue = subtitleCuesRef.current.find(c => t >= c.start && t <= c.end);
       setSubtitleText(cue?.text || '');
     }, 100);
@@ -1016,11 +1142,34 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       </div>
 
       {/* Center play/pause */}
-      {!playing && !loading && (
-        <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
-          <div className="h-20 w-20 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center">
-            <Play className="h-10 w-10 text-white ml-1" fill="currentColor" />
-          </div>
+      {!loading && (
+        <div
+          className="absolute inset-0 flex items-center justify-center z-20 transition-opacity duration-300"
+          style={{
+            opacity: showControls ? 1 : 0,
+            pointerEvents: showControls ? 'auto' : 'none',
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (Date.now() - controlsJustOpenedRef.current < 350) return;
+            togglePlay();
+          }}
+        >
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (Date.now() - controlsJustOpenedRef.current < 350) return;
+              togglePlay();
+            }}
+            aria-label={playing ? "Пауза" : "Воспроизведение"}
+            className="h-20 w-20 rounded-full bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-2xl transition-all duration-200 active:scale-90 hover:scale-110"
+          >
+            {playing ? (
+              <Pause className="h-10 w-10 text-white" fill="currentColor" />
+            ) : (
+              <Play className="h-10 w-10 text-white ml-1.5" fill="currentColor" />
+            )}
+          </button>
         </div>
       )}
 
@@ -1041,10 +1190,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         <div className="px-6 mb-2">
           <div
             ref={progressRef}
-            className="group relative h-8 flex items-center cursor-pointer"
+            className="group relative h-8 flex items-center cursor-pointer touch-none"
             onMouseMove={handleTimelineHover}
             onMouseLeave={() => setHoverTime(null)}
             onMouseDown={handleTimelineMouseDown}
+            onTouchStart={handleTimelineTouchStart}
+            onTouchMove={handleTimelineTouchMove}
+            onTouchEnd={handleTimelineTouchEnd}
           >
             {/* Hover time tooltip */}
             {hoverTime !== null && !isDragging && (
@@ -1058,16 +1210,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             {/* Track */}
             <div className="relative w-full h-1.5 rounded-full bg-white/20 group-hover:h-2 transition-all">
               {/* Buffered range */}
-              <div className="absolute inset-y-0 left-0 rounded-full bg-white/40" style={{ width: `${buffered * 100}%` }} />
+              <div
+                className="absolute inset-y-0 rounded-full bg-white/40"
+                style={{
+                  left: `${bufferedRange.start}%`,
+                  width: `${Math.max(0, bufferedRange.end - bufferedRange.start)}%`,
+                }}
+              />
               {/* Played range */}
               <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }}>
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg opacity-0 group-hover:opacity-100 transition-opacity" />
+                <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" />
               </div>
             </div>
             {/* Buffer indicator */}
-            {buffered < 0.9 && buffered > 0 && (
+            {bufferedRange.end > 0 && bufferedRange.end < 98 && (
               <div className="text-[10px] text-white/30 mt-1">
-                {t('player.buffer')}: {fmtTime(buffered * duration)}
+                {t('player.buffer')}: {fmtTime((bufferedRange.end / 100) * duration)}
               </div>
             )}
           </div>

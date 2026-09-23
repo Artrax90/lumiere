@@ -840,6 +840,128 @@ body.player-active .section {
   flex: 1;
   min-width: 0;
 }
+
+/* Specs & Metadata block inside Left Hero column (fills void below synopsis) */
+.detail-specs-block {
+  margin-top: 24px;
+  background: rgba(14, 18, 28, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  padding: 18px 24px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.detail-specs-header {
+  font-family: Georgia, serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #e8c170;
+  letter-spacing: -0.01em;
+  margin-bottom: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+.detail-specs-header::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(232, 193, 112, 0.35) 0%, transparent 100%);
+}
+.detail-specs-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px 28px;
+}
+.detail-spec-row {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  min-width: 0;
+}
+.detail-spec-row-genres,
+.detail-spec-row-tech,
+.detail-spec-row-tagline {
+  grid-column: span 2;
+  align-items: center;
+}
+.detail-spec-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+.detail-spec-val {
+  font-size: 15px;
+  font-weight: 500;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+}
+.detail-spec-italic {
+  font-style: italic;
+  color: rgba(255, 255, 255, 0.85);
+}
+.detail-spec-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.detail-genre-chip {
+  display: inline-block;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.92);
+}
+.detail-tech-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.detail-tech-badge {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 8px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: rgba(255, 255, 255, 0.85);
+}
+.detail-tech-badge.badge-4k {
+  border-color: rgba(232, 193, 112, 0.45);
+  color: #e8c170;
+  background: rgba(232, 193, 112, 0.12);
+}
+.detail-tech-badge.badge-dv {
+  border-color: rgba(147, 197, 253, 0.45);
+  color: #93c5fd;
+  background: rgba(147, 197, 253, 0.12);
+}
+.detail-tech-badge.badge-hdr {
+  border-color: rgba(255, 255, 255, 0.25);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+.detail-tech-badge.badge-audio {
+  border-color: rgba(192, 132, 252, 0.45);
+  color: #c084fc;
+  background: rgba(192, 132, 252, 0.12);
+}
+
 .detail-hero-right {
   width: 680px;
   flex-shrink: 0;
@@ -848,6 +970,9 @@ body.player-active .section {
 /* Cast Section: 4x2 Actor Cards Grid matching user mockup */
 .detail-cast-section {
   width: 100%;
+  border-top: none !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
 }
 .detail-cast-header-row {
   display: flex;
@@ -892,15 +1017,15 @@ body.player-active .section {
 .detail-actor-card {
   display: flex;
   flex-direction: column;
-  background: rgba(16, 20, 30, 0.76);
-  border: 1.5px solid rgba(255, 255, 255, 0.16);
+  background: rgba(16, 20, 30, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   padding: 10px;
   cursor: pointer;
   outline: none;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   text-align: left;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
 }
@@ -1370,8 +1495,9 @@ body.player-active .section {
 
 /* Detail: Cast */
 .detail-cast-section {
-  margin-top: 16px; padding-top: 32px;
-  border-top: 1px solid var(--border);
+  border-top: none !important;
+  margin-top: 0 !important;
+  padding-top: 0 !important;
 }
 .detail-section-header { display: flex; align-items: center; margin-bottom: 24px; }
 .detail-section-header .detail-section-count { margin-left: 12px; }

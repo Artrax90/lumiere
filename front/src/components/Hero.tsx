@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Info, Plus, Star, Check, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
@@ -126,8 +126,53 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
     }
   };
 
+  const touchStartX = useRef<number>(0);
+  const touchStartY = useRef<number>(0);
+  const isSwiping = useRef<boolean>(false);
+
+  const handlePrev = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!titles.length) return;
+    setActive((active - 1 + titles.length) % titles.length);
+  };
+
+  const handleNext = (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    if (!titles.length) return;
+    setActive((active + 1) % titles.length);
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length === 1) {
+      touchStartX.current = e.touches[0].clientX;
+      touchStartY.current = e.touches[0].clientY;
+      isSwiping.current = true;
+    }
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!isSwiping.current || e.changedTouches.length === 0) return;
+    isSwiping.current = false;
+    const deltaX = e.changedTouches[0].clientX - touchStartX.current;
+    const deltaY = e.changedTouches[0].clientY - touchStartY.current;
+
+    // Must be predominantly horizontal gesture (> 40px delta, > 1.2x vertical delta)
+    if (Math.abs(deltaX) > 40 && Math.abs(deltaX) > Math.abs(deltaY) * 1.2) {
+      if (deltaX < 0) {
+        handleNext();
+      } else {
+        handlePrev();
+      }
+    }
+  };
+
   return (
-    <div className="absolute left-0 right-0 top-0 z-20 h-[68vh] min-h-[520px] max-h-[760px] w-full overflow-hidden">
+    <div
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      className="absolute left-0 right-0 top-0 z-20 h-[68vh] min-h-[520px] max-h-[760px] w-full overflow-hidden select-none"
+    >
+
       {/* ── Artwork layers — masked so the final 140px dissolves to
             transparency. No added background; the app surface shows
             through naturally. ── */}

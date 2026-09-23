@@ -212,7 +212,13 @@ html, body, #root {
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
+    animation-iteration-count: 1 !important;
     animation-duration: 0.01ms !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 120ms !important;
+  }
+  .animate-breathe,
+  .animate-float-slow,
+  .animate-pulse-soft {
+    animation: none !important;
   }
 }

@@ -89,7 +89,11 @@ console.log('');
 
 // Install flag
 if (process.argv.includes('--install')) {
-  const TV_IP = process.argv.find(a => a.startsWith('--ip='))?.split('=')[1] || '192.168.1.99';
+  const TV_IP = process.argv.find(a => a.startsWith('--ip='))?.split('=')[1] || process.env.TV_IP;
+  if (!TV_IP) {
+    console.error('Please specify TV IP via --ip=<TV_IP> or TV_IP environment variable.');
+    process.exit(1);
+  }
   console.log(`Installing on TV (${TV_IP})...`);
   try {
     execSync(`sdb connect ${TV_IP}`, { stdio: 'inherit' });

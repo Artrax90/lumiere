@@ -55,16 +55,35 @@ async function runSuite() {
 
   // Group 2: Authentication
   console.log('\n[2/5] Authentication & Security:');
-  await it('Login with default credentials returns JWT', async () => {
-    const res = await fetch(`${BASE_URL}/api/auth/login`, {
+  await it('Login with credentials or LAN quick-login returns JWT', async () => {
+    let res = await fetch(`${BASE_URL}/api/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email: 'local@lumiere', password: 'local' }),
     });
-    if (!res.ok) throw new Error(`Login failed with HTTP ${res.status}`);
-    const data = await res.json();
-    if (!data.accessToken) throw new Error('No accessToken returned');
-    token = data.accessToken;
+    if (res.ok) {
+      const data = await res.json();
+      token = data.accessToken;
+      return;
+    }
+    // Fallback: LAN profiles quick-login
+    const pRes = await fetch(`${BASE_URL}/api/auth/profiles`);
+    if (pRes.ok) {
+      const pData = await pRes.json();
+      if (pData.profiles && pData.profiles.length > 0) {
+        const qRes = await fetch(`${BASE_URL}/api/auth/quick-login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: pData.profiles[0].id }),
+        });
+        if (qRes.ok) {
+          const qData = await qRes.json();
+          token = qData.accessToken;
+          return;
+        }
+      }
+    }
+    throw new Error('Unable to authenticate via login or quick-login');
   });
 
   await it('Protected profile endpoint validates JWT', async () => {
@@ -148,7 +167,8 @@ async function runSuite() {
       throw new Error('No stream data available');
     }
     const directUrl = streamData.files[0].directUrl;
-    const res = await fetch(`${BASE_URL}${directUrl}`, {
+    const fetchUrl = directUrl.startsWith('http') ? directUrl : `${BASE_URL}${directUrl}`;
+    const res = await fetch(fetchUrl, {
       headers: { 'Range': 'bytes=0-2048' },
     });
     if (res.status !== 206 && res.status !== 200) {

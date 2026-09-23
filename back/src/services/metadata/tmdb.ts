@@ -278,6 +278,17 @@ export class TmdbProvider implements MetadataProvider {
     const director = credits.crew.find((c) => c.job === 'Director');
     if (director) base.director = director.name;
 
+    const rawDetails = details as any;
+    base.originalTitle = rawDetails.original_title || rawDetails.original_name || '';
+    if (rawDetails.production_countries && Array.isArray(rawDetails.production_countries)) {
+      base.countries = rawDetails.production_countries.map((c: any) => c.name || c.iso_3166_1).filter(Boolean);
+    }
+    base.releaseDate = rawDetails.release_date || rawDetails.first_air_date || '';
+    base.tagline = rawDetails.tagline || '';
+    if (rawDetails.production_companies && Array.isArray(rawDetails.production_companies)) {
+      base.productionCompanies = rawDetails.production_companies.map((c: any) => c.name).filter(Boolean).slice(0, 3);
+    }
+
     base.cast = credits.cast.slice(0, 16).map((c) => ({
       id: c.id,
       name: c.name,

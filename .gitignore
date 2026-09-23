@@ -1,13 +1,43 @@
+# Dependencies
 node_modules/
+
+# Build outputs
 dist/
+build/
+front/dist/
+front/dist-tizen/
+front/tizen-project/
+back/dist/
+
+# Environment files (never commit real credentials)
 .env
-*.log
-/tmp/
-.DS_Store
+.env.*
+!.env.example
+*.env
+
+# Certificates, Keys & Signatures
+*.p12
+*.cer
+*.crt
+*.key
+*.pem
+*.jks
+*.keystore
+
+# Temporary and local data
 scratch/
-out.txt
-*.manifest.tmp
-*.idsig
 torrserver/
 back/data/
+/tmp/
+*.log
+*.tmp
+*.manifest.tmp
+*.idsig
+out.txt
+.system_generated/
+.tempmediaStorage/
+.user_uploaded/
 
+# OS metadata
+.DS_Store
+Thumbs.db

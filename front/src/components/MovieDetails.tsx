@@ -292,7 +292,8 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 mb-6">
+              <div className="flex flex-wrap items-center gap-3 mb-6">
+                {/* Primary Play/Resume CTA */}
                 {hasSavedProgress ? (
                   <button
                     onClick={async () => {
@@ -315,24 +316,27 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       }
                     }}
                     disabled={resumingTorrent}
-                    className="flex items-center gap-2 rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black shadow-lg transition-all hover:bg-white/90 hover:scale-105 active:scale-95 disabled:opacity-50"
+                    className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all disabled:opacity-50"
                   >
                     {resumingTorrent ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
+                      <Loader2 className="h-4.5 w-4.5 animate-spin" />
                     ) : (
-                      <Play className="h-4 w-4 fill-current" />
+                      <Play className="h-4.5 w-4.5 fill-current" />
                     )}
                     <span>{t('common.continue')}</span>
                   </button>
                 ) : (
                   <button
                     onClick={() => setActiveTab('torrents')}
-                    className="flex items-center gap-2 rounded-full bg-white px-6 py-2.5 text-sm font-bold text-black shadow-lg transition-all hover:bg-white/90 hover:scale-105 active:scale-95"
+                    className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all"
                   >
-                    <Play className="h-4 w-4 fill-current" />
+                    <Play className="h-4.5 w-4.5 fill-current" />
                     <span>{t('common.watch')}</span>
                   </button>
                 )}
+
+                {/* Secondary Actions Cluster */}
+                <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
 
                 {/* Watchlist [+] circular button */}
                 <button
@@ -458,7 +462,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                               tmdbId: displayTitle.id,
                               title: displayTitle.name,
                               poster: displayTitle.poster,
-                              lastSeason: details?.seasons?.length || 1,
+                              lastSeason: (details as any)?.seasons?.length || 1,
                               lastEpisode: 1
                             })
                           });
@@ -478,6 +482,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                     <Bell className={`h-4 w-4 ${isSubscribed ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.8} />
                   </button>
                 )}
+                </div>
               </div>
 
               {/* Description / Synopsis below actions */}
@@ -496,6 +501,56 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                   )}
                 </div>
               )}
+
+              {/* Detailed Specs Block ("О фильме") - perfectly balances the right column */}
+              <div className="rounded-2xl p-4 sm:p-5 bg-[#10141f]/35 border border-white/10 shadow-xl backdrop-blur-md max-w-2xl">
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
+                  <h3 className="font-serif text-base sm:text-lg font-medium text-amber-300/90 tracking-tight">
+                    {displayTitle.type === 'tv' ? 'О сериале' : 'О фильме'}
+                  </h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 text-xs sm:text-sm">
+                  {displayTitle.director && (
+                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Режиссёр</span>
+                      <span className="text-white/90 font-medium truncate">{displayTitle.director}</span>
+                    </div>
+                  )}
+                  {(displayTitle.countries && displayTitle.countries.length > 0) && (
+                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Страна</span>
+                      <span className="text-white/90 font-medium truncate">{displayTitle.countries.join(', ')}</span>
+                    </div>
+                  )}
+                  {displayTitle.originalTitle && displayTitle.originalTitle !== displayTitle.name && (
+                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Оригинал</span>
+                      <span className="text-white/80 italic truncate">{displayTitle.originalTitle}</span>
+                    </div>
+                  )}
+                  {(displayTitle.releaseDate || displayTitle.year) && (
+                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Премьера</span>
+                      <span className="text-white/90 font-medium">{displayTitle.releaseDate || displayTitle.year}</span>
+                    </div>
+                  )}
+                  {displayTitle.type === 'tv' && displayTitle.seasonsCount && (
+                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Сезоны</span>
+                      <span className="text-white/90 font-medium">{displayTitle.seasonsCount} {displayTitle.seasonsCount === 1 ? 'сезон' : (displayTitle.seasonsCount < 5 ? 'сезона' : 'сезонов')}</span>
+                    </div>
+                  )}
+                  <div className="sm:col-span-2 flex items-center justify-between sm:justify-start gap-3 pt-1">
+                    <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Форматы</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-amber-400/10 text-amber-300 border border-amber-400/30">4K UHD</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-blue-400/10 text-blue-300 border border-blue-400/30">DOLBY VISION</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-white/10 text-white/80 border border-white/15">HDR10+</span>
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-purple-400/10 text-purple-300 border border-purple-400/30">DOLBY ATMOS</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Right Column: Cast Section with 4x2 Grid of 8 Actor Cards (col-span-12 lg:col-span-5) */}
@@ -521,7 +576,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       <div
                         key={actor.name}
                         onClick={() => actor.id && setSelectedPersonId(actor.id)}
-                        className="group flex flex-col rounded-2xl p-2.5 bg-[#10141f]/75 hover:bg-[#181e2e]/90 border border-white/12 hover:border-amber-400/40 transition-all duration-200 cursor-pointer text-left shadow-xl backdrop-blur-md"
+                        className="group flex flex-col rounded-2xl p-2.5 bg-[#10141f]/35 hover:bg-[#181e2e]/75 border border-white/10 hover:border-amber-400/40 transition-all duration-200 cursor-pointer text-left shadow-xl backdrop-blur-md"
                         title="Посмотреть фильмографию"
                       >
                         <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-black/40 mb-2 relative">

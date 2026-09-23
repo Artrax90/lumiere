@@ -1,1 +1,0 @@
-System.register(["./index-legacy-iWETJBG6.js"],function(e,t){"use strict";var r,n;return{setters:[e=>{r=e.r,n=e._}],execute:function(){e("App",r("App",{web:()=>n(()=>t.import("./web-legacy-DDwzAF5k.js"),void 0,t.meta.url).then(e=>new e.AppWeb)}))}}});

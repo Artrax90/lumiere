@@ -20,12 +20,12 @@
   // In browser context, use current origin
   function getBaseUrl() {
     if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
-    var server = localStorage.getItem(SERVER_KEY);
-    if (server && server.indexOf('192.168.1.37') === -1) return server;
+    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url');
+    if (server) return server;
     if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
       return window.location.origin;
     }
-    return 'http://192.168.1.77:3000';
+    return '';
   }
 
   // Player base URL — same as getBaseUrl() when running in .wgt SPA mode
@@ -284,7 +284,8 @@
     if (hasCompleteDom) return;
 
     try {
-      var sUrl = (serverUrl || API || 'http://192.168.1.77:3000').replace(/\/+$/, '');
+      var sUrl = (serverUrl || API || '').replace(/\/+$/, '');
+      if (!sUrl) return;
       var xhr = new XMLHttpRequest();
       xhr.open('GET', sUrl + '/tv/index.html?ts=' + Date.now(), false);
       try { xhr.overrideMimeType('text/html; charset=utf-8'); } catch(me) {}
@@ -312,17 +313,21 @@
   function init() {
     console.log('[Lumiere] Init starting');
     try {
-      var server = window.__DEFAULT_SERVER_URL__ || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || 'http://192.168.1.77:3000';
+      var server = window.__DEFAULT_SERVER_URL__ || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') ? window.location.origin : '');
       if (window.__DEFAULT_SERVER_URL__) {
         server = window.__DEFAULT_SERVER_URL__;
       }
-      localStorage.setItem(SERVER_KEY, server);
-      localStorage.setItem('lumiere_server_url', server);
-      API = server;
+      if (server) {
+        localStorage.setItem(SERVER_KEY, server);
+        localStorage.setItem('lumiere_server_url', server);
+      }
+      API = server || '';
       console.log('[Lumiere] API set to:', API);
 
       // Synchronize DOM structure with server if loaded from launcher with stub DOM
-      syncDomWithServer(server);
+      if (server) {
+        syncDomWithServer(server);
+      }
 
       $loading = document.getElementById('loading');
       $app = document.getElementById('app');
@@ -2676,6 +2681,66 @@
       }
       html += '</div>';
     }
+
+    // Left side specs & details: "О фильме" block to perfectly fill the left column
+    html += '<div class="detail-specs-block">';
+    html += '<div class="detail-specs-header">О ' + (d.type === 'tv' ? 'сериале' : 'фильме') + '</div>';
+    html += '<div class="detail-specs-grid">';
+
+    if (d.director) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Режиссёр</span><span class="detail-spec-val">' + esc(d.director) + '</span></div>';
+    }
+
+    var countriesStr = '';
+    if (d.countries && d.countries.length > 0) {
+      countriesStr = d.countries.join(', ');
+    } else if (d.country) {
+      countriesStr = d.country;
+    }
+    if (countriesStr) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Страна</span><span class="detail-spec-val">' + esc(countriesStr) + '</span></div>';
+    }
+
+    if (d.originalTitle && d.originalTitle !== d.name) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Оригинал</span><span class="detail-spec-val detail-spec-italic">' + esc(d.originalTitle) + '</span></div>';
+    }
+
+    if (d.releaseDate || d.year) {
+      var dateStr = d.releaseDate ? d.releaseDate : String(d.year);
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Премьера</span><span class="detail-spec-val">' + esc(dateStr) + '</span></div>';
+    }
+
+    if (d.type === 'tv' && d.seasonsCount) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Сезоны</span><span class="detail-spec-val">' + d.seasonsCount + ' ' + (d.seasonsCount === 1 ? 'сезон' : (d.seasonsCount < 5 ? 'сезона' : 'сезонов')) + '</span></div>';
+    }
+
+    if (d.genres && d.genres.length > 0) {
+      html += '<div class="detail-spec-row detail-spec-row-genres"><span class="detail-spec-label">Жанры</span><div class="detail-spec-chips">';
+      d.genres.slice(0, 4).forEach(function(g) {
+        html += '<span class="detail-genre-chip">' + esc(g) + '</span>';
+      });
+      html += '</div></div>';
+    }
+
+    if (d.tagline) {
+      html += '<div class="detail-spec-row detail-spec-row-tagline"><span class="detail-spec-label">Слоган</span><span class="detail-spec-val detail-spec-italic">' + esc(d.tagline) + '</span></div>';
+    }
+
+    if (d.productionCompanies && d.productionCompanies.length > 0) {
+      var prodStr = d.productionCompanies.slice(0, 2).join(', ');
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Студия</span><span class="detail-spec-val">' + esc(prodStr) + '</span></div>';
+    }
+
+    html += '<div class="detail-spec-row detail-spec-row-tech"><span class="detail-spec-label">Форматы</span><div class="detail-tech-badges">';
+    html += '<span class="detail-tech-badge badge-4k">4K UHD</span>';
+    html += '<span class="detail-tech-badge badge-dv">Dolby Vision</span>';
+    html += '<span class="detail-tech-badge badge-hdr">HDR10+</span>';
+    html += '<span class="detail-tech-badge badge-audio">5.1 / Atmos</span>';
+    html += '</div></div>';
+
+    html += '</div>'; // end detail-specs-grid
+    html += '</div>'; // end detail-specs-block
+
     html += '</div>'; // end detail-hero-left
 
     // RIGHT SIDE: Cast Section with 4x2 Grid of 8 Actor Cards

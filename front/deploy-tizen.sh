@@ -11,7 +11,7 @@ PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
 TIZEN_DIR="$PROJECT_DIR/tizen-project"
 BUILD_DIR="$TIZEN_DIR/.buildResult"
 PROFILE="LumiereProfile"
-TV_IP="${1:-192.168.1.99}"
+TV_IP="${1:-${TV_IP:-}}"
 
 echo "=== Lumiere Tizen TV Build ==="
 echo ""
@@ -58,6 +58,10 @@ echo ""
 
 # Install on TV (if requested)
 if [ "$2" = "--install" ] || [ "$1" = "--install" ]; then
+    if [ -z "$TV_IP" ] || [ "$TV_IP" = "--install" ]; then
+        echo "Error: Please specify TV IP (Usage: ./deploy-tizen.sh <TV_IP> --install)"
+        exit 1
+    fi
     echo "Installing on TV ($TV_IP)..."
     sdb connect "$TV_IP" 2>&1 || true
     sleep 2
@@ -69,6 +73,6 @@ else
     echo ""
     echo "To install on TV:"
     echo "  1. Enable Developer Mode on TV: Settings > General > Development > Developer Mode ON"
-    echo "  2. Run: npm run deploy:tizen -- --install"
-    echo "  Or manually: tizen install -s $TV_IP --name Lumiere-tizen.wgt -- $BUILD_DIR"
+    echo "  2. Run: ./deploy-tizen.sh <TV_IP> --install"
+    echo "  Or manually: tizen install -s <TV_IP> --name Lumiere-tizen.wgt -- $BUILD_DIR"
 fi

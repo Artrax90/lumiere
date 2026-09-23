@@ -1,17 +1,17 @@
 const SERVER_URL_KEY = 'lumiere_server_url';
-export const DEFAULT_SERVER_URL = 'http://192.168.1.77:3000';
+export const DEFAULT_SERVER_URL = '';
 
 export function getServerUrl(): string {
   const stored = localStorage.getItem(SERVER_URL_KEY);
   if (stored && stored !== 'null' && stored !== 'undefined' && !stored.startsWith('file:') && !stored.startsWith('wgt-')) {
     return stored.replace(/\/+$/, '');
   }
-  // Web fallback: use current origin if loaded over HTTP(S) and not a file
-  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http') && window.location.hostname !== 'localhost') {
+  // Web fallback: use current origin if loaded over HTTP(S) and not a local file
+  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
     return window.location.origin;
   }
   const injected = typeof window !== 'undefined' ? (window as any).__DEFAULT_SERVER_URL__ : undefined;
-  if (injected && typeof injected === 'string' && !injected.startsWith('file:')) {
+  if (injected && typeof injected === 'string' && !injected.startsWith('file:') && !injected.startsWith('wgt-')) {
     return injected.replace(/\/+$/, '');
   }
   return DEFAULT_SERVER_URL;

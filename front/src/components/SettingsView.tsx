@@ -1144,20 +1144,12 @@ function TmdbConfig() {
           />
 
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className="text-[11px] text-white/30">Быстрые действия:</span>
             <button
               type="button"
               onClick={() => setProxyUrl('')}
               className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-white/60 transition-cinematic hover:bg-white/[0.08] hover:text-white"
             >
-              Отключить прокси (прямой доступ)
-            </button>
-            <button
-              type="button"
-              onClick={() => setProxyUrl('socks5h://proxyuser23:23012003@80.211.143.155:12243')}
-              className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-white/60 transition-cinematic hover:bg-white/[0.08] hover:text-white"
-            >
-              Рабочий SOCKS5 (по умолчанию)
+              Сбросить прокси (прямой доступ)
             </button>
           </div>
         </div>

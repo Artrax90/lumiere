@@ -10,16 +10,13 @@ interface Props {
 
 export default function ServerSetup({ onConnected, initialError }: Props) {
   const { t } = useTranslation();
-  const defaultHost = '192.168.1.77:3000';
+  const placeholderHost = '192.168.1.100:3000';
   const [url, setUrl] = useState(() => {
     const current = getServerUrl();
     if (current && !current.startsWith('file:') && !current.startsWith('wgt-')) {
-      const cleaned = current.replace(/^https?:\/\//, '');
-      // If previous was the old broken 192.168.1.37, default to 192.168.1.77
-      if (cleaned.includes('192.168.1.37')) return defaultHost;
-      return cleaned;
+      return current.replace(/^https?:\/\//, '');
     }
-    return defaultHost;
+    return '';
   });
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState(initialError || '');
@@ -118,7 +115,7 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
                 value={url}
                 onChange={(e) => { setUrl(e.target.value); setError(''); }}
                 onKeyDown={(e) => e.key === 'Enter' && testAndSave()}
-                placeholder={defaultHost}
+                placeholder={placeholderHost}
                 autoCapitalize="none"
                 autoCorrect="off"
                 autoComplete="off"
@@ -167,19 +164,6 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
             {testing ? 'Проверка подключения...' : 'Подключиться'}
           </button>
 
-          {/* Quick preset for current host */}
-          {url !== defaultHost && (
-            <button
-              type="button"
-              onClick={() => {
-                setUrl(defaultHost);
-                testAndSave(defaultHost);
-              }}
-              className="w-full text-center py-2 text-[13px] text-amber-300/70 hover:text-amber-300 transition-colors"
-            >
-              Подключиться к основному серверу ({defaultHost})
-            </button>
-          )}
         </div>
 
         <p className="mt-6 text-center text-[12px] text-white/30">

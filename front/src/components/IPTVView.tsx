@@ -75,12 +75,12 @@ function getChannelMonogram(name: string): string {
 
 function getChannelColor(name: string): string {
   const colors = [
-    'from-amber-500/25 to-amber-700/35 text-amber-200 border-amber-400/30',
-    'from-blue-500/25 to-blue-700/35 text-blue-200 border-blue-400/30',
-    'from-emerald-500/25 to-emerald-700/35 text-emerald-200 border-emerald-400/30',
-    'from-purple-500/25 to-purple-700/35 text-purple-200 border-purple-400/30',
-    'from-rose-500/25 to-rose-700/35 text-rose-200 border-rose-400/30',
-    'from-indigo-500/25 to-indigo-700/35 text-indigo-200 border-indigo-400/30',
+    'from-amber-500/20 to-amber-950/50 text-amber-200 border-amber-400/25',
+    'from-orange-500/20 to-stone-950/50 text-orange-200 border-orange-400/25',
+    'from-yellow-600/20 to-neutral-950/50 text-yellow-200 border-yellow-400/25',
+    'from-zinc-700/30 to-zinc-950/60 text-zinc-200 border-zinc-500/30',
+    'from-amber-600/20 to-stone-950/50 text-amber-100 border-amber-300/25',
+    'from-slate-700/30 to-neutral-950/60 text-slate-200 border-slate-500/30',
   ];
   let sum = 0;
   for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);

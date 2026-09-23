@@ -19,8 +19,8 @@ PlmFTDcPXg==</DigestValue>
 </Reference>
 <Reference URI="index.html">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>U7Xi/k69hT5stzjOIyg2yv+kNCENPXDIgjWOvWDk/evGuwrCUhqrtc3uMS/IQPh9YucuGPNxHgpI
-5cbN4UlbvQ==</DigestValue>
+<DigestValue>Ej1ZUivq0A4S8gRQtEhhpC+5GtjM9FrA3pWPAGtzYpySi6y3Uc7E10+Jy4Njx0IPEIP7rlVPihzq
+jNtBXFk4wQ==</DigestValue>
 </Reference>
 <Reference URI="player-adapter.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -44,13 +44,13 @@ g3cOUPxuMg==</DigestValue>
 </Reference>
 <Reference URI="tv.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>pqgcLJAGRvx7/3CyJeRPKeH8wVKVUyMiStKZf7Sg9zIaKZn23wKZ722p4fdsVOWR6TBNaYDYrUQX
-CSoxLak0LQ==</DigestValue>
+<DigestValue>YnLFeYCIALTjd1qg6Qrr6UJ0w2nyCExt1+aQOnq1K2TU3rJ1tfdyzwcWvMPSJyrKa2W5qE+mk8s3
+kuLBHQ2plg==</DigestValue>
 </Reference>
 <Reference URI="tv.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>NPjTYbVN9i7QMz4Zb8lm4bcinabe0C+mv/FWQ7JzabPcDSmNjxJ8WTaz8fL5QzZbdBWImVEOEgAA
-CfKj8aJAYg==</DigestValue>
+<DigestValue>YI/TGYhQua5T7XwkWNodEJciEVSakoRRGj3o8rR+/uzQ5XrJiMjn1TomSKdJ2gZsZ1irL1EOzGq8
+1p5gwAdXCA==</DigestValue>
 </Reference>
 <Reference URI="#prop">
 <Transforms>
@@ -62,11 +62,11 @@ QY10fG1EWQ==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-XcqrrxZ+perryyq0GVyLy9qI8ohu/lJTMC4h2gCr0a+as6sEyJ2GuGF6JZICiHQymxV0orHFJMTD
-bC3OvO/r8tMCBme4pQdKuc2o1raHusFnYEvzmtOzojMdVDi9xpMmVocpQEW8FSNhEpdpSCnvsjsc
-dhQT3Vwb9Q+DJlnm+e5kEFgkZkmGr1cEg8eeEV6APrZX6P0mPUD6vWRIsJAUYV6C6uhg6EVisFWM
-/11MXHUcivWXi+7IpL7rgXxioJLfX/0FoZDp+DHGKf/klYtpoOLCPICIAUI5wL7E6Z98fFeMGSrn
-hXGIEojwhnWgr1rPwKdJ0WEiba0nyfsGK0px0g==
+CeR3bucDV+HYlQlBQNnsf2ee9acst2coA3YzCDzALy3aPCZKs+uXOF4iF10/OvfxyZZWjw9Ualyi
+zh2VTi9qsG0c96SDdSvgxBKBI9y7J1R2zp5b39bZeo7dRkWzuT3KqNK3bWQ1bP7jGTb9j7Ti1iLj
+VhTejET80Z8wezJIg+fW/S4Mm9f51lv4jlGz+v6NFx9+7dFPqfWpnTzdKEIX3fThqfh9qHEXzRkw
+wUsTN/hTPd0Qn64XX/YbJ2Rzx4SrrCta+IH5cUwkOr3f20UUoLr0/fORgYiKuDcNlb4nCb3iYoJG
+cNIJGEeyJ1ctyfD9oz5l1LJNuyk4oXnbT5Mb+w==
 </SignatureValue>
 <KeyInfo>
 <X509Data>
