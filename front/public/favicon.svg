@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FFE8A3"/>
+      <stop offset="45%" stop-color="#F59E0B"/>
+      <stop offset="100%" stop-color="#B45309"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <radialGradient id="sparkle" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFFFFF"/>
+      <stop offset="40%" stop-color="#FDE68A"/>
+      <stop offset="100%" stop-color="transparent"/>
+    </radialGradient>
+  </defs>
+  <!-- Background badge -->
+  <rect width="64" height="64" rx="16" fill="#0A0B0E"/>
+  <rect width="64" height="64" rx="16" stroke="rgba(251,191,36,0.22)" stroke-width="1.5"/>
+  
+  <!-- Glowing Play ribbon path -->
+  <g filter="url(#glow)">
+    <path d="M22 14 C22 12.2 23.8 11.2 25.2 12.2 L45.5 27.5 C46.8 28.5 46.8 30.5 45.5 31.5 L28.5 43.5 C24 46.5 20.5 49 23 52 C25 54.5 28.5 53.5 33 50 C38 46 43 47 47 48.5"
+          stroke="url(#gold)" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <!-- Golden light spark on vertex -->
+  <circle cx="45.5" cy="29.5" r="5" fill="url(#sparkle)" opacity="0.9"/>
+  <circle cx="45.5" cy="29.5" r="1.8" fill="#FFFFFF"/>
+</svg>

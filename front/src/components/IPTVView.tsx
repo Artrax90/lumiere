@@ -31,7 +31,10 @@ interface IPTVViewProps {
 const IPTV_STORAGE_KEY = 'lumiere_iptv';
 const FAVORITES_STORAGE_KEY = 'lumiere_iptv_favorites';
 
-const DEFAULT_PLAYLIST = { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' };
+const DEFAULT_PLAYLISTS = [
+  { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: 'https://iptvx.one/epg/epg_lite.xml.gz' },
+  { name: 'Общероссийские (iptv-org)', url: 'https://iptv-org.github.io/iptv/countries/ru.m3u', epgUrl: '' },
+];
 
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
@@ -41,7 +44,7 @@ function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string
       if (Array.isArray(parsed) && parsed.length > 0) return parsed;
     }
   } catch {}
-  return [DEFAULT_PLAYLIST];
+  return DEFAULT_PLAYLISTS;
 }
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
@@ -186,10 +189,19 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       });
 
       if (!res.ok) {
-        throw new Error('Failed to load playlist');
+        let errMsg = 'Не удалось загрузить плейлист';
+        try {
+          const errData = await res.json();
+          if (errData && errData.error) errMsg = errData.error;
+        } catch {}
+        throw new Error(errMsg);
       }
 
       const data = await res.json();
+      if (!data.channels || data.channels.length === 0) {
+        throw new Error('В плейлисте не найдено доступных каналов');
+      }
+
       setChannels(data.channels || []);
       setGroups(['All', 'Favorites', ...(data.groups || [])]);
       setSelectedGroup('All');
@@ -733,8 +745,26 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
         {/* Error state */}
         {error && (
-          <div className="rounded-[16px] bg-red-500/10 border border-red-500/20 p-6 text-center">
-            <p className="text-[14px] text-red-400">{error}</p>
+          <div className="rounded-[16px] bg-red-500/10 border border-red-500/20 p-6 text-center animate-detail-rise">
+            <p className="text-[14px] text-red-400 font-medium mb-3">{error}</p>
+            <div className="flex items-center justify-center gap-3">
+              {selectedPlaylist !== null && (
+                <button
+                  onClick={() => loadPlaylist(selectedPlaylist)}
+                  className="rounded-full bg-white/10 hover:bg-white/15 px-4 py-2 text-[12px] font-medium text-white transition-colors"
+                >
+                  Повторить попытку
+                </button>
+              )}
+              {selectedPlaylist !== null && (
+                <button
+                  onClick={(e) => startEditPlaylist(selectedPlaylist, e)}
+                  className="rounded-full bg-amber-400/20 hover:bg-amber-400/30 text-amber-300 px-4 py-2 text-[12px] font-medium transition-colors"
+                >
+                  Изменить адрес плейлиста
+                </button>
+              )}
+            </div>
           </div>
         )}
 

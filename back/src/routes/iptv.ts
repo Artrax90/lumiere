@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { gunzipSync } from 'zlib';
 
 interface IptvChannel {
   id: string;
@@ -19,10 +20,10 @@ interface EpgProgram {
   desc?: string;
 }
 
-// Parse M3U8 playlist
+// Parse M3U8 playlist with flexible EXTINF matching and encoding tolerance
 function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string } {
   const channels: IptvChannel[] = [];
-  const lines = content.split('\n');
+  const lines = content.split(/\r?\n/);
   let epgUrl: string | undefined;
 
   for (let i = 0; i < lines.length; i++) {
@@ -38,19 +39,35 @@ function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string }
 
     if (line.startsWith('#EXTINF:')) {
       // Parse channel info from EXTINF line
-      const infoMatch = line.match(/#EXTINF:-?\d+\s+(.*),(.*)/);
-      if (!infoMatch) continue;
+      // Handles all variations:
+      // #EXTINF:-1,Первый канал
+      // #EXTINF:0,Первый канал
+      // #EXTINF:-1 tvg-id="id1" tvg-name="One" group-title="Общие",Первый канал
+      // #EXTINF:10.5 tvg-name="Channel",Channel
+      const infoMatch = line.match(/#EXTINF:(-?\d+(?:\.\d+)?)\s*(.*?),(.*)$/);
+      let attrsStr = '';
+      let name = '';
 
-      const attrsStr = infoMatch[1];
-      const name = infoMatch[2].trim();
+      if (infoMatch) {
+        attrsStr = infoMatch[2];
+        name = infoMatch[3].trim();
+      } else {
+        const fallbackMatch = line.match(/#EXTINF:[^,]*,(.*)/);
+        if (fallbackMatch) {
+          name = fallbackMatch[1].trim();
+          attrsStr = line.slice(8, line.lastIndexOf(','));
+        } else {
+          name = line.replace(/^#EXTINF:[^,]*/, '').trim() || `Канал ${channels.length + 1}`;
+        }
+      }
 
-      // Extract attributes
-      const logoMatch = attrsStr.match(/tvg-logo="([^"]*)"/);
-      const groupMatch = attrsStr.match(/group-title="([^"]*)"/);
-      const tvgIdMatch = attrsStr.match(/tvg-id="([^"]*)"/);
-      const tvgNameMatch = attrsStr.match(/tvg-name="([^"]*)"/);
+      // Extract attributes (case-insensitive)
+      const logoMatch = attrsStr.match(/tvg-logo="([^"]*)"/i);
+      const groupMatch = attrsStr.match(/group-title="([^"]*)"/i);
+      const tvgIdMatch = attrsStr.match(/tvg-id="([^"]*)"/i);
+      const tvgNameMatch = attrsStr.match(/tvg-name="([^"]*)"/i);
 
-      // Get URL from next line
+      // Get URL from next non-comment line (handles #EXTVLCOPT etc.)
       let url = '';
       for (let j = i + 1; j < lines.length; j++) {
         const nextLine = lines[j].trim();
@@ -64,10 +81,10 @@ function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string }
       if (url) {
         channels.push({
           id: `ch-${channels.length + 1}`,
-          name: name || 'Unknown Channel',
+          name: name || `Канал ${channels.length + 1}`,
           url,
           logo: logoMatch?.[1] || '',
-          group: groupMatch?.[1] || 'Uncategorized',
+          group: groupMatch?.[1] || 'Общие',
           tvgId: tvgIdMatch?.[1] || '',
           tvgName: tvgNameMatch?.[1] || name,
         });
@@ -190,26 +207,99 @@ function formatEpgTime(timeStr: string): { time: string; date: string } {
 export function iptvRoutes(app: FastifyInstance) {
   // Parse M3U8 playlist from URL
   app.post('/api/iptv/parse', async (req, reply) => {
-    const { url } = req.body as { url?: string };
+    let { url } = req.body as { url?: string };
 
-    if (!url) {
-      return reply.code(400).send({ error: 'URL required' });
+    if (!url || typeof url !== 'string' || !url.trim()) {
+      return reply.code(400).send({ error: 'Не указан URL плейлиста' });
     }
 
-    try {
-      const res = await fetch(url, {
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        },
-        signal: AbortSignal.timeout(30000),
-      });
+    url = url.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'http://' + url;
+    }
 
-      if (!res.ok) {
-        return reply.code(res.status).send({ error: 'Failed to fetch playlist' });
+    const prevTls = process.env.NODE_TLS_REJECT_UNAUTHORIZED;
+    process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
+
+    try {
+      let res: Response;
+      try {
+        res = await fetch(url, {
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+          },
+          signal: AbortSignal.timeout(30000),
+        });
+      } catch (fetchErr: any) {
+        // If initial fetch failed, try fallback with VLC User-Agent
+        res = await fetch(url, {
+          headers: {
+            'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+            'Accept': '*/*',
+          },
+          signal: AbortSignal.timeout(30000),
+        });
       }
 
-      const content = await res.text();
+      // If blocked by User-Agent (401, 403, 406), retry with VLC User-Agent
+      if (res.status === 401 || res.status === 403 || res.status === 406) {
+        try {
+          const vlcRes = await fetch(url, {
+            headers: {
+              'User-Agent': 'VLC/3.0.18 LibVLC/3.0.18',
+              'Accept': '*/*',
+            },
+            signal: AbortSignal.timeout(20000),
+          });
+          if (vlcRes.ok) {
+            res = vlcRes;
+          }
+        } catch {}
+      }
+
+      if (!res.ok) {
+        return reply.code(res.status).send({
+          error: `Сервер плейлиста вернул ошибку: HTTP ${res.status} (${res.statusText || 'Forbidden/Not Found'})`,
+        });
+      }
+
+      const buffer = Buffer.from(await res.arrayBuffer());
+      let content = '';
+
+      // Auto-detect GZIP (magic bytes 0x1f, 0x8b)
+      if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+        try {
+          content = gunzipSync(buffer).toString('utf-8');
+        } catch {
+          content = buffer.toString('utf-8');
+        }
+      } else {
+        // Handle UTF-8 with Windows-1251 fallback
+        const utf8Text = buffer.toString('utf-8');
+        if (utf8Text.includes('\uFFFD')) {
+          try {
+            const cp1251 = new TextDecoder('windows-1251').decode(buffer);
+            if (!cp1251.includes('\uFFFD')) {
+              content = cp1251;
+            } else {
+              content = utf8Text;
+            }
+          } catch {
+            content = utf8Text;
+          }
+        } else {
+          content = utf8Text;
+        }
+      }
+
       const { channels, epgUrl } = parseM3U(content);
+
+      if (channels.length === 0) {
+        return reply.code(422).send({
+          error: 'В плейлисте не найдено доступных каналов (неверный формат или пустой файл)',
+        });
+      }
 
       // Extract unique groups
       const groups = [...new Set(channels.map(ch => ch.group))];
@@ -222,7 +312,11 @@ export function iptvRoutes(app: FastifyInstance) {
       };
     } catch (err: any) {
       console.error('IPTV parse error:', err.message);
-      return reply.code(500).send({ error: err.message });
+      return reply.code(500).send({ error: `Ошибка загрузки плейлиста: ${err.message}` });
+    } finally {
+      if (prevTls !== undefined) {
+        process.env.NODE_TLS_REJECT_UNAUTHORIZED = prevTls;
+      }
     }
   });
 
