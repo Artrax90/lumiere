@@ -5,7 +5,7 @@ FROM node:20-alpine AS front-builder
 
 WORKDIR /app/front
 COPY front/package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY front/ ./
 RUN npm run build
@@ -17,7 +17,7 @@ FROM node:20-alpine AS back-builder
 
 WORKDIR /app/back
 COPY back/package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY back/ ./
 RUN node node_modules/typescript/bin/tsc && node -e "const fs=require('fs'); fs.mkdirSync('dist/db', {recursive:true}); fs.copyFileSync('src/db/migrations.sql', 'dist/db/migrations.sql');"
@@ -40,7 +40,7 @@ ENV PORT=3000
 
 # Install production dependencies only
 COPY back/package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copy compiled backend code and migrations
 COPY --from=back-builder /app/back/dist ./dist
