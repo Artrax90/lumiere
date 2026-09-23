@@ -83,7 +83,7 @@ app.register(movieRoutes, provider);
 app.register(tvRoutes, provider);
 app.register(searchRoutes, provider);
 app.register(genreRoutes, provider);
-app.register(imageRoutes, { proxyUrl: config.tmdb.proxyUrl });
+app.register(imageRoutes, { tmdbClient });
 app.register(authRoutes);
 app.register(userRoutes);
 app.register(onlineRoutes);

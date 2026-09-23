@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, ChevronLeft, ChevronRight, Clock, Calendar, Star, Magnet, Loader2, Sparkles } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
+import { serverUrl } from '@/api/server';
 import { useDetails } from '@/hooks/useDetails';
 import { useSeason } from '@/hooks/useSeason';
 import TorrentSearch from './TorrentSearch';
@@ -64,7 +65,7 @@ export default function EpisodeDetails({ episode, series: initialSeries, onBack,
       <div className="relative h-[60vh] min-h-[440px] w-full overflow-hidden">
         {!imgLoaded && <div className="absolute inset-0 skeleton" />}
         <img
-          src={backdropSrc}
+          src={serverUrl(backdropSrc)}
           alt={episode.title}
           onLoad={() => setImgLoaded(true)}
           onError={() => setImgLoaded(true)}
@@ -186,7 +187,7 @@ export default function EpisodeDetails({ episode, series: initialSeries, onBack,
                 style={{ width: 240 }}
               >
                 <div className="relative aspect-video overflow-hidden rounded-[12px] transition-cinematic group-hover/ep:scale-[1.03] card-edge group-hover/ep:card-edge-hover">
-                  <img src={ep.thumbnail} alt={ep.title} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                  <img src={serverUrl(ep.thumbnail || '')} alt={ep.title} className="absolute inset-0 h-full w-full object-cover" loading="lazy" />
                   <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
                   <div className="absolute left-2 top-2 rounded-md bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold text-white/80 backdrop-blur-md">Э{ep.episode}</div>
                   {ep.id === episode.id && (

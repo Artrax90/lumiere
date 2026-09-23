@@ -1,5 +1,6 @@
 import fetch from 'node-fetch';
 import { SocksProxyAgent } from 'socks-proxy-agent';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 const TMDB_BASE = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p';
@@ -12,7 +13,7 @@ const langMap: Record<Lang, string> = {
 };
 
 export class TmdbClient {
-  private agent: SocksProxyAgent | undefined;
+  private agent: SocksProxyAgent | HttpsProxyAgent<string> | undefined;
 
   constructor(
     private token: string,
@@ -25,10 +26,24 @@ export class TmdbClient {
 
   private initAgent(proxyUrl: string) {
     try {
-      this.agent = new SocksProxyAgent(proxyUrl);
-    } catch {
+      const trimmed = proxyUrl.trim();
+      if (!trimmed) {
+        this.agent = undefined;
+        return;
+      }
+      if (trimmed.startsWith('socks')) {
+        this.agent = new SocksProxyAgent(trimmed);
+      } else {
+        this.agent = new HttpsProxyAgent(trimmed);
+      }
+    } catch (e) {
+      console.error('Failed to initialize proxy agent:', e);
       this.agent = undefined;
     }
+  }
+
+  getAgent(): SocksProxyAgent | HttpsProxyAgent<string> | undefined {
+    return this.agent;
   }
 
   updateConfig(token: string, proxyUrl?: string) {
@@ -90,10 +105,7 @@ export class TmdbClient {
   imageUrl(path: string | null, size: string = 'w500'): string {
     if (!path) return '';
     const directUrl = `${TMDB_IMAGE_BASE}/${size}${path}`;
-    if (this.proxyUrl) {
-      return `/api/image?url=${encodeURIComponent(directUrl)}`;
-    }
-    return directUrl;
+    return `/api/image?url=${encodeURIComponent(directUrl)}`;
   }
 
   backdropUrl(path: string | null): string {

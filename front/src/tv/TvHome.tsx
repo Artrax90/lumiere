@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import type { Title } from '@/api/client';
+import { serverUrl } from '@/api/server';
 import { useTrending } from '@/hooks/useTrending';
 import { usePopular } from '@/hooks/usePopular';
 import { useFocus, type FocusableElement } from './useFocus';
@@ -49,7 +50,7 @@ export default function TvHome({ onSelect, onPlay }: TvHomeProps) {
       {trendingMovies[0] && (
         <div className="relative mb-8 h-[40vh] w-full overflow-hidden rounded-[16px] mx-8" style={{ width: 'calc(100% - 64px)' }}>
           <img
-            src={trendingMovies[0].backdrop}
+            src={serverUrl(trendingMovies[0].backdrop)}
             alt={trendingMovies[0].name}
             className="absolute inset-0 h-full w-full object-cover"
             style={{ filter: 'brightness(0.7)' }}

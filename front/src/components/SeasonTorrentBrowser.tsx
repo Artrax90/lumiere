@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Play, Folder, Magnet, Users, HardDrive, ArrowUpDown, Filter, Check, RefreshCw, ChevronRight, Star, Clock, AlertCircle } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
-import { serverFetch } from '@/api/server';
+import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
 
 interface TorrentItem {
@@ -725,7 +725,7 @@ export default function SeasonTorrentBrowser({
             >
               <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-[10px] bg-black/40">
                 <img
-                  src={ep.thumbnail || show.backdrop || show.poster}
+                  src={serverUrl(ep.thumbnail || show.backdrop || show.poster || '')}
                   alt={ep.title}
                   className="h-full w-full object-cover"
                   loading="lazy"

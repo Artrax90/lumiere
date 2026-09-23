@@ -117,7 +117,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
   const continueWatching = useMemo(() => {
     const positions = getPlaybackPositions();
     const entries = Object.entries(positions);
-    if (entries.length === 0) return popularMovies.slice(0, 10);
+    if (entries.length === 0) return [];
 
     // Sort by timestamp (most recent first)
     const sortedEntries = entries
@@ -157,7 +157,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
       if (watched.length >= 12) break;
     }
 
-    return watched.length > 0 ? watched : popularMovies.slice(0, 10);
+    return watched;
   }, [trendingMovies, popularMovies]);
 
   const becauseYouWatched = trendingMovies;

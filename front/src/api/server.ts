@@ -112,7 +112,14 @@ export async function serverFetch(path: string, init?: RequestInit): Promise<Res
 
 // Make relative URLs absolute using the server URL
 export function serverUrl(path: string): string {
-  if (!path || path.startsWith('http') || path.startsWith('data:')) return path;
+  if (!path) return '';
   const base = getServerUrl();
+  if (path.startsWith('/api/image')) {
+    return `${base}${path}`;
+  }
+  if (path.includes('image.tmdb.org/t/p/')) {
+    return `${base}/api/image?url=${encodeURIComponent(path)}`;
+  }
+  if (path.startsWith('http') || path.startsWith('data:')) return path;
   return `${base}${path}`;
 }

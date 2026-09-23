@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Bell, Download, Sparkles, Puzzle, RefreshCw, ChevronRight, CheckCheck, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
-import { serverFetch } from '@/api/server';
+import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
 
 interface NotificationItem {
@@ -55,7 +55,7 @@ export default function NotificationsView({ onSelect, titles }: NotificationsVie
             type: (n.mediaType === 'tv' ? 'tv' : 'recommendation') as any,
             title: n.title,
             message: n.message,
-            image: n.poster ? (n.poster.startsWith('http') ? n.poster : `https://image.tmdb.org/t/p/w300${n.poster}`) : undefined,
+            image: n.poster ? serverUrl(n.poster.startsWith('/api') || n.poster.startsWith('http') ? n.poster : `/api/image?url=${encodeURIComponent(`https://image.tmdb.org/t/p/w300${n.poster}`)}`) : undefined,
             timestamp: n.createdAt ? new Date(n.createdAt).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Недавно',
             read: !!n.isRead,
             actionData: n.actionData,
