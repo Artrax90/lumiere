@@ -74,6 +74,7 @@ async function ensureSessionTables() {
     await pool.query(`ALTER TABLE IF EXISTS playback_history DROP CONSTRAINT IF EXISTS playback_history_user_id_fkey`).catch(() => {});
 
     sessionTablesReady = true;
+    console.log('[Sessions] Playback session tables ready');
   } catch (err: any) {
     console.error('[Sessions] ensureSessionTables error:', err.message);
   }
@@ -125,6 +126,8 @@ export function sessionRoutes(app: FastifyInstance) {
       const currentTime = Number(body.currentTime || 0);
       const duration = Number(body.duration || 0);
       const isPaused = !!body.isPaused;
+
+      console.log(`[Sessions] Heartbeat: session=${body.sessionId}, user=${userId || 'guest'}, title="${mediaTitle}", dev=${deviceType}, time=${currentTime}/${duration}, paused=${isPaused}`);
 
       try {
         // Upsert into playback_sessions
@@ -271,6 +274,7 @@ export function sessionRoutes(app: FastifyInstance) {
             ]
           ).catch(() => {});
         }
+        console.log(`[Sessions] Stop session: id=${sessionId}`);
         await pool.query('DELETE FROM playback_sessions WHERE id = $1', [sessionId]);
         return { success: true };
       } catch (err: any) {
@@ -297,6 +301,8 @@ export function sessionRoutes(app: FastifyInstance) {
            WHERE ps.last_heartbeat >= NOW() - INTERVAL '5 minutes'
            ORDER BY ps.last_heartbeat DESC`
         );
+
+        console.log(`[Sessions] Active: found ${result.rows.length} sessions`);
 
         return {
           sessions: result.rows.map((r: any) => ({
@@ -387,6 +393,8 @@ export function sessionRoutes(app: FastifyInstance) {
           );
         }
 
+
+        console.log(`[Sessions] History: found ${result.rows.length} records`);
 
         return {
           history: result.rows.map((r: any) => ({
