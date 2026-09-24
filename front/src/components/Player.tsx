@@ -130,6 +130,16 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   currentProgressRef.current = { time: currentTime, dur: duration || realDurationRef.current, paused: !playing };
 
   useEffect(() => {
+    let seasonNum = 0;
+    let epNum = 0;
+    if (title.episode) {
+      const match = String(title.episode).match(/s(\d+)e(\d+)/i) || String(title.episode).match(/(\d+)[x-](\d+)/i);
+      if (match) {
+        seasonNum = parseInt(match[1], 10);
+        epNum = parseInt(match[2], 10);
+      }
+    }
+
     const sendHeartbeat = async () => {
       try {
         const res = await serverFetch('/api/sessions/heartbeat', {
@@ -142,6 +152,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             mediaId: title.id,
             mediaTitle: (title as any).titleName || title.name || 'Видео',
             mediaPoster: title.poster || '',
+            season: seasonNum,
+            episode: epNum,
             currentTime: Math.round(currentProgressRef.current.time || 0),
             duration: Math.round(currentProgressRef.current.dur || 0),
             isPaused: currentProgressRef.current.paused,

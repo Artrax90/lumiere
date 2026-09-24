@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import pool from '../db/pool.js';
-import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 interface HeartbeatBody {
   sessionId: string;
@@ -21,9 +21,18 @@ export function sessionRoutes(app: FastifyInstance) {
   // 1. Send heartbeat / update active playback session
   app.post(
     '/api/sessions/heartbeat',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
-      const user = req.user!;
+      let userId = req.user?.userId;
+      if (!userId) {
+        try {
+          const firstUser = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+          if (firstUser.rows.length > 0) {
+            userId = firstUser.rows[0].id;
+          }
+        } catch {}
+      }
+
       const body = req.body as HeartbeatBody;
 
       if (!body.sessionId || !body.mediaTitle) {
@@ -53,13 +62,23 @@ export function sessionRoutes(app: FastifyInstance) {
             last_heartbeat
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP)
           ON CONFLICT (id) DO UPDATE SET
+            user_id = COALESCE(EXCLUDED.user_id, playback_sessions.user_id),
+            device_type = EXCLUDED.device_type,
+            device_name = EXCLUDED.device_name,
+            client_ip = EXCLUDED.client_ip,
+            media_type = EXCLUDED.media_type,
+            media_id = EXCLUDED.media_id,
+            media_title = EXCLUDED.media_title,
+            media_poster = EXCLUDED.media_poster,
+            season = EXCLUDED.season,
+            episode = EXCLUDED.episode,
             current_time = EXCLUDED.current_time,
             duration = EXCLUDED.duration,
             is_paused = EXCLUDED.is_paused,
             last_heartbeat = CURRENT_TIMESTAMP`,
           [
             body.sessionId,
-            user.userId,
+            userId || null,
             deviceType,
             deviceName,
             clientIp,
@@ -79,8 +98,8 @@ export function sessionRoutes(app: FastifyInstance) {
         const checkRes = await pool.query('SELECT terminate_requested FROM playback_sessions WHERE id = $1', [body.sessionId]);
         const terminate = checkRes.rows.length > 0 && !!checkRes.rows[0].terminate_requested;
 
-        // Sync to playback_history if currentTime > 5 or duration > 0 or mediaType === 'iptv'
-        if (currentTime > 5 || duration > 0 || mediaType === 'iptv') {
+        // Sync to playback_history if userId exists and (currentTime > 5 or duration > 0 or mediaType === 'iptv')
+        if (userId && (currentTime > 5 || duration > 0 || mediaType === 'iptv')) {
           const isCompleted = duration > 0 && currentTime / duration >= 0.9;
           
           // Check for existing playback_history row for this item within the last 4 hours
@@ -89,7 +108,7 @@ export function sessionRoutes(app: FastifyInstance) {
              WHERE user_id = $1 AND media_id = $2 AND media_type = $3 AND season = $4 AND episode = $5 
              AND ended_at > NOW() - INTERVAL '4 hours' 
              ORDER BY ended_at DESC LIMIT 1`,
-            [user.userId, mediaId, mediaType, season, episode]
+            [userId, mediaId, mediaType, season, episode]
           );
 
           if (existingRes.rows.length > 0) {
@@ -113,7 +132,7 @@ export function sessionRoutes(app: FastifyInstance) {
                 season, episode, watched_seconds, duration, completed
               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
               [
-                user.userId,
+                userId,
                 deviceType,
                 deviceName,
                 mediaType,
@@ -140,7 +159,7 @@ export function sessionRoutes(app: FastifyInstance) {
   // 2. Stop session when playback finishes or player closes
   app.post(
     '/api/sessions/stop',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
       const { sessionId } = req.body as { sessionId?: string };
       if (!sessionId) {
@@ -159,14 +178,18 @@ export function sessionRoutes(app: FastifyInstance) {
   // 3. Get currently active playback sessions (Jellyfin-style "Кто что смотрит сейчас")
   app.get(
     '/api/sessions/active',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (_req: AuthenticatedRequest, reply) => {
       try {
         const result = await pool.query(
-          `SELECT ps.*, u.name as user_name, u.avatar as user_avatar, u.email as user_email, u.is_kids
+          `SELECT ps.*, 
+                  COALESCE(u.name, ps.device_name, 'Пользователь') as user_name, 
+                  COALESCE(u.avatar, '') as user_avatar, 
+                  COALESCE(u.email, '') as user_email, 
+                  COALESCE(u.is_kids, false) as is_kids
            FROM playback_sessions ps
-           JOIN users u ON u.id = ps.user_id
-           WHERE ps.last_heartbeat >= NOW() - INTERVAL '35 seconds'
+           LEFT JOIN users u ON u.id = ps.user_id
+           WHERE ps.last_heartbeat >= NOW() - INTERVAL '45 seconds'
            ORDER BY ps.last_heartbeat DESC`
         );
 

@@ -73,7 +73,7 @@ export function getLang(): Lang {
   return currentLang;
 }
 
-import { getServerUrl } from './server';
+import { getServerUrl, serverFetch } from './server';
 
 export async function apiFetch<T>(path: string, params?: Record<string, string>): Promise<T> {
   const base = getServerUrl();
@@ -95,12 +95,22 @@ export async function apiFetch<T>(path: string, params?: Record<string, string>)
 }
 
 export async function apiPost<T>(path: string, body: Record<string, any>): Promise<T> {
-  const base = getServerUrl();
-  const url = path.startsWith('http') ? path : `${base}${path}`;
-
-  const res = await fetch(url, {
+  const res = await serverFetch(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `API error: ${res.status}`);
+  }
+
+  return res.json();
+}
+
+export async function apiPut<T>(path: string, body: Record<string, any>): Promise<T> {
+  const res = await serverFetch(path, {
+    method: 'PUT',
     body: JSON.stringify(body),
   });
 
@@ -113,14 +123,13 @@ export async function apiPost<T>(path: string, body: Record<string, any>): Promi
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const base = getServerUrl();
-  const url = path.startsWith('http') ? path : `${base}${path}`;
-
-  const res = await fetch(url, { method: 'DELETE' });
+  const res = await serverFetch(path, { method: 'DELETE' });
 
   if (!res.ok) {
-    throw new Error(`API error: ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || `API error: ${res.status}`);
   }
 
   return res.json();
 }
+

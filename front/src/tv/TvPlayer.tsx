@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import type { Title } from '@/api/client';
-import { serverUrl } from '@/api/server';
+import { serverUrl, serverFetch } from '@/api/server';
 
 interface TvPlayerProps {
   title: Title;
@@ -256,6 +256,80 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
       video.removeEventListener('loadedmetadata', update);
     };
   }, [onTimeUpdate]);
+
+  // Interval for AVPlay time updates on Tizen
+  useEffect(() => {
+    if (!playing || !avplayRef.current) return;
+    const interval = setInterval(() => {
+      try {
+        const pos = avplayRef.current.getCurrentTime?.() || 0;
+        const curSec = pos / 1000;
+        setCurrentTime(curSec);
+        onTimeUpdate?.(curSec);
+        const info = avplayRef.current.getStreamingProperty?.('DURATION_INFO');
+        if (info) {
+          const parsed = parseInt(info, 10) / 1000;
+          if (parsed > 0) setDuration(parsed);
+        }
+      } catch {}
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [playing, onTimeUpdate]);
+
+  // Jellyfin-style active session heartbeat for Smart TV
+  const sessionIdRef = useRef<string>('tv-' + Date.now() + '-' + Math.random().toString(36).substring(2, 7));
+  const progressRef = useRef({ time: currentTime, dur: duration, paused: !playing });
+  progressRef.current = { time: currentTime, dur: duration, paused: !playing };
+
+  useEffect(() => {
+    let seasonNum = 0;
+    let epNum = 0;
+    if (title.episode) {
+      const match = String(title.episode).match(/s(\d+)e(\d+)/i) || String(title.episode).match(/(\d+)[x-](\d+)/i);
+      if (match) {
+        seasonNum = parseInt(match[1], 10);
+        epNum = parseInt(match[2], 10);
+      }
+    }
+
+    const sendHeartbeat = async () => {
+      try {
+        const res = await serverFetch('/api/sessions/heartbeat', {
+          method: 'POST',
+          body: JSON.stringify({
+            sessionId: sessionIdRef.current,
+            deviceType: 'tv',
+            deviceName: 'Smart TV',
+            mediaType: (title.type === 'live' ? 'iptv' : title.type) || 'movie',
+            mediaId: title.id,
+            mediaTitle: (title as any).titleName || title.name || 'Видео',
+            mediaPoster: title.poster || '',
+            season: seasonNum,
+            episode: epNum,
+            currentTime: Math.round(progressRef.current.time || 0),
+            duration: Math.round(progressRef.current.dur || 0),
+            isPaused: progressRef.current.paused,
+          }),
+        });
+        if (res && res.ok) {
+          const data = await res.json().catch(() => null);
+          if (data?.terminate) {
+            onExit();
+          }
+        }
+      } catch {}
+    };
+
+    sendHeartbeat();
+    const interval = setInterval(sendHeartbeat, 10000);
+    return () => {
+      clearInterval(interval);
+      serverFetch('/api/sessions/stop', {
+        method: 'POST',
+        body: JSON.stringify({ sessionId: sessionIdRef.current }),
+      }).catch(() => {});
+    };
+  }, [title, onExit]);
 
   const formatTime = (s: number) => {
     const h = Math.floor(s / 3600);

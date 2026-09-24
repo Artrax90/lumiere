@@ -553,15 +553,15 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
       const s = db.playback_sessions.find((sess) => String(sess.id) === String(params[0]));
       return { rows: s ? [s] : [] };
     }
-    // Return all sessions active within 35 seconds
-    const threshold = Date.now() - 35000;
+    // Return all sessions active within 45 seconds
+    const threshold = Date.now() - 45000;
     const activeSessions = db.playback_sessions
       .filter((s) => new Date(s.last_heartbeat).getTime() >= threshold)
       .map((s) => {
         const u = db.users.find((user) => user.id === s.user_id) || {};
         return {
           ...s,
-          user_name: u.name || 'Пользователь',
+          user_name: u.name || s.device_name || 'Пользователь',
           user_avatar: u.avatar || '',
           user_email: u.email || '',
           is_kids: !!u.is_kids
@@ -574,7 +574,7 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
     const existingIdx = db.playback_sessions.findIndex((s) => String(s.id) === String(params[0]));
     const item = {
       id: String(params[0]),
-      user_id: Number(params[1]),
+      user_id: params[1] ? Number(params[1]) : (db.users[0]?.id || 1),
       device_type: params[2] || 'web',
       device_name: params[3] || '',
       client_ip: params[4] || '',

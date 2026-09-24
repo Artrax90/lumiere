@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { serverFetch } from '@/api/server';
 import { useAuth } from '@/contexts/AuthContext';
+import SafeImg from './SafeImg';
 
 interface ActiveSession {
   id: string;
@@ -272,11 +273,10 @@ export default function ActiveSessionsView() {
                     {/* Media Poster */}
                     <div className="relative h-32 w-22 shrink-0 overflow-hidden rounded-[12px] bg-white/[0.05] border border-white/[0.1] shadow-md">
                       {sess.mediaPoster ? (
-                        <img
-                          src={sess.mediaPoster.startsWith('/') ? sess.mediaPoster : sess.mediaPoster}
+                        <SafeImg
+                          src={sess.mediaPoster}
                           alt={sess.mediaTitle}
                           className="h-full w-full object-cover"
-                          onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-white/20">
@@ -446,11 +446,10 @@ export default function ActiveSessionsView() {
                       {/* Thumbnail */}
                       <div className="h-12 w-9 shrink-0 overflow-hidden rounded-[8px] bg-white/[0.05] border border-white/[0.1]">
                         {item.mediaPoster ? (
-                          <img
+                          <SafeImg
                             src={item.mediaPoster}
                             alt=""
                             className="h-full w-full object-cover"
-                            onError={(e) => { (e.target as HTMLElement).style.display = 'none'; }}
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center text-white/20">
@@ -458,6 +457,7 @@ export default function ActiveSessionsView() {
                           </div>
                         )}
                       </div>
+
 
                       <div className="min-w-0">
                         <div className="text-[14px] font-medium text-white/95 truncate">

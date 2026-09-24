@@ -5,7 +5,7 @@ import ActivityHeatmap from './ActivityHeatmap';
 import ActiveSessionsView from './ActiveSessionsView';
 import { apiPost, apiDelete } from '@/api/client';
 import { useAuth } from '@/contexts/AuthContext';
-import { getServerUrl } from '@/api/server';
+import { getServerUrl, serverFetch } from '@/api/server';
 import { getHomeShelves, syncHomeShelvesFromServer, saveHomeShelves, DEFAULT_SHELVES, type HomeShelfConfig } from '@/utils/homeShelves';
 
 interface SettingsViewProps {
@@ -84,9 +84,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
 
   const loadUsers = async () => {
     try {
-      const res = await fetch('/api/admin/users', {
-        headers: { 'Authorization': `Bearer ${localStorage.getItem('lumiere_access')}` },
-      });
+      const res = await serverFetch('/api/admin/users');
       if (!res.ok) {
         setUsersLoaded(true);
         return;

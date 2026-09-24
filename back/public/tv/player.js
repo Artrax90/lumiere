@@ -994,15 +994,16 @@
       } catch(ae) {}
     }
     var effectiveTitle = movieTitle || (movieId ? ('Медиа #' + movieId) : 'ТВ Воспроизведение');
-    if (!token || !currentSessionId) {
-      console.warn('[Player] Skipping heartbeat: token exists =', !!token, 'sessionId =', currentSessionId);
+    if (!currentSessionId) {
       return;
     }
     var activePlaying = (player && typeof player.isPlaying === 'function') ? player.isPlaying() : isPlaying;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', API + '/api/sessions/heartbeat', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    if (token) {
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    }
     xhr.onload = function() {
       if (xhr.status >= 200 && xhr.status < 300) {
         try {
@@ -1041,12 +1042,14 @@
       clearInterval(sessionHeartbeatTimer);
       sessionHeartbeatTimer = null;
     }
-    var token = localStorage.getItem(TOKEN_KEY);
-    if (!token || !currentSessionId) return;
+    var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('lumiere_access');
+    if (!currentSessionId) return;
     var xhr = new XMLHttpRequest();
     xhr.open('POST', API + '/api/sessions/stop', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    if (token) {
+      xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    }
     xhr.send(JSON.stringify({ sessionId: currentSessionId }));
   }
 

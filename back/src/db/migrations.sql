@@ -216,4 +216,15 @@ CREATE TABLE IF NOT EXISTS playback_history (
 CREATE INDEX IF NOT EXISTS idx_playback_history_user_id ON playback_history(user_id);
 CREATE INDEX IF NOT EXISTS idx_playback_history_ended_at ON playback_history(ended_at);
 
+-- Allow nullable user_id for Smart TV, Guest or Device playback sessions
+DO $$ 
+BEGIN 
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_sessions' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
+    ALTER TABLE playback_sessions ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_history' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
+    ALTER TABLE playback_history ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+END $$;
+
 

@@ -21,3 +21,18 @@ export async function requireAuth(request: AuthenticatedRequest, reply: FastifyR
 
   request.user = payload;
 }
+
+export async function optionalAuth(request: AuthenticatedRequest, _reply: FastifyReply) {
+  const authHeader = request.headers.authorization;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return;
+  }
+
+  const token = authHeader.slice(7);
+  const payload = verifyAccessToken(token);
+
+  if (payload) {
+    request.user = payload;
+  }
+}
