@@ -34,7 +34,7 @@ async function ensureSessionTables() {
         media_poster VARCHAR(500) DEFAULT '',
         season INTEGER DEFAULT 0,
         episode INTEGER DEFAULT 0,
-        current_time NUMERIC DEFAULT 0,
+        "current_time" NUMERIC DEFAULT 0,
         duration NUMERIC DEFAULT 0,
         is_paused BOOLEAN DEFAULT FALSE,
         terminate_requested BOOLEAN DEFAULT FALSE,
@@ -135,7 +135,7 @@ export function sessionRoutes(app: FastifyInstance) {
           `INSERT INTO playback_sessions (
             id, user_id, device_type, device_name, client_ip,
             media_type, media_id, media_title, media_poster,
-            season, episode, current_time, duration, is_paused,
+            season, episode, "current_time", duration, is_paused,
             last_heartbeat
           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, CURRENT_TIMESTAMP)
           ON CONFLICT (id) DO UPDATE SET
@@ -149,7 +149,7 @@ export function sessionRoutes(app: FastifyInstance) {
             media_poster = EXCLUDED.media_poster,
             season = EXCLUDED.season,
             episode = EXCLUDED.episode,
-            current_time = EXCLUDED.current_time,
+            "current_time" = EXCLUDED."current_time",
             duration = EXCLUDED.duration,
             is_paused = EXCLUDED.is_paused,
             last_heartbeat = CURRENT_TIMESTAMP`,

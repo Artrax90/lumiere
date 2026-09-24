@@ -185,7 +185,7 @@ CREATE TABLE IF NOT EXISTS playback_sessions (
   media_poster VARCHAR(500) DEFAULT '',
   season INTEGER DEFAULT 0,
   episode INTEGER DEFAULT 0,
-  current_time NUMERIC DEFAULT 0,
+  "current_time" NUMERIC DEFAULT 0,
   duration NUMERIC DEFAULT 0,
   is_paused BOOLEAN DEFAULT FALSE,
   terminate_requested BOOLEAN DEFAULT FALSE,
