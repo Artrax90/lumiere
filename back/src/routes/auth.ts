@@ -121,7 +121,9 @@ export function authRoutes(app: FastifyInstance) {
 
     try {
       const result = await pool.query(`
-        SELECT id, name, email, avatar, role, is_kids,
+        SELECT id, name, email, avatar,
+               COALESCE(role, 'user') as role,
+               COALESCE(is_kids, false) as is_kids,
                (pin IS NOT NULL AND pin != '') AS has_pin
         FROM users
         ORDER BY (role = 'admin') DESC, id ASC
@@ -139,7 +141,22 @@ export function authRoutes(app: FastifyInstance) {
         })),
       };
     } catch (err: any) {
-      return { profiles: [] };
+      try {
+        const fallback = await pool.query(`SELECT id, name, email, avatar FROM users ORDER BY id ASC`);
+        return {
+          profiles: fallback.rows.map((r) => ({
+            id: r.id,
+            name: r.name,
+            email: r.email,
+            avatar: r.avatar || '',
+            role: 'user',
+            isKids: false,
+            hasPin: false,
+          })),
+        };
+      } catch (err2: any) {
+        return { profiles: [] };
+      }
     }
   });
 

@@ -445,37 +445,17 @@
 
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) {
-      apiFetch('/api/setup/status', function(err, setupData) {
-        if (err) {
-          handleConnectionFailure();
-          return;
+      apiFetch('/api/user/profile', function(err, profile) {
+        if (profile && profile.id) {
+          state.user = profile;
+          startApp();
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+          loadProfilesAndShowPicker();
         }
-        if (setupData && setupData.needsSetup) {
-          showSetupRequired(API);
-          return;
-        }
-        apiFetch('/api/user/profile', function(err2, profile) {
-          if (profile && profile.id) {
-            state.user = profile;
-            startApp();
-          } else {
-            localStorage.removeItem(TOKEN_KEY);
-            loadProfilesAndShowPicker();
-          }
-        });
       });
     } else {
-      apiFetch('/api/setup/status', function(err, setupData) {
-        if (err) {
-          handleConnectionFailure();
-          return;
-        }
-        if (setupData && setupData.needsSetup) {
-          showSetupRequired(API);
-          return;
-        }
-        loadProfilesAndShowPicker();
-      });
+      loadProfilesAndShowPicker();
     }
   }
 
@@ -490,11 +470,19 @@
         var list = (data && data.profiles) || [];
         if (list.length > 0) {
           renderProfilePicker(list);
-        } else if (lanData && !lanData.isLan && !lanData.isTv) {
-          showError('Для входа вне локальной сети авторизуйтесь через веб-браузер или задайте PIN-код профиля.');
-        } else {
-          showNoProfiles(API);
+          return;
         }
+
+        // Only if no profiles returned, check setup status
+        apiFetch('/api/setup/status', function(err3, setupData) {
+          if (setupData && setupData.needsSetup) {
+            showSetupRequired(API);
+          } else if (lanData && !lanData.isLan && !lanData.isTv) {
+            showError('Для входа вне локальной сети авторизуйтесь через веб-браузер или задайте PIN-код профиля.');
+          } else {
+            showNoProfiles(API);
+          }
+        });
       });
     });
   }
@@ -935,6 +923,11 @@
     }
   }
 
+  function isTvEnterKey(code, key) {
+    return code === 13 || code === 29443 || code === 65385 || code === 65376 ||
+           key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK';
+  }
+
   function handleErrorScreenKey(code, key, e) {
     if (code === 37 || key === 'ArrowLeft') {
       if (errorScreenState.focusedIndex > 0) errorScreenState.focusedIndex--;
@@ -944,9 +937,14 @@
       if (errorScreenState.focusedIndex < 2) errorScreenState.focusedIndex++;
       else errorScreenState.focusedIndex = 0;
       updateErrorButtonsFocus();
-    } else if (code === 13 || key === 'Enter') {
+    } else if (isTvEnterKey(code, key)) {
+      console.log('[Lumiere] Error screen button clicked, focusedIndex:', errorScreenState.focusedIndex);
       if (errorScreenState.focusedIndex === 0) {
-        window.location.reload();
+        var loading = document.getElementById('loading');
+        if (loading) {
+          loading.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div><div class="spinner"></div>';
+        }
+        initAuth();
       } else if (errorScreenState.focusedIndex === 1) {
         startLanScanFromErrorScreen();
       } else {

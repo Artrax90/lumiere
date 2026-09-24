@@ -165,16 +165,11 @@ app.get('/msx.json', async (req, reply) => {
 
 app.get('/api/setup/status', async () => {
   try {
-    const result = await pool.query("SELECT COUNT(*) as count FROM users WHERE role = 'admin'");
-    const adminCount = parseInt(result.rows[0].count, 10);
-    return { needsSetup: adminCount === 0 };
+    const result = await pool.query("SELECT COUNT(*) as count FROM users");
+    const userCount = parseInt(result.rows[0].count, 10);
+    return { needsSetup: userCount === 0 };
   } catch {
-    try {
-      const result = await pool.query("SELECT COUNT(*) as count FROM users");
-      return { needsSetup: parseInt(result.rows[0].count, 10) === 0 };
-    } catch {
-      return { needsSetup: true };
-    }
+    return { needsSetup: true };
   }
 });
 
