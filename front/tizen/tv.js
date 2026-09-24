@@ -318,12 +318,23 @@
     console.log('[Lumiere] Init starting');
     try {
       var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
+      // If legacy port 3000 was saved in previous versions or old 192.168.1.77:3000, migrate
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77:3000') !== -1)) {
+        savedServer = 'https://lumiere.artrax.net';
+        try {
+          localStorage.setItem(SERVER_KEY, savedServer);
+          localStorage.setItem('lumiere_server_url', savedServer);
+          localStorage.setItem('lumiere_tv_server', savedServer);
+        } catch(e) {}
+      }
       var server = savedServer;
       if (!server) {
         if (window.__DEFAULT_SERVER_URL__) {
           server = window.__DEFAULT_SERVER_URL__;
         } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
           server = window.location.origin;
+        } else {
+          server = 'https://lumiere.artrax.net';
         }
       }
       if (server) {
@@ -1003,7 +1014,7 @@
     function scanNextSubnet() {
       if (sIdx >= subnets.length) {
         if (msgEl) {
-          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в локальной сети. Убедитесь, что сервер запущен (порт 3500), или введите адрес вручную.</span>';
+          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в сети. Убедитесь, что сервер запущен, или введите адрес вручную.</span>';
         }
         if (scanBtn) scanBtn.textContent = '🔍 Найти в сети';
         errorScreenState.focusedIndex = 2;
@@ -1035,17 +1046,27 @@
       );
     }
 
-    scanNextSubnet();
+    // First check production server https://lumiere.artrax.net
+    var cloudUrl = 'https://lumiere.artrax.net';
+    if (msgEl) msgEl.innerHTML = '🔍 Проверка сервера <b style="color:#e8c170;">' + cloudUrl + '</b>...';
+    checkLumiereServer(cloudUrl, 2500, function(found) {
+      if (found) {
+        if (msgEl) msgEl.innerHTML = '✓ Найден сервер Lumière: <b style="color:#6ee7b7;">' + cloudUrl + '</b>! Подключение...';
+        applyNewServer(cloudUrl);
+        return;
+      }
+      scanNextSubnet();
+    });
   }
 
   function startLanScanFromModal() {
-    showServerModalStatus('🔍 Поиск сервера Lumière в локальной сети (порт 3500)...', 'loading');
+    showServerModalStatus('🔍 Проверка сервера Lumière...', 'loading');
     var subnets = getCandidateSubnets();
     var sIdx = 0;
 
     function scanNext() {
       if (sIdx >= subnets.length) {
-        showServerModalStatus('Сервер не найден в локальной сети. Введите адрес вручную.', 'error');
+        showServerModalStatus('Сервер не найден в сети. Введите адрес вручную.', 'error');
         return;
       }
       var subnet = subnets[sIdx++];
@@ -1068,7 +1089,18 @@
       );
     }
 
-    scanNext();
+    // First check production server https://lumiere.artrax.net
+    var cloudUrl = 'https://lumiere.artrax.net';
+    checkLumiereServer(cloudUrl, 2500, function(found) {
+      if (found) {
+        var input = document.getElementById('tv-server-input');
+        if (input) input.value = cloudUrl;
+        showServerModalStatus('✓ Найден сервер: ' + cloudUrl + '! Подключение...', 'success');
+        applyNewServer(cloudUrl);
+        return;
+      }
+      scanNext();
+    });
   }
 
   // ========== Server Configuration Modal ==========
