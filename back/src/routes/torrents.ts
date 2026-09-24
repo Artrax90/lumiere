@@ -122,7 +122,41 @@ async function fetchFromJacRed(targetUrl: string, query: string, category?: stri
   }
 }
 
+async function ensureTorrServerOptimized() {
+  try {
+    const res = await fetch(`${TORRSERVER_URL}/settings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'get' }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const sets = (await res.json()) as any;
+      if (!sets.CacheSize || sets.CacheSize < 536870912 || (sets.ConnectionsLimit && sets.ConnectionsLimit < 100)) {
+        await fetch(`${TORRSERVER_URL}/settings`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'set',
+            sets: {
+              CacheSize: 536870912, // 512 MB cache to support concurrent streams
+              ConnectionsLimit: 100, // 100 connections
+              ReaderReadAHead: 95,
+            },
+          }),
+          signal: AbortSignal.timeout(5000),
+        });
+        console.log('[TorrServer] Automatically optimized settings: 512MB cache, 100 connections');
+      }
+    }
+  } catch {
+    // Non-blocking if TorrServer is not yet running
+  }
+}
+
 export function torrentRoutes(app: FastifyInstance) {
+  // Proactively check and optimize TorrServer cache & peer limits
+  ensureTorrServerOptimized().catch(() => {});
   // Search torrents via JacRed with multi-indexer aggregation & smart fallback
   app.get('/api/torrents/search', async (req, reply) => {
     const { q, alt, category } = req.query as { q?: string; alt?: string; category?: string };
@@ -331,7 +365,8 @@ export function torrentRoutes(app: FastifyInstance) {
         }));
 
         const fileName = f.path.split('/').pop() || f.path;
-        const directProxyUrl = `/api/torrents/proxy?link=${encodeURIComponent(magnet)}&index=${f.id}`;
+        const ext = fileName.includes('.') ? fileName.substring(fileName.lastIndexOf('.')) : '.mkv';
+        const directProxyUrl = `/api/torrents/proxy/video${ext}?link=${encodeURIComponent(magnet)}&index=${f.id}`;
 
         return {
           id: f.id,
@@ -367,8 +402,8 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
-  // Proxy TorrServer streams (direct) — supports Range for AVPlay seeking
-  app.get('/api/torrents/proxy', async (req, reply) => {
+  // Proxy TorrServer streams (direct) — supports Range & container hint for AVPlay seeking
+  const handleTorrentProxy = async (req: any, reply: any) => {
     const { link, index } = req.query as { link?: string; index?: string };
 
     if (!link) {
@@ -385,9 +420,15 @@ export function torrentRoutes(app: FastifyInstance) {
         headers['Range'] = rangeHeader;
       }
 
+      const abortController = new AbortController();
+      req.raw.on('close', () => {
+        try { abortController.abort(); } catch {}
+      });
+
       const res = await fetch(url, {
+        method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
-        signal: AbortSignal.timeout(60000),
+        signal: abortController.signal,
       });
 
       if (!res.ok && res.status !== 206) {
@@ -407,18 +448,25 @@ export function torrentRoutes(app: FastifyInstance) {
       if (contentLength) reply.header('Content-Length', contentLength);
       if (contentRange) reply.header('Content-Range', contentRange);
 
-      // Return 206 for partial content (Range requests)
       if (res.status === 206) {
         reply.code(206);
+      }
+
+      if (req.method === 'HEAD') {
+        return reply.send();
       }
 
       // Pipe the response body directly
       return reply.send(res.body);
     } catch (err: any) {
+      if (err.name === 'AbortError') return;
       console.error('TorrServer proxy error:', err.message);
       return reply.code(500).send({ error: err.message });
     }
-  });
+  };
+
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/proxy', handler: handleTorrentProxy });
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/proxy/:filename', handler: handleTorrentProxy });
 
   // Get audio and subtitle track info via FFprobe
   app.get('/api/torrents/tracks', async (req, reply) => {

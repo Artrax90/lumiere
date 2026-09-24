@@ -528,7 +528,7 @@
     var self = this;
     var targetSec = Math.max(0, Number(timeSeconds) || 0);
     self._currentTime = targetSec;
-    self._isSeeking = true;
+
     if (self.engineType === 'avplay') {
       var ms = Math.round(targetSec * 1000);
       try {
@@ -543,42 +543,60 @@
           return;
         }
 
+        if (self._isSeeking) {
+          console.log('[AVPlay] Already seeking, queuing target:', targetSec, 's');
+          self._pendingSeek = { time: targetSec, successCb: successCb, errorCb: errorCb };
+          return;
+        }
+
+        self._isSeeking = true;
+
+        var onSeekDone = function() {
+          self._isSeeking = false;
+          if (self._pendingSeek) {
+            var next = self._pendingSeek;
+            self._pendingSeek = null;
+            self.seekTo(next.time, next.successCb, next.errorCb);
+          }
+        };
+
         webapis.avplay.seekTo(ms, function() {
           console.log('[AVPlay] seekTo success at', ms, 'ms');
           self._currentTime = targetSec;
-          setTimeout(function() { self._isSeeking = false; }, 300);
+          setTimeout(onSeekDone, 150);
           if (successCb) successCb();
         }, function(err) {
           console.error('[AVPlay] seekTo error callback:', err);
           var curMs = 0;
           try { curMs = webapis.avplay.getCurrentTime() || 0; } catch(ce) {}
-          var deltaMs = ms - curMs;
-          if (deltaMs > 0 && typeof webapis.avplay.jumpForward === 'function') {
+          // Note: AVPlay jumpForward/jumpBackward accept SECONDS, not milliseconds!
+          var deltaSec = Math.round((ms - curMs) / 1000);
+          if (deltaSec > 0 && typeof webapis.avplay.jumpForward === 'function') {
             try {
-              webapis.avplay.jumpForward(deltaMs, function() {
+              webapis.avplay.jumpForward(deltaSec, function() {
                 self._currentTime = targetSec;
-                setTimeout(function() { self._isSeeking = false; }, 300);
+                setTimeout(onSeekDone, 150);
                 if (successCb) successCb();
               }, function(jerr) {
-                setTimeout(function() { self._isSeeking = false; }, 300);
+                setTimeout(onSeekDone, 150);
                 if (errorCb) errorCb(jerr);
               });
               return;
             } catch(je) {}
-          } else if (deltaMs < 0 && typeof webapis.avplay.jumpBackward === 'function') {
+          } else if (deltaSec < 0 && typeof webapis.avplay.jumpBackward === 'function') {
             try {
-              webapis.avplay.jumpBackward(Math.abs(deltaMs), function() {
+              webapis.avplay.jumpBackward(Math.abs(deltaSec), function() {
                 self._currentTime = targetSec;
-                setTimeout(function() { self._isSeeking = false; }, 300);
+                setTimeout(onSeekDone, 150);
                 if (successCb) successCb();
               }, function(jerr) {
-                setTimeout(function() { self._isSeeking = false; }, 300);
+                setTimeout(onSeekDone, 150);
                 if (errorCb) errorCb(jerr);
               });
               return;
             } catch(je) {}
           }
-          setTimeout(function() { self._isSeeking = false; }, 300);
+          setTimeout(onSeekDone, 150);
           if (errorCb) errorCb(err);
         });
       } catch(e) {
@@ -587,6 +605,7 @@
         if (errorCb) errorCb(e);
       }
     } else if (self._videoEl) {
+      self._isSeeking = true;
       try {
         var localTarget = targetSec - (self._seekOffset || 0);
         var isBuffered = false;

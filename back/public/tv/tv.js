@@ -4727,7 +4727,7 @@
     apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
       if (err || !data || !data.files || data.files.length === 0) {
         var fallbackUrl = isAvplay
-          ? API + '/api/torrents/proxy?link=' + encodeURIComponent(magnet) + '&index=0'
+          ? API + '/api/torrents/proxy/video.mkv?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
         var fallbackFiles = [{ name: title, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
         showTorrentPrePlayModal(fallbackFiles, title, movieId, magnet);
@@ -5580,7 +5580,12 @@
   function setupNavigation() {
     document.querySelectorAll('.nav-btn').forEach(function(btn) {
       btn.addEventListener('click', function() {
-        switchSection(btn.getAttribute('data-section'));
+        var sec = btn.getAttribute('data-section');
+        if (sec === 'switch-profile') {
+          showProfilePicker();
+        } else {
+          switchSection(sec);
+        }
       });
     });
 
@@ -7040,6 +7045,14 @@
       if (e && e.preventDefault) e.preventDefault();
     } else if (isEnter) {
       if (isOnNav) {
+        var navBtns = document.querySelectorAll('.nav-btn');
+        var curNavBtn = navBtns[state.focusedNav];
+        var curNavSec = curNavBtn ? curNavBtn.getAttribute('data-section') : '';
+        if (curNavSec === 'switch-profile') {
+          showProfilePicker();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
         if (state.section === 'search') {
           clearNavFocus();
           focusOskKey(0, 0);
@@ -7751,7 +7764,10 @@
     state.focusedCard = null;
     btns[index].classList.add('focused');
     btns[index].focus();
-    switchSection(btns[index].getAttribute('data-section'));
+    var sec = btns[index].getAttribute('data-section');
+    if (sec && sec !== 'switch-profile') {
+      switchSection(sec);
+    }
   }
 
   function focusNavDelta(delta) {

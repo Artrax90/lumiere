@@ -4,8 +4,8 @@
 <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"></SignatureMethod>
 <Reference URI="author-signature.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>1vZFhmSYJKJmbj5ZZtHe+WiuLIdLw1i6rSC5Xeu/yHdVZTeUBlh/pd2ENxw1LpYP2abCP9+CBNNL
-XXSaQlSV7w==</DigestValue>
+<DigestValue>B1O0MtMW0UginNcctErjxTksOBs8087mwlYB88ffSucg6mm3dGt4OHqYLUQCUeA8azurIbV16lSK
+6p6DJKLjEQ==</DigestValue>
 </Reference>
 <Reference URI="config.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -29,8 +29,8 @@ PlmFTDcPXg==</DigestValue>
 </Reference>
 <Reference URI="player-adapter.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>UTYSgybo9DxNADHHhRpEXTzMVZBCwyfs6Gl1qe0Ba1jjyQg7DgsX1pul5XbkjqJrYqL9iPS3yZQH
-nPKio+41dQ==</DigestValue>
+<DigestValue>qQqFgukDG53hyKGqZlQpd2655FIKmc1PXmQ+YsoA8ncM+xpNi+gLTiyOYsPxBrDwUE4vQk5vo9ze
+0D66Yces1w==</DigestValue>
 </Reference>
 <Reference URI="player.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -54,8 +54,8 @@ YXXC4uLCfg==</DigestValue>
 </Reference>
 <Reference URI="tv.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>miyeHs6WPIB6sI2T//8PsEZazCmIB+UI8gdH30pPrwoqD1Na+0oXnZg3ZTgNRz4qJ6in+VcYocsh
-C0oHsPgpBQ==</DigestValue>
+<DigestValue>/b08sb+9SEg3XSatn4g6J0BnyuxMij0iL24mmsCe+tZqmi7LXGl4LoDWQ63nd5q2u2haz5dRgnjq
+cwaOsCX0rg==</DigestValue>
 </Reference>
 <Reference URI="#prop">
 <Transforms>
@@ -67,11 +67,11 @@ GyvKX9Snig==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-Y7mZI5wlmYYccvMohgSfGgSKafh3iOxXNOSNIWRu7Y1Lc7oVYozVbo22bNMbTc4HgSG0YSf+1dPg
-FvbJJUm9adt0UK0AKO/nWb66chs6MRvtxLcSlpzwSrwetxs6V9TtukJZ6Ep7B8/h9b2JOxNiUZ9F
-R0dJiBQrGrZlv2uehWSVqfhq2VNxqhqmwdesfDVK/LFR0KOB4ito8yEdoOOAXwlcYaVht2u8RUCr
-QzYnBlFKc9ylIOLop6iS4y0/8DcMdsoU6SCXVlPPoTjG5GktNnTE9+krCIE2zqlhm7pCGcg6COZw
-oEZxdu6piOzvR00m+YlK+paq7F//SysCJ+ttRA==
+CuTQ6S0QhW7yUEWeFV6zD6VuMXj3JzT569/6Y4tf5eXiZb8H36TT5HxOw9FvbchTsEGBtvsv2jXt
+KhecvzFDp6AoRZnB3K7nqPF3MfK7lEL4Ix3vD3n7vGWmDFO0n5Qz7irIRFRlbmUrdHfVJ7yKIgn3
+yMMbgxpxwm9A3TWuEYJSy5CDjbLr7MFIk4czFzNO9Ad5HWO4Bx3A4So/7jb/byUePdSdXSfxcFko
+4Y9OCS592N0bupd6cyT6i8UqChFDwQLr8jv9d4mjenp97msffFsa2FrtoLOSDv99EfOzjhJgyWyE
+GEDFSOA+uWp4+ecOIgCeFj6+lxGzCwGTBwVVtA==
 </SignatureValue>
 <KeyInfo>
 <X509Data>
