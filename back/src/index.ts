@@ -116,7 +116,7 @@ registerProvider(new CollapsProvider());
 registerProvider(new HdvbProvider());
 registerProvider(new PhantomProvider());
 
-app.get('/api/health', async () => ({ status: 'ok' }));
+app.get('/api/health', async () => ({ status: 'ok', name: 'lumiere', version: '1.0.0' }));
 
 // MediaStationX (MSX) endpoints for universal Smart TV launcher
 app.get('/msx', async (req, reply) => {

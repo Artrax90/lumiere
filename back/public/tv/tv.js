@@ -403,6 +403,22 @@
   window.profileState = profileState;
   window.loadProfilesAndShowPicker = function() { loadProfilesAndShowPicker(); };
 
+  function handleConnectionFailure(fallbackMsg) {
+    if (API && !/:3500$/.test(API)) {
+      var probeUrl = API.replace(/:\d+$/, '') + ':3500';
+      checkLumiereServer(probeUrl, 1500, function(found) {
+        if (found) {
+          console.log('[Lumiere] Auto-corrected server port to 3500:', probeUrl);
+          applyNewServer(probeUrl);
+          return;
+        }
+        showError(fallbackMsg || ('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен на порту 3500.'));
+      });
+      return;
+    }
+    showError(fallbackMsg || ('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен на порту 3500.'));
+  }
+
   function initAuth() {
     try {
       if (typeof setupKeyboard === 'function') setupKeyboard();
@@ -410,9 +426,21 @@
       console.error('[Lumiere] setupKeyboard in initAuth error:', kErr);
     }
 
+    if (!API) {
+      showError('Адрес сервера Lumière не задан. Нажмите «Найти в сети» для автоматического поиска.');
+      setTimeout(function() {
+        startLanScanFromErrorScreen();
+      }, 300);
+      return;
+    }
+
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) {
       apiFetch('/api/setup/status', function(err, setupData) {
+        if (err) {
+          handleConnectionFailure();
+          return;
+        }
         if (setupData && setupData.needsSetup) {
           showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
           return;
@@ -429,6 +457,10 @@
       });
     } else {
       apiFetch('/api/setup/status', function(err, setupData) {
+        if (err) {
+          handleConnectionFailure();
+          return;
+        }
         if (setupData && setupData.needsSetup) {
           showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
           return;
@@ -442,7 +474,7 @@
     console.log('[Lumiere] loadProfilesAndShowPicker called');
     apiFetch('/api/auth/lan-status', function(err, lanData) {
       if (err) {
-        showError('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен.');
+        handleConnectionFailure();
         return;
       }
       apiFetch('/api/auth/profiles', function(err2, data) {
@@ -752,27 +784,31 @@
     }
   }
 
-  // ========== Error Screen & Server Configuration Modal ==========
+  // ========== Error Screen, Server Configuration & LAN Auto-Discovery ==========
   var errorScreenState = {
     active: false,
-    focusedIndex: 0 // 0: retry, 1: change server
+    focusedIndex: 1 // 0: retry, 1: scan (default!), 2: enter manually
   };
 
   function updateErrorButtonsFocus() {
     var retryBtn = document.getElementById('tv-err-btn-retry');
+    var scanBtn = document.getElementById('tv-err-btn-scan');
     var serverBtn = document.getElementById('tv-err-btn-server');
     if (retryBtn) retryBtn.classList.toggle('focused', errorScreenState.focusedIndex === 0);
-    if (serverBtn) serverBtn.classList.toggle('focused', errorScreenState.focusedIndex === 1);
+    if (scanBtn) scanBtn.classList.toggle('focused', errorScreenState.focusedIndex === 1);
+    if (serverBtn) serverBtn.classList.toggle('focused', errorScreenState.focusedIndex === 2);
     if (errorScreenState.focusedIndex === 0 && retryBtn) {
       try { retryBtn.focus(); } catch(e) {}
-    } else if (errorScreenState.focusedIndex === 1 && serverBtn) {
+    } else if (errorScreenState.focusedIndex === 1 && scanBtn) {
+      try { scanBtn.focus(); } catch(e) {}
+    } else if (errorScreenState.focusedIndex === 2 && serverBtn) {
       try { serverBtn.focus(); } catch(e) {}
     }
   }
 
   function showError(msg) {
     errorScreenState.active = true;
-    errorScreenState.focusedIndex = 0;
+    errorScreenState.focusedIndex = 1;
     var el = document.getElementById('loading');
     if (el) {
       el.classList.remove('hidden');
@@ -782,21 +818,28 @@
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);padding:10px 22px;border-radius:14px;color:#f87171;font-size:17px;font-weight:600;">' +
           '<span>⚠️</span><span>Ошибка подключения к серверу</span>' +
         '</div>' +
-        '<p style="margin-top:16px;color:rgba(255,255,255,0.8);font-size:18px;max-width:720px;text-align:center;line-height:1.5;">' + msg + '</p>' +
+        '<p id="tv-err-msg" style="margin-top:16px;color:rgba(255,255,255,0.85);font-size:18px;max-width:760px;text-align:center;line-height:1.5;">' + msg + '</p>' +
         '<div style="margin-top:8px;font-size:15px;color:rgba(255,255,255,0.45);">Текущий адрес: <span style="color:#e8c170;font-family:monospace;font-weight:600;">' + currentServerDisplay + '</span></div>' +
-        '<div class="tv-err-actions" style="margin-top:28px;display:flex;gap:18px;">' +
-          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0">⟳ Повторить попытку</button>' +
-          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Сменить адрес сервера</button>' +
+        '<div class="tv-err-actions" style="margin-top:28px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn" tabindex="0">⟳ Повторить</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">🔍 Найти в сети</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
         '</div>' +
         '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
           '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
         '</div>';
 
       var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
       var serverBtn = document.getElementById('tv-err-btn-server');
       if (retryBtn) {
         retryBtn.addEventListener('click', function() {
           window.location.reload();
+        });
+      }
+      if (scanBtn) {
+        scanBtn.addEventListener('click', function() {
+          startLanScanFromErrorScreen();
         });
       }
       if (serverBtn) {
@@ -809,15 +852,19 @@
   }
 
   function handleErrorScreenKey(code, key, e) {
-    if (code === 37 || key === 'ArrowLeft' || code === 38 || key === 'ArrowUp') {
-      errorScreenState.focusedIndex = 0;
+    if (code === 37 || key === 'ArrowLeft') {
+      if (errorScreenState.focusedIndex > 0) errorScreenState.focusedIndex--;
+      else errorScreenState.focusedIndex = 2;
       updateErrorButtonsFocus();
-    } else if (code === 39 || key === 'ArrowRight' || code === 40 || key === 'ArrowDown') {
-      errorScreenState.focusedIndex = 1;
+    } else if (code === 39 || key === 'ArrowRight') {
+      if (errorScreenState.focusedIndex < 2) errorScreenState.focusedIndex++;
+      else errorScreenState.focusedIndex = 0;
       updateErrorButtonsFocus();
     } else if (code === 13 || key === 'Enter') {
       if (errorScreenState.focusedIndex === 0) {
         window.location.reload();
+      } else if (errorScreenState.focusedIndex === 1) {
+        startLanScanFromErrorScreen();
       } else {
         openServerModal();
       }
@@ -826,6 +873,205 @@
     }
   }
 
+  // ========== LAN Auto-Discovery Engine ==========
+  function getTizenLocalIp() {
+    try {
+      if (typeof webapis !== 'undefined' && webapis.network && typeof webapis.network.getIP === 'function') {
+        var ip = webapis.network.getIP();
+        if (ip && /^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return ip;
+      }
+    } catch(e) {}
+    return '';
+  }
+
+  function getCandidateSubnets() {
+    var list = [];
+    var tizenIp = getTizenLocalIp();
+    if (tizenIp) {
+      var m = tizenIp.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m && list.indexOf(m[1]) === -1) list.push(m[1]);
+    }
+    var curH = (window.location && window.location.hostname) ? window.location.hostname : '';
+    if (curH && /^(\d{1,3}\.){3}\d{1,3}$/.test(curH)) {
+      var m2 = curH.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m2 && list.indexOf(m2[1]) === -1) list.push(m2[1]);
+    }
+    var saved = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || '';
+    if (saved) {
+      var m3 = saved.match(/https?:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m3 && list.indexOf(m3[1]) === -1) list.push(m3[1]);
+    }
+    var defaults = ['192.168.1.', '192.168.0.', '192.168.31.', '192.168.88.', '10.0.0.'];
+    for (var i = 0; i < defaults.length; i++) {
+      if (list.indexOf(defaults[i]) === -1) list.push(defaults[i]);
+    }
+    return list;
+  }
+
+  function checkLumiereServer(url, timeoutMs, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url + '/api/health', true);
+    xhr.timeout = timeoutMs || 1500;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data && (data.status === 'ok' || data.name === 'lumiere')) {
+            cb(true);
+            return;
+          }
+        } catch(e) {}
+      }
+      cb(false);
+    };
+    xhr.onerror = function() { cb(false); };
+    xhr.ontimeout = function() { cb(false); };
+    try { xhr.send(); } catch(err) { cb(false); }
+  }
+
+  function scanSubnetForLumiere(subnet, onFound, onProgress, onDone) {
+    var ips = [];
+    var priority = [77, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 88, 90, 100, 101, 105, 110, 120, 150, 200, 250, 254];
+    var saved = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || '';
+    var savedOctet = saved.match(new RegExp('^https?:\\/\\/' + subnet.replace(/\./g, '\\.') + '(\\d+)'));
+    if (savedOctet && savedOctet[1]) {
+      var n = parseInt(savedOctet[1]);
+      if (n > 0 && n < 255) ips.push(n);
+    }
+    for (var p = 0; p < priority.length; p++) {
+      if (ips.indexOf(priority[p]) === -1) ips.push(priority[p]);
+    }
+    for (var i = 1; i <= 254; i++) {
+      if (ips.indexOf(i) === -1) ips.push(i);
+    }
+
+    var stopped = false;
+    var completed = 0;
+    var activeCount = 0;
+    var concurrency = 16;
+    var index = 0;
+
+    function launchNext() {
+      if (stopped) return;
+      if (completed >= ips.length) {
+        if (!stopped) {
+          stopped = true;
+          onDone();
+        }
+        return;
+      }
+
+      while (activeCount < concurrency && index < ips.length && !stopped) {
+        (function(ipNum) {
+          activeCount++;
+          var targetUrl = 'http://' + subnet + ipNum + ':3500';
+          checkLumiereServer(targetUrl, 1500, function(found) {
+            if (stopped) return;
+            activeCount--;
+            completed++;
+            if (onProgress) onProgress(completed, ips.length, subnet);
+            if (found) {
+              stopped = true;
+              onFound(targetUrl);
+              return;
+            }
+            launchNext();
+          });
+        })(ips[index++]);
+      }
+    }
+
+    launchNext();
+    return function stop() { stopped = true; };
+  }
+
+  var currentScanAborter = null;
+  function startLanScanFromErrorScreen() {
+    var msgEl = document.getElementById('tv-err-msg');
+    var scanBtn = document.getElementById('tv-err-btn-scan');
+    if (scanBtn) {
+      scanBtn.textContent = '⏳ Поиск...';
+    }
+
+    var subnets = getCandidateSubnets();
+    var sIdx = 0;
+
+    function scanNextSubnet() {
+      if (sIdx >= subnets.length) {
+        if (msgEl) {
+          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в локальной сети. Убедитесь, что сервер запущен (порт 3500), или введите адрес вручную.</span>';
+        }
+        if (scanBtn) scanBtn.textContent = '🔍 Найти в сети';
+        errorScreenState.focusedIndex = 2;
+        updateErrorButtonsFocus();
+        return;
+      }
+
+      var subnet = subnets[sIdx++];
+      if (msgEl) {
+        msgEl.innerHTML = '🔍 Поиск сервера Lumière в сети <b style="color:#e8c170;">' + subnet + 'x:3500</b>...';
+      }
+
+      currentScanAborter = scanSubnetForLumiere(
+        subnet,
+        function(foundUrl) {
+          if (msgEl) {
+            msgEl.innerHTML = '✓ Найден сервер Lumière: <b style="color:#6ee7b7;">' + foundUrl + '</b>! Подключение...';
+          }
+          applyNewServer(foundUrl);
+        },
+        function(completed, total) {
+          if (msgEl) {
+            msgEl.innerHTML = '🔍 Поиск сервера Lumière в сети <b style="color:#e8c170;">' + subnet + 'x:3500</b> (' + completed + '/' + total + ')...';
+          }
+        },
+        function() {
+          scanNextSubnet();
+        }
+      );
+    }
+
+    scanNextSubnet();
+  }
+
+  function startLanScanFromModal() {
+    showServerModalStatus('🔍 Поиск сервера Lumière в локальной сети (порт 3500)...', 'loading');
+    var subnets = getCandidateSubnets();
+    var sIdx = 0;
+
+    function scanNext() {
+      if (sIdx >= subnets.length) {
+        showServerModalStatus('Сервер не найден в локальной сети. Введите адрес вручную.', 'error');
+        return;
+      }
+      var subnet = subnets[sIdx++];
+      showServerModalStatus('Поиск в сети ' + subnet + 'x:3500...', 'loading');
+
+      currentScanAborter = scanSubnetForLumiere(
+        subnet,
+        function(foundUrl) {
+          var input = document.getElementById('tv-server-input');
+          if (input) input.value = foundUrl;
+          showServerModalStatus('✓ Найден сервер: ' + foundUrl + '! Подключение...', 'success');
+          applyNewServer(foundUrl);
+        },
+        function(completed, total) {
+          showServerModalStatus('Поиск в сети ' + subnet + 'x (' + completed + '/' + total + ')...', 'loading');
+        },
+        function() {
+          scanNext();
+        }
+      );
+    }
+
+    scanNext();
+  }
+
+  // ========== Server Configuration Modal ==========
   var serverModalState = {
     active: false,
     curRow: 5,
@@ -983,6 +1229,8 @@
         serverModalState.failedUrl = null;
         showServerModalStatus('', '');
       }
+    } else if (action === 'scan') {
+      startLanScanFromModal();
     } else if (action === 'curhost') {
       var cur = (window.location && window.location.hostname && window.location.hostname !== 'localhost') ?
         ((window.location.protocol || 'http:') + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '')) :
@@ -1034,24 +1282,40 @@
 
     // Prepare candidate URLs
     var candidates = [];
-    if (/^https?:\/\//i.test(rawUrl)) {
-      candidates.push(rawUrl);
-      if (rawUrl.indexOf('http://') === 0) {
-        candidates.push(rawUrl.replace(/^http:\/\//i, 'https://'));
-      } else {
-        candidates.push(rawUrl.replace(/^https:\/\//i, 'http://'));
+    var isIpWithoutPort = /^(?:https?:\/\/)?(?:\d{1,3}\.){3}\d{1,3}$/.test(rawUrl);
+    var hasPort = /:\d+$/.test(rawUrl);
+
+    if (isIpWithoutPort) {
+      // User entered raw IP (e.g. 192.168.1.77) -> default to port 3500!
+      var cleanIp = rawUrl.replace(/^https?:\/\//i, '');
+      candidates.push('http://' + cleanIp + ':3500');
+      candidates.push('http://' + cleanIp);
+      candidates.push('https://' + cleanIp);
+    } else if (hasPort) {
+      // User entered an address with a port, e.g. "192.168.1.77:3000"
+      var clean = rawUrl;
+      if (!/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
+      candidates.push(clean);
+      if (clean.indexOf('http://') === 0) candidates.push(clean.replace('http://', 'https://'));
+      else candidates.push(clean.replace('https://', 'http://'));
+
+      // If user typed a non-standard port like :3000, ALSO probe standard port :3500!
+      if (!/:3500$/.test(clean)) {
+        var with3500 = clean.replace(/:\d+$/, ':3500');
+        candidates.push(with3500);
       }
     } else {
-      var isDomain = !/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(rawUrl);
+      // Domain name without port (e.g. lumiere.artrax.net)
+      var cleanDomain = rawUrl.replace(/^https?:\/\//i, '');
       var isPageHttps = (window.location && window.location.protocol === 'https:');
-      if (isPageHttps || isDomain) {
-        // Try HTTPS first for domains or if current page is HTTPS
-        candidates.push('https://' + rawUrl);
-        candidates.push('http://' + rawUrl);
+      if (isPageHttps || !/^(?:\d{1,3}\.){3}\d{1,3}/.test(cleanDomain)) {
+        candidates.push('https://' + cleanDomain);
+        candidates.push('http://' + cleanDomain);
+        candidates.push('http://' + cleanDomain + ':3500');
       } else {
-        // Try HTTP first for LAN IP
-        candidates.push('http://' + rawUrl);
-        candidates.push('https://' + rawUrl);
+        candidates.push('http://' + cleanDomain + ':3500');
+        candidates.push('http://' + cleanDomain);
+        candidates.push('https://' + cleanDomain);
       }
     }
 
@@ -1093,19 +1357,24 @@
       var ep = endpoints[epIndex++];
       var xhr = new XMLHttpRequest();
       xhr.open('GET', candidateUrl + ep, true);
-      xhr.timeout = 5000;
+      xhr.timeout = 3500;
       try {
         xhr.setRequestHeader('X-Lumiere-TV', '1');
         xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
       } catch(e) {}
 
       xhr.onload = function() {
-        // Any HTTP response (including 401/403) confirms server existence and reachability
-        if (xhr.status > 0 && xhr.status < 500) {
-          cb(true);
-        } else {
-          tryEndpoint();
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            // Verify Lumiere response
+            if (data && (data.status === 'ok' || data.name === 'lumiere' || typeof data.needsSetup !== 'undefined' || typeof data.isLan !== 'undefined')) {
+              cb(true);
+              return;
+            }
+          } catch(e) {}
         }
+        tryEndpoint();
       };
       xhr.onerror = function() {
         tryEndpoint();
