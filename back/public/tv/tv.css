@@ -3566,6 +3566,233 @@ body.player-active .section {
   text-overflow: ellipsis;
 }
 
+/* ========================================================
+   TV Server Setup Modal & Connection Error Screen Styles
+   ======================================================== */
+.tv-server-modal-box {
+  width: 720px !important;
+  max-width: 92vw !important;
+  padding: 32px 36px !important;
+  background: #11141c !important;
+  border: 1px solid rgba(232, 193, 112, 0.25) !important;
+  border-radius: 24px !important;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.95), 0 0 40px rgba(232, 193, 112, 0.1) !important;
+}
+
+.tv-server-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.tv-server-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 16px;
+  background: rgba(232, 193, 112, 0.15);
+  border: 1px solid rgba(232, 193, 112, 0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  color: #e8c170;
+  flex-shrink: 0;
+}
+
+.tv-server-subtitle {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.6);
+  line-height: 1.3;
+}
+
+.tv-server-input-row {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  margin-bottom: 12px;
+}
+
+.tv-server-input {
+  flex: 1;
+  height: 54px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.15);
+  border-radius: 14px;
+  padding: 0 18px;
+  font-size: 20px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #ffffff;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.tv-server-input:focus,
+.tv-server-input.focused {
+  border-color: #e8c170;
+  background: rgba(232, 193, 112, 0.08);
+  box-shadow: 0 0 18px rgba(232, 193, 112, 0.3);
+}
+
+.tv-server-status {
+  min-height: 24px;
+  font-size: 15px;
+  margin-bottom: 14px;
+  text-align: center;
+  font-weight: 500;
+  width: 100%;
+}
+
+.tv-server-status.error {
+  color: #f87171;
+}
+
+.tv-server-status.success {
+  color: #34d399;
+}
+
+.tv-server-status.loading {
+  color: #e8c170;
+}
+
+.tv-server-keypad {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.tv-server-keypad-row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.tv-server-key {
+  flex: 1;
+  height: 48px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 2px solid rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+  font-size: 18px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tv-server-key.key-proto {
+  font-size: 14px;
+  font-family: monospace;
+}
+
+.tv-server-key.key-port {
+  font-size: 15px;
+  font-family: monospace;
+}
+
+.tv-server-key.key-wide {
+  flex: 2;
+  font-size: 14px;
+}
+
+.tv-server-key.key-fn {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.tv-server-actions-row {
+  margin-top: 8px;
+  gap: 12px;
+}
+
+.tv-server-btn-primary {
+  flex: 2;
+  height: 52px;
+  border-radius: 14px;
+  background: #e8c170;
+  color: #0a0b0f;
+  font-size: 18px;
+  font-weight: 700;
+  border: 2px solid #e8c170;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.18s ease;
+}
+
+.tv-server-btn-cancel {
+  flex: 1;
+  height: 52px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 16px;
+  font-weight: 600;
+  border: 2px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.18s ease;
+}
+
+.tv-server-key.focused,
+.tv-server-btn-primary.focused,
+.tv-server-btn-cancel.focused {
+  background: #e8c170 !important;
+  color: #0a0b0f !important;
+  border-color: #e8c170 !important;
+  transform: scale(1.05);
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.75);
+}
+
+.tv-server-btn-cancel.focused {
+  background: #f87171 !important;
+  border-color: #f87171 !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 24px rgba(248, 113, 113, 0.75);
+}
+
+.tv-server-hint {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 16px;
+  text-align: center;
+  letter-spacing: 0.3px;
+}
+
+/* Error Screen Buttons */
+.tv-err-btn {
+  padding: 14px 28px;
+  border-radius: 14px;
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+  border: 2px solid transparent;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  background: rgba(255, 255, 255, 0.08);
+  color: #ffffff;
+}
+
+.tv-err-btn.focused {
+  background: #e8c170 !important;
+  color: #0a0b0f !important;
+  border-color: #e8c170 !important;
+  transform: scale(1.06);
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.8);
+}
+
 
 
 

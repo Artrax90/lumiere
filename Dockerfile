@@ -20,7 +20,7 @@ COPY back/package*.json ./
 RUN npm install
 
 COPY back/ ./
-RUN node node_modules/typescript/bin/tsc && node -e "const fs=require('fs'); fs.mkdirSync('dist/db', {recursive:true}); fs.copyFileSync('src/db/migrations.sql', 'dist/db/migrations.sql');"
+RUN npm run build
 
 # ===================================================
 # Stage 3: Production Runner
@@ -45,8 +45,10 @@ RUN npm install --omit=dev
 # Copy compiled backend code and migrations
 COPY --from=back-builder /app/back/dist ./dist
 
-# Copy TV app files from back/public/tv
+# Copy TV app files and IPTV assets
 COPY back/public/tv ./public/tv
+COPY back/public/iptv ./public/iptv
+COPY back/src/assets ./src/assets
 
 # Copy compiled web frontend into public root
 COPY --from=front-builder /app/front/dist/ ./public/

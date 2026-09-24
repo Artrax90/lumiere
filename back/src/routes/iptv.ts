@@ -1,5 +1,41 @@
 import type { FastifyInstance } from 'fastify';
 import { gunzipSync } from 'zlib';
+import { readFileSync, existsSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+// Read pre-bundled Russian IPTV playlist as zero-dependency offline fallback
+function getBundledPlaylist(): string {
+  const candidates = [
+    join(process.cwd(), 'dist', 'assets', 'default_playlist.m3u'),
+    join(process.cwd(), 'src', 'assets', 'default_playlist.m3u'),
+    join(process.cwd(), 'public', 'iptv', 'playlist.m3u'),
+    join(process.cwd(), 'back', 'src', 'assets', 'default_playlist.m3u'),
+    join(process.cwd(), 'back', 'public', 'iptv', 'playlist.m3u'),
+    join(__dirname, 'assets', 'default_playlist.m3u'),
+    join(__dirname, '..', 'assets', 'default_playlist.m3u'),
+    join(__dirname, '..', 'src', 'assets', 'default_playlist.m3u'),
+    join(__dirname, '..', '..', 'src', 'assets', 'default_playlist.m3u'),
+    join(__dirname, '..', 'public', 'iptv', 'playlist.m3u'),
+    join(__dirname, '..', '..', 'public', 'iptv', 'playlist.m3u'),
+  ];
+  for (const c of candidates) {
+    if (existsSync(c)) {
+      try {
+        const text = readFileSync(c, 'utf-8');
+        if (text && text.includes('#EXTM3U')) {
+          return text;
+        }
+      } catch (err: any) {
+        console.warn('[IPTV] Could not read candidate bundled playlist at', c, err.message);
+      }
+    }
+  }
+  return '';
+}
 
 interface IptvChannel {
   id: string;
@@ -79,6 +115,10 @@ function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string }
       }
 
       if (url) {
+        // Skip promo / telegram links that are not streamable
+        if (url.startsWith('https://t.me/') || url.startsWith('http://t.me/')) {
+          continue;
+        }
         channels.push({
           id: `ch-${channels.length + 1}`,
           name: name || `Канал ${channels.length + 1}`,
@@ -205,15 +245,69 @@ function formatEpgTime(timeStr: string): { time: string; date: string } {
 }
 
 export function iptvRoutes(app: FastifyInstance) {
+  // Dedicated endpoint for default pre-bundled playlist
+  app.get('/api/iptv/default', async (_req, reply) => {
+    const bundled = getBundledPlaylist();
+    if (!bundled) {
+      return reply.code(404).send({ error: 'Плейлист по умолчанию не найден на сервере' });
+    }
+    const { channels, epgUrl } = parseM3U(bundled);
+    const groups = [...new Set(channels.map(ch => ch.group))];
+    return {
+      channels,
+      groups,
+      epgUrl: epgUrl || '',
+      total: channels.length,
+      source: 'bundled',
+    };
+  });
+
+  // Serve raw default playlist file
+  app.get('/iptv/playlist.m3u', async (_req, reply) => {
+    const bundled = getBundledPlaylist();
+    if (!bundled) {
+      return reply.code(404).send('#EXTM3U\n');
+    }
+    reply.header('Content-Type', 'text/plain; charset=utf-8');
+    reply.header('Cache-Control', 'public, max-age=86400');
+    return reply.send(bundled);
+  });
+
   // Parse M3U8 playlist from URL
   app.post('/api/iptv/parse', async (req, reply) => {
     let { url } = req.body as { url?: string };
 
-    if (!url || typeof url !== 'string' || !url.trim()) {
+    const rawUrl = (url || '').trim();
+    const isDefaultRequest =
+      !rawUrl ||
+      rawUrl === 'default' ||
+      rawUrl === 'local' ||
+      rawUrl.includes('loganettv.github.io') ||
+      rawUrl.includes('default_playlist') ||
+      rawUrl.includes('/iptv/playlist.m3u');
+
+    // If it's the default playlist, serve pre-bundled playlist instantly without hitting external/blocked networks
+    if (isDefaultRequest) {
+      const bundled = getBundledPlaylist();
+      if (bundled) {
+        console.log('[IPTV] Serving bundled default playlist directly (0 network requests)');
+        const { channels, epgUrl } = parseM3U(bundled);
+        const groups = [...new Set(channels.map(ch => ch.group))];
+        return {
+          channels,
+          groups,
+          epgUrl: epgUrl || '',
+          total: channels.length,
+          source: 'bundled',
+        };
+      }
+    }
+
+    if (!rawUrl) {
       return reply.code(400).send({ error: 'Не указан URL плейлиста' });
     }
 
-    url = url.trim();
+    url = rawUrl;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'http://' + url;
     }
@@ -259,6 +353,20 @@ export function iptvRoutes(app: FastifyInstance) {
       }
 
       if (!res.ok) {
+        // If remote server failed (403, 404, 500) and we have bundled fallback, use it
+        const bundled = getBundledPlaylist();
+        if (bundled && (url.includes('github') || url.includes('loganettv') || url.includes('iptv-org'))) {
+          console.log('[IPTV] Remote returned HTTP', res.status, '— using bundled playlist fallback');
+          const { channels, epgUrl } = parseM3U(bundled);
+          const groups = [...new Set(channels.map(ch => ch.group))];
+          return {
+            channels,
+            groups,
+            epgUrl: epgUrl || '',
+            total: channels.length,
+            source: 'bundled-fallback',
+          };
+        }
         return reply.code(res.status).send({
           error: `Сервер плейлиста вернул ошибку: HTTP ${res.status} (${res.statusText || 'Forbidden/Not Found'})`,
         });
@@ -296,6 +404,19 @@ export function iptvRoutes(app: FastifyInstance) {
       const { channels, epgUrl } = parseM3U(content);
 
       if (channels.length === 0) {
+        const bundled = getBundledPlaylist();
+        if (bundled) {
+          console.log('[IPTV] 0 channels parsed from remote, recovering with bundled playlist');
+          const b = parseM3U(bundled);
+          const groups = [...new Set(b.channels.map(ch => ch.group))];
+          return {
+            channels: b.channels,
+            groups,
+            epgUrl: b.epgUrl || '',
+            total: b.channels.length,
+            source: 'bundled-fallback',
+          };
+        }
         return reply.code(422).send({
           error: 'В плейлисте не найдено доступных каналов (неверный формат или пустой файл)',
         });
@@ -311,7 +432,21 @@ export function iptvRoutes(app: FastifyInstance) {
         total: channels.length,
       };
     } catch (err: any) {
-      console.error('IPTV parse error:', err.message);
+      console.warn('[IPTV] Remote playlist fetch error for', url, ':', err.message);
+      // Auto-fallback: If remote fetch failed (e.g. RKN block, timeout, DNS error)
+      const bundled = getBundledPlaylist();
+      if (bundled) {
+        console.log('[IPTV] Recovering with bundled default playlist');
+        const { channels, epgUrl } = parseM3U(bundled);
+        const groups = [...new Set(channels.map(ch => ch.group))];
+        return {
+          channels,
+          groups,
+          epgUrl: epgUrl || '',
+          total: channels.length,
+          source: 'bundled-fallback',
+        };
+      }
       return reply.code(500).send({ error: `Ошибка загрузки плейлиста: ${err.message}` });
     } finally {
       if (prevTls !== undefined) {

@@ -52,6 +52,83 @@
     </div>
   </div>
 
+  <!-- TV Server Configuration Modal -->
+  <div id="tv-server-modal" class="tv-modal hidden">
+    <div class="tv-modal-box tv-server-modal-box">
+      <div class="tv-server-header">
+        <div class="tv-server-icon">⚙</div>
+        <div class="tv-server-header-text">
+          <h3 class="tv-modal-title" style="margin-bottom:4px;">Адрес сервера Lumière</h3>
+          <p class="tv-server-subtitle">Введите IP-адрес или домен вашего сервера (например: http://192.168.1.100:3500)</p>
+        </div>
+      </div>
+
+      <!-- Current Input Value Box -->
+      <div class="tv-server-input-row">
+        <input type="text" id="tv-server-input" class="tv-server-input" placeholder="http://192.168.1.100:3500" spellcheck="false" autocomplete="off" />
+        <button class="tv-server-key" data-action="backspace" id="tv-server-key-back" title="Стереть символ">⌫</button>
+      </div>
+
+      <!-- Status and connection messages -->
+      <div id="tv-server-status" class="tv-server-status"></div>
+
+      <!-- TV Remote Keypad Grid (D-Pad Navigable) -->
+      <div class="tv-server-keypad" id="tv-server-keypad">
+        <!-- Row 0: Quick protocols & common ports -->
+        <div class="tv-server-keypad-row" data-row="0">
+          <button class="tv-server-key key-proto" data-text="http://">http://</button>
+          <button class="tv-server-key key-proto" data-text="https://">https://</button>
+          <button class="tv-server-key key-port" data-text=":3500">:3500</button>
+          <button class="tv-server-key key-port" data-text=":8090">:8090</button>
+          <button class="tv-server-key key-port" data-text=":80">:80</button>
+          <button class="tv-server-key key-fn" data-action="clear">Очистить</button>
+        </div>
+
+        <!-- Row 1: Numbers 1-5 + dot -->
+        <div class="tv-server-keypad-row" data-row="1">
+          <button class="tv-server-key" data-text="1">1</button>
+          <button class="tv-server-key" data-text="2">2</button>
+          <button class="tv-server-key" data-text="3">3</button>
+          <button class="tv-server-key" data-text="4">4</button>
+          <button class="tv-server-key" data-text="5">5</button>
+          <button class="tv-server-key" data-text=".">.</button>
+        </div>
+
+        <!-- Row 2: Numbers 6-0 + colon -->
+        <div class="tv-server-keypad-row" data-row="2">
+          <button class="tv-server-key" data-text="6">6</button>
+          <button class="tv-server-key" data-text="7">7</button>
+          <button class="tv-server-key" data-text="8">8</button>
+          <button class="tv-server-key" data-text="9">9</button>
+          <button class="tv-server-key" data-text="0">0</button>
+          <button class="tv-server-key" data-text=":">:</button>
+        </div>
+
+        <!-- Row 3: Slash, Dash, Host shortcuts -->
+        <div class="tv-server-keypad-row" data-row="3">
+          <button class="tv-server-key" data-text="/">/</button>
+          <button class="tv-server-key" data-text="-">-</button>
+          <button class="tv-server-key key-wide" data-action="curhost">Текущий хост</button>
+          <button class="tv-server-key key-wide" data-action="default">По умолчанию</button>
+        </div>
+
+        <!-- Row 4: Primary actions -->
+        <div class="tv-server-keypad-row tv-server-actions-row" data-row="4">
+          <button class="tv-server-btn-primary" id="tv-server-btn-connect" data-action="connect">
+            ✓ Подключиться
+          </button>
+          <button class="tv-server-btn-cancel" id="tv-server-btn-cancel" data-action="cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+
+      <div class="tv-server-hint">
+        ◄ ▲ ▼ ► Стрелки — выбор кнопки • OK — нажать • 0-9 — прямой ввод с пульта • ⌫ — стереть
+      </div>
+    </div>
+  </div>
+
   <!-- Main App -->
   <div id="app" class="hidden">
     <!-- Top bar -->

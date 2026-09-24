@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "node node_modules/tsx/dist/cli.mjs watch src/index.ts",
-    "build": "node node_modules/typescript/bin/tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/db', {recursive:true}); fs.copyFileSync('src/db/migrations.sql', 'dist/db/migrations.sql');\"",
+    "build": "node node_modules/typescript/bin/tsc && node -e \"const fs=require('fs'); fs.mkdirSync('dist/db', {recursive:true}); fs.copyFileSync('src/db/migrations.sql', 'dist/db/migrations.sql'); fs.mkdirSync('dist/assets', {recursive:true}); if (fs.existsSync('src/assets/default_playlist.m3u')) fs.copyFileSync('src/assets/default_playlist.m3u', 'dist/assets/default_playlist.m3u');\"",
     "start": "node dist/index.js",
     "test": "node test/suite.js"
   },

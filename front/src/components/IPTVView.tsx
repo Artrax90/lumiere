@@ -188,16 +188,27 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         body: JSON.stringify({ url: playlist.url }),
       });
 
-      if (!res.ok) {
-        let errMsg = 'Не удалось загрузить плейлист';
+      let data: any;
+      if (res.ok) {
+        data = await res.json();
+      } else {
+        // Fallback to pre-bundled offline playlist
         try {
-          const errData = await res.json();
-          if (errData && errData.error) errMsg = errData.error;
+          const fallbackRes = await serverFetch('/api/iptv/default');
+          if (fallbackRes.ok) {
+            data = await fallbackRes.json();
+          }
         } catch {}
-        throw new Error(errMsg);
+        if (!data) {
+          let errMsg = 'Не удалось загрузить плейлист';
+          try {
+            const errData = await res.json();
+            if (errData && errData.error) errMsg = errData.error;
+          } catch {}
+          throw new Error(errMsg);
+        }
       }
 
-      const data = await res.json();
       if (!data.channels || data.channels.length === 0) {
         throw new Error('В плейлисте не найдено доступных каналов');
       }

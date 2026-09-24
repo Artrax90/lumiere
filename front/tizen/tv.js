@@ -744,14 +744,358 @@
     }
   }
 
+  // ========== Error Screen & Server Configuration Modal ==========
+  var errorScreenState = {
+    active: false,
+    focusedIndex: 0 // 0: retry, 1: change server
+  };
+
+  function updateErrorButtonsFocus() {
+    var retryBtn = document.getElementById('tv-err-btn-retry');
+    var serverBtn = document.getElementById('tv-err-btn-server');
+    if (retryBtn) retryBtn.classList.toggle('focused', errorScreenState.focusedIndex === 0);
+    if (serverBtn) serverBtn.classList.toggle('focused', errorScreenState.focusedIndex === 1);
+    if (errorScreenState.focusedIndex === 0 && retryBtn) {
+      try { retryBtn.focus(); } catch(e) {}
+    } else if (errorScreenState.focusedIndex === 1 && serverBtn) {
+      try { serverBtn.focus(); } catch(e) {}
+    }
+  }
+
   function showError(msg) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 0;
     var el = document.getElementById('loading');
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
+      var currentServerDisplay = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'не задан');
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
-        '<p style="margin-top:24px;color:rgba(255,255,255,0.7);font-size:18px;max-width:600px;text-align:center;line-height:1.5;">' + msg + '</p>' +
-        '<button onclick="location.reload()" style="margin-top:20px;padding:12px 28px;border-radius:12px;background:#e8c170;color:#0a0b0f;border:none;font-size:16px;font-weight:700;cursor:pointer;">Повторить попытку</button>';
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);padding:10px 22px;border-radius:14px;color:#f87171;font-size:17px;font-weight:600;">' +
+          '<span>⚠️</span><span>Ошибка подключения к серверу</span>' +
+        '</div>' +
+        '<p style="margin-top:16px;color:rgba(255,255,255,0.8);font-size:18px;max-width:720px;text-align:center;line-height:1.5;">' + msg + '</p>' +
+        '<div style="margin-top:8px;font-size:15px;color:rgba(255,255,255,0.45);">Текущий адрес: <span style="color:#e8c170;font-family:monospace;font-weight:600;">' + currentServerDisplay + '</span></div>' +
+        '<div class="tv-err-actions" style="margin-top:28px;display:flex;gap:18px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0">⟳ Повторить попытку</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Сменить адрес сервера</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function() {
+          window.location.reload();
+        });
+      }
+      if (serverBtn) {
+        serverBtn.addEventListener('click', function() {
+          openServerModal();
+        });
+      }
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function handleErrorScreenKey(code, key, e) {
+    if (code === 37 || key === 'ArrowLeft' || code === 38 || key === 'ArrowUp') {
+      errorScreenState.focusedIndex = 0;
+      updateErrorButtonsFocus();
+    } else if (code === 39 || key === 'ArrowRight' || code === 40 || key === 'ArrowDown') {
+      errorScreenState.focusedIndex = 1;
+      updateErrorButtonsFocus();
+    } else if (code === 13 || key === 'Enter') {
+      if (errorScreenState.focusedIndex === 0) {
+        window.location.reload();
+      } else {
+        openServerModal();
+      }
+    } else if (code === 405 || (code >= 48 && code <= 57)) {
+      openServerModal();
+    }
+  }
+
+  var serverModalState = {
+    active: false,
+    curRow: 4,
+    curCol: 0,
+    rows: []
+  };
+
+  function openServerModal() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    serverModalState.active = true;
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+
+    var currentServer = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
+    var input = document.getElementById('tv-server-input');
+    if (input) {
+      input.value = currentServer;
+    }
+    showServerModalStatus('', '');
+
+    buildServerModalRows();
+    serverModalState.curRow = 4;
+    serverModalState.curCol = 0;
+    updateServerModalFocus();
+
+    if (!modal._clicksBound) {
+      modal._clicksBound = true;
+      var btns = modal.querySelectorAll('button');
+      for (var b = 0; b < btns.length; b++) {
+        (function(btn) {
+          btn.addEventListener('click', function() {
+            handleServerKeyAction(btn);
+          });
+        })(btns[b]);
+      }
+    }
+  }
+
+  function closeServerModal() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    serverModalState.active = false;
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+
+    if (errorScreenState.active) {
+      errorScreenState.focusedIndex = 1;
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function showServerModalStatus(msg, type) {
+    var el = document.getElementById('tv-server-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'tv-server-status ' + (type || '');
+  }
+
+  function buildServerModalRows() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    var rowEls = modal.querySelectorAll('.tv-server-keypad-row');
+    serverModalState.rows = [];
+    for (var r = 0; r < rowEls.length; r++) {
+      var btns = rowEls[r].querySelectorAll('button');
+      var rowBtns = [];
+      for (var b = 0; b < btns.length; b++) rowBtns.push(btns[b]);
+      serverModalState.rows.push(rowBtns);
+    }
+  }
+
+  function updateServerModalFocus() {
+    if (!serverModalState.rows || serverModalState.rows.length === 0) {
+      buildServerModalRows();
+    }
+    var prev = document.querySelectorAll('#tv-server-modal .focused');
+    for (var i = 0; i < prev.length; i++) prev[i].classList.remove('focused');
+
+    var r = serverModalState.curRow;
+    var c = serverModalState.curCol;
+    if (r < 0) r = 0;
+    if (r >= serverModalState.rows.length) r = serverModalState.rows.length - 1;
+    serverModalState.curRow = r;
+
+    var curRowBtns = serverModalState.rows[r] || [];
+    if (c < 0) c = 0;
+    if (c >= curRowBtns.length) c = curRowBtns.length - 1;
+    serverModalState.curCol = c;
+
+    var targetBtn = curRowBtns[c];
+    if (targetBtn) {
+      targetBtn.classList.add('focused');
+      try { targetBtn.focus(); } catch(e) {}
+    }
+  }
+
+  function appendServerInputText(txt) {
+    var input = document.getElementById('tv-server-input');
+    if (!input) return;
+    input.value = (input.value || '') + txt;
+  }
+
+  function backspaceServerInput() {
+    var input = document.getElementById('tv-server-input');
+    if (!input || !input.value) return;
+    input.value = input.value.slice(0, -1);
+  }
+
+  function handleServerKeyAction(btn) {
+    if (!btn) return;
+    var text = btn.getAttribute('data-text');
+    var action = btn.getAttribute('data-action');
+
+    if (text) {
+      appendServerInputText(text);
+      return;
+    }
+
+    if (action === 'backspace') {
+      backspaceServerInput();
+    } else if (action === 'clear') {
+      var input = document.getElementById('tv-server-input');
+      if (input) input.value = '';
+    } else if (action === 'curhost') {
+      var cur = (window.location && window.location.hostname && window.location.hostname !== 'localhost') ?
+        ('http://' + window.location.hostname + ':3500') :
+        'http://';
+      var input = document.getElementById('tv-server-input');
+      if (input) input.value = cur;
+    } else if (action === 'default') {
+      var input = document.getElementById('tv-server-input');
+      if (input) input.value = 'http://';
+    } else if (action === 'connect') {
+      var input = document.getElementById('tv-server-input');
+      testAndSaveServer(input ? input.value : '');
+    } else if (action === 'cancel') {
+      closeServerModal();
+    }
+  }
+
+  function testAndSaveServer(serverUrl) {
+    var url = (serverUrl || '').trim();
+    if (!url) {
+      showServerModalStatus('Введите адрес сервера', 'error');
+      return;
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      url = 'http://' + url;
+    }
+    url = url.replace(/\/+$/, '');
+
+    showServerModalStatus('Проверка подключения к ' + url + '...', 'loading');
+
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url + '/api/setup/status', true);
+    xhr.timeout = 6000;
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 400) {
+        applyNewServer(url);
+      } else {
+        var xhr2 = new XMLHttpRequest();
+        xhr2.open('GET', url + '/api/auth/lan-status', true);
+        xhr2.timeout = 5000;
+        xhr2.onload = function() {
+          if (xhr2.status >= 200 && xhr2.status < 400) {
+            applyNewServer(url);
+          } else {
+            showServerModalStatus('Сервер ответил кодом ' + xhr2.status + '. Проверьте адрес.', 'error');
+          }
+        };
+        xhr2.onerror = function() {
+          showServerModalStatus('Не удалось подключиться к ' + url, 'error');
+        };
+        xhr2.ontimeout = function() {
+          showServerModalStatus('Превышено время ожидания ответа от ' + url, 'error');
+        };
+        xhr2.send();
+      }
+    };
+    xhr.onerror = function() {
+      var xhr3 = new XMLHttpRequest();
+      xhr3.open('GET', url + '/api/health', true);
+      xhr3.timeout = 5000;
+      xhr3.onload = function() {
+        if (xhr3.status >= 200 && xhr3.status < 400) {
+          applyNewServer(url);
+        } else {
+          showServerModalStatus('Не удалось подключиться к ' + url + '. Проверьте IP и порт.', 'error');
+        }
+      };
+      xhr3.onerror = function() {
+        showServerModalStatus('Не удалось подключиться к ' + url + '. Проверьте IP и порт.', 'error');
+      };
+      xhr3.ontimeout = function() {
+        showServerModalStatus('Превышено время ожидания от ' + url, 'error');
+      };
+      xhr3.send();
+    };
+    xhr.ontimeout = function() {
+      showServerModalStatus('Превышено время ожидания от ' + url, 'error');
+    };
+    xhr.send();
+  }
+
+  function applyNewServer(url) {
+    showServerModalStatus('✓ Подключено! Сохранение...', 'success');
+    try {
+      localStorage.setItem(SERVER_KEY, url);
+      localStorage.setItem('lumiere_server_url', url);
+      localStorage.setItem('lumiere_tv_server', url);
+      localStorage.removeItem(TOKEN_KEY);
+    } catch(e) {}
+    API = url;
+    setTimeout(function() {
+      window.location.reload();
+    }, 700);
+  }
+
+  function handleServerModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      closeServerModal();
+      return;
+    }
+
+    if (code >= 48 && code <= 57) {
+      appendServerInputText(String(code - 48));
+      return;
+    }
+    if (code >= 96 && code <= 105) {
+      appendServerInputText(String(code - 96));
+      return;
+    }
+
+    if (code === 37 || key === 'ArrowLeft') {
+      if (serverModalState.curCol > 0) {
+        serverModalState.curCol--;
+      } else {
+        var r = serverModalState.curRow;
+        var rBtns = serverModalState.rows[r] || [];
+        serverModalState.curCol = rBtns.length - 1;
+      }
+      updateServerModalFocus();
+      return;
+    }
+    if (code === 39 || key === 'ArrowRight') {
+      var r = serverModalState.curRow;
+      var rBtns = serverModalState.rows[r] || [];
+      if (serverModalState.curCol < rBtns.length - 1) {
+        serverModalState.curCol++;
+      } else {
+        serverModalState.curCol = 0;
+      }
+      updateServerModalFocus();
+      return;
+    }
+    if (code === 38 || key === 'ArrowUp') {
+      if (serverModalState.curRow > 0) {
+        serverModalState.curRow--;
+        updateServerModalFocus();
+      }
+      return;
+    }
+    if (code === 40 || key === 'ArrowDown') {
+      if (serverModalState.curRow < serverModalState.rows.length - 1) {
+        serverModalState.curRow++;
+        updateServerModalFocus();
+      }
+      return;
+    }
+
+    if (code === 13 || key === 'Enter') {
+      var curRowBtns = serverModalState.rows[serverModalState.curRow] || [];
+      var btn = curRowBtns[serverModalState.curCol];
+      if (btn) {
+        handleServerKeyAction(btn);
+      }
+      return;
     }
   }
 
@@ -4802,6 +5146,13 @@
       });
     }
 
+    var changeServerBtn = document.getElementById('btn-change-server');
+    if (changeServerBtn) {
+      changeServerBtn.addEventListener('click', function() {
+        openServerModal();
+      });
+    }
+
     var logoutBtn = document.getElementById('btn-logout');
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function() {
@@ -5444,6 +5795,13 @@
       if (typeof renderRecentSearches === 'function') renderRecentSearches();
     }
 
+    if (section === 'settings') {
+      var srvEl = document.getElementById('tv-server-url');
+      if (srvEl) srvEl.textContent = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || '--';
+      var usrEl = document.getElementById('tv-user-email');
+      if (usrEl && state.user) usrEl.textContent = state.user.name || state.user.email || 'Пользователь';
+    }
+
     if (section === 'iptv') {
       iptvLocked = false;
       ensureIptvDomStructure();
@@ -5643,6 +6001,13 @@
     lastBackTimestamp = now;
     console.log('[Lumiere] Back key pressed');
 
+    // -2. If server configuration modal is open, close it
+    var serverModal = document.getElementById('tv-server-modal');
+    if (serverModal && !serverModal.classList.contains('hidden') && serverModal.style.display !== 'none') {
+      closeServerModal();
+      return;
+    }
+
     // -1. If exit confirmation modal open, close it
     var exitModal = document.getElementById('exit-confirm-modal');
     if (exitModal) {
@@ -5819,6 +6184,23 @@
       var code = e.keyCode || e.which;
       var key = e.key;
       console.log('[KEY] code=' + code + ' key=' + key);
+
+      // -5. If Server change modal is open:
+      var serverModal = document.getElementById('tv-server-modal');
+      if (serverModal && !serverModal.classList.contains('hidden') && serverModal.style.display !== 'none') {
+        handleServerModalKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      // -4.5. If Error screen on loading is active:
+      var loadingScreen = document.getElementById('loading');
+      var errRetryBtn = document.getElementById('tv-err-btn-retry');
+      if (loadingScreen && !loadingScreen.classList.contains('hidden') && errRetryBtn) {
+        handleErrorScreenKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
 
       // -4. If EPG auto-switch toast is active:
       var switchToast = document.getElementById('tv-epg-switch-toast');
