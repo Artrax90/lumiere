@@ -2,13 +2,13 @@
 <html lang="ru">
 <head>
   <script>
-  window.__DEFAULT_SERVER_URL__ = 'https://lumiere.artrax.net';
+  window.__DEFAULT_SERVER_URL__ = 'http://192.168.1.196:3500';
   try {
     var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
-    if (!cur || /:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1) {
-      localStorage.setItem('lumiere_server_url', 'https://lumiere.artrax.net');
-      localStorage.setItem('lumiere_tv_server', 'https://lumiere.artrax.net');
-      localStorage.setItem('lumiere_server', 'https://lumiere.artrax.net');
+    if (!cur || /:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1 || cur.indexOf('lumiere.artrax.net') !== -1) {
+      localStorage.setItem('lumiere_server_url', 'http://192.168.1.196:3500');
+      localStorage.setItem('lumiere_tv_server', 'http://192.168.1.196:3500');
+      localStorage.setItem('lumiere_server', 'http://192.168.1.196:3500');
     }
   } catch(e) {}
 </script>

@@ -318,9 +318,9 @@
     console.log('[Lumiere] Init starting');
     try {
       var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
-      // If legacy port 3000 was saved in previous versions or old 192.168.1.77:3000, migrate
-      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77:3000') !== -1)) {
-        savedServer = 'https://lumiere.artrax.net';
+      // If legacy port 3000 was saved in previous versions, or old PC IP, or broken domain
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1 || savedServer.indexOf('lumiere.artrax.net') !== -1)) {
+        savedServer = 'http://192.168.1.196:3500';
         try {
           localStorage.setItem(SERVER_KEY, savedServer);
           localStorage.setItem('lumiere_server_url', savedServer);
@@ -333,8 +333,6 @@
           server = window.__DEFAULT_SERVER_URL__;
         } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
           server = window.location.origin;
-        } else {
-          server = 'https://lumiere.artrax.net';
         }
       }
       if (server) {
@@ -453,7 +451,7 @@
           return;
         }
         if (setupData && setupData.needsSetup) {
-          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
+          showSetupRequired(API);
           return;
         }
         apiFetch('/api/user/profile', function(err2, profile) {
@@ -473,7 +471,7 @@
           return;
         }
         if (setupData && setupData.needsSetup) {
-          showError('Требуется первоначальная настройка через веб-интерфейс (http://' + (window.location.host || (window.location.hostname + ':3500')) + ')');
+          showSetupRequired(API);
           return;
         }
         loadProfilesAndShowPicker();
@@ -495,7 +493,7 @@
         } else if (lanData && !lanData.isLan && !lanData.isTv) {
           showError('Для входа вне локальной сети авторизуйтесь через веб-браузер или задайте PIN-код профиля.');
         } else {
-          showError('На сервере нет аккаунтов. Создайте аккаунт через веб-интерфейс.');
+          showNoProfiles(API);
         }
       });
     });
@@ -862,6 +860,81 @@
     }
   }
 
+  function showSetupRequired(serverUrl) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 0;
+    var el = document.getElementById('loading');
+    if (el) {
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
+      el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
+          '<span>✓</span><span>Сервер найден и подключен!</span>' +
+        '</div>' +
+        '<h2 style="margin-top:18px;color:#fff;font-size:26px;font-weight:700;">Требуется первоначальная настройка</h2>' +
+        '<p style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:18px;max-width:800px;text-align:center;line-height:1.6;">' +
+          'На сервере ещё не создана учетная запись администратора.<br>' +
+          'Откройте в браузере на телефоне или компьютере адрес:<br>' +
+          '<span style="display:inline-block;margin-top:10px;background:rgba(255,255,255,0.08);padding:8px 20px;border-radius:10px;color:#e8c170;font-family:monospace;font-size:22px;font-weight:700;letter-spacing:0.5px;">' + sUrl + '</span><br>' +
+          'и создайте первого пользователя.' +
+        '</p>' +
+        '<div class="tv-err-actions" style="margin-top:32px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">⟳ Я создал аккаунт, войти</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn" tabindex="0">🔍 Найти другой сервер</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) retryBtn.addEventListener('click', function() { window.location.reload(); });
+      if (scanBtn) scanBtn.addEventListener('click', function() { startLanScanFromErrorScreen(); });
+      if (serverBtn) serverBtn.addEventListener('click', function() { openServerModal(); });
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function showNoProfiles(serverUrl) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 0;
+    var el = document.getElementById('loading');
+    if (el) {
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
+      el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
+          '<span>✓</span><span>Сервер подключен</span>' +
+        '</div>' +
+        '<h2 style="margin-top:18px;color:#fff;font-size:26px;font-weight:700;">На сервере пока нет профилей</h2>' +
+        '<p style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:18px;max-width:800px;text-align:center;line-height:1.6;">' +
+          'Войдите в веб-интерфейс по адресу:<br>' +
+          '<span style="display:inline-block;margin-top:10px;background:rgba(255,255,255,0.08);padding:8px 20px;border-radius:10px;color:#e8c170;font-family:monospace;font-size:22px;font-weight:700;letter-spacing:0.5px;">' + sUrl + '</span><br>' +
+          'и создайте профиль для просмотра на ТВ.' +
+        '</p>' +
+        '<div class="tv-err-actions" style="margin-top:32px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">⟳ Обновить список</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn" tabindex="0">🔍 Найти другой сервер</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) retryBtn.addEventListener('click', function() { window.location.reload(); });
+      if (scanBtn) scanBtn.addEventListener('click', function() { startLanScanFromErrorScreen(); });
+      if (serverBtn) serverBtn.addEventListener('click', function() { openServerModal(); });
+      updateErrorButtonsFocus();
+    }
+  }
+
   function handleErrorScreenKey(code, key, e) {
     if (code === 37 || key === 'ArrowLeft') {
       if (errorScreenState.focusedIndex > 0) errorScreenState.focusedIndex--;
@@ -946,7 +1019,7 @@
 
   function scanSubnetForLumiere(subnet, onFound, onProgress, onDone) {
     var ips = [];
-    var priority = [77, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 88, 90, 100, 101, 105, 110, 120, 150, 200, 250, 254];
+    var priority = [196, 77, 148, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 88, 90, 100, 101, 105, 110, 120, 150, 190, 192, 195, 200, 250, 254];
     var saved = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || '';
     var savedOctet = saved.match(new RegExp('^https?:\\/\\/' + subnet.replace(/\./g, '\\.') + '(\\d+)'));
     if (savedOctet && savedOctet[1]) {
@@ -1014,7 +1087,7 @@
     function scanNextSubnet() {
       if (sIdx >= subnets.length) {
         if (msgEl) {
-          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в сети. Убедитесь, что сервер запущен, или введите адрес вручную.</span>';
+          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в локальной сети. Убедитесь, что сервер запущен (порт 3500), или введите адрес вручную.</span>';
         }
         if (scanBtn) scanBtn.textContent = '🔍 Найти в сети';
         errorScreenState.focusedIndex = 2;
@@ -1046,21 +1119,11 @@
       );
     }
 
-    // First check production server https://lumiere.artrax.net
-    var cloudUrl = 'https://lumiere.artrax.net';
-    if (msgEl) msgEl.innerHTML = '🔍 Проверка сервера <b style="color:#e8c170;">' + cloudUrl + '</b>...';
-    checkLumiereServer(cloudUrl, 2500, function(found) {
-      if (found) {
-        if (msgEl) msgEl.innerHTML = '✓ Найден сервер Lumière: <b style="color:#6ee7b7;">' + cloudUrl + '</b>! Подключение...';
-        applyNewServer(cloudUrl);
-        return;
-      }
-      scanNextSubnet();
-    });
+    scanNextSubnet();
   }
 
   function startLanScanFromModal() {
-    showServerModalStatus('🔍 Проверка сервера Lumière...', 'loading');
+    showServerModalStatus('🔍 Поиск сервера Lumière в локальной сети...', 'loading');
     var subnets = getCandidateSubnets();
     var sIdx = 0;
 
@@ -1089,18 +1152,7 @@
       );
     }
 
-    // First check production server https://lumiere.artrax.net
-    var cloudUrl = 'https://lumiere.artrax.net';
-    checkLumiereServer(cloudUrl, 2500, function(found) {
-      if (found) {
-        var input = document.getElementById('tv-server-input');
-        if (input) input.value = cloudUrl;
-        showServerModalStatus('✓ Найден сервер: ' + cloudUrl + '! Подключение...', 'success');
-        applyNewServer(cloudUrl);
-        return;
-      }
-      scanNext();
-    });
+    scanNext();
   }
 
   // ========== Server Configuration Modal ==========
