@@ -316,8 +316,12 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
           if (data?.terminate) {
             onExit();
           }
+        } else if (res) {
+          console.warn('[TvPlayer] Heartbeat response not OK:', res.status);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[TvPlayer] Heartbeat network error:', err);
+      }
     };
 
     sendHeartbeat();

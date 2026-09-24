@@ -553,8 +553,8 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
       const s = db.playback_sessions.find((sess) => String(sess.id) === String(params[0]));
       return { rows: s ? [s] : [] };
     }
-    // Return all sessions active within 45 seconds
-    const threshold = Date.now() - 45000;
+    // Return all sessions active within 5 minutes
+    const threshold = Date.now() - 300000;
     const activeSessions = db.playback_sessions
       .filter((s) => new Date(s.last_heartbeat).getTime() >= threshold)
       .map((s) => {

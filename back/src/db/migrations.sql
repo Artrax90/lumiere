@@ -175,7 +175,7 @@ CREATE INDEX IF NOT EXISTS idx_epg_reminders_user_id ON epg_reminders(user_id);
 -- Jellyfin-style Active Playback Sessions
 CREATE TABLE IF NOT EXISTS playback_sessions (
   id VARCHAR(100) PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER,
   device_type VARCHAR(50) DEFAULT 'web',
   device_name VARCHAR(255) DEFAULT '',
   client_ip VARCHAR(100) DEFAULT '',
@@ -198,7 +198,7 @@ CREATE INDEX IF NOT EXISTS idx_playback_sessions_last_heartbeat ON playback_sess
 -- Unified Playback History
 CREATE TABLE IF NOT EXISTS playback_history (
   id SERIAL PRIMARY KEY,
-  user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  user_id INTEGER,
   device_type VARCHAR(50) DEFAULT 'web',
   device_name VARCHAR(255) DEFAULT '',
   media_type VARCHAR(50) DEFAULT 'movie',
@@ -224,6 +224,12 @@ BEGIN
   END IF;
   IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_history' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
     ALTER TABLE playback_history ALTER COLUMN user_id DROP NOT NULL;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_sessions_user_id_fkey') THEN
+    ALTER TABLE playback_sessions DROP CONSTRAINT playback_sessions_user_id_fkey;
+  END IF;
+  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_history_user_id_fkey') THEN
+    ALTER TABLE playback_history DROP CONSTRAINT playback_history_user_id_fkey;
   END IF;
 END $$;
 

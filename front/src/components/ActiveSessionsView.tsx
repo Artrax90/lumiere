@@ -98,6 +98,7 @@ export default function ActiveSessionsView() {
   const [toast, setToast] = useState<string | null>(null);
   const [terminatingId, setTerminatingId] = useState<string | null>(null);
   const [selectedUserFilter, setSelectedUserFilter] = useState<string>('all');
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -110,9 +111,15 @@ export default function ActiveSessionsView() {
       if (res.ok) {
         const data = await res.json();
         setSessions(data?.sessions || []);
+        setFetchError(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('[ActiveSessions] fetchSessions HTTP error:', res.status, err);
+        setFetchError(err.error || `Ошибка сервера: ${res.status}`);
       }
-    } catch {
-      // Ignore
+    } catch (e: any) {
+      console.error('[ActiveSessions] fetchSessions network error:', e);
+      setFetchError(e.message || 'Ошибка сети при получении активных сессий');
     }
   }, []);
 
@@ -125,9 +132,12 @@ export default function ActiveSessionsView() {
       if (res.ok) {
         const data = await res.json();
         setHistory(data?.history || []);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        console.error('[ActiveSessions] fetchHistory HTTP error:', res.status, err);
       }
-    } catch {
-      // Ignore
+    } catch (e: any) {
+      console.error('[ActiveSessions] fetchHistory network error:', e);
     }
   }, [selectedUserFilter]);
 
@@ -184,7 +194,7 @@ export default function ActiveSessionsView() {
     return <Monitor className="h-4 w-4 text-amber-400" />;
   };
 
-  const uniqueUsers = Array.from(new Set(history.map(h => JSON.stringify({ id: h.userId, name: h.userName }))))
+  const uniqueUsers = Array.from(new Set(history.filter(h => !!h.userId).map(h => JSON.stringify({ id: h.userId, name: h.userName }))))
     .map(s => JSON.parse(s) as { id: number; name: string });
 
   return (
@@ -194,6 +204,23 @@ export default function ActiveSessionsView() {
         <div className="flex items-center gap-2 rounded-[12px] bg-amber-500/10 border border-amber-500/30 p-3.5 text-[13px] text-amber-200 animate-fade-in shadow-lg">
           <CheckCircle2 className="h-4 w-4 shrink-0 text-amber-400" />
           <span>{toast}</span>
+        </div>
+      )}
+
+      {/* Error Alert */}
+      {fetchError && (
+        <div className="flex items-center gap-2.5 rounded-[12px] bg-red-500/10 border border-red-500/30 p-3.5 text-[13px] text-red-200 animate-fade-in shadow-lg">
+          <AlertCircle className="h-4 w-4 shrink-0 text-red-400" />
+          <div className="flex-1">
+            <span className="font-semibold">Ошибка мониторинга: </span>
+            <span>{fetchError}</span>
+          </div>
+          <button
+            onClick={() => loadAll()}
+            className="rounded-full bg-red-500/20 px-3 py-1 text-[11px] font-medium text-red-200 hover:bg-red-500/30 transition-cinematic"
+          >
+            Повторить
+          </button>
         </div>
       )}
 

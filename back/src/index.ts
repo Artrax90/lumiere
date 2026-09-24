@@ -50,29 +50,38 @@ if (process.platform === 'win32') {
 }
 
 async function runMigrations() {
-  try {
-    const candidates = [
-      join(__dirname, 'db', 'migrations.sql'),
-      join(__dirname, '..', 'src', 'db', 'migrations.sql'),
-      join(__dirname, '..', 'db', 'migrations.sql'),
-      join(__dirname, 'src', 'db', 'migrations.sql'),
-    ];
-    const migrationsPath = candidates.find((p) => existsSync(p));
-    if (!migrationsPath) {
-      console.warn('Migrations file not found in candidates, skipping');
+  const candidates = [
+    join(__dirname, 'db', 'migrations.sql'),
+    join(__dirname, '..', 'src', 'db', 'migrations.sql'),
+    join(__dirname, '..', 'db', 'migrations.sql'),
+    join(__dirname, 'src', 'db', 'migrations.sql'),
+  ];
+  const migrationsPath = candidates.find((p) => existsSync(p));
+  if (!migrationsPath) {
+    console.warn('[DB] Migrations file not found in candidates, skipping');
+    return;
+  }
+  const migrations = readFileSync(migrationsPath, 'utf-8');
+
+  for (let attempt = 1; attempt <= 10; attempt++) {
+    try {
+      await pool.query(migrations);
+      console.log('[DB] Database migrations completed successfully');
       return;
+    } catch (err: any) {
+      console.error(`[DB] Migration attempt ${attempt} failed:`, err.message);
+      if (attempt < 10) {
+        await new Promise((r) => setTimeout(r, 1500));
+      }
     }
-    const migrations = readFileSync(migrationsPath, 'utf-8');
-    await pool.query(migrations);
-    console.log('Database migrations completed');
-  } catch (err: any) {
-    console.error('Migration error:', err.message);
   }
 }
 
-
+// Run migrations on boot with retries for container startup
+runMigrations().catch((e) => console.error('[DB] Migration error:', e.message));
 
 const app = Fastify({ logger: true, trustProxy: true });
+
 
 await app.register(cors, { origin: config.cors.origin });
 

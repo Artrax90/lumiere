@@ -977,22 +977,6 @@
 
   function sendSessionHeartbeat() {
     var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
-    if (!token) {
-      try {
-        var xhrAuth = new XMLHttpRequest();
-        xhrAuth.open('POST', API + '/api/auth/lan-login', false);
-        xhrAuth.setRequestHeader('Content-Type', 'application/json');
-        xhrAuth.send();
-        if (xhrAuth.status >= 200 && xhrAuth.status < 300) {
-          var authData = JSON.parse(xhrAuth.responseText);
-          if (authData && authData.accessToken) {
-            token = authData.accessToken;
-            localStorage.setItem(TOKEN_KEY, token);
-            localStorage.setItem('lumiere_access', token);
-          }
-        }
-      } catch(ae) {}
-    }
     var effectiveTitle = movieTitle || (movieId ? ('Медиа #' + movieId) : 'ТВ Воспроизведение');
     if (!currentSessionId) {
       return;

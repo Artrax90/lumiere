@@ -164,8 +164,12 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           if (data?.terminate) {
             onExit();
           }
+        } else if (res) {
+          console.warn('[Player] Heartbeat response not OK:', res.status);
         }
-      } catch {}
+      } catch (err) {
+        console.warn('[Player] Heartbeat network error:', err);
+      }
     };
 
     sendHeartbeat();

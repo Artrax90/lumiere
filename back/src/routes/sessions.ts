@@ -17,13 +17,94 @@ interface HeartbeatBody {
   isPaused?: boolean;
 }
 
+let sessionTablesReady = false;
+async function ensureSessionTables() {
+  if (sessionTablesReady) return;
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS playback_sessions (
+        id VARCHAR(100) PRIMARY KEY,
+        user_id INTEGER,
+        device_type VARCHAR(50) DEFAULT 'web',
+        device_name VARCHAR(255) DEFAULT '',
+        client_ip VARCHAR(100) DEFAULT '',
+        media_type VARCHAR(50) DEFAULT 'movie',
+        media_id VARCHAR(255) DEFAULT '',
+        media_title VARCHAR(500) NOT NULL,
+        media_poster VARCHAR(500) DEFAULT '',
+        season INTEGER DEFAULT 0,
+        episode INTEGER DEFAULT 0,
+        current_time NUMERIC DEFAULT 0,
+        duration NUMERIC DEFAULT 0,
+        is_paused BOOLEAN DEFAULT FALSE,
+        terminate_requested BOOLEAN DEFAULT FALSE,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_playback_sessions_user_id ON playback_sessions(user_id);
+      CREATE INDEX IF NOT EXISTS idx_playback_sessions_last_heartbeat ON playback_sessions(last_heartbeat);
+
+      CREATE TABLE IF NOT EXISTS playback_history (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER,
+        device_type VARCHAR(50) DEFAULT 'web',
+        device_name VARCHAR(255) DEFAULT '',
+        media_type VARCHAR(50) DEFAULT 'movie',
+        media_id VARCHAR(255) DEFAULT '',
+        media_title VARCHAR(500) NOT NULL,
+        media_poster VARCHAR(500) DEFAULT '',
+        season INTEGER DEFAULT 0,
+        episode INTEGER DEFAULT 0,
+        watched_seconds NUMERIC DEFAULT 0,
+        duration NUMERIC DEFAULT 0,
+        completed BOOLEAN DEFAULT FALSE,
+        started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        ended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS idx_playback_history_user_id ON playback_history(user_id);
+      CREATE INDEX IF NOT EXISTS idx_playback_history_ended_at ON playback_history(ended_at);
+
+      DO $$ 
+      BEGIN 
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_sessions' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
+          ALTER TABLE playback_sessions ALTER COLUMN user_id DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_history' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
+          ALTER TABLE playback_history ALTER COLUMN user_id DROP NOT NULL;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_sessions_user_id_fkey') THEN
+          ALTER TABLE playback_sessions DROP CONSTRAINT playback_sessions_user_id_fkey;
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_history_user_id_fkey') THEN
+          ALTER TABLE playback_history DROP CONSTRAINT playback_history_user_id_fkey;
+        END IF;
+      END $$;
+    `);
+    sessionTablesReady = true;
+  } catch (err: any) {
+    console.error('[Sessions] ensureSessionTables error:', err.message);
+  }
+}
+
 export function sessionRoutes(app: FastifyInstance) {
+  // Ensure tables exist on startup
+  ensureSessionTables().catch(() => {});
+
   // 1. Send heartbeat / update active playback session
   app.post(
     '/api/sessions/heartbeat',
     { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
+      await ensureSessionTables();
       let userId = req.user?.userId;
+      if (userId) {
+        try {
+          const uRes = await pool.query('SELECT id FROM users WHERE id = $1', [userId]);
+          if (uRes.rows.length === 0) userId = undefined;
+        } catch {
+          userId = undefined;
+        }
+      }
       if (!userId) {
         try {
           const firstUser = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
@@ -35,8 +116,8 @@ export function sessionRoutes(app: FastifyInstance) {
 
       const body = req.body as HeartbeatBody;
 
-      if (!body.sessionId || !body.mediaTitle) {
-        return reply.code(400).send({ error: 'sessionId and mediaTitle are required' });
+      if (!body.sessionId) {
+        return reply.code(400).send({ error: 'sessionId is required' });
       }
 
       const clientIp = (req.headers['x-forwarded-for'] as string || req.ip || '').split(',')[0].trim();
@@ -44,7 +125,7 @@ export function sessionRoutes(app: FastifyInstance) {
       const deviceName = body.deviceName || (deviceType === 'tv' ? 'Smart TV' : 'Web Browser');
       const mediaType = (body.mediaType === 'live' ? 'iptv' : body.mediaType) || 'movie';
       const mediaId = String(body.mediaId || '');
-      const mediaTitle = body.mediaTitle;
+      const mediaTitle = body.mediaTitle || 'Воспроизведение';
       const mediaPoster = body.mediaPoster || '';
       const season = Number(body.season || 0);
       const episode = Number(body.episode || 0);
@@ -98,18 +179,29 @@ export function sessionRoutes(app: FastifyInstance) {
         const checkRes = await pool.query('SELECT terminate_requested FROM playback_sessions WHERE id = $1', [body.sessionId]);
         const terminate = checkRes.rows.length > 0 && !!checkRes.rows[0].terminate_requested;
 
-        // Sync to playback_history if userId exists and (currentTime > 5 or duration > 0 or mediaType === 'iptv')
-        if (userId && (currentTime > 5 || duration > 0 || mediaType === 'iptv')) {
+        // Sync to playback_history if (currentTime > 5 or duration > 0 or mediaType === 'iptv')
+        if (currentTime > 5 || duration > 0 || mediaType === 'iptv') {
           const isCompleted = duration > 0 && currentTime / duration >= 0.9;
           
           // Check for existing playback_history row for this item within the last 4 hours
-          const existingRes = await pool.query(
-            `SELECT id, watched_seconds FROM playback_history 
-             WHERE user_id = $1 AND media_id = $2 AND media_type = $3 AND season = $4 AND episode = $5 
-             AND ended_at > NOW() - INTERVAL '4 hours' 
-             ORDER BY ended_at DESC LIMIT 1`,
-            [userId, mediaId, mediaType, season, episode]
-          );
+          let existingRes;
+          if (userId) {
+            existingRes = await pool.query(
+              `SELECT id, watched_seconds FROM playback_history 
+               WHERE user_id = $1 AND media_id = $2 AND media_type = $3 AND season = $4 AND episode = $5 
+               AND ended_at > NOW() - INTERVAL '4 hours' 
+               ORDER BY ended_at DESC LIMIT 1`,
+              [userId, mediaId, mediaType, season, episode]
+            );
+          } else {
+            existingRes = await pool.query(
+              `SELECT id, watched_seconds FROM playback_history 
+               WHERE media_id = $1 AND media_type = $2 AND season = $3 AND episode = $4 
+               AND ended_at > NOW() - INTERVAL '4 hours' 
+               ORDER BY ended_at DESC LIMIT 1`,
+              [mediaId, mediaType, season, episode]
+            );
+          }
 
           if (existingRes.rows.length > 0) {
             const histId = existingRes.rows[0].id;
@@ -132,7 +224,7 @@ export function sessionRoutes(app: FastifyInstance) {
                 season, episode, watched_seconds, duration, completed
               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
               [
-                userId,
+                userId || null,
                 deviceType,
                 deviceName,
                 mediaType,
@@ -167,6 +259,25 @@ export function sessionRoutes(app: FastifyInstance) {
       }
 
       try {
+        await ensureSessionTables();
+        const sessRes = await pool.query('SELECT * FROM playback_sessions WHERE id = $1', [sessionId]);
+        if (sessRes.rows.length > 0) {
+          const s = sessRes.rows[0];
+          const isCompleted = Number(s.duration) > 0 && Number(s.current_time) / Number(s.duration) >= 0.9;
+          await pool.query(
+            `INSERT INTO playback_history (
+              user_id, device_type, device_name,
+              media_type, media_id, media_title, media_poster,
+              season, episode, watched_seconds, duration, completed,
+              ended_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, CURRENT_TIMESTAMP)`,
+            [
+              s.user_id || null, s.device_type, s.device_name,
+              s.media_type, s.media_id, s.media_title, s.media_poster,
+              s.season, s.episode, s.current_time, s.duration, isCompleted
+            ]
+          ).catch(() => {});
+        }
         await pool.query('DELETE FROM playback_sessions WHERE id = $1', [sessionId]);
         return { success: true };
       } catch (err: any) {
@@ -181,6 +292,7 @@ export function sessionRoutes(app: FastifyInstance) {
     { preHandler: [optionalAuth] },
     async (_req: AuthenticatedRequest, reply) => {
       try {
+        await ensureSessionTables();
         const result = await pool.query(
           `SELECT ps.*, 
                   COALESCE(u.name, ps.device_name, 'Пользователь') as user_name, 
@@ -189,7 +301,7 @@ export function sessionRoutes(app: FastifyInstance) {
                   COALESCE(u.is_kids, false) as is_kids
            FROM playback_sessions ps
            LEFT JOIN users u ON u.id = ps.user_id
-           WHERE ps.last_heartbeat >= NOW() - INTERVAL '45 seconds'
+           WHERE ps.last_heartbeat >= NOW() - INTERVAL '5 minutes'
            ORDER BY ps.last_heartbeat DESC`
         );
 
@@ -236,6 +348,7 @@ export function sessionRoutes(app: FastifyInstance) {
 
       const { id } = req.params as { id: string };
       try {
+        await ensureSessionTables();
         await pool.query('UPDATE playback_sessions SET terminate_requested = true WHERE id = $1', [id]);
         return { success: true, message: 'Session termination requested' };
       } catch (err: any) {
@@ -247,20 +360,22 @@ export function sessionRoutes(app: FastifyInstance) {
   // 5. Get playback history across users
   app.get(
     '/api/sessions/history',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
-      const user = req.user!;
       const query = req.query as { limit?: string; offset?: string; userId?: string };
       const limit = Math.min(Number(query.limit || 50), 100);
-      const targetUserId = (user.role === 'admin' && query.userId) ? Number(query.userId) : (user.role === 'admin' ? null : user.userId);
+      const targetUserId = query.userId ? Number(query.userId) : null;
 
       try {
+        await ensureSessionTables();
         let result;
         if (targetUserId) {
           result = await pool.query(
-            `SELECT ph.*, u.name as user_name, u.avatar as user_avatar
+            `SELECT ph.*, 
+                    COALESCE(u.name, ph.device_name, 'Пользователь') as user_name, 
+                    COALESCE(u.avatar, '') as user_avatar
              FROM playback_history ph
-             JOIN users u ON u.id = ph.user_id
+             LEFT JOIN users u ON u.id = ph.user_id
              WHERE ph.user_id = $1
              ORDER BY ph.ended_at DESC
              LIMIT ${limit}`,
@@ -268,13 +383,16 @@ export function sessionRoutes(app: FastifyInstance) {
           );
         } else {
           result = await pool.query(
-            `SELECT ph.*, u.name as user_name, u.avatar as user_avatar
+            `SELECT ph.*, 
+                    COALESCE(u.name, ph.device_name, 'Пользователь') as user_name, 
+                    COALESCE(u.avatar, '') as user_avatar
              FROM playback_history ph
-             JOIN users u ON u.id = ph.user_id
+             LEFT JOIN users u ON u.id = ph.user_id
              ORDER BY ph.ended_at DESC
              LIMIT ${limit}`
           );
         }
+
 
         return {
           history: result.rows.map((r: any) => ({
@@ -306,10 +424,11 @@ export function sessionRoutes(app: FastifyInstance) {
   // 6. Delete single history record
   app.delete(
     '/api/sessions/history/:id',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
       const { id } = req.params as { id: string };
       try {
+        await ensureSessionTables();
         await pool.query('DELETE FROM playback_history WHERE id = $1', [Number(id)]);
         return { success: true };
       } catch (err: any) {
@@ -321,11 +440,12 @@ export function sessionRoutes(app: FastifyInstance) {
   // 7. Clear all playback history (Admin can clear all, regular user clears own)
   app.delete(
     '/api/sessions/history',
-    { preHandler: [requireAuth] },
+    { preHandler: [optionalAuth] },
     async (req: AuthenticatedRequest, reply) => {
-      const user = req.user!;
+      const user = req.user;
       try {
-        if (user.role === 'admin') {
+        await ensureSessionTables();
+        if (!user || user.role === 'admin') {
           await pool.query('DELETE FROM playback_history');
         } else {
           await pool.query('DELETE FROM playback_history WHERE user_id = $1', [user.userId]);
