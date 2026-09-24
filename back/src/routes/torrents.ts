@@ -542,9 +542,78 @@ export function torrentRoutes(app: FastifyInstance) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
-  // Track active FFmpeg sessions and subtitle extraction processes
-  const activeSessions = new Map<string, { pid: number; hlsDir: string; streamKey: string }>();
+  // Track active FFmpeg sessions with dynamic CPU throttling (SIGSTOP/SIGCONT)
+  interface FfmpegSession {
+    pid: number;
+    hlsDir: string;
+    streamKey: string;
+    paused: boolean;
+    lastRequestedSeg: number;
+    lastActivity: number;
+    timer?: NodeJS.Timeout;
+  }
+
+  const activeSessions = new Map<string, FfmpegSession>();
   const activeSubtitles = new Map<string, { pid: number }>();
+
+  function pauseFfmpeg(sess: FfmpegSession) {
+    if (!sess.paused && process.platform !== 'win32') {
+      try {
+        process.kill(sess.pid, 'SIGSTOP');
+        sess.paused = true;
+      } catch {}
+    }
+  }
+
+  function resumeFfmpeg(sess: FfmpegSession) {
+    if (sess.paused && process.platform !== 'win32') {
+      try {
+        process.kill(sess.pid, 'SIGCONT');
+        sess.paused = false;
+      } catch {}
+    }
+  }
+
+  function checkThrottle(sess: FfmpegSession) {
+    try {
+      const { readdirSync, existsSync } = require('fs');
+      if (!existsSync(sess.hlsDir)) return;
+      const files = readdirSync(sess.hlsDir) as string[];
+      let maxSeg = -1;
+      for (const f of files) {
+        if (f.startsWith('seg-') && f.endsWith('.ts')) {
+          const num = parseInt(f.slice(4, -3), 10);
+          if (!isNaN(num) && num > maxSeg) {
+            maxSeg = num;
+          }
+        }
+      }
+
+      if (maxSeg < 0) return;
+
+      const ahead = maxSeg - sess.lastRequestedSeg;
+      // Buffer target: maintain ~32s buffer (8 segments of 4s).
+      // If FFmpeg has produced 8+ segments ahead of the player, suspend it to save 100% CPU.
+      // If buffer drops below 4 segments (<16s), resume FFmpeg to generate more.
+      if (ahead >= 8) {
+        pauseFfmpeg(sess);
+      } else if (ahead < 4) {
+        resumeFfmpeg(sess);
+      }
+    } catch {}
+  }
+
+  function cleanupSession(sessionId: string) {
+    const sess = activeSessions.get(sessionId);
+    if (!sess) return;
+    if (sess.timer) clearInterval(sess.timer);
+    try { process.kill(sess.pid, 'SIGKILL'); } catch {}
+    activeSessions.delete(sessionId);
+    try {
+      const { rmSync } = require('fs');
+      rmSync(sess.hlsDir, { recursive: true, force: true });
+    } catch {}
+  }
 
   app.get('/api/torrents/hls', async (req, reply) => {
     const { link, index, audio, start } = req.query as { link?: string; index?: string; audio?: string; start?: string };
@@ -572,6 +641,8 @@ export function torrentRoutes(app: FastifyInstance) {
     // Check if session is already active
     const existingSession = activeSessions.get(sessionId);
     if (existingSession && existsSync(playlistPath)) {
+      existingSession.lastActivity = Date.now();
+      checkThrottle(existingSession);
       let manifest = readFileSync(playlistPath, 'utf-8');
       // Validate manifest is proper M3U8 before serving
       if (manifest.includes('#EXTM3U') && manifest.includes('#EXTINF')) {
@@ -589,15 +660,13 @@ export function torrentRoutes(app: FastifyInstance) {
     // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
     for (const [sId, sess] of activeSessions.entries()) {
       if (sess.streamKey === streamKey && sId !== sessionId) {
-        try { process.kill(sess.pid, 'SIGKILL'); } catch {}
-        activeSessions.delete(sId);
+        cleanupSession(sId);
       }
     }
 
     // Clean up old session and HLS directory if exists
     if (existingSession) {
-      try { process.kill(existingSession.pid, 'SIGKILL'); } catch {}
-      activeSessions.delete(sessionId);
+      cleanupSession(sessionId);
     }
     // Clean old HLS directory for fresh start
     if (existsSync(hlsDir)) {
@@ -609,7 +678,8 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg with selected audio track (throttled to 2 threads and 6-segment sliding window)
+    // Start FFmpeg with selected audio track
+    // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
     const { spawn } = await import('child_process');
     const ffmpegArgs = [
       '-threads', '2',
@@ -631,8 +701,7 @@ export function torrentRoutes(app: FastifyInstance) {
       '-ac', '2',
       '-f', 'hls',
       '-hls_time', '4',
-      '-hls_list_size', '6',
-      '-hls_flags', 'delete_segments+append_list',
+      '-hls_list_size', '0',
       '-hls_segment_type', 'mpegts',
       '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
       '-y',
@@ -640,13 +709,32 @@ export function torrentRoutes(app: FastifyInstance) {
     );
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
 
-    activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, streamKey });
+    const sess: FfmpegSession = {
+      pid: ffmpeg.pid!,
+      hlsDir,
+      streamKey,
+      paused: false,
+      lastRequestedSeg: 0,
+      lastActivity: Date.now(),
+    };
+    activeSessions.set(sessionId, sess);
+
+    // Dynamic throttle loop: checks every 500ms to pause/resume FFmpeg and clean up after 90s idle
+    sess.timer = setInterval(() => {
+      if (Date.now() - sess.lastActivity > 90000) {
+        cleanupSession(sessionId);
+        return;
+      }
+      checkThrottle(sess);
+    }, 500);
+
     ffmpeg.on('error', (err) => {
       console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
-      activeSessions.delete(sessionId);
+      cleanupSession(sessionId);
     });
     ffmpeg.on('close', (code, signal) => {
       console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
+      if (sess.timer) clearInterval(sess.timer);
       activeSessions.delete(sessionId);
     });
     ffmpeg.stderr?.on('data', (chunk: Buffer) => {
@@ -873,109 +961,17 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
-  // Seek endpoint — restarts FFmpeg from a specific position
+  // Seek endpoint — restarts FFmpeg from a specific position via unified throttled /api/torrents/hls
   app.get('/api/torrents/hls-seek', async (req, reply) => {
-    const { link, index, time } = req.query as { link?: string; index?: string; time?: string };
+    const { link, index, time, audio } = req.query as { link?: string; index?: string; time?: string; audio?: string };
 
     if (!link || !time) {
       return reply.code(400).send({ error: 'link and time required' });
     }
 
-    try {
-      const seekTime = parseFloat(time);
-      const streamKey = `${link}-${index || 0}`;
-      // Clean up previous sessions for this torrent file
-      for (const [sId, sess] of activeSessions.entries()) {
-        if (sess.streamKey === streamKey) {
-          try { process.kill(sess.pid, 'SIGKILL'); } catch {}
-          activeSessions.delete(sId);
-        }
-      }
-      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
-      // Use random session ID - each seek gets a fresh directory, no cleanup needed
-      const sessionId = Math.random().toString(36).slice(2, 15) + Date.now().toString(36);
-      const hlsDir = getHlsDir(sessionId);
-
-      const { mkdirSync, readFileSync } = await import('fs');
-      const { join } = await import('path');
-
-      mkdirSync(hlsDir, { recursive: true });
-
-      const playlistPath = join(hlsDir, 'playlist.m3u8');
-
-      // Start FFmpeg from the seek position (throttled to 2 threads and 6-segment sliding window)
-      const { spawn } = await import('child_process');
-      const ffmpeg = spawn('ffmpeg', [
-        '-threads', '2',
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '10',
-        '-ss', String(seekTime),
-        '-i', streamUrl,
-        '-map', '0:v:0',
-        '-map', '0:a:0',
-        '-c:v', 'copy',
-        '-c:a', 'aac',
-        '-b:a', '192k',
-        '-ac', '2',
-        '-f', 'hls',
-        '-hls_time', '4',
-        '-hls_list_size', '6',
-        '-hls_flags', 'delete_segments+append_list',
-        '-hls_segment_type', 'mpegts',
-        '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-        '-y',
-        playlistPath,
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-      activeSessions.set(sessionId, { pid: ffmpeg.pid!, hlsDir, streamKey });
-
-      ffmpeg.on('error', (err) => {
-        console.error(`[FFmpeg] Seek session ${sessionId} spawn error:`, err.message);
-        activeSessions.delete(sessionId);
-      });
-
-      ffmpeg.on('close', () => {
-        activeSessions.delete(sessionId);
-      });
-
-      // Wait for first segments (up to 60 seconds)
-      const { existsSync } = await import('fs');
-      const waitForSegments = () => new Promise<void>((resolve) => {
-        let attempts = 0;
-        const check = () => {
-          try {
-            if (existsSync(playlistPath)) {
-              const content = readFileSync(playlistPath, 'utf-8');
-              if ((content.match(/\.ts/g) || []).length >= 1) {
-                resolve();
-                return;
-              }
-            }
-          } catch {}
-          if (attempts++ < 300) { // 60 seconds
-            setTimeout(check, 200);
-          } else {
-            resolve();
-          }
-        };
-        check();
-      });
-
-      await waitForSegments();
-
-      // Return manifest
-      let manifest = readFileSync(playlistPath, 'utf-8');
-      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
-
-      reply.header('Content-Type', 'application/vnd.apple.mpegurl');
-      reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Cache-Control', 'no-cache');
-      return reply.send(manifest);
-    } catch (err: any) {
-      console.error('Seek error:', err.message);
-      return reply.code(500).send({ error: err.message });
-    }
+    const seekTime = Math.floor(parseFloat(time) || 0);
+    const audioIdx = audio || '0';
+    return reply.redirect(`/api/torrents/hls?link=${encodeURIComponent(link)}&index=${index || 0}&start=${seekTime}&audio=${audioIdx}`);
   });
 
   // Serve HLS segments (supports subdirectories for multi-audio)
@@ -993,6 +989,21 @@ export function torrentRoutes(app: FastifyInstance) {
       ? join(getHlsDir(session), dir, `seg-${id}.ts`)
       : join(getHlsDir(session), `seg-${id}.ts`);
 
+    const sess = activeSessions.get(session);
+    if (sess) {
+      const segNum = parseInt(id, 10);
+      if (!isNaN(segNum)) {
+        sess.lastRequestedSeg = Math.max(sess.lastRequestedSeg, segNum);
+      }
+      sess.lastActivity = Date.now();
+      // If segment isn't on disk yet, wake up FFmpeg right away
+      if (!existsSync(segPath)) {
+        resumeFfmpeg(sess);
+      } else {
+        checkThrottle(sess);
+      }
+    }
+
     // Wait for segment to be available
     const waitForFile = () => new Promise<boolean>((resolve) => {
       let attempts = 0;
@@ -1008,6 +1019,10 @@ export function torrentRoutes(app: FastifyInstance) {
     if (!ready) {
       reply.code(404);
       return { error: 'Segment not found' };
+    }
+
+    if (sess) {
+      checkThrottle(sess);
     }
 
     const data = readFileSync(segPath);
