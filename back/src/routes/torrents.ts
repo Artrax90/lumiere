@@ -331,9 +331,7 @@ export function torrentRoutes(app: FastifyInstance) {
         }));
 
         const fileName = f.path.split('/').pop() || f.path;
-        const host = req.headers.host ? req.headers.host.split(':')[0] : (req.hostname || 'localhost');
-        const torrHost = TORRSERVER_URL.replace(/localhost|127\.0\.0\.1/, host);
-        const directTorrUrl = `${torrHost}/stream/${encodeURIComponent(fileName)}?link=${encodeURIComponent(magnet)}&index=${f.id}&play`;
+        const directProxyUrl = `/api/torrents/proxy?link=${encodeURIComponent(magnet)}&index=${f.id}`;
 
         return {
           id: f.id,
@@ -342,7 +340,7 @@ export function torrentRoutes(app: FastifyInstance) {
           size: f.length,
           sizeFormatted: formatSize(f.length),
           streamUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
-          directUrl: directTorrUrl,
+          directUrl: directProxyUrl,
           externalSubs: matchingSubs,
         } as any;
       });
@@ -434,8 +432,8 @@ export function torrentRoutes(app: FastifyInstance) {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       const { execSync } = await import('child_process');
       const probe = execSync(
-        `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
-        { timeout: 30000, maxBuffer: 1024 * 1024 }
+        `ffprobe -v quiet -print_format json -show_streams -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
+        { timeout: 15000, maxBuffer: 1024 * 1024 }
       ).toString();
       const streams = JSON.parse(probe).streams || [];
 
@@ -498,8 +496,8 @@ export function torrentRoutes(app: FastifyInstance) {
       // Method 1: format-level duration with large probesize
       try {
         const fmtResult = execSync(
-          `ffprobe -v quiet -print_format json -show_format -probesize 50000000 -analyzeduration 50000000 "${streamUrl}"`,
-          { timeout: 30000 }
+          `ffprobe -v quiet -print_format json -show_format -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
+          { timeout: 15000 }
         ).toString();
         const fmtData = JSON.parse(fmtResult);
         dur = parseFloat(fmtData.format?.duration || '0');
@@ -611,15 +609,15 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg with selected audio track
+    // Start FFmpeg with selected audio track (throttled to 2 threads and 6-segment sliding window)
     const { spawn } = await import('child_process');
     const ffmpegArgs = [
+      '-threads', '2',
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
     ];
     // Input seek (-ss before -i) allows FFmpeg to use HTTP Range requests directly to TorrServer
-    // avoiding sequential decoding of thousands of frames
     if (seekTime > 0) {
       ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
     }
@@ -632,9 +630,9 @@ export function torrentRoutes(app: FastifyInstance) {
       '-b:a', '192k',
       '-ac', '2',
       '-f', 'hls',
-      '-hls_time', '6',
-      '-hls_list_size', '0',
-      '-hls_flags', 'append_list',
+      '-hls_time', '4',
+      '-hls_list_size', '6',
+      '-hls_flags', 'delete_segments+append_list',
       '-hls_segment_type', 'mpegts',
       '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
       '-y',
@@ -657,43 +655,6 @@ export function torrentRoutes(app: FastifyInstance) {
         console.error(`[FFmpeg] ${sessionId}: ${msg.substring(0, 200)}`);
       }
     });
-
-    // Start background subtitle extraction (non-blocking) - at most once per torrent streamKey
-    const subtitlePath = join(hlsDir, 'subs.vtt');
-    const { existsSync: subExistsSync, statSync: subStatSync } = await import('fs');
-    if (!activeSubtitles.has(streamKey) && !subExistsSync(subtitlePath)) {
-      console.log(`Starting subtitle extraction for streamKey ${streamKey}`);
-      const subFfmpeg = spawn('ffmpeg', [
-        '-reconnect', '1',
-        '-reconnect_streamed', '1',
-        '-reconnect_delay_max', '5',
-        '-i', streamUrl,
-        '-map', '0:s:0',
-        '-c:s', 'webvtt',
-        '-y',
-        subtitlePath,
-      ], { stdio: ['pipe', 'pipe', 'pipe'] });
-      activeSubtitles.set(streamKey, { pid: subFfmpeg.pid! });
-      subFfmpeg.on('error', (err) => {
-        console.warn(`Subtitle FFmpeg error:`, err.message);
-        activeSubtitles.delete(streamKey);
-      });
-      subFfmpeg.on('close', (code) => {
-        const size = subExistsSync(subtitlePath) ? subStatSync(subtitlePath).size : 0;
-        console.log(`Subtitle extraction finished for streamKey ${streamKey}: code=${code}, size=${size}`);
-        activeSubtitles.delete(streamKey);
-      });
-      subFfmpeg.stderr.on('data', (data) => {
-        const msg = data.toString();
-        if (msg.includes('Error') || msg.includes('error')) {
-          console.error(`Subtitle FFmpeg error: ${msg.substring(0, 200)}`);
-        }
-      });
-      setTimeout(() => {
-        try { subFfmpeg.kill('SIGKILL'); } catch {}
-        activeSubtitles.delete(streamKey);
-      }, 120000);
-    }
 
     // Wait for playlist
     const waitForPlaylist = () => new Promise<void>((resolve) => {
@@ -942,9 +903,10 @@ export function torrentRoutes(app: FastifyInstance) {
 
       const playlistPath = join(hlsDir, 'playlist.m3u8');
 
-      // Start FFmpeg from the seek position
+      // Start FFmpeg from the seek position (throttled to 2 threads and 6-segment sliding window)
       const { spawn } = await import('child_process');
       const ffmpeg = spawn('ffmpeg', [
+        '-threads', '2',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '10',
@@ -958,8 +920,8 @@ export function torrentRoutes(app: FastifyInstance) {
         '-ac', '2',
         '-f', 'hls',
         '-hls_time', '4',
-        '-hls_list_size', '0',
-        '-hls_flags', 'append_list',
+        '-hls_list_size', '6',
+        '-hls_flags', 'delete_segments+append_list',
         '-hls_segment_type', 'mpegts',
         '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
         '-y',

@@ -74,12 +74,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const settingsPanelRef = useRef<SettingsPanel>('none');
   settingsPanelRef.current = settingsPanel;
 
-  const hasVideo = !!title.videoUrl;
-  const isHls = hasVideo && (
-    title.videoUrl!.includes('.m3u') ||
-    title.videoUrl!.includes('m3u8') ||
-    title.videoUrl!.includes('/hls') ||
-    title.videoUrl!.includes('/api/iptv/stream') ||
+  const canPlayDirect = Boolean(
+    title.directUrl && (
+      Capacitor.isNativePlatform() ||
+      title.directUrl.endsWith('.mp4') ||
+      title.directUrl.endsWith('.webm') ||
+      title.videoUrl?.endsWith('.mp4') ||
+      title.videoUrl?.endsWith('.webm')
+    )
+  );
+
+  const hasVideo = !!(title.videoUrl || title.directUrl);
+  const isHls = hasVideo && !canPlayDirect && (
+    title.videoUrl?.includes('.m3u') ||
+    title.videoUrl?.includes('m3u8') ||
+    title.videoUrl?.includes('/hls') ||
+    title.videoUrl?.includes('/api/iptv/stream') ||
     title.type === 'live'
   );
 
@@ -264,7 +274,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    let url = serverUrl(title.videoUrl!);
+    let url = serverUrl((canPlayDirect && title.directUrl) ? title.directUrl : (title.videoUrl || title.directUrl || ''));
 
     // On web, if live stream is an external direct URL, ensure it routes through proxy to avoid CORS/Mixed-Content
     if (!Capacitor.isNativePlatform() && title.type === 'live' && !url.includes('/api/iptv/stream') && (url.startsWith('http://') || url.startsWith('https://'))) {
@@ -471,6 +481,33 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       });
       video.addEventListener('canplay', () => setLoading(false));
       video.addEventListener('error', () => {
+        // Fallback to HLS if direct play fails in browser (e.g. unsupported container or audio codec)
+        if (title.videoUrl && !url.includes('/api/torrents/hls') && title.videoUrl.includes('/api/torrents/hls')) {
+          console.warn('[Player] Direct playback failed, falling back to HLS transcoding');
+          const hlsUrl = serverUrl(title.videoUrl);
+          if (Hls.isSupported()) {
+            const hls = new Hls({
+              maxBufferLength: 30,
+              maxMaxBufferLength: 60,
+              backBufferLength: 30,
+              maxBufferSize: 60 * 1000 * 1000,
+              startLevel: -1,
+              debug: false,
+              fragLoadingTimeOut: 30000,
+              manifestLoadingTimeOut: 30000,
+              levelLoadingTimeOut: 30000,
+            });
+            hlsRef.current = hls;
+            hls.loadSource(hlsUrl);
+            hls.attachMedia(video);
+            hls.on(Hls.Events.MANIFEST_PARSED, () => {
+              setLoading(false);
+              if (initialTime && initialTime > 0) video.currentTime = initialTime;
+              video.play().catch(() => {});
+            });
+            return;
+          }
+        }
         setError(t('common.error'));
         setLoading(false);
       });
@@ -482,7 +519,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         hlsRef.current = null;
       }
     };
-  }, [title.videoUrl, hasVideo, isHls]);
+  }, [title.videoUrl, title.directUrl, hasVideo, isHls]);
 
   // Video event handlers
   useEffect(() => {

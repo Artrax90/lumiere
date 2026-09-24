@@ -30,6 +30,7 @@ export interface Title {
   seasonsCount?: number;
   progress?: number;
   videoUrl?: string;
+  directUrl?: string;
   episode?: string;
   channel?: string;
   liveNow?: boolean;

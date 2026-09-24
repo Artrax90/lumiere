@@ -30,7 +30,13 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
   const hlsRef = useRef<any>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const url = serverUrl(title.videoUrl || '');
+  // On Samsung Smart TV (Tizen AVPlay), prioritize Direct Play (directUrl or proxy stream)
+  // Tizen AVPlay has native hardware decoding for MKV, MP4, TS, AVI, HEVC, AC3, DTS.
+  // Using directUrl avoids server-side FFmpeg transcoding, reducing server CPU to ~0%.
+  const rawPath = title.directUrl || (title.videoUrl?.includes('/api/torrents/hls')
+    ? title.videoUrl.replace('/api/torrents/hls', '/api/torrents/proxy')
+    : title.videoUrl || '');
+  const url = serverUrl(rawPath);
   const isHls = url.includes('.m3u8') || url.includes('/hls');
 
   // Show OSD then auto-hide
