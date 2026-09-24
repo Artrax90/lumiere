@@ -37,12 +37,117 @@ const DEFAULT_PLAYLISTS = [
   { name: 'Общероссийские (iptv-org)', url: 'https://iptv-org.github.io/iptv/countries/ru.m3u', epgUrl: '' },
 ];
 
+export const KNOWN_CHANNEL_LOGOS: Record<string, string> = {
+  'первый канал': 'pervy',
+  '1 канал': 'pervy',
+  'первый': 'pervy',
+  'россия 1': 'rossia1',
+  'россия1': 'rossia1',
+  'россия 24': 'rossia-24',
+  'россия24': 'rossia-24',
+  'россия к': 'kultura',
+  'россия культура': 'kultura',
+  'культура': 'kultura',
+  'нтв': 'ntv',
+  'рен тв': 'rentv',
+  'рен-тв': 'rentv',
+  'ren tv': 'rentv',
+  'тнт': 'tnt',
+  'стс': 'sts',
+  'матч тв': 'match',
+  'матч!': 'match',
+  'матч': 'match',
+  'пятый канал': '5kanal-ru',
+  '5 канал': '5kanal-ru',
+  'тв-3': 'tv3',
+  'тв 3': 'tv3',
+  'тв3': 'tv3',
+  'твц': 'tvcentr',
+  'тв центр': 'tvcentr',
+  'звезда': 'zvezda',
+  'мир': 'mir',
+  'мир 24': 'mir24',
+  'карусель': 'karusel',
+  'пятница': 'piatnica',
+  'пятница!': 'piatnica',
+  'че': 'che',
+  'че!': 'che',
+  'домашний': 'domashny',
+  'муз тв': 'muztv',
+  'муз-тв': 'muztv',
+  'солнце': 'solnce',
+  'суббота': 'subbota',
+  'суббота!': 'subbota',
+  'спас': 'spas',
+  'отр': 'otr',
+  '2x2': '2na2',
+  '2х2': '2na2',
+  'москва 24': 'moskva-24',
+  'москва. доверие': 'moskva-doverie',
+  'москва доверие': 'moskva-doverie',
+  'доверие': 'moskva-doverie',
+  'ю': 'u-tv',
+  'ю тв': 'u-tv',
+  'ю-тв': 'u-tv',
+  'бст': 'bst',
+  'крым 24': 'krym24',
+  'нтк': 'ntk-kz',
+  'отв': 'otv-ekb',
+  'отв екатеринбург': 'otv-ekb',
+  'союзный': 'tro',
+  'евроньюс': 'euronews-rus',
+  'euronews': 'euronews-rus',
+  'discovery': 'discovery',
+  'animal planet': 'animal-planet',
+  'national geographic': 'nat-geo',
+  'nat geo wild': 'nat-geo-wild',
+  'tlc': 'tlc',
+  'мульт': 'mult',
+  'кинопремьера': 'kinopremiera',
+  'кинохит': 'kinohit',
+  'киносемья': 'kinosemya',
+  'киносвидание': 'kinosvidanie',
+  'киномикс': 'kinomix',
+  'родное кино': 'rodnoe-kino',
+  'кинокомедия': 'kinokomedia',
+  'киносерия': 'kinoseria',
+  'индийское кино': 'indiskoe-kino',
+  'киноужас': 'kinoujas',
+  'тв-1000': 'tv1000',
+  'tv1000': 'tv1000',
+  'tv1000 action': 'tv1000-action',
+  'русский роман': 'rus-roman',
+  'русский детектив': 'rus-detektiv',
+  'русский бестселлер': 'rus-bestseller',
+  'русский иллюзион': 'rus-illuzion',
+  'дом кино': 'dom-kino',
+  'дом кино премиум': 'dom-kino-premium',
+  'cgtn русский': 'cgtn-rus',
+  'cgtn': 'cgtn-rus',
+};
+
+function normalizeChannelName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(hd|fhd|sd|4k|uhd|hevc|50fps|архив|\+1|\+2|\+3|\+4|\+5|\+6|\+7|\+8|\+9)\b/gi, '')
+    .replace(/[()[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
     const data = localStorage.getItem(IPTV_STORAGE_KEY);
     if (data) {
       const parsed = JSON.parse(data);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((pl: any) => {
+          if (!pl.epgUrl && (pl.url?.includes('loganettv') || pl.url === 'default' || pl.name === 'Основной')) {
+            return { ...pl, epgUrl: 'https://iptvx.one/epg/epg_lite.xml.gz' };
+          }
+          return pl;
+        });
+      }
     }
   } catch {}
   return DEFAULT_PLAYLISTS;
@@ -222,8 +327,9 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       setSelectedChannel(null);
 
       // Load EPG if available
-      if (playlist.epgUrl) {
-        loadEpg(playlist.epgUrl);
+      const targetEpgUrl = playlist.epgUrl || data.epgUrl || (playlist.url.includes('loganettv') || playlist.url === 'default' ? 'https://iptvx.one/epg/epg_lite.xml.gz' : '');
+      if (targetEpgUrl) {
+        loadEpg(targetEpgUrl);
       }
     } catch (err: any) {
       setError(err.message);
@@ -406,30 +512,38 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return () => observer.disconnect();
   }, [visibleCount, filteredChannels.length]);
 
-  // Get logo for channel — use channel logo or EPG icon
+  // Get logo for channel — use channel logo, tvgId, EPG icon, or picon dictionary
   const getChannelLogo = (channel: IPTVChannel): string => {
     if (channel.logo) return channel.logo;
 
     // Try tvgId directly
-    if (channel.tvgId && iconMap[channel.tvgId]) {
-      return iconMap[channel.tvgId];
+    if (channel.tvgId) {
+      if (iconMap[channel.tvgId]) return iconMap[channel.tvgId];
+      return `https://iptvx.one/picons/${channel.tvgId}.png`;
     }
-    // Try name lookup via channelMap
-    const nameKey = channel.name?.toLowerCase() || '';
-    if (nameKey) {
-      const epgId = channelMap[nameKey];
-      if (epgId && iconMap[epgId]) {
-        return iconMap[epgId];
+
+    const clean = normalizeChannelName(channel.name || '');
+    if (clean) {
+      if (iconMap[clean]) return iconMap[clean];
+      const epgId = channelMap[clean];
+      if (epgId && iconMap[epgId]) return iconMap[epgId];
+      if (epgId) return `https://iptvx.one/picons/${epgId}.png`;
+
+      // Try known channel logo dictionary
+      const knownId = KNOWN_CHANNEL_LOGOS[clean] || Object.entries(KNOWN_CHANNEL_LOGOS).find(([k]) => clean.startsWith(k) || clean === k)?.[1];
+      if (knownId) {
+        return `https://iptvx.one/picons/${knownId}.png`;
       }
-      // Partial match
+
+      // Partial match in channelMap
       for (const [mapName, mapId] of Object.entries(channelMap)) {
-        if (nameKey.includes(mapName) || mapName.includes(nameKey)) {
-          if (iconMap[mapId]) {
-            return iconMap[mapId];
-          }
+        if (clean.includes(mapName) || mapName.includes(clean)) {
+          if (iconMap[mapId]) return iconMap[mapId];
+          return `https://iptvx.one/picons/${mapId}.png`;
         }
       }
     }
+
     return '';
   };
 
@@ -839,12 +953,14 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 <div className="glass-panel overflow-hidden rounded-[20px]">
                   <div className="relative h-64 md:h-80">
                     {getChannelLogo(selectedChannel) ? (
-                      <img
-                        src={getChannelLogo(selectedChannel)}
-                        alt={selectedChannel.name}
-                        className="absolute inset-0 h-full w-full object-cover"
-                        style={{ filter: 'saturate(1.05) brightness(0.85)' }}
-                      />
+                      <div className="relative h-full w-full bg-gradient-to-br from-amber-950/40 via-black/70 to-neutral-900/90 flex items-center justify-center">
+                        <img
+                          src={getChannelLogo(selectedChannel)}
+                          alt={selectedChannel.name}
+                          className="max-h-36 max-w-[240px] object-contain drop-shadow-2xl"
+                          onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                        />
+                      </div>
                     ) : (
                       <div className="absolute inset-0 bg-gradient-to-br from-amber-900/20 to-gray-900/50" />
                     )}
@@ -979,21 +1095,20 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                     >
                       {/* Channel info */}
                       <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
-                        <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/5 shrink-0">
+                        <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/5 shrink-0 flex items-center justify-center">
+                          <div className={`absolute inset-0 flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[11px] tracking-wider ${getChannelColor(ch.name)}`}>
+                            {getChannelMonogram(ch.name)}
+                          </div>
                           {getChannelLogo(ch) ? (
                             <img
                               src={getChannelLogo(ch)}
                               alt={ch.name}
-                              className="h-full w-full object-cover"
+                              className="absolute inset-0 h-full w-full object-contain p-1"
                               loading="lazy"
                               decoding="async"
                               onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
-                          ) : (
-                            <div className={`flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[11px] tracking-wider ${getChannelColor(ch.name)}`}>
-                              {getChannelMonogram(ch.name)}
-                            </div>
-                          )}
+                          ) : null}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">

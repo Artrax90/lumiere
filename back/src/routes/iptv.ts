@@ -57,6 +57,104 @@ interface EpgProgram {
   desc?: string;
 }
 
+export const KNOWN_CHANNELS: Record<string, string> = {
+  'первый канал': 'pervy',
+  '1 канал': 'pervy',
+  'первый': 'pervy',
+  'россия 1': 'rossia1',
+  'россия1': 'rossia1',
+  'россия 24': 'rossia-24',
+  'россия24': 'rossia-24',
+  'россия к': 'kultura',
+  'россия культура': 'kultura',
+  'культура': 'kultura',
+  'нтв': 'ntv',
+  'рен тв': 'rentv',
+  'рен-тв': 'rentv',
+  'ren tv': 'rentv',
+  'тнт': 'tnt',
+  'стс': 'sts',
+  'матч тв': 'match',
+  'матч!': 'match',
+  'матч': 'match',
+  'пятый канал': '5kanal-ru',
+  '5 канал': '5kanal-ru',
+  'тв-3': 'tv3',
+  'тв 3': 'tv3',
+  'тв3': 'tv3',
+  'твц': 'tvcentr',
+  'тв центр': 'tvcentr',
+  'звезда': 'zvezda',
+  'мир': 'mir',
+  'мир 24': 'mir24',
+  'карусель': 'karusel',
+  'пятница': 'piatnica',
+  'пятница!': 'piatnica',
+  'че': 'che',
+  'че!': 'che',
+  'домашний': 'domashny',
+  'муз тв': 'muztv',
+  'муз-тв': 'muztv',
+  'солнце': 'solnce',
+  'суббота': 'subbota',
+  'суббота!': 'subbota',
+  'спас': 'spas',
+  'отр': 'otr',
+  '2x2': '2na2',
+  '2х2': '2na2',
+  'москва 24': 'moskva-24',
+  'москва. доверие': 'moskva-doverie',
+  'москва доверие': 'moskva-doverie',
+  'доверие': 'moskva-doverie',
+  'ю': 'u-tv',
+  'ю тв': 'u-tv',
+  'ю-тв': 'u-tv',
+  'бст': 'bst',
+  'крым 24': 'krym24',
+  'нтк': 'ntk-kz',
+  'отв': 'otv-ekb',
+  'отв екатеринбург': 'otv-ekb',
+  'союзный': 'tro',
+  'евроньюс': 'euronews-rus',
+  'euronews': 'euronews-rus',
+  'discovery': 'discovery',
+  'animal planet': 'animal-planet',
+  'national geographic': 'nat-geo',
+  'nat geo wild': 'nat-geo-wild',
+  'tlc': 'tlc',
+  'мульт': 'mult',
+  'кинопремьера': 'kinopremiera',
+  'кинохит': 'kinohit',
+  'киносемья': 'kinosemya',
+  'киносвидание': 'kinosvidanie',
+  'киномикс': 'kinomix',
+  'родное кино': 'rodnoe-kino',
+  'кинокомедия': 'kinokomedia',
+  'киносерия': 'kinoseria',
+  'индийское кино': 'indiskoe-kino',
+  'киноужас': 'kinoujas',
+  'тв-1000': 'tv1000',
+  'tv1000': 'tv1000',
+  'tv1000 action': 'tv1000-action',
+  'русский роман': 'rus-roman',
+  'русский детектив': 'rus-detektiv',
+  'русский бестселлер': 'rus-bestseller',
+  'русский иллюзион': 'rus-illuzion',
+  'дом кино': 'dom-kino',
+  'дом кино премиум': 'dom-kino-premium',
+  'cgtn русский': 'cgtn-rus',
+  'cgtn': 'cgtn-rus',
+};
+
+export function normalizeChannelName(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\b(hd|fhd|sd|4k|uhd|hevc|50fps|архив|\+1|\+2|\+3|\+4|\+5|\+6|\+7|\+8|\+9)\b/gi, '')
+    .replace(/[()[\]]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Parse M3U8 playlist with flexible EXTINF matching and encoding tolerance
 function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string } {
   const channels: IptvChannel[] = [];
@@ -129,6 +227,40 @@ function parseM3U(content: string): { channels: IptvChannel[]; epgUrl?: string }
           tvgId: tvgIdMatch?.[1] || '',
           tvgName: tvgNameMatch?.[1] || name,
         });
+      }
+    }
+  }
+
+  // Pass 2: Auto-enrich logos for channels without explicit logo
+  // First, map names to tvg-id from archive/variant channels in the same playlist
+  const selfMap = new Map<string, string>();
+  for (const ch of channels) {
+    if (ch.tvgId) {
+      const clean = normalizeChannelName(ch.name);
+      if (clean && !selfMap.has(clean)) {
+        selfMap.set(clean, ch.tvgId);
+      }
+    }
+  }
+
+  for (const ch of channels) {
+    if (!ch.logo) {
+      if (ch.tvgId) {
+        ch.logo = `https://iptvx.one/picons/${ch.tvgId}.png`;
+        continue;
+      }
+      const clean = normalizeChannelName(ch.name);
+      const fromSelf = selfMap.get(clean);
+      if (fromSelf) {
+        ch.logo = `https://iptvx.one/picons/${fromSelf}.png`;
+        ch.tvgId = fromSelf;
+        continue;
+      }
+      const knownId = KNOWN_CHANNELS[clean] || Object.entries(KNOWN_CHANNELS).find(([k]) => clean.startsWith(k) || clean === k)?.[1];
+      if (knownId) {
+        ch.logo = `https://iptvx.one/picons/${knownId}.png`;
+        ch.tvgId = knownId;
+        continue;
       }
     }
   }
