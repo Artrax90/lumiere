@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import Hls from 'hls.js';
-import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight, ExternalLink, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
 import { Capacitor } from '@capacitor/core';
@@ -48,6 +48,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [loading, setLoading] = useState(true);
   const [currentAudioIndex, setCurrentAudioIndex] = useState(0);
   const audioSwitchRef = useRef(false); // true during audio switch
+  const [copiedStreamLink, setCopiedStreamLink] = useState(false);
   const [error, setError] = useState('');
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [hoverX, setHoverX] = useState(0);
@@ -75,13 +76,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   settingsPanelRef.current = settingsPanel;
 
   const canPlayDirect = Boolean(
-    title.directUrl && (
-      Capacitor.isNativePlatform() ||
-      title.directUrl.endsWith('.mp4') ||
-      title.directUrl.endsWith('.webm') ||
-      title.videoUrl?.endsWith('.mp4') ||
-      title.videoUrl?.endsWith('.webm')
-    )
+    title.directUrl ||
+    title.videoUrl?.includes('/api/torrents/proxy') ||
+    title.videoUrl?.endsWith('.mp4') ||
+    title.videoUrl?.endsWith('.webm') ||
+    Capacitor.isNativePlatform()
   );
 
   const hasVideo = !!(title.videoUrl || title.directUrl);
@@ -482,9 +481,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       video.addEventListener('canplay', () => setLoading(false));
       video.addEventListener('error', () => {
         // Fallback to HLS if direct play fails in browser (e.g. unsupported container or audio codec)
-        if (title.videoUrl && !url.includes('/api/torrents/hls') && title.videoUrl.includes('/api/torrents/hls')) {
-          console.warn('[Player] Direct playback failed, falling back to HLS transcoding');
-          const hlsUrl = serverUrl(title.videoUrl);
+        const fallbackHls = title.hlsUrl || (url.includes('/api/torrents/proxy') ? url.replace('/api/torrents/proxy', '/api/torrents/hls') : '');
+        if (fallbackHls && !url.includes('/api/torrents/hls')) {
+          console.warn('[Player] Direct playback failed, falling back to HLS transcoding:', fallbackHls);
+          const hlsUrl = serverUrl(fallbackHls);
           if (Hls.isSupported()) {
             const hls = new Hls({
               maxBufferLength: 30,
@@ -1185,7 +1185,25 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               {title.year ? `${title.year} · ` : ''}{title.runtime || ''}
             </div>
           </div>
-          <div className="text-[12px] text-white/50">{fmtTime(currentTime)}</div>
+          <div className="flex items-center gap-3">
+            {(title.directUrl || title.videoUrl) && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const streamLink = serverUrl(title.directUrl || title.videoUrl || '');
+                  navigator.clipboard?.writeText(streamLink);
+                  setCopiedStreamLink(true);
+                  setTimeout(() => setCopiedStreamLink(false), 2500);
+                }}
+                title="Скопировать прямую ссылку на поток для VLC / PotPlayer (0% нагрузки на сервер)"
+                className="hidden sm:flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 active:scale-95 px-3 py-1.5 text-[11px] font-medium text-white/80 transition"
+              >
+                {copiedStreamLink ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <ExternalLink className="h-3.5 w-3.5" />}
+                <span>{copiedStreamLink ? 'Ссылка скопирована' : 'VLC / PotPlayer'}</span>
+              </button>
+            )}
+            <div className="text-[12px] text-white/50">{fmtTime(currentTime)}</div>
+          </div>
         </div>
       </div>
 

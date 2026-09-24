@@ -31,6 +31,7 @@ export interface Title {
   progress?: number;
   videoUrl?: string;
   directUrl?: string;
+  hlsUrl?: string;
   episode?: string;
   channel?: string;
   liveNow?: boolean;

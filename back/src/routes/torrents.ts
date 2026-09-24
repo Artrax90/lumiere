@@ -338,9 +338,9 @@ export function torrentRoutes(app: FastifyInstance) {
           name: fileName,
           path: f.path,
           size: f.length,
-          sizeFormatted: formatSize(f.length),
-          streamUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
+          streamUrl: directProxyUrl,
           directUrl: directProxyUrl,
+          hlsUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
           externalSubs: matchingSubs,
         } as any;
       });
