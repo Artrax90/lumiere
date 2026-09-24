@@ -1,8 +1,9 @@
 import type { FastifyInstance } from 'fastify';
 import { gunzipSync } from 'zlib';
 import { readFileSync, existsSync } from 'fs';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, URL } from 'url';
 import { dirname, join } from 'path';
+import axios from 'axios';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -186,14 +187,13 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
     }
   }
 
-  // Parse programmes with smart cutoff: current program + upcoming programs for next 36 hours
+  // Parse programmes with smart cutoff: current program + upcoming programs for next 10 hours
   const nowMs = Date.now();
   const cutoffMs = nowMs - 45 * 60 * 1000; // Ended less than 45m ago or currently airing
-  const maxFutureMs = nowMs + 36 * 3600 * 1000; // Next 36 hours
+  const maxFutureMs = nowMs + 10 * 3600 * 1000; // Next 10 hours (covers 8h grid + margin)
 
   const programmeRegex = /<programme\s+start="([^"]*)"\s+stop="([^"]*)"\s+channel="([^"]*)"[^>]*>([\s\S]*?)<\/programme>/g;
   const titleRegex = /<title[^>]*>([^<]*)<\/title>/;
-  const descRegex = /<desc[^>]*>([^<]*)<\/desc>/;
 
   let match;
   while ((match = programmeRegex.exec(xmlContent)) !== null) {
@@ -204,25 +204,23 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
     const stopMs = parseXmltvDate(stop);
     const startMs = parseXmltvDate(start);
 
-    // Skip programs that ended more than 45 min ago or start beyond 36h in future
+    // Skip programs that ended more than 45 min ago or start beyond 10h in future
     if (stopMs < cutoffMs || startMs > maxFutureMs) continue;
 
     if (!programs.has(channel)) {
       programs.set(channel, []);
     }
     const channelList = programs.get(channel)!;
-    if (channelList.length >= 25) continue; // Current + up to 24 upcoming programs (full day & next day)
+    if (channelList.length >= 8) continue; // Current + up to 7 upcoming programs
 
     const content = match[4];
     const titleMatch = titleRegex.exec(content);
-    const descMatch = descRegex.exec(content);
 
     const program: EpgProgram = {
       channel,
       title: titleMatch?.[1] || 'Unknown Program',
       start,
       stop,
-      desc: descMatch?.[1] ? descMatch[1].slice(0, 200) : undefined,
     };
 
     channelList.push(program);
@@ -244,7 +242,170 @@ function formatEpgTime(timeStr: string): { time: string; date: string } {
   };
 }
 
+// Rewrite M3U8 playlist manifests so all sub-playlists and media segments route through /api/iptv/stream proxy
+export function rewriteM3U8(manifestText: string, baseUrlStr: string): string {
+  const lines = manifestText.split(/\r?\n/);
+  const rewritten: string[] = [];
+
+  let baseParsed: URL | null = null;
+  try {
+    baseParsed = new URL(baseUrlStr);
+  } catch {}
+
+  for (let i = 0; i < lines.length; i++) {
+    const rawLine = lines[i];
+    const trimmed = rawLine.trim();
+    if (!trimmed) {
+      rewritten.push(rawLine);
+      continue;
+    }
+
+    if (trimmed.startsWith('#')) {
+      // Rewrite URIs inside tags like #EXT-X-KEY, #EXT-X-MAP, #EXT-X-MEDIA
+      const rewrittenTag = trimmed.replace(/URI="([^"]+)"/g, (match, uri) => {
+        try {
+          if (uri.startsWith('/api/iptv/stream')) return match;
+          const resolved = new URL(uri, baseUrlStr);
+          if (baseParsed?.search && !resolved.search) {
+            resolved.search = baseParsed.search;
+          }
+          return `URI="/api/iptv/stream?url=${encodeURIComponent(resolved.toString())}"`;
+        } catch {
+          return match;
+        }
+      });
+      rewritten.push(rewrittenTag);
+    } else {
+      // Media segment (.ts, .m4s) or sub-playlist (.m3u8)
+      if (trimmed.startsWith('/api/iptv/stream')) {
+        rewritten.push(rawLine);
+        continue;
+      }
+      try {
+        const resolved = new URL(trimmed, baseUrlStr);
+        if (baseParsed?.search && !resolved.search) {
+          resolved.search = baseParsed.search;
+        }
+        rewritten.push(`/api/iptv/stream?url=${encodeURIComponent(resolved.toString())}`);
+      } catch {
+        rewritten.push(rawLine);
+      }
+    }
+  }
+
+  return rewritten.join('\n');
+}
+
 export function iptvRoutes(app: FastifyInstance) {
+  // CORS Preflight for IPTV stream proxy
+  app.options('/api/iptv/stream', async (_req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', '*');
+    reply.header('Access-Control-Max-Age', '86400');
+    return reply.code(204).send();
+  });
+
+  // Dedicated IPTV stream proxy: rewrites manifests, forwards headers/CORS, and pipes media segments
+  app.get('/api/iptv/stream', async (req, reply) => {
+    const { url: rawUrl } = req.query as { url?: string };
+    if (!rawUrl || typeof rawUrl !== 'string') {
+      return reply.code(400).send({ error: 'Missing stream url' });
+    }
+
+    let targetUrl = rawUrl.trim();
+    if (!targetUrl.startsWith('http://') && !targetUrl.startsWith('https://')) {
+      targetUrl = 'http://' + targetUrl;
+    }
+
+    // Determine appropriate User-Agent based on stream host
+    let userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+    if (targetUrl.includes('zabava') || targetUrl.includes('wink') || targetUrl.includes('ngenix')) {
+      userAgent = 'WINK/1.40.1 (AndroidTV/9) HlsWinkPlayer';
+    } else if (targetUrl.includes('trkcrimea') || targetUrl.includes('bonus-tv') || targetUrl.includes('tvzvezda')) {
+      userAgent = 'VLC/3.0.18 LibVLC/3.0.18';
+    }
+
+    const headers: Record<string, string> = {
+      'User-Agent': userAgent,
+      'Accept': '*/*',
+    };
+    if (req.headers.range) {
+      headers['Range'] = req.headers.range as string;
+    }
+
+    try {
+      const upstreamRes = await axios.get(targetUrl, {
+        headers,
+        responseType: 'stream',
+        validateStatus: () => true,
+        maxRedirects: 5,
+        timeout: 25000,
+      });
+
+      // Forward CORS headers
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      reply.header('Access-Control-Allow-Headers', '*');
+
+      const contentType = String(upstreamRes.headers['content-type'] || '').toLowerCase();
+      const isM3U8 = targetUrl.toLowerCase().includes('.m3u8') ||
+                    targetUrl.toLowerCase().includes('.m3u') ||
+                    contentType.includes('mpegurl');
+
+      if (isM3U8) {
+        // Collect manifest body
+        const chunks: Buffer[] = [];
+        for await (const chunk of upstreamRes.data) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        }
+        const text = Buffer.concat(chunks).toString('utf-8');
+
+        if (upstreamRes.status >= 400 || (!text.includes('#EXTM3U') && upstreamRes.status !== 200)) {
+          return reply.code(upstreamRes.status).send(text);
+        }
+
+        const finalUrl = (upstreamRes.request as any)?.res?.responseUrl || targetUrl;
+        const rewritten = rewriteM3U8(text, finalUrl);
+
+        reply.header('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+        return reply.code(upstreamRes.status).send(rewritten);
+      }
+
+      // Binary media segments (TS, MP4, AAC, M4S, keys)
+      reply.status(upstreamRes.status);
+      if (upstreamRes.headers['content-type']) {
+        reply.header('Content-Type', upstreamRes.headers['content-type']);
+      } else if (targetUrl.endsWith('.ts')) {
+        reply.header('Content-Type', 'video/mp2t');
+      }
+      if (upstreamRes.headers['content-length']) {
+        reply.header('Content-Length', upstreamRes.headers['content-length']);
+      }
+      if (upstreamRes.headers['content-range']) {
+        reply.header('Content-Range', upstreamRes.headers['content-range']);
+      }
+      if (upstreamRes.headers['accept-ranges']) {
+        reply.header('Accept-Ranges', upstreamRes.headers['accept-ranges']);
+      }
+
+      // Cleanup upstream stream if client disconnects early
+      req.raw.on('close', () => {
+        try {
+          upstreamRes.data.destroy();
+        } catch {}
+      });
+
+      return reply.send(upstreamRes.data);
+    } catch (err: any) {
+      if (!reply.raw.headersSent) {
+        reply.header('Access-Control-Allow-Origin', '*');
+        return reply.code(502).send({ error: `Ошибка прокси потока: ${err.message}` });
+      }
+    }
+  });
+
   // Dedicated endpoint for default pre-bundled playlist
   app.get('/api/iptv/default', async (_req, reply) => {
     const bundled = getBundledPlaylist();
@@ -509,8 +670,8 @@ const EPG_CACHE_TTL = 3600 * 4 * 1000; // 4 hours
 
       const { programs, channelMap, iconMap } = parseEpg(content);
 
-      // Convert Maps to objects for JSON response
-      const epgObject: Record<string, Array<{ title: string; start: string; stop: string; startMs: number; stopMs: number; desc?: string; startTime: string; startDate: string; stopTime: string; stopDate: string }>> = {};
+      // Convert Maps to objects for JSON response (lightweight payload for fast UI rendering)
+      const epgObject: Record<string, Array<{ title: string; start: string; stop: string; startTime: string; stopTime: string }>> = {};
 
       for (const [channel, channelPrograms] of programs.entries()) {
         epgObject[channel] = channelPrograms.map(p => {
@@ -520,13 +681,8 @@ const EPG_CACHE_TTL = 3600 * 4 * 1000; // 4 hours
             title: p.title,
             start: p.start,
             stop: p.stop,
-            startMs: parseXmltvDate(p.start),
-            stopMs: parseXmltvDate(p.stop),
-            desc: p.desc,
             startTime: startFormatted.time,
-            startDate: startFormatted.date,
             stopTime: stopFormatted.time,
-            stopDate: stopFormatted.date,
           };
         });
       }

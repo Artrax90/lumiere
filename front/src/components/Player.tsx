@@ -75,7 +75,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   settingsPanelRef.current = settingsPanel;
 
   const hasVideo = !!title.videoUrl;
-  const isHls = hasVideo && (title.videoUrl!.includes('.m3u') || title.videoUrl!.includes('m3u8') || title.videoUrl!.includes('/hls'));
+  const isHls = hasVideo && (
+    title.videoUrl!.includes('.m3u') ||
+    title.videoUrl!.includes('m3u8') ||
+    title.videoUrl!.includes('/hls') ||
+    title.videoUrl!.includes('/api/iptv/stream') ||
+    title.type === 'live'
+  );
 
   const resetHideTimer = useCallback(() => {
     setShowControls(true);
@@ -259,6 +265,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     if (!video || !hasVideo) return;
 
     let url = serverUrl(title.videoUrl!);
+
+    // On web, if live stream is an external direct URL, ensure it routes through proxy to avoid CORS/Mixed-Content
+    if (!Capacitor.isNativePlatform() && title.type === 'live' && !url.includes('/api/iptv/stream') && (url.startsWith('http://') || url.startsWith('https://'))) {
+      url = serverUrl('/api/iptv/stream?url=' + encodeURIComponent(title.videoUrl!));
+    }
 
     // Add start parameter for HLS resume — FFmpeg starts from saved position
     if (isHls && initialTime && initialTime > 30 && url.includes('/api/torrents/hls')) {

@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Pencil, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
 import type { Title } from '@/api/client';
-import { serverFetch, getServerUrl } from '@/api/server';
+import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
 import { syncClient } from '@/api/sync';
 
 interface IPTVChannel {
@@ -141,6 +142,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [selectedChannel, setSelectedChannel] = useState<IPTVChannel | null>(null);
   const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(40);
+  const observerTargetRef = useRef<HTMLDivElement>(null);
 
   // Time slots for EPG grid — start from current hour, then next 8 hours
   const timeSlots = (() => {
@@ -375,6 +378,34 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return filtered;
   }, [channels, selectedGroup, searchQuery, showFavorites, favorites]);
 
+  // Reset visible channels when filtering or searching
+  useEffect(() => {
+    setVisibleCount(40);
+  }, [selectedGroup, searchQuery, showFavorites]);
+
+  const displayedChannels = useMemo(() => {
+    return filteredChannels.slice(0, visibleCount);
+  }, [filteredChannels, visibleCount]);
+
+  // Infinite scroll observer for smooth chunked rendering
+  useEffect(() => {
+    if (visibleCount >= filteredChannels.length) return;
+    const target = observerTargetRef.current;
+    if (!target) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + 40, filteredChannels.length));
+        }
+      },
+      { rootMargin: '400px' }
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [visibleCount, filteredChannels.length]);
+
   // Get logo for channel — use channel logo or EPG icon
   const getChannelLogo = (channel: IPTVChannel): string => {
     if (channel.logo) return channel.logo;
@@ -470,7 +501,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
 
   // Get programs for channel (starting from current time)
   const getPrograms = (channel: IPTVChannel): EpgProgram[] => {
-    if (!channel) return [];
+    if (!channel || Object.keys(epgData).length === 0) return [];
     const epgId = getEpgId(channel);
     if (!epgId || !epgData[epgId]) return [];
 
@@ -540,6 +571,13 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const playChannel = (channel: IPTVChannel) => {
     const program = getCurrentProgram(channel);
 
+    // On web browsers, route external streams through server proxy to bypass CORS and Mixed Content
+    const isNative = Capacitor.isNativePlatform();
+    const isExternalUrl = channel.url.startsWith('http://') || channel.url.startsWith('https://');
+    const streamUrl = !isNative && isExternalUrl
+      ? serverUrl('/api/iptv/stream?url=' + encodeURIComponent(channel.url))
+      : channel.url;
+
     const title: Title = {
       id: 0,
       name: channel.name,
@@ -553,7 +591,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       score: 0,
       genres: [],
       type: 'live',
-      videoUrl: channel.url,
+      videoUrl: streamUrl,
     };
 
     onPlay(title);
@@ -929,7 +967,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 </div>
 
                 {/* Channels */}
-                {filteredChannels.map((ch, idx) => {
+                {displayedChannels.map((ch, idx) => {
                   const isFavorite = favorites.has(ch.id);
                   const programs = getPrograms(ch);
 
@@ -937,7 +975,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                     <div
                       key={ch.id}
                       onClick={() => playChannel(ch)}
-                      className={`flex items-center min-w-[1100px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== filteredChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                      className={`flex items-center min-w-[1100px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== displayedChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
                     >
                       {/* Channel info */}
                       <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
@@ -948,6 +986,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                               alt={ch.name}
                               className="h-full w-full object-cover"
                               loading="lazy"
+                              decoding="async"
                               onError={(e) => { e.currentTarget.style.display = 'none'; }}
                             />
                           ) : (
@@ -1010,6 +1049,21 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   );
                 })}
               </div>
+
+              {/* Load more sentinel for smooth pagination */}
+              {visibleCount < filteredChannels.length && (
+                <div ref={observerTargetRef} className="py-6 flex flex-col items-center justify-center gap-2 border-t border-white/[0.04]">
+                  <div className="text-[12px] text-white/40">
+                    Показано {displayedChannels.length} из {filteredChannels.length} каналов
+                  </div>
+                  <button
+                    onClick={() => setVisibleCount((prev) => Math.min(prev + 50, filteredChannels.length))}
+                    className="rounded-full bg-white/10 hover:bg-white/15 px-6 py-2 text-[12px] font-medium text-white transition-colors"
+                  >
+                    Показать ещё (+50)
+                  </button>
+                </div>
+              )}
 
               {/* Empty favorites */}
               {showFavorites && filteredChannels.length === 0 && (
