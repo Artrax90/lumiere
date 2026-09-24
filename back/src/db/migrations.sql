@@ -217,20 +217,9 @@ CREATE INDEX IF NOT EXISTS idx_playback_history_user_id ON playback_history(user
 CREATE INDEX IF NOT EXISTS idx_playback_history_ended_at ON playback_history(ended_at);
 
 -- Allow nullable user_id for Smart TV, Guest or Device playback sessions
-DO $$ 
-BEGIN 
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_sessions' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
-    ALTER TABLE playback_sessions ALTER COLUMN user_id DROP NOT NULL;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_history' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
-    ALTER TABLE playback_history ALTER COLUMN user_id DROP NOT NULL;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_sessions_user_id_fkey') THEN
-    ALTER TABLE playback_sessions DROP CONSTRAINT playback_sessions_user_id_fkey;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_history_user_id_fkey') THEN
-    ALTER TABLE playback_history DROP CONSTRAINT playback_history_user_id_fkey;
-  END IF;
-END $$;
+ALTER TABLE IF EXISTS playback_sessions ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS playback_history ALTER COLUMN user_id DROP NOT NULL;
+ALTER TABLE IF EXISTS playback_sessions DROP CONSTRAINT IF EXISTS playback_sessions_user_id_fkey;
+ALTER TABLE IF EXISTS playback_history DROP CONSTRAINT IF EXISTS playback_history_user_id_fkey;
 
 

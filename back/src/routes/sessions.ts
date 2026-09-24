@@ -40,10 +40,10 @@ async function ensureSessionTables() {
         terminate_requested BOOLEAN DEFAULT FALSE,
         started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         last_heartbeat TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_playback_sessions_user_id ON playback_sessions(user_id);
-      CREATE INDEX IF NOT EXISTS idx_playback_sessions_last_heartbeat ON playback_sessions(last_heartbeat);
+      )
+    `);
 
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS playback_history (
         id SERIAL PRIMARY KEY,
         user_id INTEGER,
@@ -60,26 +60,19 @@ async function ensureSessionTables() {
         completed BOOLEAN DEFAULT FALSE,
         started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         ended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-      CREATE INDEX IF NOT EXISTS idx_playback_history_user_id ON playback_history(user_id);
-      CREATE INDEX IF NOT EXISTS idx_playback_history_ended_at ON playback_history(ended_at);
-
-      DO $$ 
-      BEGIN 
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_sessions' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
-          ALTER TABLE playback_sessions ALTER COLUMN user_id DROP NOT NULL;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'playback_history' AND column_name = 'user_id' AND is_nullable = 'NO') THEN
-          ALTER TABLE playback_history ALTER COLUMN user_id DROP NOT NULL;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_sessions_user_id_fkey') THEN
-          ALTER TABLE playback_sessions DROP CONSTRAINT playback_sessions_user_id_fkey;
-        END IF;
-        IF EXISTS (SELECT 1 FROM information_schema.table_constraints WHERE constraint_name = 'playback_history_user_id_fkey') THEN
-          ALTER TABLE playback_history DROP CONSTRAINT playback_history_user_id_fkey;
-        END IF;
-      END $$;
+      )
     `);
+
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_playback_sessions_user_id ON playback_sessions(user_id)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_playback_sessions_last_heartbeat ON playback_sessions(last_heartbeat)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_playback_history_user_id ON playback_history(user_id)`).catch(() => {});
+    await pool.query(`CREATE INDEX IF NOT EXISTS idx_playback_history_ended_at ON playback_history(ended_at)`).catch(() => {});
+
+    await pool.query(`ALTER TABLE IF EXISTS playback_sessions ALTER COLUMN user_id DROP NOT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE IF EXISTS playback_history ALTER COLUMN user_id DROP NOT NULL`).catch(() => {});
+    await pool.query(`ALTER TABLE IF EXISTS playback_sessions DROP CONSTRAINT IF EXISTS playback_sessions_user_id_fkey`).catch(() => {});
+    await pool.query(`ALTER TABLE IF EXISTS playback_history DROP CONSTRAINT IF EXISTS playback_history_user_id_fkey`).catch(() => {});
+
     sessionTablesReady = true;
   } catch (err: any) {
     console.error('[Sessions] ensureSessionTables error:', err.message);
@@ -331,7 +324,8 @@ export function sessionRoutes(app: FastifyInstance) {
           })),
         };
       } catch (err: any) {
-        return reply.code(500).send({ error: err.message });
+        console.error('[Sessions] active query error:', err.message);
+        return { sessions: [] };
       }
     }
   );
@@ -416,7 +410,8 @@ export function sessionRoutes(app: FastifyInstance) {
           })),
         };
       } catch (err: any) {
-        return reply.code(500).send({ error: err.message });
+        console.error('[Sessions] history query error:', err.message);
+        return { history: [] };
       }
     }
   );
