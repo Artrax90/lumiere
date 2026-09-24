@@ -33,7 +33,7 @@
   <!-- Loading -->
   <div id="loading" class="screen">
     <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
-    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v584</div>
+    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v585</div>
     <div class="spinner"></div>
   </div>
 
@@ -414,10 +414,10 @@
     </div>
   </div>
 
-  <script src="./hls.min.js?v=584" charset="UTF-8"></script>
-  <script src="./player-adapter.js?v=584" charset="UTF-8"></script>
-  <script src="./player.js?v=584" charset="UTF-8"></script>
-  <script src="./tv.js?v=584" charset="UTF-8"></script>
+  <script src="./hls.min.js?v=585" charset="UTF-8"></script>
+  <script src="./player-adapter.js?v=585" charset="UTF-8"></script>
+  <script src="./player.js?v=585" charset="UTF-8"></script>
+  <script src="./tv.js?v=585" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {
@@ -431,6 +431,13 @@
     });
 
     window.onerror = function(msg, url, line, col, err) {
+      console.error('[UNCAUGHT-ERROR]', msg, 'at', line + ':' + col, err);
+      var appEl = document.getElementById('app');
+      var isAppActive = appEl && !appEl.classList.contains('hidden') && appEl.style.display !== 'none';
+      if (isAppActive) {
+        console.warn('[Lumiere] Suppressed non-fatal error in active UI:', msg);
+        return true;
+      }
       var el = document.getElementById('error-screen');
       if (!el) {
         el = document.createElement('div');

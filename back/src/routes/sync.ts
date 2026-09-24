@@ -94,6 +94,13 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
   app.delete('/api/sync/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;
     await db.query('DELETE FROM watch_history WHERE user_id = $1', [userId]);
+    try {
+      await db.query(
+        `INSERT INTO app_settings (key, value, updated_at) VALUES ('history_cleared_at', $1, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [new Date().toISOString()]
+      );
+    } catch {}
     return { success: true, message: 'History cleared' };
   });
 
@@ -104,7 +111,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
     // Reject push if history was cleared recently (within 5 minutes)
     try {
-      const clearCheck = await db.query("SELECT value FROM settings WHERE key = 'history_cleared_at'");
+      const clearCheck = await db.query("SELECT value FROM app_settings WHERE key = 'history_cleared_at'");
       if (clearCheck.rows.length > 0) {
         const clearedAt = new Date(clearCheck.rows[0].value);
         const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000);

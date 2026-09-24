@@ -661,7 +661,12 @@
 
     apiPost('/api/auth/quick-login', { userId: userId, pin: pin }, function(err, data) {
       if (err || !data || !data.accessToken) {
-        if ($error) $error.textContent = (err && err.message) ? err.message : 'Неверный PIN-код';
+        var errMsg = (err && err.message) ? err.message : 'Неверный PIN-код';
+        if ($error) $error.textContent = errMsg;
+        var $modal = document.getElementById('tv-pin-modal');
+        if (!$modal || $modal.classList.contains('hidden') || $modal.style.display === 'none') {
+          showTvToast(errMsg, 3000);
+        }
         profileState.pinDigits = '';
         updatePinDots();
         return;
@@ -2913,7 +2918,7 @@
     if (logoBox) {
       var logo = getChannelLogo(ch);
       if (logo) {
-        logoBox.innerHTML = '<img src="' + esc(logo) + '" onerror="this.parentNode.innerHTML=\'TV\'">';
+        logoBox.innerHTML = '<img src="' + esc(logo) + '" onerror="try{if(this.parentNode)this.parentNode.textContent=\'TV\';}catch(e){}">';
       } else {
         logoBox.textContent = 'TV';
       }

@@ -183,11 +183,6 @@ export function authRoutes(app: FastifyInstance) {
 
       const user = result.rows[0];
 
-      // Admin role must require PIN or password! Never allow 1-click passwordless admin login
-      if (user.role === 'admin' && (!user.pin || user.pin.trim() === '')) {
-        return reply.code(403).send({ error: 'Для входа в профиль администратора требуется пароль' });
-      }
-
       // Verify PIN if set
       if (user.pin && user.pin.trim() !== '') {
         if (!pin || pin.trim() !== user.pin.trim()) {
