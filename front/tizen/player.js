@@ -129,7 +129,7 @@
     if (btnCc) topBtns.push(btnCc);
 
     // Server & API
-    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url');
+    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
     if (server) {
       API = server;
     } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {

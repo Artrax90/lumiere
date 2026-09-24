@@ -83,7 +83,13 @@ runMigrations().catch((e) => console.error('[DB] Migration error:', e.message));
 const app = Fastify({ logger: true, trustProxy: true });
 
 
-await app.register(cors, { origin: config.cors.origin });
+await app.register(cors, {
+  origin: config.cors.origin,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Lumiere-TV', 'X-Lumiere-Client', 'Range', 'x-forwarded-for'],
+  exposedHeaders: ['Content-Range', 'Accept-Ranges', 'Content-Length', 'Content-Type'],
+  credentials: true,
+});
 
 const tmdbClient = new TmdbClient(config.tmdb.token, config.tmdb.proxyUrl);
 const provider = new TmdbProvider(tmdbClient);

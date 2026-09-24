@@ -31,29 +31,25 @@ function getClientIp(req: any): string {
   return req.ip || req.socket?.remoteAddress || '';
 }
 
+function isTvRequest(req: any): boolean {
+  const userAgent = (req.headers['user-agent'] || '').toLowerCase();
+  return (
+    req.headers['x-lumiere-tv'] === '1' ||
+    req.headers['x-lumiere-client'] === 'tizen-tv' ||
+    req.headers['x-lumiere-client'] === 'tv' ||
+    userAgent.includes('tizen') ||
+    userAgent.includes('smart-tv') ||
+    userAgent.includes('smarttv') ||
+    userAgent.includes('web0s')
+  );
+}
+
 function isLanRequest(req: any): boolean {
-  // 1. Host header check: if accessed through a public domain or public IP, it is NEVER LAN!
-  const hostHeader = req.headers['host'] || req.headers['x-forwarded-host'];
-  if (hostHeader) {
-    const rawHost = (typeof hostHeader === 'string' ? hostHeader : hostHeader[0]).split(':')[0].toLowerCase().trim();
-    if (rawHost && rawHost !== 'localhost' && rawHost !== '127.0.0.1' && rawHost !== '::1' && !rawHost.endsWith('.local')) {
-      const hostParts = rawHost.split('.').map(Number);
-      if (hostParts.length === 4 && hostParts.every((p: number) => !isNaN(p) && p >= 0 && p <= 255)) {
-        const isPrivate =
-          hostParts[0] === 10 ||
-          (hostParts[0] === 172 && hostParts[1] >= 16 && hostParts[1] <= 31) ||
-          (hostParts[0] === 192 && hostParts[1] === 168);
-        if (!isPrivate) {
-          return false; // Public IP in Host header -> External connection!
-        }
-      } else {
-        // Domain name (e.g. lumiere.example.com, ngrok, trycloudflare, etc.) -> External connection!
-        return false;
-      }
-    }
+  if (isTvRequest(req)) {
+    return true;
   }
 
-  // 2. Client IP check
+  // Client IP check
   const clientIp = getClientIp(req);
   if (!clientIp) return false;
   const cleanIp = clientIp.replace(/^::ffff:/, '').trim();
@@ -109,16 +105,18 @@ async function isUserAdmin(userId: number): Promise<boolean> {
 }
 
 export function authRoutes(app: FastifyInstance) {
-  // Check if current request is from LAN
+  // Check if current request is from LAN or TV
   app.get('/api/auth/lan-status', async (req) => {
+    const isTv = isTvRequest(req);
+    const isLan = isLanRequest(req);
     const clientIp = getClientIp(req);
-    return { isLan: isLanRequest(req), clientIp };
+    return { isLan, isTv, clientIp };
   });
 
-  // Get list of user profiles (LAN only)
+  // Get list of user profiles (LAN or TV)
   app.get('/api/auth/profiles', async (req, reply) => {
-    if (!isLanRequest(req)) {
-      return reply.code(403).send({ error: 'Profiles list is only available in LAN' });
+    if (!isLanRequest(req) && !isTvRequest(req)) {
+      return reply.code(403).send({ error: 'Profiles list is only available in LAN or TV' });
     }
 
     try {

@@ -1,17 +1,28 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>
+  if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
+    window.__DEFAULT_SERVER_URL__ = window.location.origin;
+    try {
+      if (!localStorage.getItem('lumiere_server') && !localStorage.getItem('lumiere_server_url') && !localStorage.getItem('lumiere_tv_server')) {
+        localStorage.setItem('lumiere_server_url', window.location.origin);
+        localStorage.setItem('lumiere_tv_server', window.location.origin);
+      }
+    } catch(e) {}
+  }
+</script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="/tv/tv.css?v=582">
-  <link rel="stylesheet" href="/tv/player.css?v=582">
+  <link rel="stylesheet" href="/tv/tv.css?v=584">
+  <link rel="stylesheet" href="/tv/player.css?v=584">
 </head>
 <body>
   <!-- Loading -->
   <div id="loading" class="screen">
     <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
-    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v582</div>
+    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v584</div>
     <div class="spinner"></div>
   </div>
 
@@ -391,10 +402,10 @@
     </div>
   </div>
 
-  <script src="/tv/hls.min.js?v=582" charset="UTF-8"></script>
-  <script src="/tv/player-adapter.js?v=582" charset="UTF-8"></script>
-  <script src="/tv/player.js?v=582" charset="UTF-8"></script>
-  <script src="/tv/tv.js?v=582" charset="UTF-8"></script>
+  <script src="/tv/hls.min.js?v=584" charset="UTF-8"></script>
+  <script src="/tv/player-adapter.js?v=584" charset="UTF-8"></script>
+  <script src="/tv/player.js?v=584" charset="UTF-8"></script>
+  <script src="/tv/tv.js?v=584" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {

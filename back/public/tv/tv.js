@@ -19,9 +19,9 @@
   // In .wgt context, __LUMIERE_BASE__ is set by launcher
   // In browser context, use current origin
   function getBaseUrl() {
-    if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
-    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url');
+    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
     if (server) return server;
+    if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
     if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
       return window.location.origin;
     }
@@ -289,6 +289,10 @@
       var xhr = new XMLHttpRequest();
       xhr.open('GET', sUrl + '/tv/index.html?ts=' + Date.now(), false);
       try { xhr.overrideMimeType('text/html; charset=utf-8'); } catch(me) {}
+      try {
+        xhr.setRequestHeader('X-Lumiere-TV', '1');
+        xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+      } catch(he) {}
       xhr.send();
       if (xhr.status === 200 && xhr.responseText) {
         var bodyMatch = xhr.responseText.match(/<body[^>]*>([\s\S]*)<\/body>/i);
@@ -313,13 +317,19 @@
   function init() {
     console.log('[Lumiere] Init starting');
     try {
-      var server = window.__DEFAULT_SERVER_URL__ || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') ? window.location.origin : '');
-      if (window.__DEFAULT_SERVER_URL__) {
-        server = window.__DEFAULT_SERVER_URL__;
+      var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
+      var server = savedServer;
+      if (!server) {
+        if (window.__DEFAULT_SERVER_URL__) {
+          server = window.__DEFAULT_SERVER_URL__;
+        } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
+          server = window.location.origin;
+        }
       }
       if (server) {
         localStorage.setItem(SERVER_KEY, server);
         localStorage.setItem('lumiere_server_url', server);
+        localStorage.setItem('lumiere_tv_server', server);
       }
       API = server || '';
       console.log('[Lumiere] API set to:', API);
@@ -432,21 +442,19 @@
     console.log('[Lumiere] loadProfilesAndShowPicker called');
     apiFetch('/api/auth/lan-status', function(err, lanData) {
       if (err) {
-        showError('Не удалось подключиться к серверу Lumiere (' + API + '). Проверьте, что сервер запущен.');
+        showError('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен.');
         return;
       }
-      if (lanData && lanData.isLan) {
-        apiFetch('/api/auth/profiles', function(err2, data) {
-          var list = (data && data.profiles) || [];
-          if (list.length === 0) {
-            showError('На сервере нет аккаунтов. Создайте аккаунт через веб-интерфейс.');
-            return;
-          }
+      apiFetch('/api/auth/profiles', function(err2, data) {
+        var list = (data && data.profiles) || [];
+        if (list.length > 0) {
           renderProfilePicker(list);
-        });
-      } else {
-        showError('Для входа вне локальной сети авторизуйтесь через веб-браузер.');
-      }
+        } else if (lanData && !lanData.isLan && !lanData.isTv) {
+          showError('Для входа вне локальной сети авторизуйтесь через веб-браузер или задайте PIN-код профиля.');
+        } else {
+          showError('На сервере нет аккаунтов. Создайте аккаунт через веб-интерфейс.');
+        }
+      });
     });
   }
 
@@ -769,7 +777,7 @@
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
-      var currentServerDisplay = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'не задан');
+      var currentServerDisplay = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'не задан');
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);padding:10px 22px;border-radius:14px;color:#f87171;font-size:17px;font-weight:600;">' +
           '<span>⚠️</span><span>Ошибка подключения к серверу</span>' +
@@ -820,27 +828,37 @@
 
   var serverModalState = {
     active: false,
-    curRow: 4,
+    curRow: 5,
     curCol: 0,
-    rows: []
+    rows: [],
+    failedUrl: null
   };
 
   function openServerModal() {
     var modal = document.getElementById('tv-server-modal');
     if (!modal) return;
     serverModalState.active = true;
+    serverModalState.failedUrl = null;
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
 
-    var currentServer = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
+    var currentServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
     var input = document.getElementById('tv-server-input');
     if (input) {
       input.value = currentServer;
+      if (!input._eventsBound) {
+        input._eventsBound = true;
+        input.addEventListener('input', function() {
+          serverModalState.failedUrl = null;
+          showServerModalStatus('', '');
+        });
+      }
     }
     showServerModalStatus('', '');
 
     buildServerModalRows();
-    serverModalState.curRow = 4;
+    // Default focus to connect button (last row)
+    serverModalState.curRow = Math.max(0, serverModalState.rows.length - 1);
     serverModalState.curCol = 0;
     updateServerModalFocus();
 
@@ -861,6 +879,7 @@
     var modal = document.getElementById('tv-server-modal');
     if (!modal) return;
     serverModalState.active = false;
+    serverModalState.failedUrl = null;
     modal.classList.add('hidden');
     modal.style.display = 'none';
 
@@ -880,13 +899,25 @@
   function buildServerModalRows() {
     var modal = document.getElementById('tv-server-modal');
     if (!modal) return;
-    var rowEls = modal.querySelectorAll('.tv-server-keypad-row');
     serverModalState.rows = [];
+
+    // Row 0: Input field and backspace button
+    var inputEl = document.getElementById('tv-server-input');
+    var backKey = document.getElementById('tv-server-key-back');
+    if (inputEl && backKey) {
+      serverModalState.rows.push([inputEl, backKey]);
+    } else if (inputEl) {
+      serverModalState.rows.push([inputEl]);
+    }
+
+    var rowEls = modal.querySelectorAll('.tv-server-keypad-row');
     for (var r = 0; r < rowEls.length; r++) {
       var btns = rowEls[r].querySelectorAll('button');
       var rowBtns = [];
       for (var b = 0; b < btns.length; b++) rowBtns.push(btns[b]);
-      serverModalState.rows.push(rowBtns);
+      if (rowBtns.length > 0) {
+        serverModalState.rows.push(rowBtns);
+      }
     }
   }
 
@@ -911,7 +942,9 @@
     var targetBtn = curRowBtns[c];
     if (targetBtn) {
       targetBtn.classList.add('focused');
-      try { targetBtn.focus(); } catch(e) {}
+      if (targetBtn.id !== 'tv-server-input') {
+        try { targetBtn.focus(); } catch(e) {}
+      }
     }
   }
 
@@ -919,12 +952,16 @@
     var input = document.getElementById('tv-server-input');
     if (!input) return;
     input.value = (input.value || '') + txt;
+    serverModalState.failedUrl = null;
+    showServerModalStatus('', '');
   }
 
   function backspaceServerInput() {
     var input = document.getElementById('tv-server-input');
     if (!input || !input.value) return;
     input.value = input.value.slice(0, -1);
+    serverModalState.failedUrl = null;
+    showServerModalStatus('', '');
   }
 
   function handleServerKeyAction(btn) {
@@ -941,16 +978,29 @@
       backspaceServerInput();
     } else if (action === 'clear') {
       var input = document.getElementById('tv-server-input');
-      if (input) input.value = '';
+      if (input) {
+        input.value = '';
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
     } else if (action === 'curhost') {
       var cur = (window.location && window.location.hostname && window.location.hostname !== 'localhost') ?
-        ('http://' + window.location.hostname + ':3500') :
+        ((window.location.protocol || 'http:') + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '')) :
         'http://';
       var input = document.getElementById('tv-server-input');
-      if (input) input.value = cur;
+      if (input) {
+        input.value = cur;
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
     } else if (action === 'default') {
+      var def = window.__DEFAULT_SERVER_URL__ || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
       var input = document.getElementById('tv-server-input');
-      if (input) input.value = 'http://';
+      if (input) {
+        input.value = def;
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
     } else if (action === 'connect') {
       var input = document.getElementById('tv-server-input');
       testAndSaveServer(input ? input.value : '');
@@ -960,71 +1010,121 @@
   }
 
   function testAndSaveServer(serverUrl) {
-    var url = (serverUrl || '').trim();
-    if (!url) {
+    var rawUrl = (serverUrl || '').trim();
+    if (!rawUrl) {
       showServerModalStatus('Введите адрес сервера', 'error');
       return;
     }
-    if (!/^https?:\/\//i.test(url)) {
-      url = 'http://' + url;
-    }
-    url = url.replace(/\/+$/, '');
 
-    showServerModalStatus('Проверка подключения к ' + url + '...', 'loading');
+    // Strip trailing slashes
+    rawUrl = rawUrl.replace(/\/+$/, '');
 
-    var xhr = new XMLHttpRequest();
-    xhr.open('GET', url + '/api/setup/status', true);
-    xhr.timeout = 6000;
-    xhr.onload = function() {
-      if (xhr.status >= 200 && xhr.status < 400) {
-        applyNewServer(url);
-      } else {
-        var xhr2 = new XMLHttpRequest();
-        xhr2.open('GET', url + '/api/auth/lan-status', true);
-        xhr2.timeout = 5000;
-        xhr2.onload = function() {
-          if (xhr2.status >= 200 && xhr2.status < 400) {
-            applyNewServer(url);
-          } else {
-            showServerModalStatus('Сервер ответил кодом ' + xhr2.status + '. Проверьте адрес.', 'error');
-          }
-        };
-        xhr2.onerror = function() {
-          showServerModalStatus('Не удалось подключиться к ' + url, 'error');
-        };
-        xhr2.ontimeout = function() {
-          showServerModalStatus('Превышено время ожидания ответа от ' + url, 'error');
-        };
-        xhr2.send();
+    // If user is confirming force-save for the same URL after warning
+    if (serverModalState.failedUrl && serverModalState.failedUrl === rawUrl) {
+      console.log('[Lumiere] User confirmed force-save for:', rawUrl);
+      var forced = rawUrl;
+      if (!/^https?:\/\//i.test(forced)) {
+        var isDomain = !/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(forced);
+        var curProto = (window.location && window.location.protocol === 'https:') ? 'https://' : 'http://';
+        forced = (isDomain ? curProto : 'http://') + forced;
       }
-    };
-    xhr.onerror = function() {
-      var xhr3 = new XMLHttpRequest();
-      xhr3.open('GET', url + '/api/health', true);
-      xhr3.timeout = 5000;
-      xhr3.onload = function() {
-        if (xhr3.status >= 200 && xhr3.status < 400) {
-          applyNewServer(url);
+      applyNewServer(forced);
+      return;
+    }
+
+    // Prepare candidate URLs
+    var candidates = [];
+    if (/^https?:\/\//i.test(rawUrl)) {
+      candidates.push(rawUrl);
+      if (rawUrl.indexOf('http://') === 0) {
+        candidates.push(rawUrl.replace(/^http:\/\//i, 'https://'));
+      } else {
+        candidates.push(rawUrl.replace(/^https:\/\//i, 'http://'));
+      }
+    } else {
+      var isDomain = !/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(rawUrl);
+      var isPageHttps = (window.location && window.location.protocol === 'https:');
+      if (isPageHttps || isDomain) {
+        // Try HTTPS first for domains or if current page is HTTPS
+        candidates.push('https://' + rawUrl);
+        candidates.push('http://' + rawUrl);
+      } else {
+        // Try HTTP first for LAN IP
+        candidates.push('http://' + rawUrl);
+        candidates.push('https://' + rawUrl);
+      }
+    }
+
+    showServerModalStatus('Проверка подключения...', 'loading');
+
+    var cIndex = 0;
+    function tryNextCandidate() {
+      if (cIndex >= candidates.length) {
+        serverModalState.failedUrl = rawUrl;
+        showServerModalStatus('Не удалось подключиться к ' + rawUrl + '. Нажмите «Подключиться» ещё раз для принудительного сохранения.', 'warning');
+        return;
+      }
+
+      var candidate = candidates[cIndex++];
+      showServerModalStatus('Проверка подключения к ' + candidate + '...', 'loading');
+
+      testServerUrl(candidate, function(success) {
+        if (success) {
+          serverModalState.failedUrl = null;
+          applyNewServer(candidate);
         } else {
-          showServerModalStatus('Не удалось подключиться к ' + url + '. Проверьте IP и порт.', 'error');
+          tryNextCandidate();
+        }
+      });
+    }
+
+    tryNextCandidate();
+  }
+
+  function testServerUrl(candidateUrl, cb) {
+    var endpoints = ['/api/health', '/api/setup/status', '/api/auth/lan-status'];
+    var epIndex = 0;
+
+    function tryEndpoint() {
+      if (epIndex >= endpoints.length) {
+        cb(false);
+        return;
+      }
+      var ep = endpoints[epIndex++];
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', candidateUrl + ep, true);
+      xhr.timeout = 5000;
+      try {
+        xhr.setRequestHeader('X-Lumiere-TV', '1');
+        xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+      } catch(e) {}
+
+      xhr.onload = function() {
+        // Any HTTP response (including 401/403) confirms server existence and reachability
+        if (xhr.status > 0 && xhr.status < 500) {
+          cb(true);
+        } else {
+          tryEndpoint();
         }
       };
-      xhr3.onerror = function() {
-        showServerModalStatus('Не удалось подключиться к ' + url + '. Проверьте IP и порт.', 'error');
+      xhr.onerror = function() {
+        tryEndpoint();
       };
-      xhr3.ontimeout = function() {
-        showServerModalStatus('Превышено время ожидания от ' + url, 'error');
+      xhr.ontimeout = function() {
+        tryEndpoint();
       };
-      xhr3.send();
-    };
-    xhr.ontimeout = function() {
-      showServerModalStatus('Превышено время ожидания от ' + url, 'error');
-    };
-    xhr.send();
+      try {
+        xhr.send();
+      } catch(err) {
+        tryEndpoint();
+      }
+    }
+
+    tryEndpoint();
   }
 
   function applyNewServer(url) {
-    showServerModalStatus('✓ Подключено! Сохранение...', 'success');
+    showServerModalStatus('✓ Сервер сохранён! Перезагрузка...', 'success');
     try {
       localStorage.setItem(SERVER_KEY, url);
       localStorage.setItem('lumiere_server_url', url);
@@ -1034,7 +1134,7 @@
     API = url;
     setTimeout(function() {
       window.location.reload();
-    }, 700);
+    }, 600);
   }
 
   function handleServerModalKey(code, key, e) {
@@ -1043,10 +1143,11 @@
       return;
     }
 
-    if (code >= 48 && code <= 57) {
-      appendServerInputText(String(code - 48));
+    if (code === 8 || key === 'Backspace') {
+      backspaceServerInput();
       return;
     }
+
     if (code >= 96 && code <= 105) {
       appendServerInputText(String(code - 96));
       return;
@@ -1058,7 +1159,7 @@
       } else {
         var r = serverModalState.curRow;
         var rBtns = serverModalState.rows[r] || [];
-        serverModalState.curCol = rBtns.length - 1;
+        serverModalState.curCol = Math.max(0, rBtns.length - 1);
       }
       updateServerModalFocus();
       return;
@@ -1091,10 +1192,20 @@
 
     if (code === 13 || key === 'Enter') {
       var curRowBtns = serverModalState.rows[serverModalState.curRow] || [];
-      var btn = curRowBtns[serverModalState.curCol];
-      if (btn) {
-        handleServerKeyAction(btn);
+      var target = curRowBtns[serverModalState.curCol];
+      if (target) {
+        if (target.id === 'tv-server-input') {
+          try { target.focus(); } catch(e) {}
+        } else {
+          handleServerKeyAction(target);
+        }
       }
+      return;
+    }
+
+    // Handle typing from physical keyboard / remote alphanumeric keys
+    if (e && e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      appendServerInputText(e.key);
       return;
     }
   }
@@ -7733,6 +7844,10 @@
     var xhr = new XMLHttpRequest();
     xhr.open('GET', API + path, true);
     xhr.timeout = 10000;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.onload = function() {
@@ -7751,6 +7866,10 @@
     xhr.open('POST', API + path, true);
     xhr.timeout = (path.indexOf('/api/iptv') === 0) ? 35000 : 12000;
     xhr.setRequestHeader('Content-Type', 'application/json');
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.onload = function() {
@@ -7769,6 +7888,10 @@
     xhr.open('PUT', API + path, true);
     xhr.timeout = 12000;
     xhr.setRequestHeader('Content-Type', 'application/json');
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.onload = function() {
@@ -7786,6 +7909,10 @@
     var xhr = new XMLHttpRequest();
     xhr.open('DELETE', API + path, true);
     xhr.timeout = 12000;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.onload = function() {
