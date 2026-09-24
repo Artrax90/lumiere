@@ -24,6 +24,7 @@ import Card from './Card';
 
 interface SearchViewProps {
   onSelect: (title: Title) => void;
+  initialQuery?: string;
 }
 
 type MediaTypeFilter = 'all' | 'movie' | 'tv' | 'anime';
@@ -60,9 +61,9 @@ function clearAllRecentSearches() {
   } catch {}
 }
 
-export default function SearchView({ onSelect }: SearchViewProps) {
+export default function SearchView({ onSelect, initialQuery = '' }: SearchViewProps) {
   const { t } = useTranslation();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [focused, setFocused] = useState(false);
   const [typeFilter, setTypeFilter] = useState<MediaTypeFilter>('all');
   const [sortBy, setSortBy] = useState<SortOption>('relevance');

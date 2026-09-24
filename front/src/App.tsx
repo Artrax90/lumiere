@@ -85,11 +85,38 @@ import NotificationsView from '@/components/NotificationsView';
 import IPTVView from '@/components/IPTVView';
 import MyView from '@/components/MyView';
 
+import { useAppRoute, type AppRoute } from '@/hooks/useAppRoute';
+import { apiFetch } from '@/api/client';
+import { isWeb } from '@/hooks/usePlatform';
+
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
   const { user, loading, needsSetup, serverReady, connectionError } = useAuth();
-  const [section, setSection] = useState<NavSection>('home');
+
+  const handleRoutePopState = useCallback((newRoute: AppRoute) => {
+    setSection(newRoute.section);
+    if (!newRoute.id) {
+      setSelectedTitle(null);
+      setSelectedShow(null);
+      setSelectedEpisode(null);
+    } else if (newRoute.section === 'movies') {
+      setSelectedShow(null);
+      setSelectedEpisode(null);
+      apiFetch<Title>(`/api/movies/${newRoute.id}`)
+        .then((m) => setSelectedTitle(m))
+        .catch(() => {});
+    } else if (newRoute.section === 'shows') {
+      setSelectedTitle(null);
+      setSelectedEpisode(null);
+      apiFetch<Title>(`/api/tv/${newRoute.id}`)
+        .then((s) => setSelectedShow(s))
+        .catch(() => {});
+    }
+  }, []);
+
+  const { route, pushRoute, replaceRoute } = useAppRoute(handleRoutePopState);
+  const [section, setSection] = useState<NavSection>(() => route.section);
   const [selectedTitle, setSelectedTitle] = useState<Title | null>(null);
   const [selectedShow, setSelectedShow] = useState<Title | null>(null);
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
@@ -100,7 +127,33 @@ export default function App() {
   const [mood, setMood] = useState<Mood>('warm');
   const [tvNavFocused, setTvNavFocused] = useState<string | null>(null);
 
+  // Load initial deep link metadata if opened with /film/:id or /series/:id
+  useEffect(() => {
+    if (!route.id) return;
+    if (route.section === 'movies') {
+      apiFetch<Title>(`/api/movies/${route.id}`)
+        .then((m) => setSelectedTitle(m))
+        .catch(() => {});
+    } else if (route.section === 'shows') {
+      apiFetch<Title>(`/api/tv/${route.id}`)
+        .then((s) => setSelectedShow(s))
+        .catch(() => {});
+    }
+  }, []);
+
   const { data: trendingMovies } = useTrending('movie');
+
+  const handleNavigate = useCallback((s: NavSection) => {
+    setSelectedTitle(null);
+    setSelectedEpisode(null);
+    if (s !== 'shows') {
+      setSelectedShow(null);
+      setActiveEpisodeId(null);
+    }
+    setSection(s);
+    pushRoute(s);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [pushRoute]);
 
   // TV focus management
   const tvNavElements: FocusableElement[] = [
@@ -156,13 +209,37 @@ export default function App() {
       setSelectedEpisode(null);
       setSelectedTitle(null);
       setSection('shows');
+      pushRoute('shows', title.id, title.name);
       window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
     setSelectedTitle(title);
     setSelectedEpisode(null);
+    pushRoute(section === 'shows' ? 'shows' : 'movies', title.id, title.name);
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
+  }, [pushRoute, section]);
+
+  const handleCloseMovieDetails = useCallback(() => {
+    setSelectedTitle(null);
+    if (isWeb() && typeof window !== 'undefined' && window.history.state?.id) {
+      window.history.back();
+    } else {
+      replaceRoute(section || 'movies');
+    }
+  }, [section, replaceRoute]);
+
+  const handleSelectShow = useCallback((show: Title | null) => {
+    setSelectedShow(show);
+    if (show) {
+      pushRoute('shows', show.id, show.name);
+    } else {
+      if (isWeb() && typeof window !== 'undefined' && window.history.state?.id) {
+        window.history.back();
+      } else {
+        replaceRoute('shows');
+      }
+    }
+  }, [pushRoute, replaceRoute]);
 
   const lastSavedTime = useRef(0);
 
@@ -227,16 +304,6 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, []);
 
-  const handleNavigate = useCallback((s: NavSection) => {
-    setSelectedTitle(null);
-    setSelectedEpisode(null);
-    if (s !== 'shows') {
-      setSelectedShow(null);
-      setActiveEpisodeId(null);
-    }
-    setSection(s);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, []);
 
   // Handle Android back button / swipe-back gesture
   useEffect(() => {
@@ -339,6 +406,11 @@ export default function App() {
             onBack={() => {
               setSelectedEpisode(null);
               setSection('shows');
+              if (selectedShow) {
+                replaceRoute('shows', selectedShow.id, selectedShow.name);
+              } else {
+                replaceRoute('shows');
+              }
             }}
             onPlay={handlePlay}
             onSelectEpisode={handleEpisodeSelect}
@@ -346,7 +418,7 @@ export default function App() {
         ) : selectedTitle ? (
           <MovieDetails
             title={selectedTitle}
-            onBack={() => setSelectedTitle(null)}
+            onBack={handleCloseMovieDetails}
             onPlay={handlePlay}
             onSelect={handleSelect}
           />
@@ -363,11 +435,11 @@ export default function App() {
             />
           )
         ) : section === 'search' ? (
-          <SearchView onSelect={handleSelect} />
+          <SearchView onSelect={handleSelect} initialQuery={route.searchQuery} />
         ) : (section === 'live' || section === 'iptv') ? (
           <IPTVView onPlay={handlePlay} />
         ) : section === 'settings' ? (
-          <SettingsView onClose={() => setSection('home')} />
+          <SettingsView onClose={() => handleNavigate('home')} />
         ) : section === 'collections' ? (
           <CollectionsView onSelect={handleSelect} />
         ) : section === 'my' ? (
@@ -380,7 +452,7 @@ export default function App() {
             onPlay={handlePlay}
             onEpisodeSelect={handleEpisodeSelect}
             selectedShow={selectedShow}
-            onSelectShow={setSelectedShow}
+            onSelectShow={handleSelectShow}
             season={selectedSeason}
             onSelectSeason={setSelectedSeason}
             activeEpisodeId={activeEpisodeId}

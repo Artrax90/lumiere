@@ -4,6 +4,8 @@ import { Search, Settings, Film, Tv, Sparkles, Bell, Puzzle, Download, Grid3x3, 
 import { useAuth } from '@/contexts/AuthContext';
 import { serverFetch } from '@/api/server';
 
+import { getSectionPath } from '@/hooks/useAppRoute';
+
 export type NavSection = 'home' | 'movies' | 'shows' | 'anime' | 'live' | 'iptv' | 'my' | 'search' | 'library' | 'collections' | 'settings' | 'profile' | 'plugins' | 'downloads' | 'notifications';
 
 interface TopNavProps {
@@ -12,22 +14,22 @@ interface TopNavProps {
 }
 
 const navItems = [
-  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Film },
-  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film },
-  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
-  { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles },
-  { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Tv },
-  { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark },
-  { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3 },
+  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Film, path: '/' },
+  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film, path: '/film' },
+  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv, path: '/series' },
+  { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles, path: '/anime' },
+  { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Tv, path: '/iptv' },
+  { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark, path: '/my' },
+  { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3, path: '/collections' },
 ];
 
 const mobileNavItems = [
-  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Home },
-  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film },
-  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
-  { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Radio },
-  { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark },
-  { id: 'search' as NavSection, labelKey: 'nav.search', icon: Search },
+  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Home, path: '/' },
+  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film, path: '/film' },
+  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv, path: '/series' },
+  { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Radio, path: '/iptv' },
+  { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark, path: '/my' },
+  { id: 'search' as NavSection, labelKey: 'nav.search', icon: Search, path: '/search' },
 ];
 
 export default function TopNav({ active, onNavigate }: TopNavProps) {
@@ -86,6 +88,13 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
     };
   }, [active]);
 
+  const handleNavClick = (e: React.MouseEvent, section: NavSection) => {
+    if (e.button === 0 && !e.ctrlKey && !e.metaKey && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      onNavigate(section);
+    }
+  };
+
   return (
     <>
     <header
@@ -100,8 +109,9 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
     >
       <nav className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6 md:px-8 md:py-4 lg:px-14">
         {/* Brand — refined, quieter */}
-        <button
-          onClick={() => onNavigate('home')}
+        <a
+          href="/"
+          onClick={(e) => handleNavClick(e, 'home')}
           className="group flex items-center gap-3 shrink-0"
           aria-label="Lumiere home"
         >
@@ -112,16 +122,17 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
           <span className="text-display text-[18px] font-medium tracking-tight text-white/92">
             Lumière
           </span>
-        </button>
+        </a>
 
         {/* Primary nav — centered, visible only on large screens to prevent collisions */}
         <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-0.5 xl:flex">
           {navItems.map((item) => {
             const isActive = active === item.id;
             return (
-              <button
+              <a
                 key={item.id}
-                onClick={() => onNavigate(item.id)}
+                href={item.path}
+                onClick={(e) => handleNavClick(e, item.id)}
                 className="group relative px-5 py-2 text-[14px] font-medium transition-lux"
                 style={{
                   color: isActive ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.52)',
@@ -142,7 +153,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
                   className="absolute inset-0 rounded-full opacity-0 transition-opacity duration-300 group-hover:opacity-100"
                   style={{ background: 'rgba(255,255,255,0.04)' }}
                 />
-              </button>
+              </a>
             );
           })}
         </div>
@@ -150,8 +161,9 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
         {/* Right cluster — refined icon sizes and responsive visibility */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           {activeSession && (
-            <button
-              onClick={() => onNavigate('settings')}
+            <a
+              href="/settings"
+              onClick={(e) => handleNavClick(e, 'settings')}
               className="hidden 2xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[12px] font-medium hover:bg-emerald-500/20 transition-all shadow-lg mr-2"
               title="Сейчас воспроизводится. Нажмите для перехода в мониторинг сессий"
             >
@@ -162,18 +174,20 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
               <span className="text-white/60 text-[11px]">{activeSession.deviceName}:</span>
               <span className="max-w-[130px] truncate text-white/95 font-medium">{activeSession.title}</span>
               {activeSession.isPaused && <span className="text-[10px] text-amber-300/80 font-mono">[пауза]</span>}
-            </button>
+            </a>
           )}
 
-          <button
-            onClick={() => onNavigate('search')}
+          <a
+            href="/search"
+            onClick={(e) => handleNavClick(e, 'search')}
             className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
             aria-label="Search"
           >
             <Search className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={() => onNavigate('notifications')}
+          </a>
+          <a
+            href="/notifications"
+            onClick={(e) => handleNavClick(e, 'notifications')}
             className="group relative flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
             aria-label="Notifications"
           >
@@ -183,31 +197,35 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
-          </button>
-          <button
-            onClick={() => onNavigate('plugins')}
+          </a>
+          <a
+            href="/plugins"
+            onClick={(e) => handleNavClick(e, 'plugins')}
             className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
             aria-label="Plugin Store"
           >
             <Puzzle className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={() => onNavigate('downloads')}
+          </a>
+          <a
+            href="/downloads"
+            onClick={(e) => handleNavClick(e, 'downloads')}
             className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
             aria-label="Downloads"
           >
             <Download className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
-          </button>
-          <button
-            onClick={() => onNavigate('settings')}
+          </a>
+          <a
+            href="/settings"
+            onClick={(e) => handleNavClick(e, 'settings')}
             className="group flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
             aria-label="Settings"
           >
             <Settings className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
-          </button>
+          </a>
           <div className="hidden sm:block mx-1.5 sm:mx-2.5 h-5 w-px bg-white/[0.08]" />
-          <button
-            onClick={() => onNavigate('profile')}
+          <a
+            href="/profile"
+            onClick={(e) => handleNavClick(e, 'profile')}
             className="group flex items-center gap-2 rounded-full py-1 pl-1 pr-2 sm:pr-3 transition-lux hover:bg-white/[0.07]"
             aria-label="Profile"
           >
@@ -217,7 +235,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
             <span className="hidden text-[13px] font-medium text-white/65 transition-colors duration-300 group-hover:text-white/88 lg:inline">
               {user?.name || 'User'}
             </span>
-          </button>
+          </a>
         </div>
       </nav>
     </header>
@@ -229,15 +247,16 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
           const isActive = active === item.id;
           const Icon = item.icon;
           return (
-            <button
+            <a
               key={item.id}
-              onClick={() => onNavigate(item.id)}
+              href={item.path}
+              onClick={(e) => handleNavClick(e, item.id)}
               className="flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 transition-colors"
               style={{ color: isActive ? '#e8c170' : 'rgba(255,255,255,0.4)' }}
             >
               <Icon className="h-5 w-5" strokeWidth={isActive ? 2 : 1.5} />
               <span className="text-[10px] font-medium">{t(item.labelKey)}</span>
-            </button>
+            </a>
           );
         })}
       </div>

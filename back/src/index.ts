@@ -290,6 +290,7 @@ if (existsSync(publicDir)) {
   // SPA fallback: serve index.html for non-API routes
   app.setNotFoundHandler((request, reply) => {
     if (!request.url.startsWith('/api/')) {
+      reply.header('Content-Type', 'text/html; charset=utf-8');
       return reply.sendFile('index.html', publicDir);
     }
     return reply.code(404).send({ error: 'Not found' });

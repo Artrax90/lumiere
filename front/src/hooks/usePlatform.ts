@@ -7,6 +7,9 @@ export function isTizen(): boolean {
 
 export function isAndroid(): boolean {
   if (typeof window === 'undefined') return false;
+  if (typeof (window as any).Capacitor?.isNativePlatform === 'function' && (window as any).Capacitor.isNativePlatform()) {
+    return true;
+  }
   const p = window.location.protocol;
   return p === 'capacitor:' || p === 'file:' || (p === 'https:' && window.location.hostname === 'localhost');
 }
