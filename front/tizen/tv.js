@@ -4476,19 +4476,27 @@
     var m = s.match(/[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b/);
     if (m) return parseInt(m[1], 10);
 
-    // 01x05 or 1x5
+    // 01x05 or 1x5 or 01х05
     m = s.match(/\b\d{1,2}[xх](\d{1,3})\b/);
     if (m) return parseInt(m[1], 10);
 
-    // Explicit "серия 5", "эпизод 5", "ep. 5", "ep5"
-    m = s.match(/(?:сери[яий]|эпизод|серия:|эпизод:|ep\.?|episode\.?)\s*(\d{1,3})\b/i);
+    // Explicit "серия 5", "эпизод 5", "выпуск 5", "ep. 5", "ep5"
+    m = s.match(/(?:сери[яий]|эпизод|серия:|эпизод:|выпуск|выпуск:|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b/i);
     if (m) return parseInt(m[1], 10);
 
-    // "5 серия" or "05 серия"
-    m = s.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|ep|episode)\b/i);
+    // "5 серия", "05 серия", "13 выпуск"
+    m = s.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b/i);
     if (m) return parseInt(m[1], 10);
 
-    // Leading number in file name: e.g. "05 - Winter is coming.mkv"
+    // Match season-episode pattern like "22-13", "22.13", "22_13"
+    if (seasonNum != null) {
+      var sPadded = (seasonNum < 10 ? '0' + seasonNum : '' + seasonNum);
+      var seReg = new RegExp('(?:^|[^\\d])(?:0?' + seasonNum + '|' + sPadded + ')[-._](\\d{1,3})(?:[^\\d]|$)');
+      m = s.match(seReg);
+      if (m) return parseInt(m[1], 10);
+    }
+
+    // Leading number in file name: e.g. "05 - Winter is coming.mkv" or "01. Comedy Club..."
     m = s.match(/^(?:\[[^\]]*\]\s*)?(\d{1,3})[\s._\-]/);
     if (m) return parseInt(m[1], 10);
 
@@ -4591,12 +4599,30 @@
       });
       if (filtered.length === 0) filtered = torrentsList;
 
+      var epNum = ep.episode;
+      var epMatches = [];
+      var epFallbacks = [];
+      filtered.forEach(function(item) {
+        var epCheck = checkTorrentEpisode(item.title || '', seasonNum, epNum);
+        if (epCheck.matches) {
+          var scored = Object.assign({}, item);
+          scored._epBonus = epCheck.score || 0;
+          scored._epExact = Boolean(epCheck.exact);
+          epMatches.push(scored);
+        } else {
+          epFallbacks.push(item);
+        }
+      });
+      var candidateList = (epMatches.length > 0 ? epMatches : epFallbacks);
+
       var savedKey = 'season_torrent_' + showId + '_' + seasonNum;
       var savedTorrent = null;
       try { savedTorrent = JSON.parse(localStorage.getItem(savedKey) || 'null'); } catch(e) {}
 
-      var sorted = filtered.slice().sort(function(a, b) {
-        return scoreTorrent(b) - scoreTorrent(a);
+      var sorted = candidateList.slice().sort(function(a, b) {
+        var scoreA = scoreTorrent(a) + (a._epBonus || 0);
+        var scoreB = scoreTorrent(b) + (b._epBonus || 0);
+        return scoreB - scoreA;
       });
 
       if (savedTorrent && savedTorrent.magnet) {
@@ -4611,7 +4637,7 @@
       }
 
       function tryCandidate(idx) {
-        if (idx >= sorted.length || idx >= 5) {
+        if (idx >= sorted.length || idx >= 6) {
           showTvToast('Торренты недоступны. Открываем онлайн-источники...', 3500);
           state.detailTab = 'sources';
           switchDetailTab('sources');
@@ -4636,10 +4662,18 @@
           var files = data.files;
           var matchedFile = null;
           for (var f = 0; f < files.length; f++) {
-            var epNum = extractEpisodeNumber(files[f].name, f, seasonNum);
-            if (epNum === ep.episode) {
+            var fileEp = extractEpisodeNumber(files[f].name, f, seasonNum);
+            if (fileEp === ep.episode) {
               matchedFile = files[f];
               break;
+            }
+          }
+
+          // Fallback: If file name did not contain episode number, but the candidate release itself was an exact match for this episode!
+          if (!matchedFile && files.length > 0) {
+            var candCheck = checkTorrentEpisode(candidate.title, seasonNum, ep.episode);
+            if (candCheck && candCheck.exact) {
+              matchedFile = files[0];
             }
           }
 
@@ -4650,7 +4684,7 @@
 
             playFile(matchedFile, epTitleStr, showId, epPoster);
           } else {
-            if (idx + 1 < Math.min(sorted.length, 3)) {
+            if (idx + 1 < Math.min(sorted.length, 4)) {
               tryCandidate(idx + 1);
             } else {
               showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
@@ -4665,40 +4699,33 @@
     if (allTorrents) {
       proceedWithTorrents(allTorrents);
     } else {
-      var smart = getTorrentSmartQuery(title || state.detail || { name: showName });
-      var q = smart.primary || showName;
-      var altParam = smart.alt ? '&alt=' + encodeURIComponent(smart.alt) : '';
+      var queries = getTorrentSmartQueries(title || state.detail || { name: showName });
+      if (!queries || queries.length === 0) queries = [showName];
+
       var tmdbParam = showId ? '&tmdbId=' + showId : '';
       var typeParam = '&type=tv';
 
-      apiFetch('/api/torrents/search?q=' + encodeURIComponent(q) + altParam + tmdbParam + typeParam, function(err, data) {
-        var list = (data && data.results) ? data.results : [];
-        if (list.length < 10 && smart.alt) {
-          apiFetch('/api/torrents/search?q=' + encodeURIComponent(smart.alt) + tmdbParam + typeParam, function(err2, data2) {
-            var altList = (data2 && data2.results) ? data2.results : [];
-            var merged = list.slice();
-            var seen = {};
-            merged.forEach(function(item) {
-              var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+      var merged = [];
+      var seen = {};
+      var pending = queries.length;
+
+      queries.forEach(function(qStr) {
+        apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam, function(err, data) {
+          var list = (data && data.results) ? data.results : [];
+          list.forEach(function(item) {
+            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+            if (!seen[k]) {
               seen[k] = true;
-            });
-            altList.forEach(function(item) {
-              var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
-              if (!seen[k]) {
-                seen[k] = true;
-                merged.push(item);
-              }
-            });
+              merged.push(item);
+            }
+          });
+          pending--;
+          if (pending <= 0) {
             if (!state._torrentCache) state._torrentCache = {};
             state._torrentCache[cacheKey] = merged;
             proceedWithTorrents(merged);
-          });
-          return;
-        }
-
-        if (!state._torrentCache) state._torrentCache = {};
-        state._torrentCache[cacheKey] = list;
-        proceedWithTorrents(list);
+          }
+        });
       });
     }
   }
@@ -4759,12 +4786,8 @@
       tags.push({ text: '.TS', type: 'fmt' });
     } else if (/\.MOV\b|\bMOV\b/.test(s)) {
       tags.push({ text: '.MOV', type: 'fmt' });
-    } else if (/\b(SATRIP|TVRIP|DVB|DVDRIP|DVD9|DVD5|IPTVRIP)\b/.test(s) && !/\b(HEVC|H\.?265|AVC|H\.?264|1080P|1080I|720P)\b/.test(s)) {
+    } else if (/\b(SATRIP|TVRIP|IPTVRIP)\b/.test(s) && !/\b(AVC|H\.?264|1080P|720P)\b/.test(s)) {
       tags.push({ text: '.AVI', type: 'fmt' });
-    } else if (/\b(WEB-DLRIP-AVC|WEBDL-AVC|IPTV-AVC)\b/.test(s)) {
-      tags.push({ text: '.MP4', type: 'fmt' });
-    } else if (/\b(WEB-DL|WEBDL|BDRIP|BLURAY|REMUX|HDTV|HEVC|H\.?265|X265|1080P|1080I|720P)\b/.test(s)) {
-      tags.push({ text: '.MKV', type: 'fmt' });
     }
 
     // 2. Resolution
@@ -4830,52 +4853,79 @@
   }
   window.pluralSeeds = pluralSeeds;
 
-  function getTorrentSmartQuery(title) {
+  function getTorrentSmartQueries(title) {
     var rawName = (typeof title === 'string') ? title : (title ? (title.name || title.title || '') : '');
-    if (!rawName || rawName === '[object Object]') return { primary: '', alt: '' };
+    if (!rawName || rawName === '[object Object]') return [];
     var primary = rawName.trim();
-    var alt = '';
+    var queries = [primary];
+
+    var lower = primary.toLowerCase();
+    // Franchise expansions
+    if (lower.indexOf('камеди') !== -1 || lower.indexOf('comedy') !== -1) {
+      if (lower.indexOf('клаб') !== -1 || lower.indexOf('club') !== -1) {
+        ['новый comedy club', 'comedy club', 'новый камеди клаб', 'камеди клаб'].forEach(function(a) {
+          if (queries.indexOf(a) === -1) queries.push(a);
+        });
+      }
+    }
+    if (lower.indexOf('стендап') !== -1 || lower.indexOf('стэндап') !== -1 || lower.indexOf('stand up') !== -1 || lower.indexOf('standup') !== -1) {
+      ['stand up', 'стендап', 'stand up brand new', 'standup'].forEach(function(a) {
+        if (queries.indexOf(a) === -1) queries.push(a);
+      });
+    }
+    if (lower.indexOf('импровизаци') !== -1 || lower.indexOf('импровизатор') !== -1) {
+      ['импровизация', 'импровизаторы'].forEach(function(a) {
+        if (queries.indexOf(a) === -1) queries.push(a);
+      });
+    }
 
     if (title && typeof title === 'object' && title.originalTitle && typeof title.originalTitle === 'string') {
       var orig = title.originalTitle.trim();
-      if (orig && orig.toLowerCase() !== primary.toLowerCase()) {
-        alt = orig;
+      if (orig && orig.toLowerCase() !== primary.toLowerCase() && queries.indexOf(orig) === -1) {
+        queries.push(orig);
       }
     }
 
-    if (!alt) {
-      var loanwords = {
-        'камеди': 'comedy',
-        'клаб': 'club',
-        'шоу': 'show',
-        'лайв': 'live',
-        'батл': 'battle',
-        'батлл': 'battle',
-        'баттл': 'battle',
-        'стэндап': 'standup',
-        'стендап': 'standup',
-        'бойз': 'boys',
-        'герлз': 'girls',
-        'пацаны': 'the boys'
-      };
-      var words = primary.toLowerCase().split(/\s+/);
-      var hasLoan = false;
-      var translated = words.map(function(w) {
-        var clean = w.replace(/[^\w\u0400-\u04FF]/g, '');
-        if (loanwords[clean]) {
-          hasLoan = true;
-          return loanwords[clean];
-        }
-        return w;
-      });
-      if (hasLoan) {
-        var tStr = translated.join(' ').trim();
-        if (tStr && tStr.toLowerCase() !== primary.toLowerCase()) {
-          alt = tStr;
-        }
+    var loanwords = {
+      'камеди': 'comedy',
+      'клаб': 'club',
+      'шоу': 'show',
+      'лайв': 'live',
+      'батл': 'battle',
+      'батлл': 'battle',
+      'баттл': 'battle',
+      'стэндап': 'standup',
+      'стендап': 'standup',
+      'бойз': 'boys',
+      'герлз': 'girls',
+      'пацаны': 'the boys'
+    };
+    var words = lower.split(/\s+/);
+    var hasLoan = false;
+    var translated = words.map(function(w) {
+      var clean = w.replace(/[^\w\u0400-\u04FF]/g, '');
+      if (loanwords[clean]) {
+        hasLoan = true;
+        return loanwords[clean];
+      }
+      return w;
+    });
+    if (hasLoan) {
+      var tStr = translated.join(' ').trim();
+      if (tStr && queries.indexOf(tStr) === -1) {
+        queries.push(tStr);
       }
     }
-    return { primary: primary, alt: alt };
+    return queries;
+  }
+  window.getTorrentSmartQueries = getTorrentSmartQueries;
+
+  function getTorrentSmartQuery(title) {
+    var qs = getTorrentSmartQueries(title);
+    return {
+      primary: qs[0] || '',
+      alt: qs[1] || ''
+    };
   }
   window.getTorrentSmartQuery = getTorrentSmartQuery;
 
@@ -4954,6 +5004,55 @@
   }
   window.matchesTorrentSeason = matchesTorrentSeason;
 
+  function checkTorrentEpisode(torrentTitle, seasonNum, epNum) {
+    if (!torrentTitle || !epNum) return { matches: true, score: 0, reason: 'no-ep' };
+    var s = torrentTitle.toLowerCase();
+    var epPadded = (epNum < 10 ? '0' + epNum : '' + epNum);
+
+    // 1. Single episode exact patterns: e.g. 22x13, 22х13, s22e13
+    var singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})\\b', 'i');
+    var mSingle = s.match(singleEpReg);
+    if (mSingle) {
+      var foundEp = parseInt(mSingle[1], 10);
+      if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
+      return { matches: false, score: -1000, mismatch: true };
+    }
+
+    // 2. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск'
+    var singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})\\b', 'i');
+    var mRu = s.match(singleRuReg);
+    if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
+      var foundRuEp = parseInt(mRu[1], 10);
+      if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
+      if (s.indexOf('сезон') !== -1 || s.indexOf('season') !== -1) {
+        return { matches: false, score: -1000, mismatch: true };
+      }
+    }
+
+    // 3. Episode range: 22x01-11, 22х01-15, s22e01-10
+    var rangeReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)\\s*0?(\\d{1,3})\\s*[-–—]\\s*0?(\\d{1,3})\\b', 'i');
+    var mRange = s.match(rangeReg);
+    if (mRange) {
+      var startEp = parseInt(mRange[1], 10);
+      var endEp = parseInt(mRange[2], 10);
+      if (epNum >= startEp && epNum <= endEp) return { matches: true, score: 500, range: true };
+      return { matches: false, score: -1000, range: true };
+    }
+
+    // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии'
+    var ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
+    if (ruRange) {
+      var rStart = parseInt(ruRange[1], 10);
+      var rEnd = parseInt(ruRange[2], 10);
+      if (epNum >= rStart && epNum <= rEnd) return { matches: true, score: 500, range: true };
+      return { matches: false, score: -1000, range: true };
+    }
+
+    // General season pack without explicit episode numbers (e.g. "Сезон 22")
+    return { matches: true, score: 100, general: true };
+  }
+  window.checkTorrentEpisode = checkTorrentEpisode;
+
   function searchTorrents(title, season) {
     var container = document.getElementById('torrent-results');
     if (!container) return;
@@ -4987,7 +5086,7 @@
         html += '<p class="detail-torrent-notice" style="color:#e8c170;padding:6px 12px;font-size:16px;">Показаны все раздачи сериала (точных совпадений для ' + season + ' сезона не найдено):</p>';
       }
       html += '<div class="detail-torrents-list">';
-      sorted.slice(0, 25).forEach(function(torrent, i) {
+      sorted.slice(0, 30).forEach(function(torrent, i) {
         html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
         html += '<div class="detail-torrent-title">' + esc(torrent.title || '') + '</div>';
         html += '<div class="detail-torrent-badges">';
@@ -5028,47 +5127,36 @@
 
     container.innerHTML = '<p class="detail-loading-text">Поиск торрентов' + (season ? ' (' + season + ' сезон)...' : '...') + '</p>';
 
-    // Smart multi-variant query: base name + phonetic loanwords translation + TMDB metadata
-    var smart = getTorrentSmartQuery(title);
-    var query = smart.primary || title.name;
-    var altParam = smart.alt ? '&alt=' + encodeURIComponent(smart.alt) : '';
+    var queries = getTorrentSmartQueries(title);
+    if (!queries || queries.length === 0) queries = [title.name || ''];
+
     var tmdbParam = title.id ? '&tmdbId=' + title.id : '';
     var typeParam = '&type=' + (title.type || (state.detail && state.detail.type) || 'movie');
 
-    apiFetch('/api/torrents/search?q=' + encodeURIComponent(query) + altParam + tmdbParam + typeParam, function(err, data) {
-      var list = (data && data.results) ? data.results : [];
-      if (list.length < 10 && smart.alt) {
-        apiFetch('/api/torrents/search?q=' + encodeURIComponent(smart.alt) + tmdbParam + typeParam, function(err2, data2) {
-          var altList = (data2 && data2.results) ? data2.results : [];
-          var merged = list.slice();
-          var seen = {};
-          merged.forEach(function(item) {
-            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+    var merged = [];
+    var seen = {};
+    var pending = queries.length;
+
+    queries.forEach(function(qStr) {
+      apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam, function(err, data) {
+        var list = (data && data.results) ? data.results : [];
+        list.forEach(function(item) {
+          var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+          if (!seen[k]) {
             seen[k] = true;
-          });
-          altList.forEach(function(item) {
-            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
-            if (!seen[k]) {
-              seen[k] = true;
-              merged.push(item);
-            }
-          });
+            merged.push(item);
+          }
+        });
+        pending--;
+        if (pending <= 0) {
           if (merged.length === 0) {
             container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
             return;
           }
           state._torrentCache[cacheKey] = merged;
           renderTorrentResults(merged);
-        });
-        return;
-      }
-
-      if (err || list.length === 0) {
-        container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
-        return;
-      }
-      state._torrentCache[cacheKey] = list;
-      renderTorrentResults(list);
+        }
+      });
     });
   }
 
@@ -5227,7 +5315,7 @@
 
     function buildModalHtml() {
       var activeFile = files[selectedIdx] || files[0];
-      var comboMeta = rawMeta + ' ' + (activeFile.name || '');
+      var comboMeta = (activeFile.name || '') + ' ' + rawMeta;
       var badgesHtml = renderMetaBadges(comboMeta);
       var sizeText = activeFile.sizeFormatted || '';
 
@@ -5248,7 +5336,7 @@
         h += '<div class="torrent-confirm-files" id="t-modal-files">';
         for (var i = 0; i < files.length; i++) {
           var f = files[i];
-          var fBadges = renderMetaBadges(rawMeta + ' ' + (f.name || ''));
+          var fBadges = renderMetaBadges((f.name || '') + ' ' + rawMeta);
           var fCls = 'torrent-confirm-file-item' + (i === selectedIdx ? ' focused' : '');
           h += '<div class="' + fCls + '" data-index="' + i + '" tabindex="0">';
           h += '<span class="file-name">' + esc(f.name || 'Файл ' + (i + 1)) + '</span>';
@@ -5393,7 +5481,7 @@
             updateModalFocus();
             var badgesContainer = document.getElementById('t-modal-badges');
             if (badgesContainer && files[selectedIdx]) {
-              var combo = rawMeta + ' ' + (files[selectedIdx].name || '');
+              var combo = (files[selectedIdx].name || '') + ' ' + rawMeta;
               var bHtml = renderMetaBadges(combo);
               if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
               badgesContainer.innerHTML = bHtml;
@@ -5409,7 +5497,7 @@
             updateModalFocus();
             var badgesContainer = document.getElementById('t-modal-badges');
             if (badgesContainer && files[selectedIdx]) {
-              var combo = rawMeta + ' ' + (files[selectedIdx].name || '');
+              var combo = (files[selectedIdx].name || '') + ' ' + rawMeta;
               var bHtml = renderMetaBadges(combo);
               if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
               badgesContainer.innerHTML = bHtml;
@@ -5436,26 +5524,35 @@
 
   function playFile(file, title, movieId, customPoster) {
     var isAvplay = (typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined) || (typeof tizen !== 'undefined');
+    var isAvi = file && file.name && /\.avi$/i.test(file.name);
     var url = '';
-    if (file && file.directUrl) {
-      url = file.directUrl;
-    } else if (file && file.streamUrl) {
-      url = file.streamUrl;
-    }
-    if (url.indexOf('/') === 0) url = API + url;
 
-    // For Tizen AVPlay: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
-    if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
-      var torrHost = API ? API.replace(/:\d+$/, ':8590') : 'http://192.168.1.196:8590';
-      var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
-      if (proxyMatch) {
-        var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
-        var torrQuery = proxyMatch[2] || '';
-        if (torrQuery.indexOf('play') === -1) {
-          torrQuery += (torrQuery ? '&' : '?') + 'play';
+    if (isAvplay && isAvi && file && file.hlsUrl) {
+      // Samsung Tizen 2018+ hardware AVPlay does not support XviD/DivX in AVI containers.
+      // Route AVI through backend ffmpeg on-the-fly HLS transcoding to ensure 100% smooth playback without errors!
+      url = file.hlsUrl.indexOf('/') === 0 ? (API + file.hlsUrl) : file.hlsUrl;
+      console.log('[TV] Routing AVI file through HLS transcoding for AVPlay:', url);
+    } else {
+      if (file && file.directUrl) {
+        url = file.directUrl;
+      } else if (file && file.streamUrl) {
+        url = file.streamUrl;
+      }
+      if (url.indexOf('/') === 0) url = API + url;
+
+      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
+      if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
+        var torrHost = API ? API.replace(/:\d+$/, ':8590') : 'http://192.168.1.196:8590';
+        var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
+        if (proxyMatch) {
+          var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
+          var torrQuery = proxyMatch[2] || '';
+          if (torrQuery.indexOf('play') === -1) {
+            torrQuery += (torrQuery ? '&' : '?') + 'play';
+          }
+          url = torrHost + '/stream/' + encodeURIComponent(decodeURIComponent(torrFileName)) + torrQuery;
+          console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
         }
-        url = torrHost + '/stream/' + encodeURIComponent(decodeURIComponent(torrFileName)) + torrQuery;
-        console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
       }
     }
     var detailName = '';

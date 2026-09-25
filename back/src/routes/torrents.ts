@@ -223,6 +223,44 @@ export function torrentRoutes(app: FastifyInstance) {
           } catch {}
         }
 
+        // Franchise and popular tracker naming variants (e.g. "Comedy Club" <-> "Новый Comedy Club" <-> "Камеди Клаб")
+        const franchiseRules: Array<{ test: RegExp; expansions: string[] }> = [
+          {
+            test: /\b(камеди\s*клаб|comedy\s*club|новый\s*comedy\s*club|новый\s*камеди\s*клаб)\b/i,
+            expansions: ['новый comedy club', 'comedy club', 'новый камеди клаб', 'камеди клаб'],
+          },
+          {
+            test: /\b(стендап|стэндап|stand\s*up|standup)\b/i,
+            expansions: ['stand up', 'стендап', 'stand up brand new', 'standup'],
+          },
+          {
+            test: /\b(comedy\s*woman|камеди\s*вум[ае]н)\b/i,
+            expansions: ['comedy woman', 'камеди вумен', 'камеди вуман'],
+          },
+          {
+            test: /\b(comedy\s*батт?л|камеди\s*батт?л|comedy\s*battle)\b/i,
+            expansions: ['comedy battle', 'камеди баттл', 'comedy батл'],
+          },
+          {
+            test: /\b(импровизаци[яи]|импровизаторы)\b/i,
+            expansions: ['импровизация', 'импровизаторы'],
+          },
+          {
+            test: /\b(однажды\s*в\s*россии)\b/i,
+            expansions: ['однажды в россии'],
+          },
+        ];
+
+        for (const rule of franchiseRules) {
+          if (rule.test.test(q) || (alt && rule.test.test(alt))) {
+            for (const exp of rule.expansions) {
+              if (exp.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(exp)) {
+                extraQueries.push(exp);
+              }
+            }
+          }
+        }
+
         // Cyrillic-to-English phonetic loanwords mapping (e.g. "Камеди Клаб" -> "Comedy Club")
         const loanwordMap: Record<string, string> = {
           'камеди': 'comedy',
@@ -277,7 +315,7 @@ export function torrentRoutes(app: FastifyInstance) {
         // Run extra queries in parallel
         if (extraQueries.length > 0) {
           const extraResults = await Promise.all(
-            extraQueries.slice(0, 4).map((query) => fetchFromJacRed(mirrors[0], query, category))
+            extraQueries.slice(0, 8).map((query) => fetchFromJacRed(mirrors[0], query, category))
           );
           for (const resList of extraResults) {
             rawResults.push(...resList);

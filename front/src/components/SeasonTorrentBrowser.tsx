@@ -111,8 +111,8 @@ function extractEpisodeNumber(fileName: string, fallbackIndex: number, season?: 
     if (ep > 0 && ep <= 100) return ep;
   }
 
-  // 5. "ep05", "ep.5", "серия 5", "эпизод 5", "серия 05"
-  const epMatch = cleanName.match(/(?:e|ep|серия|эпизод)[\s._-]*(\d{1,3})/i);
+  // 5. "ep05", "ep.5", "серия 5", "эпизод 5", "серия 05", "выпуск 13"
+  const epMatch = cleanName.match(/(?:e|ep|серия|эпизод|выпуск)[\s._-]*(\d{1,3})/i);
   if (epMatch) return parseInt(epMatch[1], 10);
 
   // 6. Standalone number at the end of the filename: "House - 01", "House_[01]"
