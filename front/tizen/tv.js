@@ -4595,53 +4595,71 @@
       var savedTorrent = null;
       try { savedTorrent = JSON.parse(localStorage.getItem(savedKey) || 'null'); } catch(e) {}
 
-      var chosenTorrent = null;
+      var sorted = filtered.slice().sort(function(a, b) {
+        return scoreTorrent(b) - scoreTorrent(a);
+      });
+
       if (savedTorrent && savedTorrent.magnet) {
-        chosenTorrent = savedTorrent;
-      } else {
-        var sorted = filtered.slice().sort(function(a, b) {
-          var aIsAvi = /\.avi\b|xvid|divx/i.test(a.title || '');
-          var bIsAvi = /\.avi\b|xvid|divx/i.test(b.title || '');
-          if (aIsAvi !== bIsAvi) return aIsAvi ? 1 : -1;
-          return (b.seeders || 0) - (a.seeders || 0);
-        });
-        chosenTorrent = sorted[0];
+        var foundIdx = -1;
+        for (var si = 0; si < sorted.length; si++) {
+          if (sorted[si].magnet === savedTorrent.magnet) { foundIdx = si; break; }
+        }
+        if (foundIdx > 0) {
+          var item = sorted.splice(foundIdx, 1)[0];
+          sorted.unshift(item);
+        }
       }
 
-      if (!chosenTorrent || !chosenTorrent.magnet) {
-        showTvToast('Торрент не найден', 3000);
-        return;
-      }
-
-      showTvToast('Подключение к раздаче...', 3000);
-
-      apiPost('/api/torrents/stream', { magnet: chosenTorrent.magnet, title: chosenTorrent.title }, function(err, data) {
-        if (err || !data || !data.files || data.files.length === 0) {
-          showTvToast('Выбор файла раздачи...', 2000);
-          openTorrent(chosenTorrent.magnet, chosenTorrent.title);
+      function tryCandidate(idx) {
+        if (idx >= sorted.length || idx >= 5) {
+          showTvToast('Торренты недоступны. Открываем онлайн-источники...', 3500);
+          state.detailTab = 'sources';
+          switchDetailTab('sources');
           return;
         }
 
-        var files = data.files;
-        var matchedFile = null;
-        for (var f = 0; f < files.length; f++) {
-          var epNum = extractEpisodeNumber(files[f].name, f, seasonNum);
-          if (epNum === ep.episode) {
-            matchedFile = files[f];
-            break;
+        var candidate = sorted[idx];
+        if (!candidate || !candidate.magnet) {
+          tryCandidate(idx + 1);
+          return;
+        }
+
+        showTvToast('Подключение к раздаче' + (idx > 0 ? ' (вариант ' + (idx + 1) + ')...' : '...'), 3000);
+
+        apiPost('/api/torrents/stream', { magnet: candidate.magnet, title: candidate.title }, function(err, data) {
+          if (err || !data || !data.files || data.files.length === 0) {
+            console.warn('[Lumiere] Candidate failed to load metadata:', candidate.title, 'trying next candidate...');
+            tryCandidate(idx + 1);
+            return;
           }
-        }
 
-        if (matchedFile) {
-          try {
-            localStorage.setItem(savedKey, JSON.stringify({ magnet: chosenTorrent.magnet, title: chosenTorrent.title }));
-          } catch(se) {}
+          var files = data.files;
+          var matchedFile = null;
+          for (var f = 0; f < files.length; f++) {
+            var epNum = extractEpisodeNumber(files[f].name, f, seasonNum);
+            if (epNum === ep.episode) {
+              matchedFile = files[f];
+              break;
+            }
+          }
 
-          playFile(matchedFile, epTitleStr, showId, epPoster);
-        } else {
-          showTorrentPrePlayModal(files, chosenTorrent.title, showId, chosenTorrent.magnet);
-        }
-      });
+          if (matchedFile) {
+            try {
+              localStorage.setItem(savedKey, JSON.stringify({ magnet: candidate.magnet, title: candidate.title }));
+            } catch(se) {}
+
+            playFile(matchedFile, epTitleStr, showId, epPoster);
+          } else {
+            if (idx + 1 < Math.min(sorted.length, 3)) {
+              tryCandidate(idx + 1);
+            } else {
+              showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
+            }
+          }
+        });
+      }
+
+      tryCandidate(0);
     }
 
     if (allTorrents) {
@@ -4733,7 +4751,7 @@
     // 1. Container / File Format (.mkv, .avi, .mp4, etc.)
     if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) {
       tags.push({ text: '.MKV', type: 'fmt' });
-    } else if (/\.AVI\b|\[AVI\]|\bAVI\b/.test(s)) {
+    } else if (/\.AVI\b|\[AVI\]|\bAVI\b|\b(XVID|DIVX)\b/.test(s)) {
       tags.push({ text: '.AVI', type: 'fmt' });
     } else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) {
       tags.push({ text: '.MP4', type: 'fmt' });
@@ -4741,11 +4759,11 @@
       tags.push({ text: '.TS', type: 'fmt' });
     } else if (/\.MOV\b|\bMOV\b/.test(s)) {
       tags.push({ text: '.MOV', type: 'fmt' });
-    } else if (/\b(XVID|DIVX)\b/.test(s)) {
+    } else if (/\b(SATRIP|TVRIP|DVB|DVDRIP|DVD9|DVD5|IPTVRIP)\b/.test(s) && !/\b(HEVC|H\.?265|AVC|H\.?264|1080P|1080I|720P)\b/.test(s)) {
       tags.push({ text: '.AVI', type: 'fmt' });
-    } else if (/\b(DVDRIP|DVD9|DVD5)\b/.test(s) && !/\b(HEVC|H\.?265|AVC|H\.?264)\b/.test(s)) {
-      tags.push({ text: '.AVI', type: 'fmt' });
-    } else {
+    } else if (/\b(WEB-DLRIP-AVC|WEBDL-AVC|IPTV-AVC)\b/.test(s)) {
+      tags.push({ text: '.MP4', type: 'fmt' });
+    } else if (/\b(WEB-DL|WEBDL|BDRIP|BLURAY|REMUX|HDTV|HEVC|H\.?265|X265|1080P|1080I|720P)\b/.test(s)) {
       tags.push({ text: '.MKV', type: 'fmt' });
     }
 
@@ -4861,6 +4879,37 @@
   }
   window.getTorrentSmartQuery = getTorrentSmartQuery;
 
+  function scoreTorrent(t) {
+    if (!t) return 0;
+    var score = Number(t.seeders) || 0;
+    var title = String(t.title || '').toUpperCase();
+    var tracker = String(t.tracker || '').toLowerCase();
+    var magnet = String(t.magnet || '');
+    var hasTrackers = magnet.indexOf('&tr=') !== -1;
+
+    // Real working trackers bonus
+    if (tracker.indexOf('rutracker') !== -1) score += 500;
+    if (tracker.indexOf('rutor') !== -1) score += 350;
+    if (tracker.indexOf('nnm') !== -1) score += 300;
+    if (hasTrackers) score += 200;
+
+    // Bare private tracker penalty (Kinozal without &tr= has DHT disabled and cannot be resolved by TorrServer)
+    if (tracker === 'kinozal' && !hasTrackers) score -= 1000;
+
+    // Quality bonus
+    if (title.indexOf('1080P') !== -1 || title.indexOf('WEB-DL') !== -1 || title.indexOf('BDRIP') !== -1 || title.indexOf('REMUX') !== -1) score += 250;
+    if (title.indexOf('720P') !== -1 || title.indexOf('HDTV') !== -1) score += 100;
+
+    // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
+    if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+
+    // SD / SATRip / AVI penalty
+    if (title.indexOf('SATRIP') !== -1 || title.indexOf('TVRIP') !== -1 || title.indexOf('XVID') !== -1 || title.indexOf('.AVI') !== -1) score -= 200;
+
+    return score;
+  }
+  window.scoreTorrent = scoreTorrent;
+
   // ========== Season Matching & Torrent Search ==========
   function matchesTorrentSeason(title, s) {
     if (!title || !s) return true;
@@ -4930,8 +4979,8 @@
         }
       }
 
-      // Sort by seeders desc
-      var sorted = filtered.slice().sort(function(a, b) { return (b.seeders || 0) - (a.seeders || 0); });
+      // Sort by smart score desc
+      var sorted = filtered.slice().sort(function(a, b) { return scoreTorrent(b) - scoreTorrent(a); });
 
       var html = '';
       if (isFallback) {
@@ -5096,14 +5145,7 @@
       removeLoadingState();
 
       if (err || !data || !data.files || data.files.length === 0) {
-        var fallbackUrl = isAvplay
-          ? API + '/api/torrents/proxy/video.mkv?link=' + encodeURIComponent(magnet) + '&index=0'
-          : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        var fallbackFiles = [{ name: movieName, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
-        if (state.fromContinueWatching) {
-          state.fromContinueWatching = false;
-        }
-        playFile(fallbackFiles[0], movieName, movieId);
+        showTvToast('Не удалось загрузить файлы раздачи (нет активных пиров). Выберите другую раздачу.', 4500);
         return;
       }
 

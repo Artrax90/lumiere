@@ -312,7 +312,28 @@ export function torrentRoutes(app: FastifyInstance) {
         });
       }
 
-      results.sort((a, b) => b.seeders - a.seeders);
+      function scoreTorrentItem(t: TorrentItem): number {
+        let score = t.seeders || 0;
+        const title = (t.title || '').toUpperCase();
+        const tracker = (t.tracker || '').toLowerCase();
+        const hasTrackers = Boolean(t.magnet && t.magnet.includes('&tr='));
+
+        if (tracker.includes('rutracker')) score += 500;
+        if (tracker.includes('rutor')) score += 350;
+        if (tracker.includes('nnm')) score += 300;
+        if (hasTrackers) score += 200;
+
+        if (tracker === 'kinozal' && !hasTrackers) score -= 1000;
+
+        if (title.includes('1080P') || title.includes('WEB-DL') || title.includes('BDRIP') || title.includes('REMUX')) score += 250;
+        if (title.includes('720P') || title.includes('HDTV')) score += 100;
+        if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+        if (title.includes('SATRIP') || title.includes('TVRIP') || title.includes('XVID') || title.includes('.AVI')) score -= 200;
+
+        return score;
+      }
+
+      results.sort((a, b) => scoreTorrentItem(b) - scoreTorrentItem(a));
 
       return { results };
     } catch (err: any) {
