@@ -264,11 +264,13 @@ export default function SeasonTorrentBrowser({
     }
   }, [show.id, season]);
 
-  // Filter torrents matching this season
-  const seasonTorrents = useMemo(() => {
+  const [loadingStepText, setLoadingStepText] = useState<string | null>(null);
+
+  // Filter torrents matching this season, with fallback to all show releases if no exact match found
+  const { seasonTorrents, isSeasonFallback } = useMemo(() => {
     const s = season;
 
-    return allTorrents.filter((item) => {
+    let filtered = allTorrents.filter((item) => {
       // Check season patterns using smart season matcher
       if (!matchesTorrentSeason(item.title, s)) return false;
 
@@ -285,7 +287,27 @@ export default function SeasonTorrentBrowser({
       }
 
       return true;
-    }).sort((a, b) => {
+    });
+
+    let isFallback = false;
+    if (filtered.length === 0 && allTorrents.length > 0) {
+      filtered = allTorrents.filter((item) => {
+        const tLower = item.title.toLowerCase();
+        if (qualityFilter === '4k') {
+          return tLower.includes('2160') || tLower.includes('4k') || tLower.includes('uhd');
+        }
+        if (qualityFilter === '1080p') {
+          return tLower.includes('1080');
+        }
+        if (qualityFilter === '720p') {
+          return tLower.includes('720');
+        }
+        return true;
+      });
+      isFallback = true;
+    }
+
+    filtered.sort((a, b) => {
       if (sortBy === 'score') return scoreTorrent(b) - scoreTorrent(a);
       if (sortBy === 'seeds') return (b.seeders || 0) - (a.seeders || 0);
       if (sortBy === 'date') {
@@ -296,12 +318,15 @@ export default function SeasonTorrentBrowser({
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       return scoreTorrent(b) - scoreTorrent(a);
     });
+
+    return { seasonTorrents: filtered, isSeasonFallback: isFallback };
   }, [allTorrents, season, qualityFilter, sortBy]);
 
-  // Load files from TorrServer for a selected torrent
-  const loadTorrentFiles = async (torrent: TorrentItem) => {
+  // Load files from TorrServer for a selected torrent with auto-retry
+  const loadTorrentFiles = async (torrent: TorrentItem, retryAttempt = 0) => {
     setLoadingFiles(true);
     setFileError(null);
+    setLoadingStepText(retryAttempt > 0 ? `Поиск пиров и загрузка списка серий... (попытка ${retryAttempt + 1} из 3)` : 'Подключение к раздаче и опрос пиров...');
     try {
       const res = await serverFetch('/api/torrents/stream', {
         method: 'POST',
@@ -309,8 +334,15 @@ export default function SeasonTorrentBrowser({
         body: JSON.stringify({ magnet: torrent.magnet, title: torrent.title }),
       });
       const data = await res.json();
-      if (data.error && (!data.files || data.files.length === 0)) {
-        setFileError(data.error);
+      if (data.pending || (data.error && (!data.files || data.files.length === 0))) {
+        if (retryAttempt < 2) {
+          setLoadingStepText('Ожидание ответа TorrServer... (повтор через 2 сек)');
+          setTimeout(() => {
+            loadTorrentFiles(torrent, retryAttempt + 1);
+          }, 2000);
+          return;
+        }
+        setFileError(data.error || 'Раздача пока недоступна (нет активных пиров). Выберите другую раздачу из списка.');
       } else if (data.files && data.files.length > 0) {
         setFiles(data.files);
         saveSeasonData(show.id, season, {
@@ -323,9 +355,18 @@ export default function SeasonTorrentBrowser({
         setFileError('В этой раздаче не найдено поддерживаемых видеофайлов.');
       }
     } catch (err: any) {
+      if (retryAttempt < 2) {
+        setTimeout(() => {
+          loadTorrentFiles(torrent, retryAttempt + 1);
+        }, 2000);
+        return;
+      }
       setFileError(err.message || 'Ошибка подключения к TorrServer');
     } finally {
-      setLoadingFiles(false);
+      if (retryAttempt >= 2) {
+        setLoadingFiles(false);
+        setLoadingStepText(null);
+      }
     }
   };
 
@@ -434,32 +475,31 @@ export default function SeasonTorrentBrowser({
           {selectedTorrent ? (
             <div id="season-torrent-episodes-container" className="space-y-4 animate-fade-in scroll-mt-24">
               {/* Active Torrent Banner */}
-              <div className="rounded-[16px] border border-amber-300/20 bg-amber-300/[0.04] p-5">
+              <div className="rounded-[16px] border border-amber-300/30 bg-amber-300/[0.04] p-5 shadow-lg shadow-black/20">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-2 min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
+                  <div className="space-y-2.5 min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-400/30">
                         Выбранная раздача для {season} сезона
                       </span>
-                      <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] text-white/60">
-                        {selectedTorrent.tracker}
-                      </span>
-                      <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                        <Users className="h-3 w-3" /> {pluralSeeds(selectedTorrent.seeders)}
-                      </span>
                     </div>
-                    <h3 className="text-[14px] font-medium text-white/95 line-clamp-2">
+
+                    <h3 className="text-[15px] font-semibold text-white/95 line-clamp-2 leading-snug">
                       {selectedTorrent.title}
                     </h3>
-                    <TorrentBadges title={selectedTorrent.title} />
-                    <div className="text-[12px] text-white/45">
-                      Размер: {selectedTorrent.sizeFormatted}
-                    </div>
+
+                    <TorrentBadges
+                      title={selectedTorrent.title}
+                      tracker={selectedTorrent.tracker}
+                      sizeFormatted={selectedTorrent.sizeFormatted}
+                      seeders={selectedTorrent.seeders}
+                      peers={selectedTorrent.peers}
+                    />
                   </div>
 
                   <button
                     onClick={handleChangeTorrent}
-                    className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/[0.05] hover:bg-white/15 px-4 py-2 text-[12px] font-medium text-white transition-cinematic shrink-0"
+                    className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.06] hover:bg-white/15 px-4 py-2 text-[12px] font-semibold text-white transition-cinematic shrink-0 shadow"
                   >
                     <span>Выбрать другой торрент</span>
                   </button>
@@ -470,25 +510,36 @@ export default function SeasonTorrentBrowser({
               {loadingFiles && (
                 <div className="flex flex-col items-center justify-center p-12 text-white/60 animate-fade-in">
                   <RefreshCw className="h-8 w-8 animate-spin text-amber-300 mb-3" />
-                  <p className="text-[14px] font-medium">Подключение к раздаче и получение списка серий...</p>
-                  <p className="text-[12px] text-white/35 mt-1">TorrServer опрашивает пиров</p>
+                  <p className="text-[14px] font-medium">{loadingStepText || 'Подключение к раздаче и получение списка серий...'}</p>
+                  <p className="text-[12px] text-white/35 mt-1">TorrServer опрашивает пиров и загружает структуру торрента</p>
                 </div>
               )}
 
               {/* Error loading files */}
               {fileError && !loadingFiles && (
-                <div className="rounded-[14px] border border-rose-500/30 bg-rose-500/10 p-5 text-rose-300 animate-fade-in">
+                <div className="rounded-[16px] border border-rose-500/30 bg-rose-500/10 p-5 text-rose-300 animate-fade-in">
                   <div className="flex items-center gap-2 mb-2">
                     <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-                    <span className="font-semibold text-[13px]">Не удалось загрузить серии из этой раздачи</span>
+                    <span className="font-semibold text-[14px]">Не удалось загрузить серии из этой раздачи</span>
                   </div>
-                  <p className="text-[12px] text-rose-300/80 mb-4">{fileError}</p>
-                  <button
-                    onClick={handleChangeTorrent}
-                    className="rounded-full bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-1.5 text-[12px] font-medium text-white"
-                  >
-                    Выбрать другую раздачу из списка
-                  </button>
+                  <p className="text-[13px] text-rose-300/80 mb-4">{fileError}</p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {selectedTorrent && (
+                      <button
+                        onClick={() => loadTorrentFiles(selectedTorrent)}
+                        className="flex items-center gap-2 rounded-full bg-amber-400 hover:bg-amber-300 text-black px-4 py-2 text-[12px] font-bold transition-cinematic shadow"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" />
+                        <span>Повторить попытку</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={handleChangeTorrent}
+                      className="rounded-full bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 text-[12px] font-medium text-white transition-cinematic"
+                    >
+                      Выбрать другую раздачу из списка
+                    </button>
+                  </div>
                 </div>
               )}
 
@@ -749,6 +800,14 @@ export default function SeasonTorrentBrowser({
                 </div>
               )}
 
+              {/* Fallback notice if no exact match for this season */}
+              {isSeasonFallback && seasonTorrents.length > 0 && (
+                <div className="rounded-[12px] border border-amber-300/25 bg-amber-300/[0.06] p-3.5 text-[13px] text-amber-200/90 flex items-center gap-2.5 animate-fade-in">
+                  <Sparkles className="h-4 w-4 text-amber-400 shrink-0" />
+                  <span>Показаны все доступные раздачи сериала (точных совпадений для {season} сезона не найдено):</span>
+                </div>
+              )}
+
               {/* Torrents list */}
               {!loadingTorrents && seasonTorrents.length > 0 && (
                 <div className="space-y-2.5">
@@ -759,30 +818,24 @@ export default function SeasonTorrentBrowser({
                         onClick={() => handleSelectTorrent(torrent)}
                         className="group/item flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[14px] border border-white/[0.06] bg-white/[0.03] p-4 transition-cinematic hover:border-amber-300/30 hover:bg-white/[0.06] cursor-pointer"
                       >
-                        <div className="space-y-1.5 min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-medium text-white/70">
-                              {torrent.tracker}
-                            </span>
-                            <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold ml-1">
-                              <Users className="h-3 w-3" /> {pluralSeeds(torrent.seeders)}
-                            </span>
-                          </div>
-
-                          <h4 className="text-[13px] font-medium text-white/90 line-clamp-2 leading-snug">
+                        <div className="space-y-2 min-w-0 flex-1">
+                          <h4 className="text-[14px] font-semibold text-white/95 line-clamp-2 leading-snug group-hover/item:text-amber-300 transition-colors">
                             {torrent.title}
                           </h4>
 
-                          <TorrentBadges title={torrent.title} />
+                          <TorrentBadges
+                            title={torrent.title}
+                            tracker={torrent.tracker}
+                            sizeFormatted={torrent.sizeFormatted}
+                            seeders={torrent.seeders}
+                            peers={torrent.peers}
+                          />
 
-                          <div className="flex items-center gap-3 text-[11px] text-white/40">
-                            <span className="flex items-center gap-1">
-                              <HardDrive className="h-3 w-3" /> {torrent.sizeFormatted}
-                            </span>
-                            {torrent.date && (
-                              <span>· {new Date(torrent.date).toLocaleDateString('ru')}</span>
-                            )}
-                          </div>
+                          {torrent.date && (
+                            <div className="text-[11px] text-white/35">
+                              Добавлено: {new Date(torrent.date).toLocaleDateString('ru')}
+                            </div>
+                          )}
                         </div>
 
                         <button
@@ -790,7 +843,7 @@ export default function SeasonTorrentBrowser({
                             e.stopPropagation();
                             handleSelectTorrent(torrent);
                           }}
-                          className="flex items-center gap-2 rounded-full bg-white/[0.08] group-hover/item:bg-amber-300 group-hover/item:text-black border border-white/10 px-4 py-2 text-[12px] font-semibold text-white transition-cinematic shrink-0 self-end md:self-center"
+                          className="flex items-center gap-2 rounded-full bg-white/[0.08] group-hover/item:bg-amber-300 group-hover/item:text-black border border-white/10 px-4 py-2 text-[12px] font-semibold text-white transition-cinematic shrink-0 self-end md:self-center shadow"
                         >
                           <Folder className="h-3.5 w-3.5" />
                           <span>Открыть серии</span>

@@ -508,18 +508,19 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                     </span>
                   )}
                 </div>
-                <TorrentBadges title={item.title} className="mt-1.5" />
-                <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/40">
-                  <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-medium text-white/60">{item.tracker}</span>
-                  <span className="flex items-center gap-1 font-medium text-white/70"><HardDrive className="h-3 w-3 text-white/40" />{item.sizeFormatted}</span>
-                  <span className="flex items-center gap-1 font-medium text-emerald-400"><Users className="h-3 w-3" />⚡ {item.seeders} {pluralSeeds(item.seeders)}</span>
-                  {item.peers != null && item.peers > 0 && (
-                    <span className="flex items-center gap-1 text-white/40"><Users className="h-3 w-3" />👥 {item.peers}</span>
-                  )}
-                  {item.date && (
-                    <span className="flex items-center gap-1 text-white/40"><Calendar className="h-3 w-3" />{new Date(item.date).toLocaleDateString('ru')}</span>
-                  )}
-                </div>
+                <TorrentBadges
+                  title={item.title}
+                  tracker={item.tracker}
+                  sizeFormatted={item.sizeFormatted}
+                  seeders={item.seeders}
+                  peers={item.peers}
+                  className="mt-2"
+                />
+                {item.date && (
+                  <div className="mt-1.5 text-[11px] text-white/35">
+                    Добавлено: {new Date(item.date).toLocaleDateString('ru')}
+                  </div>
+                )}
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 {item.details && (

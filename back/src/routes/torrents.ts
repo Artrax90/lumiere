@@ -409,6 +409,20 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
+  // Public trackers fallback for bare magnet links
+  const FALLBACK_PUBLIC_TRACKERS = [
+    'http://retracker.local/announce',
+    'udp://tracker.opentrackr.org:1337/announce',
+    'udp://open.stealth.si:80/announce',
+    'udp://tracker.openbittorrent.com:80/announce',
+    'udp://exodus.desync.com:6969/announce',
+    'udp://tracker.torrent.eu.org:451/announce',
+    'udp://explodie.org:6969/announce',
+    'http://tracker.t-ru.org/ann',
+    'http://bt2.t-ru.org/ann?magnet',
+    'http://tr.kinozal.tv/announce',
+  ];
+
   // Stream torrent via TorrServer (correct flow: add → stat → play)
   app.post('/api/torrents/stream', async (req, reply) => {
     const { magnet, title } = req.body as { magnet?: string; title?: string };
@@ -418,13 +432,21 @@ export function torrentRoutes(app: FastifyInstance) {
     }
 
     try {
+      // Ensure trackers are present so TorrServer is not relying solely on DHT
+      let targetMagnet = magnet;
+      for (const tr of FALLBACK_PUBLIC_TRACKERS) {
+        if (!targetMagnet.includes(encodeURIComponent(tr)) && !targetMagnet.includes(tr)) {
+          targetMagnet += `&tr=${encodeURIComponent(tr)}`;
+        }
+      }
+
       // Step 1: Add torrent to TorrServer (ephemeral, not saved to DB)
       const addRes = await fetch(`${TORRSERVER_URL}/torrents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           action: 'add',
-          link: magnet,
+          link: targetMagnet,
           title: title || 'Unknown',
           poster: '',
           save_to_db: false,
@@ -452,7 +474,7 @@ export function torrentRoutes(app: FastifyInstance) {
         stat?: number;
       } = {};
 
-      const maxAttempts = 5;
+      const maxAttempts = 10;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${hash}&index=-1&stat`, {
@@ -469,7 +491,7 @@ export function torrentRoutes(app: FastifyInstance) {
         }
 
         if (attempt < maxAttempts - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
+          await new Promise((r) => setTimeout(r, 1200));
         }
       }
 
@@ -478,6 +500,7 @@ export function torrentRoutes(app: FastifyInstance) {
           hash,
           name: title,
           files: [],
+          pending: true,
           error: 'Поиск пиров и загрузка метаданных торрента... Повторите попытку через пару секунд.',
         });
       }

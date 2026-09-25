@@ -13,7 +13,11 @@ export interface TorrentMetaBadge {
     | 'qual'
     | 'qual-cam'
     | 'audio-atmos'
-    | 'audio';
+    | 'audio'
+    | 'dub'
+    | 'lang'
+    | 'year'
+    | 'pack';
 }
 
 /**
@@ -40,10 +44,15 @@ export function parseTorrentMeta(str: string): TorrentMetaBadge[] {
   }
 
   // 2. Resolution
-  if (/\b(4K|UHD|2160P)\b/.test(s)) tags.push({ text: '4K UHD', type: 'res-4k' });
-  else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) tags.push({ text: '1080p', type: 'res-1080' });
-  else if (/\b(720P|HD)\b/.test(s)) tags.push({ text: '720p', type: 'res-720' });
-  else if (/\b(480P|576P|SD)\b/.test(s)) tags.push({ text: 'SD', type: 'res-sd' });
+  if (/\b(4K|UHD|2160P)\b/.test(s)) {
+    tags.push({ text: '4K UHD', type: 'res-4k' });
+  } else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) {
+    tags.push({ text: '1080p', type: 'res-1080' });
+  } else if (/\b(720P|HD)\b/.test(s)) {
+    tags.push({ text: '720p', type: 'res-720' });
+  } else if (/\b(480P|576P|SD|SATRIP|TVRIP|DVDRIP|IPTVRIP)\b/.test(s)) {
+    tags.push({ text: 'SD', type: 'res-sd' });
+  }
 
   // 3. Video HDR / Dynamic Range
   if (/\b(DV|DOLBY[\s._-]?VISION)\b/.test(s)) tags.push({ text: 'Dolby Vision', type: 'hdr-dv' });
@@ -65,6 +74,8 @@ export function parseTorrentMeta(str: string): TorrentMetaBadge[] {
   else if (/\b(WEB-DL|WEBDL|WEB-DLRIP)\b/.test(s)) tags.push({ text: 'WEB-DL', type: 'qual' });
   else if (/\bWEBRIP\b/.test(s)) tags.push({ text: 'WEBRip', type: 'qual' });
   else if (/\b(HDTV|HDTVRIP)\b/.test(s)) tags.push({ text: 'HDTV', type: 'qual' });
+  else if (/\b(SATRIP|SAT-RIP)\b/.test(s)) tags.push({ text: 'SATRip', type: 'qual' });
+  else if (/\b(TVRIP|TV-RIP|IPTVRIP)\b/.test(s)) tags.push({ text: 'TVRip', type: 'qual' });
   else if (/\b(DVDRIP|DVD9|DVD5|DVD)\b/.test(s)) tags.push({ text: 'DVDRip', type: 'qual' });
   else if (/\b(CAM|CAMRIP|TELESYNC|TELE-SYNC|TS-RIP)\b/.test(s)) tags.push({ text: 'CAM', type: 'qual-cam' });
 
@@ -74,6 +85,31 @@ export function parseTorrentMeta(str: string): TorrentMetaBadge[] {
   else if (/\b(DTS-HR|DTS)\b/.test(s)) tags.push({ text: 'DTS', type: 'audio' });
   else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
   else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
+
+  // 8. Dubbing / Studio tag
+  const studioMatch = str.match(/\b(LostFilm|HDRezka|NewStudio|Кубик в кубе|Red Head Sound|AlexFilm|Jaskier|Дубляж|LineFilm|Пифагор|Кравец|Невафильм)\b/i);
+  if (studioMatch) {
+    tags.push({ text: studioMatch[1], type: 'dub' });
+  }
+
+  // 9. Multi-episode packs tag (e.g. 1-10 выпуски, 1-27 выпуски)
+  const packMatch = str.match(/\b(\d{1,3}\s*[-–—]\s*\d{1,3}\s*(?:выпуск\w*|сери\w*))/i);
+  if (packMatch) {
+    tags.push({ text: packMatch[1], type: 'pack' });
+  }
+
+  // 10. Language
+  if (/\b(РУ|RUS|РУС)\b/.test(s)) {
+    tags.push({ text: 'RUS', type: 'lang' });
+  } else if (/\b(ENG|АНГЛ)\b/.test(s)) {
+    tags.push({ text: 'ENG', type: 'lang' });
+  }
+
+  // 11. Release Year (2000-2029)
+  const yearMatch = str.match(/\b(20[0-2]\d)\b/);
+  if (yearMatch) {
+    tags.push({ text: yearMatch[1], type: 'year' });
+  }
 
   return tags;
 }
@@ -103,20 +139,22 @@ export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: nu
   const hasTrackers = magnet.includes('&tr=');
 
   // Real working trackers bonus
-  if (tracker.includes('rutracker')) score += 500;
-  if (tracker.includes('rutor')) score += 350;
-  if (tracker.includes('nnm')) score += 300;
+  if (tracker.includes('rutracker')) score += 600;
+  if (tracker.includes('rutor')) score += 450;
+  if (tracker.includes('nnm')) score += 350;
   if (hasTrackers) score += 200;
 
-  // Bare private tracker penalty (Kinozal without &tr= has DHT disabled and cannot be resolved by TorrServer)
-  if (tracker === 'kinozal' && !hasTrackers) score -= 1000;
+  // Severe private tracker penalty if without trackers (Kinozal without &tr= has DHT disabled and fails in TorrServer)
+  if (tracker.includes('kinozal') && !hasTrackers) {
+    score -= 4000;
+  }
 
   // Quality bonus
-  if (title.includes('1080P') || title.includes('WEB-DL') || title.includes('BDRIP') || title.includes('REMUX')) score += 250;
-  if (title.includes('720P') || title.includes('HDTV')) score += 100;
+  if (title.includes('1080P') || title.includes('WEB-DL') || title.includes('BDRIP') || title.includes('REMUX')) score += 300;
+  if (title.includes('720P') || title.includes('HDTV')) score += 150;
 
   // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
-  if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+  if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 350;
 
   // Native MKV / MP4 container bonus (direct HW playback on TV/browser, 0% CPU on server)
   if (
@@ -128,7 +166,7 @@ export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: nu
     title.includes('H.264') ||
     title.includes('AVC')
   ) {
-    score += 300;
+    score += 400;
   }
 
   // SD / SATRip / AVI penalty (requires server transcoding)
@@ -140,7 +178,7 @@ export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: nu
     title.includes('.AVI') ||
     title.includes('[AVI]')
   ) {
-    score -= 500;
+    score -= 600;
   }
 
   return score;
@@ -240,48 +278,56 @@ export function getTorrentSmartQueries(title: string | { name?: string; title?: 
 }
 
 /**
+ * Extracts season information from a torrent title string.
+ */
+export function getTorrentSeason(title: string): { start?: number; end?: number; single?: number } | null {
+  if (!title) return null;
+  const t = title.toLowerCase();
+
+  // Range: 'сезоны 1-4' or '1-4 сезон' or 'seasons 1-3'
+  const rangeMatch =
+    t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i) ||
+    t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
+  if (rangeMatch) {
+    return { start: parseInt(rangeMatch[1], 10), end: parseInt(rangeMatch[2], 10) };
+  }
+
+  // 1. '19 сезон' or '19-й сезон' (e.g. '19 сезон: 22 выпуск')
+  const m1 = t.match(/(\d{1,2})[-–—\s]*(?:й|-й)?\s*сезон/i);
+  if (m1) return { single: parseInt(m1[1], 10) };
+
+  // 2. 'сезон 19' or 'сезон: 19' (make sure there is no preceding number)
+  const m2 = t.match(/(?:^|[^\d])сезон\s*[:.]?\s*(\d{1,2})/i);
+  if (m2) return { single: parseInt(m2[1], 10) };
+
+  // 3. 'season 4' or 'season: 4'
+  const mSeason = t.match(/(?:^|[^\d])season\s*[:.]?\s*(\d{1,2})/i);
+  if (mSeason) return { single: parseInt(mSeason[1], 10) };
+
+  // 4. 's01', 's1', 's05e02'
+  const mS = t.match(/\bs(\d{1,2})(?:e\d+|\b)/i);
+  if (mS) return { single: parseInt(mS[1], 10) };
+
+  // 5. '01x02', '1x2'
+  const mX = t.match(/\b(\d{1,2})[xх]\d+\b/i);
+  if (mX) return { single: parseInt(mX[1], 10) };
+
+  return null;
+}
+
+/**
  * Checks if a torrent title matches a specific season number, supporting season ranges (e.g. "Сезоны 1-4").
  */
 export function matchesTorrentSeason(title: string, s: number): boolean {
   if (!title || !s) return true;
-  const t = title.toLowerCase();
-  const sPadded = s < 10 ? '0' + s : '' + s;
-
-  // Check explicit season ranges: "сезоны 1-4", "1-5 сезон", "seasons 1-3"
-  let rangeMatch = t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i);
-  if (!rangeMatch) {
-    rangeMatch = t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
-  }
-  if (rangeMatch) {
-    const startS = parseInt(rangeMatch[1], 10);
-    const endS = parseInt(rangeMatch[2], 10);
-    if (s >= startS && s <= endS) return true;
+  const parsed = getTorrentSeason(title);
+  if (!parsed) {
+    const t = title.toLowerCase();
+    if (t.includes('сезоны 1-') || t.includes('сезон 1-') || t.includes('seasons 1-')) return true;
     return false;
   }
-
-  // Standard season patterns
-  if (
-    t.includes(`сезон: ${s}`) ||
-    t.includes(`сезон:${s}`) ||
-    t.includes(`сезон ${s}`) ||
-    t.includes(`${s} сезон`) ||
-    t.includes(`${s}-й сезон`) ||
-    t.includes(`${s}s`) ||
-    t.includes(`s${sPadded}`) ||
-    t.includes(`s${s}`) ||
-    t.includes(`season ${s}`) ||
-    t.includes(`season${s}`) ||
-    t.includes(`${s} season`) ||
-    t.includes('сезоны 1-') ||
-    t.includes('сезон 1-') ||
-    t.includes('seasons 1-')
-  ) {
-    return true;
+  if (parsed.start !== undefined && parsed.end !== undefined) {
+    return s >= parsed.start && s <= parsed.end;
   }
-
-  // Specific episode / season patterns e.g. "01х", "1x", "s01e"
-  const xReg = new RegExp(`\\b0?${s}[xх]\\d+`, 'i');
-  if (xReg.test(t)) return true;
-
-  return false;
+  return parsed.single === s;
 }
