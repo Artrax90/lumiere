@@ -4822,8 +4822,8 @@
         return;
       }
 
-      // If resuming from Continue Watching or if torrent has only 1 file, start playback immediately!
-      if (state.fromContinueWatching || data.files.length === 1) {
+      // If resuming from Continue Watching, start playback immediately!
+      if (state.fromContinueWatching) {
         state.fromContinueWatching = false;
         var targetFile = data.files[0];
         if (movieId) {
@@ -4844,14 +4844,14 @@
         return;
       }
 
-      showTorrentPrePlayModal(data.files, movieName, movieId, magnet);
+      showTorrentPrePlayModal(data.files, titleStr || movieName, movieId, magnet, movieName);
     });
   }
 
   // ========== Torrent Pre-Play Confirmation Modal ==========
-  function showTorrentPrePlayModal(files, title, movieId, magnet) {
+  function showTorrentPrePlayModal(files, title, movieId, magnet, customMovieName) {
     if (!files || files.length === 0) {
-      files = [{ name: title, directUrl: '', streamUrl: '', sizeFormatted: '' }];
+      files = [{ name: customMovieName || title, directUrl: '', streamUrl: '', sizeFormatted: '' }];
     }
 
     var modalExisting = document.getElementById('torrent-confirm-modal');
@@ -4861,11 +4861,9 @@
 
     var selectedIdx = 0;
     var isMulti = files.length > 1;
-    var movieName = '';
-    if (typeof title === 'string' && title.trim()) {
-      movieName = title;
-    } else if (title && typeof title === 'object') {
-      movieName = title.name || title.title || '';
+    var movieName = customMovieName || '';
+    if (!movieName && typeof title === 'string' && title.trim()) {
+      movieName = cleanMovieTitle(title);
     }
     if (!movieName && state.detail) {
       if (typeof state.detail.name === 'string') movieName = state.detail.name;
@@ -4876,13 +4874,15 @@
     }
     if (!movieName) movieName = 'Воспроизведение';
 
+    var rawMeta = (typeof title === 'string' ? title : '');
+
     var wrap = document.createElement('div');
     wrap.id = 'torrent-confirm-modal';
     wrap.className = 'torrent-confirm-wrap';
 
     function buildModalHtml() {
       var activeFile = files[selectedIdx] || files[0];
-      var comboMeta = title + ' ' + (activeFile.name || '');
+      var comboMeta = rawMeta + ' ' + (activeFile.name || '');
       var badgesHtml = renderMetaBadges(comboMeta);
       var sizeText = activeFile.sizeFormatted || '';
 
@@ -4891,7 +4891,7 @@
       if (isMulti) {
         h += '<div class="torrent-confirm-sub">Выберите файл или серию для запуска (' + files.length + ' файлов в торренте)</div>';
       } else {
-        h += '<div class="torrent-confirm-sub">' + esc(activeFile.name || title) + '</div>';
+        h += '<div class="torrent-confirm-sub">' + esc(activeFile.name || rawMeta || movieName) + '</div>';
       }
 
       h += '<div class="torrent-confirm-meta" id="t-modal-badges">';
@@ -4903,7 +4903,7 @@
         h += '<div class="torrent-confirm-files" id="t-modal-files">';
         for (var i = 0; i < files.length; i++) {
           var f = files[i];
-          var fBadges = renderMetaBadges(f.name || '');
+          var fBadges = renderMetaBadges(rawMeta + ' ' + (f.name || ''));
           var fCls = 'torrent-confirm-file-item' + (i === selectedIdx ? ' focused' : '');
           h += '<div class="' + fCls + '" data-index="' + i + '" tabindex="0">';
           h += '<span class="file-name">' + esc(f.name || 'Файл ' + (i + 1)) + '</span>';
@@ -4975,7 +4975,7 @@
       if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
       document.removeEventListener('keydown', confirmKeyHandler, true);
       window.closeTorrentConfirmModal = null;
-      playFile(targetFile, title, movieId);
+      playFile(targetFile, movieName || title, movieId);
     }
 
     var bindEvents = function() {
@@ -5048,7 +5048,7 @@
             updateModalFocus();
             var badgesContainer = document.getElementById('t-modal-badges');
             if (badgesContainer && files[selectedIdx]) {
-              var combo = title + ' ' + (files[selectedIdx].name || '');
+              var combo = rawMeta + ' ' + (files[selectedIdx].name || '');
               var bHtml = renderMetaBadges(combo);
               if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
               badgesContainer.innerHTML = bHtml;
@@ -5064,7 +5064,7 @@
             updateModalFocus();
             var badgesContainer = document.getElementById('t-modal-badges');
             if (badgesContainer && files[selectedIdx]) {
-              var combo = title + ' ' + (files[selectedIdx].name || '');
+              var combo = rawMeta + ' ' + (files[selectedIdx].name || '');
               var bHtml = renderMetaBadges(combo);
               if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
               badgesContainer.innerHTML = bHtml;
