@@ -802,12 +802,12 @@ export function torrentRoutes(app: FastifyInstance) {
       if (maxSeg < 0) return;
 
       const ahead = maxSeg - sess.lastRequestedSeg;
-      // Buffer target: maintain ~32s buffer (8 segments of 4s).
-      // If FFmpeg has produced 8+ segments ahead of the player, suspend it to save 100% CPU.
-      // If buffer drops below 4 segments (<16s), resume FFmpeg to generate more.
-      if (ahead >= 8) {
+      // Buffer target: maintain ~16-24s buffer (4-6 segments of 4s).
+      // If FFmpeg has produced 4+ segments ahead of the player, suspend it to save 100% CPU.
+      // If buffer drops below 2 segments (<8s), resume FFmpeg to generate more.
+      if (ahead >= 4) {
         pauseFfmpeg(sess);
-      } else if (ahead < 4) {
+      } else if (ahead < 2) {
         resumeFfmpeg(sess);
       }
     } catch {}
@@ -900,7 +900,8 @@ export function torrentRoutes(app: FastifyInstance) {
     // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
     const { spawn } = await import('child_process');
     const ffmpegArgs = [
-      '-threads', '2',
+      '-threads', '1',
+      '-readrate', '2.0',
       '-reconnect', '1',
       '-reconnect_streamed', '1',
       '-reconnect_delay_max', '5',
@@ -944,6 +945,9 @@ export function torrentRoutes(app: FastifyInstance) {
       '-c:a', 'aac',
       '-b:a', '192k',
       '-ac', '2',
+      '-g', '50',
+      '-keyint_min', '25',
+      '-force_key_frames', 'expr:gte(t,n_forced*4)',
       '-f', 'hls',
       '-hls_time', '4',
       '-hls_list_size', '0',
@@ -953,6 +957,11 @@ export function torrentRoutes(app: FastifyInstance) {
       playlistPath,
     );
     const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+    try {
+      if (ffmpeg.pid && typeof os.setPriority === 'function') {
+        os.setPriority(ffmpeg.pid, 10);
+      }
+    } catch {}
 
     const sess: FfmpegSession = {
       pid: ffmpeg.pid!,
