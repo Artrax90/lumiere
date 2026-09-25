@@ -1,9 +1,16 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Folder, Magnet, Users, HardDrive, ArrowUpDown, Filter, Check, RefreshCw, ChevronRight, Star, Clock, AlertCircle } from 'lucide-react';
+import { Play, Folder, Magnet, Users, HardDrive, ArrowUpDown, Filter, Check, RefreshCw, ChevronRight, Star, Clock, AlertCircle, Sparkles, Search, X } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
+import TorrentBadges from './TorrentBadges';
+import {
+  pluralSeeds,
+  scoreTorrent,
+  getTorrentSmartQueries,
+  matchesTorrentSeason,
+} from '@/utils/torrentMeta';
 
 interface TorrentItem {
   id: string;
@@ -161,8 +168,9 @@ export default function SeasonTorrentBrowser({
   const [lastPlayedFileId, setLastPlayedFileId] = useState<number | null>(() => initialSaved?.lastPlayedFileId || null);
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  type SortKey = 'score' | 'seeds' | 'date' | 'size';
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
-  const [sortBy, setSortBy] = useState<'seeds' | 'date' | 'size'>('seeds');
+  const [sortBy, setSortBy] = useState<SortKey>('score');
   const [watchedList, setWatchedList] = useState<number[]>(() => getWatchedFiles(show.id));
   const [customSearchQuery, setCustomSearchQuery] = useState(show.name);
   const [viewMode, setViewMode] = useState<'torrents' | 'tmdb'>('torrents');
@@ -185,15 +193,44 @@ export default function SeasonTorrentBrowser({
     }
   }, []);
 
-  // Load torrents for this show
+  // Load torrents for this show with multi-query smart search
   const fetchTorrents = async (queryText?: string) => {
     const q = queryText || show.name;
     if (!q.trim()) return;
     setLoadingTorrents(true);
     try {
-      const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(q.trim())}`);
-      const data = await res.json();
-      setAllTorrents(data.results || []);
+      const queries = getTorrentSmartQueries({
+        name: q.trim(),
+        originalTitle: show.originalTitle,
+        logoText: show.logoText,
+      });
+
+      const tmdbParam = show.id ? `&tmdbId=${show.id}` : '';
+      const typeParam = `&type=${(show as any).type || 'tv'}`;
+
+      const fetchPromises = queries.map(async (qStr) => {
+        try {
+          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}`);
+          const data = await res.json();
+          return (data.results || []) as TorrentItem[];
+        } catch {
+          return [] as TorrentItem[];
+        }
+      });
+
+      const resultsLists = await Promise.all(fetchPromises);
+      const merged: TorrentItem[] = [];
+      const seen = new Set<string>();
+      for (const list of resultsLists) {
+        for (const item of list) {
+          const key = (item.magnet || item.title || item.id).toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(item);
+          }
+        }
+      }
+      setAllTorrents(merged);
     } catch {
       setAllTorrents([]);
     } finally {
@@ -230,40 +267,26 @@ export default function SeasonTorrentBrowser({
   // Filter torrents matching this season
   const seasonTorrents = useMemo(() => {
     const s = season;
-    const sPadded = String(s).padStart(2, '0');
 
     return allTorrents.filter((item) => {
-      const title = item.title.toLowerCase();
-
-      // Check season patterns
-      const matchesSeason =
-        title.includes(`сезон: ${s}`) ||
-        title.includes(`сезон:${s}`) ||
-        title.includes(`сезон ${s}`) ||
-        title.includes(`${s} сезон`) ||
-        title.includes(`${s}-й сезон`) ||
-        title.includes(`${s}s`) ||
-        title.includes(`s${sPadded}`) ||
-        title.includes(`s${s}`) ||
-        title.includes(`season ${s}`) ||
-        title.includes(`сезоны 1-`) ||
-        title.includes(`сезон 1-`);
-
-      if (!matchesSeason) return false;
+      // Check season patterns using smart season matcher
+      if (!matchesTorrentSeason(item.title, s)) return false;
 
       // Quality filter
+      const tLower = item.title.toLowerCase();
       if (qualityFilter === '4k') {
-        return title.includes('2160') || title.includes('4k') || title.includes('uhd');
+        return tLower.includes('2160') || tLower.includes('4k') || tLower.includes('uhd');
       }
       if (qualityFilter === '1080p') {
-        return title.includes('1080');
+        return tLower.includes('1080');
       }
       if (qualityFilter === '720p') {
-        return title.includes('720');
+        return tLower.includes('720');
       }
 
       return true;
     }).sort((a, b) => {
+      if (sortBy === 'score') return scoreTorrent(b) - scoreTorrent(a);
       if (sortBy === 'seeds') return (b.seeders || 0) - (a.seeders || 0);
       if (sortBy === 'date') {
         const da = a.date ? new Date(a.date).getTime() : 0;
@@ -271,7 +294,7 @@ export default function SeasonTorrentBrowser({
         return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
       }
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
-      return (b.seeders || 0) - (a.seeders || 0);
+      return scoreTorrent(b) - scoreTorrent(a);
     });
   }, [allTorrents, season, qualityFilter, sortBy]);
 
@@ -413,8 +436,8 @@ export default function SeasonTorrentBrowser({
               {/* Active Torrent Banner */}
               <div className="rounded-[16px] border border-amber-300/20 bg-amber-300/[0.04] p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-1 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
+                  <div className="space-y-2 min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="rounded-full bg-amber-400/20 px-2 py-0.5 text-[10px] font-semibold text-amber-300">
                         Выбранная раздача для {season} сезона
                       </span>
@@ -422,12 +445,13 @@ export default function SeasonTorrentBrowser({
                         {selectedTorrent.tracker}
                       </span>
                       <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                        <Users className="h-3 w-3" /> {selectedTorrent.seeders} сидов
+                        <Users className="h-3 w-3" /> {pluralSeeds(selectedTorrent.seeders)}
                       </span>
                     </div>
                     <h3 className="text-[14px] font-medium text-white/95 line-clamp-2">
                       {selectedTorrent.title}
                     </h3>
+                    <TorrentBadges title={selectedTorrent.title} />
                     <div className="text-[12px] text-white/45">
                       Размер: {selectedTorrent.sizeFormatted}
                     </div>
@@ -596,8 +620,8 @@ export default function SeasonTorrentBrowser({
           ) : (
             /* STATE B: NO TORRENT CHOSEN YET -> SHOW LIST OF TORRENTS FOR THIS SEASON */
             <div className="space-y-4 animate-fade-in">
-              {/* Quality filter chips & header */}
-              <div className="flex flex-wrap items-center justify-between gap-3">
+              {/* Header & Search */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <h3 className="text-[16px] font-medium text-white/95">
                     Выберите раздачу для {season} сезона
@@ -607,51 +631,93 @@ export default function SeasonTorrentBrowser({
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-white/40 mr-1">Сортировка:</span>
-                    {[
-                      { id: 'seeds', label: 'По сидам' },
-                      { id: 'date', label: 'По дате' },
-                      { id: 'size', label: 'По размеру' },
-                    ].map((s) => (
+                {/* Optional manual search input */}
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    fetchTorrents(customSearchQuery);
+                  }}
+                  className="flex items-center gap-2 max-w-sm w-full sm:w-auto"
+                >
+                  <div className="relative flex-1 sm:w-60">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
+                    <input
+                      type="text"
+                      value={customSearchQuery}
+                      onChange={(e) => setCustomSearchQuery(e.target.value)}
+                      placeholder="Уточнить поиск сериала..."
+                      className="w-full rounded-full bg-white/[0.05] border border-white/10 pl-8 pr-7 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-amber-400/50 focus:outline-none transition-cinematic"
+                    />
+                    {customSearchQuery && (
                       <button
-                        key={s.id}
-                        onClick={() => setSortBy(s.id as any)}
-                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                        style={{
-                          background: sortBy === s.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-                          color: sortBy === s.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                          border: sortBy === s.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                        type="button"
+                        onClick={() => {
+                          setCustomSearchQuery(show.name);
+                          fetchTorrents(show.name);
                         }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
                       >
-                        {s.label}
+                        <X className="h-3 w-3" />
                       </button>
-                    ))}
+                    )}
                   </div>
+                  <button
+                    type="submit"
+                    disabled={loadingTorrents}
+                    className="rounded-full bg-white/10 hover:bg-amber-300 hover:text-black border border-white/10 px-3.5 py-1.5 text-[12px] font-medium text-white transition-cinematic disabled:opacity-50 shrink-0"
+                  >
+                    Поиск
+                  </button>
+                </form>
+              </div>
 
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] text-white/40 mr-1">Качество:</span>
-                    {[
-                      { id: 'all', label: 'Все' },
-                      { id: '4k', label: '4K UHD' },
-                      { id: '1080p', label: '1080p' },
-                      { id: '720p', label: '720p' },
-                    ].map((q) => (
-                      <button
-                        key={q.id}
-                        onClick={() => setQualityFilter(q.id as any)}
-                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                        style={{
-                          background: qualityFilter === q.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-                          color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                          border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                        }}
-                      >
-                        {q.label}
-                      </button>
-                    ))}
-                  </div>
+              {/* Quality & Sort Controls */}
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.04] pt-3">
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-white/40 mr-1">Сортировка:</span>
+                  {[
+                    { id: 'score', label: 'По рейтингу' },
+                    { id: 'seeds', label: 'По сидам' },
+                    { id: 'date', label: 'По дате' },
+                    { id: 'size', label: 'По размеру' },
+                  ].map((s) => (
+                    <button
+                      key={s.id}
+                      onClick={() => setSortBy(s.id as any)}
+                      className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                      style={{
+                        background: sortBy === s.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
+                        color: sortBy === s.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                        border: sortBy === s.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      {s.id === 'score' && <Sparkles className="h-3 w-3 text-amber-300" />}
+                      <span>{s.label}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="text-[11px] text-white/40 mr-1">Качество:</span>
+                  {[
+                    { id: 'all', label: 'Все' },
+                    { id: '4k', label: '4K UHD' },
+                    { id: '1080p', label: '1080p' },
+                    { id: '720p', label: '720p' },
+                  ].map((q) => (
+                    <button
+                      key={q.id}
+                      onClick={() => setQualityFilter(q.id as any)}
+                      className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                      style={{
+                        background: qualityFilter === q.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
+                        color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                        border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                      }}
+                    >
+                      {q.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -667,11 +733,19 @@ export default function SeasonTorrentBrowser({
               {!loadingTorrents && seasonTorrents.length === 0 && (
                 <div className="rounded-[16px] border border-white/[0.06] bg-white/[0.02] p-8 text-center">
                   <p className="text-[14px] text-white/60">
-                    Не найдено подходящих раздач для сезона {season}.
+                    Не найдено подходящих раздач для сезона {season} {qualityFilter !== 'all' ? `(фильтр ${qualityFilter})` : ''}.
                   </p>
-                  <p className="text-[12px] text-white/35 mt-1">
-                    Попробуйте выбрать фильтр «Все» или найти сериал вручную.
+                  <p className="text-[12px] text-white/35 mt-1 mb-4">
+                    Попробуйте сбросить фильтр качества или уточнить поисковый запрос выше.
                   </p>
+                  {qualityFilter !== 'all' && (
+                    <button
+                      onClick={() => setQualityFilter('all')}
+                      className="rounded-full bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-1.5 text-[12px] font-medium text-white transition-cinematic"
+                    >
+                      Сбросить фильтр качества
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -679,13 +753,6 @@ export default function SeasonTorrentBrowser({
               {!loadingTorrents && seasonTorrents.length > 0 && (
                 <div className="space-y-2.5">
                   {seasonTorrents.map((torrent, idx) => {
-                    const is4k = torrent.title.toLowerCase().includes('2160') || torrent.title.toLowerCase().includes('4k');
-                    const is1080 = torrent.title.toLowerCase().includes('1080');
-
-                    // Detect studio/dubbing tag
-                    const studioMatch = torrent.title.match(/(LostFilm|HDRezka|NewStudio|Кубик в кубе|Red Head Sound|AlexFilm|Jaskier|Дубляж|LineFilm)/i);
-                    const studioTag = studioMatch ? studioMatch[0] : null;
-
                     return (
                       <div
                         key={`${torrent.tracker}-${torrent.id}-${idx}`}
@@ -697,29 +764,16 @@ export default function SeasonTorrentBrowser({
                             <span className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[10px] font-medium text-white/70">
                               {torrent.tracker}
                             </span>
-                            {is4k && (
-                              <span className="rounded-full bg-amber-400/20 border border-amber-400/30 px-2 py-0.5 text-[10px] font-bold text-amber-300">
-                                4K UHD
-                              </span>
-                            )}
-                            {is1080 && (
-                              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80">
-                                1080p
-                              </span>
-                            )}
-                            {studioTag && (
-                              <span className="rounded-full bg-indigo-500/20 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-medium text-indigo-300">
-                                {studioTag}
-                              </span>
-                            )}
                             <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold ml-1">
-                              <Users className="h-3 w-3" /> {torrent.seeders} сидов
+                              <Users className="h-3 w-3" /> {pluralSeeds(torrent.seeders)}
                             </span>
                           </div>
 
                           <h4 className="text-[13px] font-medium text-white/90 line-clamp-2 leading-snug">
                             {torrent.title}
                           </h4>
+
+                          <TorrentBadges title={torrent.title} />
 
                           <div className="flex items-center gap-3 text-[11px] text-white/40">
                             <span className="flex items-center gap-1">

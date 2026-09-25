@@ -1,8 +1,15 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search, Sparkles } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
+import TorrentBadges from './TorrentBadges';
+import {
+  pluralSeeds,
+  scoreTorrent,
+  getTorrentSmartQueries,
+  matchesTorrentSeason,
+} from '@/utils/torrentMeta';
 
 // Simple hash for magnet link
 function hashMagnet(magnet: string): string {
@@ -84,7 +91,7 @@ interface TorrentSearchProps {
   onPlay: (url: string, episodeName?: string, externalSubs?: any[], directUrl?: string) => void;
 }
 
-type SortKey = 'seeders' | 'size' | 'date';
+type SortKey = 'score' | 'seeders' | 'size' | 'date';
 
 export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   const { t } = useTranslation();
@@ -95,7 +102,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   const [lastTorrentId, setLastTorrentId] = useState<string | null>(null);
   const [files, setFiles] = useState<TorrentFile[] | null>(null);
   const [streamError, setStreamError] = useState('');
-  const [sortBy, setSortBy] = useState<SortKey>('seeders');
+  const [sortBy, setSortBy] = useState<SortKey>('score');
   const [seasonFilter, setSeasonFilter] = useState<number | null>(null);
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
@@ -108,10 +115,40 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
     setSearched(true);
     setFiles(null);
     try {
-      const altParam = title.logoText && title.logoText !== q ? `&alt=${encodeURIComponent(title.logoText.trim())}` : '';
-      const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(q.trim())}${altParam}`);
-      const data = await res.json();
-      setResults(data.results || []);
+      const queries = getTorrentSmartQueries({
+        name: q.trim(),
+        originalTitle: title.originalTitle,
+        logoText: title.logoText,
+      });
+
+      const tmdbParam = title.id ? `&tmdbId=${title.id}` : '';
+      const typeParam = `&type=${(title as any).type || 'movie'}`;
+
+      const fetchPromises = queries.map(async (qStr) => {
+        try {
+          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}`);
+          const data = await res.json();
+          return (data.results || []) as TorrentItem[];
+        } catch {
+          return [] as TorrentItem[];
+        }
+      });
+
+      const resultsLists = await Promise.all(fetchPromises);
+      const merged: TorrentItem[] = [];
+      const seen = new Set<string>();
+
+      for (const list of resultsLists) {
+        for (const item of list) {
+          const k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+          if (!seen.has(k)) {
+            seen.add(k);
+            merged.push(item);
+          }
+        }
+      }
+
+      setResults(merged);
     } catch {
       setResults([]);
     } finally {
@@ -130,12 +167,9 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   const sortedResults = useMemo(() => {
     let filtered = [...results];
 
-    // Filter by season if selected
+    // Filter by season if selected using robust season matcher
     if (seasonFilter !== null) {
-      filtered = filtered.filter((r) => {
-        const t = r.title.toLowerCase();
-        return t.includes(`s${seasonFilter}`) || t.includes(`сезон ${seasonFilter}`) || t.includes(`сезон${seasonFilter}`) || t.includes(`season ${seasonFilter}`);
-      });
+      filtered = filtered.filter((r) => matchesTorrentSeason(r.title, seasonFilter));
     }
 
     // Filter by quality
@@ -150,28 +184,43 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
       filtered = filtered.filter((r) => r.title.toLowerCase().includes('720'));
     }
 
-    // Sort
+    // Sort by selected criteria
     filtered.sort((a, b) => {
-      if (sortBy === 'seeders') return b.seeders - a.seeders;
-      if (sortBy === 'size') return b.size - a.size;
+      if (sortBy === 'score') return scoreTorrent(b) - scoreTorrent(a);
+      if (sortBy === 'seeders') return (b.seeders || 0) - (a.seeders || 0);
+      if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       if (sortBy === 'date') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      return 0;
+      return scoreTorrent(b) - scoreTorrent(a);
     });
 
     return filtered;
   }, [results, sortBy, seasonFilter, qualityFilter]);
 
-  // Extract available seasons from results
+  // Extract available seasons from results using range and standard patterns
   const availableSeasons = useMemo(() => {
     const seasons = new Set<number>();
     for (const r of results) {
       const t = r.title.toLowerCase();
-      // Match S01, S1, Season 1, Сезон 1 patterns
-      const matches = t.match(/s(\d{1,2})|сезон\s*(\d{1,2})|season\s*(\d{1,2})/gi);
+      // Match explicit season ranges: "сезоны 1-4"
+      const rangeMatch =
+        t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i) ||
+        t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
+      if (rangeMatch) {
+        const startS = parseInt(rangeMatch[1], 10);
+        const endS = parseInt(rangeMatch[2], 10);
+        for (let s = startS; s <= Math.min(endS, startS + 20); s++) {
+          seasons.add(s);
+        }
+      }
+      // Single seasons
+      const matches = t.match(/s(\d{1,2})|сезон\s*(\d{1,2})|season\s*(\d{1,2})|(\d{1,2})\s*сезон/gi);
       if (matches) {
         for (const m of matches) {
           const num = m.match(/\d+/);
-          if (num) seasons.add(parseInt(num[0]));
+          if (num) {
+            const s = parseInt(num[0], 10);
+            if (s > 0 && s < 60) seasons.add(s);
+          }
         }
       }
     }
@@ -347,7 +396,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
             {/* Sort buttons */}
             <div className="flex items-center gap-1">
               <ArrowUpDown className="h-3.5 w-3.5 text-white/40" />
-              {(['seeders', 'size', 'date'] as SortKey[]).map((key) => (
+              {(['score', 'seeders', 'size', 'date'] as SortKey[]).map((key) => (
                 <button
                   key={key}
                   onClick={() => setSortBy(key)}
@@ -358,7 +407,7 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                     border: sortBy === key ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
                   }}
                 >
-                  {key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
+                  {key === 'score' ? 'По рейтингу' : key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
                 </button>
               ))}
             </div>
@@ -459,13 +508,16 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
                     </span>
                   )}
                 </div>
+                <TorrentBadges title={item.title} className="mt-1.5" />
                 <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-white/40">
-                  <span className="rounded-full bg-white/[0.06] px-2 py-0.5">{item.tracker}</span>
-                  <span className="flex items-center gap-1"><HardDrive className="h-3 w-3" />{item.sizeFormatted}</span>
-                  <span className="flex items-center gap-1 text-green-400/70"><Users className="h-3 w-3" />{item.seeders}</span>
-                  <span className="flex items-center gap-1"><Users className="h-3 w-3" />{item.peers}</span>
+                  <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-medium text-white/60">{item.tracker}</span>
+                  <span className="flex items-center gap-1 font-medium text-white/70"><HardDrive className="h-3 w-3 text-white/40" />{item.sizeFormatted}</span>
+                  <span className="flex items-center gap-1 font-medium text-emerald-400"><Users className="h-3 w-3" />⚡ {item.seeders} {pluralSeeds(item.seeders)}</span>
+                  {item.peers != null && item.peers > 0 && (
+                    <span className="flex items-center gap-1 text-white/40"><Users className="h-3 w-3" />👥 {item.peers}</span>
+                  )}
                   {item.date && (
-                    <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{new Date(item.date).toLocaleDateString('ru')}</span>
+                    <span className="flex items-center gap-1 text-white/40"><Calendar className="h-3 w-3" />{new Date(item.date).toLocaleDateString('ru')}</span>
                   )}
                 </div>
               </div>
