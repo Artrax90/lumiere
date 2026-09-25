@@ -170,6 +170,18 @@
       poster: p.poster || '',
       start: parseInt(p.start) || 0
     };
+
+    var effectiveId = playerParams.id || (state.detail && state.detail.id) || 0;
+    var effectiveType = playerParams.type || (state.detail && state.detail.type) || ((cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie');
+    var effectivePoster = playerParams.poster || (state.detail && state.detail.poster) || '';
+
+    state.activePlayerMedia = {
+      id: effectiveId,
+      name: cleanPlayerTitle || 'Видео',
+      type: effectiveType,
+      poster: effectivePoster
+    };
+
     if (typeof window.initPlayer === 'function') {
       window.initPlayer(playerParams);
     } else if (typeof initPlayer === 'function') {
@@ -244,31 +256,20 @@
       return;
     }
 
-    // Return to detail card if opened from detail OR if opened from continue watching!
+    // Return to detail card of the EXACT media that was playing
     var detailContent = detail ? detail.querySelector('#detail-content') : null;
     var hasDetailContent = detailContent && detailContent.children.length > 0;
 
-    // User requested: When pressing Back in player, ALWAYS open the movie/series detail card!
-    var targetDetail = state.detail;
-    if (!targetDetail || !targetDetail.id) {
-      try {
-        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
-        for (var lid in lastT) {
-          if (lastT[lid] && Number(lid) > 0) {
-            targetDetail = { id: Number(lid), name: lastT[lid].title, type: lastT[lid].type };
-            break;
-          }
-        }
-      } catch(ex) {}
-    }
+    var targetDetail = state.activePlayerMedia || (state.detail && state.detail.id ? state.detail : null);
+    state.activePlayerMedia = null;
 
     if (detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
-      if (app) {
-        app.classList.add('hidden');
-        app.style.display = 'none';
-      }
-      var isSameDetailLoaded = hasDetailContent && state.detail && (state.detail.id === targetDetail.id);
+      var isSameDetailLoaded = hasDetailContent && state.detailLoadedId === targetDetail.id;
       if (isSameDetailLoaded) {
+        if (app) {
+          app.classList.add('hidden');
+          app.style.display = 'none';
+        }
         detail.classList.remove('hidden');
         detail.style.display = 'block';
         detail.style.zIndex = '900';
@@ -283,10 +284,20 @@
           setDetailFocus(focusTarget);
         }
       } else {
+        if (app) {
+          app.classList.add('hidden');
+          app.style.display = 'none';
+        }
         if (targetDetail.type === 'tv') {
           state.detailTab = 'episodes';
         }
-        showDetail(targetDetail);
+        var cleanTitle = cleanMovieTitle(targetDetail.name || targetDetail.title || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+        showDetail({
+          id: targetDetail.id,
+          name: cleanTitle || targetDetail.name || '',
+          type: targetDetail.type,
+          poster: targetDetail.poster || ''
+        });
       }
     } else {
       if (detail) {
@@ -3297,8 +3308,21 @@
 
   // ========== Card Title Marquee Animation ==========
   var marqueeStyleEl = null;
+  var marqueeTimer = null;
 
   function startCardTitleMarquee(card) {
+    if (marqueeTimer) {
+      clearTimeout(marqueeTimer);
+      marqueeTimer = null;
+    }
+    if (!card) return;
+    marqueeTimer = setTimeout(function() {
+      if (!card || (!card.classList.contains('focused') && document.activeElement !== card)) return;
+      _doStartCardTitleMarquee(card);
+    }, 400);
+  }
+
+  function _doStartCardTitleMarquee(card) {
     if (!card) return;
     var titleEl = card.querySelector('.card-title');
     if (!titleEl) return;
@@ -3359,6 +3383,10 @@
   }
 
   function stopCardTitleMarquee(card) {
+    if (marqueeTimer) {
+      clearTimeout(marqueeTimer);
+      marqueeTimer = null;
+    }
     if (!card) return;
     var titleEl = card.querySelector('.card-title');
     if (titleEl) titleEl.classList.remove('has-marquee');
@@ -3438,9 +3466,14 @@
     $detail.classList.remove('screen');
     $detail.style.display = 'block';
     $detail.style.zIndex = '900';
-    state.detailTab = 'torrents';
+    if (title.type === 'tv' || state.detailTab === 'episodes' || (/ · S[0-9]+/i.test(title.name))) {
+      state.detailTab = 'episodes';
+    } else {
+      state.detailTab = 'torrents';
+    }
     state.detailSeason = '';
     state.detail = null;
+    state.detailLoadedId = title.id;
 
     // Loading state
     renderDetailLoading(title);
@@ -3450,9 +3483,11 @@
     apiFetch('/api/' + type + '/' + title.id, function(err, data) {
       if (data && data.id) {
         state.detail = data;
+        state.detailLoadedId = data.id;
         renderDetail(data);
       } else {
         state.detail = title;
+        state.detailLoadedId = title.id;
         renderDetail(title);
       }
     });
@@ -3787,6 +3822,7 @@
       $detail.classList.add('hidden');
       $detail.style.display = 'none';
     }
+    state.detailLoadedId = null;
     var app = document.getElementById('app');
     if (app) {
       app.classList.remove('hidden');
@@ -8235,20 +8271,11 @@
   }
 
   function clearAllFocus() {
+    clearCardFocus();
     var focused = document.querySelectorAll('.focused');
     for (var fi = 0; fi < focused.length; fi++) {
       focused[fi].classList.remove('focused');
-      if (typeof stopCardTitleMarquee === 'function' && focused[fi].classList.contains('card')) {
-        stopCardTitleMarquee(focused[fi]);
-      }
       try { focused[fi].blur(); } catch(e) {}
-    }
-    var activeMarquees = document.querySelectorAll('.card-title.has-marquee');
-    for (var mi = 0; mi < activeMarquees.length; mi++) {
-      var c = activeMarquees[mi].closest ? activeMarquees[mi].closest('.card') : activeMarquees[mi].parentElement;
-      if (c && typeof stopCardTitleMarquee === 'function') {
-        stopCardTitleMarquee(c);
-      }
     }
   }
 
@@ -8286,12 +8313,13 @@
   function focusCard(index) {
     var cards = getVisibleCards();
     if (cards.length === 0) return;
-    clearAllFocus();
+    clearCardFocus();
     index = Math.max(0, Math.min(index, cards.length - 1));
     state.focusedCard = index;
+    state._currentFocusedCard = cards[index];
     cards[index].classList.add('focused');
     scrollToCard(cards[index]);
-    cards[index].focus();
+    try { cards[index].focus({ preventScroll: true }); } catch(e) { try { cards[index].focus(); } catch(e2) {} }
     if (typeof startCardTitleMarquee === 'function') {
       startCardTitleMarquee(cards[index]);
     }
@@ -8320,32 +8348,22 @@
 
   function scrollToCard(el) {
     if (!el) return;
-    // Always scroll #content vertically to keep card in view
+    var rowItems = el.parentElement;
+    if (rowItems && (rowItems.classList.contains('row-items') || rowItems.classList.contains('iptv-channels-row'))) {
+      var elLeft = el.offsetLeft;
+      var elW = el.offsetWidth;
+      var parentW = rowItems.clientWidth;
+      rowItems.scrollLeft = elLeft - (parentW / 2) + (elW / 2);
+    }
     var content = document.getElementById('content');
     if (content) {
       var elRect = el.getBoundingClientRect();
       var contentRect = content.getBoundingClientRect();
-      // If card is above visible area, scroll up
       if (elRect.top < contentRect.top + 60) {
         content.scrollTop -= (contentRect.top + 60 - elRect.top);
-      }
-      // If card is below visible area, scroll down
-      if (elRect.bottom > contentRect.bottom - 20) {
+      } else if (elRect.bottom > contentRect.bottom - 20) {
         content.scrollTop += (elRect.bottom - contentRect.bottom + 20);
       }
-    }
-    // Also handle horizontal scroll within row-items
-    var parent = el.parentElement;
-    while (parent && parent.id !== 'content') {
-      var style = window.getComputedStyle(parent);
-      if (style.overflowX === 'auto' || style.overflowX === 'scroll') {
-        var elLeft = el.offsetLeft;
-        var elW = el.offsetWidth;
-        var parentW = parent.clientWidth;
-        parent.scrollLeft = elLeft - (parentW / 2) + (elW / 2);
-        return;
-      }
-      parent = parent.parentElement;
     }
   }
 
@@ -8428,6 +8446,24 @@
   }
 
   function focusCardDelta(delta) {
+    var activeCard = state._currentFocusedCard || document.querySelector('.card.focused');
+    if (activeCard && activeCard.parentElement && activeCard.parentElement.classList.contains('row-items')) {
+      var target = delta > 0 ? activeCard.nextElementSibling : activeCard.previousElementSibling;
+      while (target && !target.classList.contains('card')) {
+        target = delta > 0 ? target.nextElementSibling : target.previousElementSibling;
+      }
+      if (target) {
+        clearCardFocus();
+        state._currentFocusedCard = target;
+        target.classList.add('focused');
+        scrollToCard(target);
+        try { target.focus({ preventScroll: true }); } catch(e) { try { target.focus(); } catch(e2) {} }
+        if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(target);
+        updateHomeBg(target);
+        return;
+      }
+    }
+
     var cards = getVisibleCards();
     if (cards.length === 0) return;
     if (state.focusedCard === null) {
@@ -8489,10 +8525,12 @@
           if (prevGlobalIdx >= 0) {
             clearCardFocus();
             state.focusedCard = prevGlobalIdx;
-            cards[prevGlobalIdx].classList.add('focused');
-            scrollToCard(cards[prevGlobalIdx]);
-            cards[prevGlobalIdx].focus();
-            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(cards[prevGlobalIdx]);
+            state._currentFocusedCard = bestCard;
+            bestCard.classList.add('focused');
+            scrollToCard(bestCard);
+            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+            updateHomeBg(bestCard);
             return true;
           }
         }
@@ -8573,10 +8611,12 @@
           if (nextGlobalIdx >= 0) {
             clearCardFocus();
             state.focusedCard = nextGlobalIdx;
-            cards[nextGlobalIdx].classList.add('focused');
-            scrollToCard(cards[nextGlobalIdx]);
-            cards[nextGlobalIdx].focus();
-            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(cards[nextGlobalIdx]);
+            state._currentFocusedCard = bestCard;
+            bestCard.classList.add('focused');
+            scrollToCard(bestCard);
+            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+            updateHomeBg(bestCard);
             return;
           }
         }
@@ -8625,18 +8665,17 @@
   }
 
   function clearCardFocus() {
-    document.querySelectorAll('.card, .iptv-channel').forEach(function(c) {
-      c.classList.remove('focused');
-      if (typeof stopCardTitleMarquee === 'function' && c.classList.contains('card')) {
-        stopCardTitleMarquee(c);
-      }
-    });
-    var activeMarquees = document.querySelectorAll('.card-title.has-marquee');
-    for (var mi = 0; mi < activeMarquees.length; mi++) {
-      var c = activeMarquees[mi].closest ? activeMarquees[mi].closest('.card') : activeMarquees[mi].parentElement;
-      if (c && typeof stopCardTitleMarquee === 'function') {
-        stopCardTitleMarquee(c);
-      }
+    if (state._currentFocusedCard) {
+      state._currentFocusedCard.classList.remove('focused');
+      if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
+      try { state._currentFocusedCard.blur(); } catch(e) {}
+      state._currentFocusedCard = null;
+    }
+    var f = document.querySelector('.card.focused, .iptv-channel.focused');
+    if (f) {
+      f.classList.remove('focused');
+      if (typeof stopCardTitleMarquee === 'function' && f.classList.contains('card')) stopCardTitleMarquee(f);
+      try { f.blur(); } catch(e) {}
     }
     clearHomeBg();
   }

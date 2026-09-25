@@ -178,17 +178,17 @@ body.player-active .section {
   flex-shrink: 0; width: 200px; cursor: pointer;
   border-radius: 12px; overflow: hidden;
   background: var(--surface);
-  transition: transform 0.2s, box-shadow 0.2s;
+  transition: transform 0.15s ease;
   will-change: transform;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   box-sizing: border-box;
+  contain: layout paint;
 }
 .card:focus, .card.focused {
-  transform: scale(1.06) !important;
-  outline: 4px solid #e8c170 !important;
-  outline-offset: -2px !important;
-  box-shadow: 0 0 0 2px #e8c170, 0 12px 36px rgba(0,0,0,0.8), 0 0 20px rgba(232,193,112,0.5) !important;
+  transform: scale(1.05) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 8px 24px rgba(0,0,0,0.6) !important;
   border-radius: 12px;
   z-index: 50;
 }
