@@ -1461,20 +1461,27 @@ body.player-active .section {
 
 /* Detail: Torrents list */
 .detail-torrents-list { display: flex; flex-direction: column; }
-.detail-torrents-list .torrent-item { margin-bottom: 10px; }
+.detail-torrents-list .torrent-item { margin-bottom: 12px; }
 .torrent-item {
-  padding: 18px 24px; border-radius: 14px;
-  background: var(--surface); border: 1px solid var(--border);
-  cursor: pointer; transition: all 0.2s;
+  padding: 16px 22px; border-radius: 14px;
+  background: var(--surface); border: 1.5px solid var(--border);
+  cursor: pointer; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .torrent-item.focused {
-  background: rgba(232,193,112,0.08);
-  border-color: rgba(232,193,112,0.3);
-  box-shadow: 0 0 0 3px var(--accent);
+  background: rgba(232, 193, 112, 0.1);
+  border-color: rgba(232, 193, 112, 0.85);
+  box-shadow: 0 0 0 3px var(--accent), 0 8px 24px rgba(0, 0, 0, 0.45);
+  transform: translateX(6px);
+}
+.torrent-item.loading {
+  opacity: 0.7;
 }
 .detail-torrent-title {
   font-size: 20px; font-weight: 500; color: var(--text);
-  margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.detail-torrent-badges {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
 }
 .detail-torrent-meta { display: flex; font-size: 16px; color: var(--text-mute); }
 .detail-torrent-meta > span { margin-right: 24px; }
@@ -1549,34 +1556,101 @@ body.player-active .section {
 /* Torrent & File format badges */
 .t-badges {
   display: inline-flex;
-  gap: 6px;
-  margin-right: 10px;
-  vertical-align: middle;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 .t-badge {
-  display: inline-block;
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 13px;
+  padding: 3px 9px;
+  border-radius: 6px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  line-height: 1.3;
+  letter-spacing: 0.4px;
+  line-height: 1.25;
+  white-space: nowrap;
 }
-.t-badge-fmt {
-  background: rgba(56, 189, 248, 0.2);
-  color: #38bdf8;
-  border: 1px solid rgba(56, 189, 248, 0.4);
+.t-badge-res-4k {
+  background: rgba(245, 158, 11, 0.25);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.6);
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
 }
-.t-badge-q {
-  background: rgba(110, 231, 183, 0.2);
-  color: #6ee7b7;
-  border: 1px solid rgba(110, 231, 183, 0.4);
+.t-badge-res-1080 {
+  background: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.45);
 }
-.t-badge-audio {
+.t-badge-res-720, .t-badge-res-sd {
+  background: rgba(148, 163, 184, 0.16);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+.t-badge-hdr, .t-badge-hdr-dv {
+  background: rgba(168, 85, 247, 0.25);
+  color: #c084fc;
+  border: 1px solid rgba(168, 85, 247, 0.55);
+  box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+}
+.t-badge-codec {
+  background: rgba(6, 182, 212, 0.2);
+  color: #22d3ee;
+  border: 1px solid rgba(6, 182, 212, 0.45);
+}
+.t-badge-qual, .t-badge-q {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+}
+.t-badge-qual-cam {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.45);
+}
+.t-badge-audio, .t-badge-audio-atmos {
   background: rgba(244, 114, 182, 0.2);
   color: #f472b6;
-  border: 1px solid rgba(244, 114, 182, 0.4);
+  border: 1px solid rgba(244, 114, 182, 0.45);
+}
+.t-badge-color {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+  border: 1px solid rgba(139, 92, 246, 0.4);
+}
+.t-badge-fmt {
+  background: rgba(255, 255, 255, 0.08);
+  color: #cbd5e1;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+.t-badge-size {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f1f5f9;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  font-weight: 600;
+}
+.t-badge-seeds {
+  background: rgba(34, 197, 94, 0.2);
+  color: #4ade80;
+  border: 1px solid rgba(34, 197, 94, 0.5);
+  font-weight: 700;
+}
+.t-badge-peers {
+  background: rgba(148, 163, 184, 0.12);
+  color: #94a3b8;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+}
+.t-badge-loading {
+  background: rgba(232, 193, 112, 0.25);
+  color: #e8c170;
+  border: 1px solid rgba(232, 193, 112, 0.6);
+  animation: pulseLoading 1.2s infinite ease-in-out;
+}
+@keyframes pulseLoading {
+  0% { opacity: 0.6; }
+  50% { opacity: 1; }
+  100% { opacity: 0.6; }
 }
 
 /* Custom TV On-Screen Keyboard */

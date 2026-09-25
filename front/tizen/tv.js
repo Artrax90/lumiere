@@ -4581,42 +4581,48 @@
     var tags = [];
     var s = str.toUpperCase();
 
-    // 1. Container / File Format
-    if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) tags.push({ text: 'MKV', type: 'fmt' });
-    else if (/\.AVI\b|\[AVI\]|\bAVI\b/.test(s)) tags.push({ text: 'AVI', type: 'fmt' });
-    else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) tags.push({ text: 'MP4', type: 'fmt' });
-    else if (/\.TS\b|\[TS\]|\bM2TS\b|\bBDMV\b/.test(s)) tags.push({ text: 'TS', type: 'fmt' });
-    else if (/\.MOV\b|\bMOV\b/.test(s)) tags.push({ text: 'MOV', type: 'fmt' });
+    // 1. Resolution
+    if (/\b(4K|UHD|2160P)\b/.test(s)) tags.push({ text: '4K UHD', type: 'res-4k' });
+    else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) tags.push({ text: '1080p', type: 'res-1080' });
+    else if (/\b(720P|HD)\b/.test(s)) tags.push({ text: '720p', type: 'res-720' });
+    else if (/\b(480P|576P|SD)\b/.test(s)) tags.push({ text: 'SD', type: 'res-sd' });
 
-    // 2. Resolution
-    if (/\b(4K|UHD|2160P)\b/.test(s)) tags.push({ text: '4K', type: 'res' });
-    else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) tags.push({ text: '1080p', type: 'res' });
-    else if (/\b(720P|HD)\b/.test(s)) tags.push({ text: '720p', type: 'res' });
-    else if (/\b(480P|576P|SD)\b/.test(s)) tags.push({ text: 'SD', type: 'res' });
+    // 2. Video HDR / Dynamic Range
+    if (/\b(DV|DOLBY[\s._-]?VISION)\b/.test(s)) tags.push({ text: 'Dolby Vision', type: 'hdr-dv' });
+    else if (/\bHDR10\+\b/.test(s)) tags.push({ text: 'HDR10+', type: 'hdr' });
+    else if (/\b(HDR10|HDR)\b/.test(s)) tags.push({ text: 'HDR', type: 'hdr' });
 
-    // 3. Rip / Release Quality
-    if (/\b(REMUX|BD-REMUX|BDREMUX)\b/.test(s)) tags.push({ text: 'Remux', type: 'qual' });
-    else if (/\b(BDRIP|BRRIP|BLURAY|BLU-RAY)\b/.test(s)) tags.push({ text: 'BDRip', type: 'qual' });
-    else if (/\b(WEB-DL|WEBDL|WEB-DLRIP|WEBRIP)\b/.test(s)) tags.push({ text: 'WEB-DL', type: 'qual' });
-    else if (/\b(HDTV|HDTVRIP)\b/.test(s)) tags.push({ text: 'HDTV', type: 'qual' });
-    else if (/\b(DVDRIP|DVD9|DVD5|DVD)\b/.test(s)) tags.push({ text: 'DVDRip', type: 'qual' });
-    else if (/\b(CAM|CAMRIP|TELESYNC|TELE-SYNC|TS-RIP)\b/.test(s)) tags.push({ text: 'CAM / TS', type: 'qual' });
-
-    // 4. Codec
+    // 3. Codec
     if (/\b(HEVC|H\.?265|X265)\b/.test(s)) tags.push({ text: 'HEVC', type: 'codec' });
     else if (/\b(AVC|H\.?264|X264)\b/.test(s)) tags.push({ text: 'H.264', type: 'codec' });
     else if (/\bAV1\b/.test(s)) tags.push({ text: 'AV1', type: 'codec' });
     else if (/\b(XVID|DIVX)\b/.test(s)) tags.push({ text: 'XviD', type: 'codec' });
 
-    // 5. Video HDR / Color
-    if (/\b(DV|DOLBY[\s._-]?VISION)\b/.test(s)) tags.push({ text: 'Dolby Vision', type: 'qual' });
-    else if (/\b(HDR10\+|HDR10|HDR)\b/.test(s)) tags.push({ text: 'HDR', type: 'qual' });
+    // 4. Color bit depth
+    if (/\b(10-?BIT|10BIT|HI10P)\b/.test(s)) tags.push({ text: '10-bit', type: 'color' });
+
+    // 5. Rip / Release Quality
+    if (/\b(REMUX|BD-REMUX|BDREMUX)\b/.test(s)) tags.push({ text: 'Remux', type: 'qual' });
+    else if (/\b(BDRIP|BRRIP|BLURAY|BLU-RAY)\b/.test(s)) tags.push({ text: 'BDRip', type: 'qual' });
+    else if (/\b(WEB-DL|WEBDL|WEB-DLRIP)\b/.test(s)) tags.push({ text: 'WEB-DL', type: 'qual' });
+    else if (/\bWEBRIP\b/.test(s)) tags.push({ text: 'WEBRip', type: 'qual' });
+    else if (/\b(HDTV|HDTVRIP)\b/.test(s)) tags.push({ text: 'HDTV', type: 'qual' });
+    else if (/\b(DVDRIP|DVD9|DVD5|DVD)\b/.test(s)) tags.push({ text: 'DVDRip', type: 'qual' });
+    else if (/\b(CAM|CAMRIP|TELESYNC|TELE-SYNC|TS-RIP)\b/.test(s)) tags.push({ text: 'CAM', type: 'qual-cam' });
 
     // 6. Audio
-    if (/\b(ATMOS|DOLBY[\s._-]?ATMOS)\b/.test(s)) tags.push({ text: 'Atmos', type: 'audio' });
-    if (/\b(DTS-HD[\s._-]?MA|DTS-HD|DTS-HR|DTS)\b/.test(s)) tags.push({ text: 'DTS', type: 'audio' });
-    else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL)\b/.test(s)) tags.push({ text: 'AC3 5.1', type: 'audio' });
+    if (/\b(ATMOS|DOLBY[\s._-]?ATMOS)\b/.test(s)) tags.push({ text: 'Dolby Atmos', type: 'audio-atmos' });
+    if (/\b(DTS-HD[\s._-]?MA|DTS-HD)\b/.test(s)) tags.push({ text: 'DTS-HD', type: 'audio' });
+    else if (/\b(DTS-HR|DTS)\b/.test(s)) tags.push({ text: 'DTS', type: 'audio' });
+    else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
     else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
+
+    // 7. Container / File Format
+    if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) tags.push({ text: 'MKV', type: 'fmt' });
+    else if (/\.AVI\b|\[AVI\]|\bAVI\b/.test(s)) tags.push({ text: 'AVI', type: 'fmt' });
+    else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) tags.push({ text: 'MP4', type: 'fmt' });
+    else if (/\.TS\b|\[TS\]|\bM2TS\b|\bBDMV\b/.test(s)) tags.push({ text: 'TS', type: 'fmt' });
+    else if (/\.MOV\b|\bMOV\b/.test(s)) tags.push({ text: 'MOV', type: 'fmt' });
 
     return tags;
   }
@@ -4634,6 +4640,16 @@
   }
   window.parseTorrentMeta = parseTorrentMeta;
   window.renderMetaBadges = renderMetaBadges;
+
+  function pluralSeeds(n) {
+    var abs = Math.abs(Number(n)) % 100;
+    var d = abs % 10;
+    if (abs > 10 && abs < 20) return 'сидов';
+    if (d > 1 && d < 5) return 'сида';
+    if (d === 1) return 'сид';
+    return 'сидов';
+  }
+  window.pluralSeeds = pluralSeeds;
 
   // ========== Season Matching & Torrent Search ==========
   function matchesTorrentSeason(title, s) {
@@ -4715,11 +4731,17 @@
       sorted.slice(0, 25).forEach(function(torrent, i) {
         html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
         html += '<div class="detail-torrent-title">' + esc(torrent.title || '') + '</div>';
+        html += '<div class="detail-torrent-badges">';
         html += renderMetaBadges(torrent.title);
-        html += '<div class="detail-torrent-meta">';
-        if (torrent.sizeFormatted) html += '<span>' + esc(torrent.sizeFormatted) + '</span>';
-        if (torrent.seeders != null) html += '<span class="detail-torrent-seeds">Seeds: ' + torrent.seeders + '</span>';
-        if (torrent.peers != null) html += '<span>Peers: ' + torrent.peers + '</span>';
+        if (torrent.sizeFormatted) {
+          html += '<span class="t-badge t-badge-size">💾 ' + esc(torrent.sizeFormatted) + '</span>';
+        }
+        if (torrent.seeders != null) {
+          html += '<span class="t-badge t-badge-seeds">⚡ ' + torrent.seeders + ' ' + pluralSeeds(torrent.seeders) + '</span>';
+        }
+        if (torrent.peers != null && torrent.peers > 0) {
+          html += '<span class="t-badge t-badge-peers">👥 ' + torrent.peers + '</span>';
+        }
         html += '</div></div>';
       });
       html += '</div>';
@@ -4807,7 +4829,30 @@
 
     var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
 
+    // Show visual loading state on clicked torrent
+    var focusedItem = document.querySelector('.torrent-item.focused') || (magnet ? document.querySelector('.torrent-item[data-magnet="' + esc(magnet) + '"]') : null);
+    if (focusedItem) {
+      focusedItem.classList.add('loading');
+      var badgesRow = focusedItem.querySelector('.detail-torrent-badges');
+      if (badgesRow && !focusedItem.querySelector('.t-badge-loading')) {
+        var lBadge = document.createElement('span');
+        lBadge.className = 't-badge t-badge-loading';
+        lBadge.innerHTML = '⏳ Загрузка...';
+        badgesRow.insertBefore(lBadge, badgesRow.firstChild);
+      }
+    }
+
+    function removeLoadingState() {
+      if (focusedItem) {
+        focusedItem.classList.remove('loading');
+        var lBadge = focusedItem.querySelector('.t-badge-loading');
+        if (lBadge && lBadge.parentNode) lBadge.parentNode.removeChild(lBadge);
+      }
+    }
+
     apiPost('/api/torrents/stream', { magnet: magnet, title: movieName }, function(err, data) {
+      removeLoadingState();
+
       if (err || !data || !data.files || data.files.length === 0) {
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy/video.mkv?link=' + encodeURIComponent(magnet) + '&index=0'
@@ -4815,17 +4860,24 @@
         var fallbackFiles = [{ name: movieName, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
         if (state.fromContinueWatching) {
           state.fromContinueWatching = false;
-          playFile(fallbackFiles[0], movieName, movieId);
-          return;
         }
-        showTorrentPrePlayModal(fallbackFiles, movieName, movieId, magnet);
+        playFile(fallbackFiles[0], movieName, movieId);
         return;
       }
+
+      // Filter video files (ignore samples, txt, nfo, subrip files, etc.)
+      var videoExts = /\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i;
+      var videoFiles = data.files.filter(function(f) {
+        if (!f.name) return true;
+        if (/sample\b/i.test(f.name)) return false;
+        return videoExts.test(f.name);
+      });
+      if (videoFiles.length === 0) videoFiles = data.files;
 
       // If resuming from Continue Watching, start playback immediately!
       if (state.fromContinueWatching) {
         state.fromContinueWatching = false;
-        var targetFile = data.files[0];
+        var targetFile = videoFiles[0];
         if (movieId) {
           try {
             var savedT = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
@@ -4844,7 +4896,16 @@
         return;
       }
 
-      showTorrentPrePlayModal(data.files, titleStr || movieName, movieId, magnet, movieName);
+      // ONE-CLICK DIRECT PLAYBACK:
+      // If there is only 1 video file in the release (standard movie), start playing directly!
+      if (videoFiles.length === 1) {
+        playFile(videoFiles[0], movieName, movieId);
+        return;
+      }
+
+      // Multi-file release (TV show episodes or multi-part film):
+      // Show file picker so the user can choose which episode to play.
+      showTorrentPrePlayModal(videoFiles, titleStr || movieName, movieId, magnet, movieName);
     });
   }
 
@@ -4896,7 +4957,7 @@
 
       h += '<div class="torrent-confirm-meta" id="t-modal-badges">';
       h += badgesHtml;
-      if (sizeText) h += '<span class="t-badge">' + esc(sizeText) + '</span>';
+      if (sizeText) h += '<span class="t-badge t-badge-size">' + esc(sizeText) + '</span>';
       h += '</div>';
 
       if (isMulti) {
@@ -4928,9 +4989,9 @@
     wrap.innerHTML = buildModalHtml();
     document.body.appendChild(wrap);
 
-    var focusZone = 'buttons'; // 'buttons' or 'files'
+    var focusZone = isMulti ? 'files' : 'buttons';
     var btnCol = 0; // 0 = play, 1 = back
-    var fileIdx = selectedIdx;
+    var fileIdx = selectedIdx || 0;
 
     function updateModalFocus() {
       var btnPlay = document.getElementById('t-confirm-play');
