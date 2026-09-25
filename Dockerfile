@@ -33,6 +33,9 @@ RUN (sed -i 's|deb.debian.org|mirror.yandex.ru|g' /etc/apt/sources.list.d/debian
     apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    intel-media-va-driver \
+    mesa-va-drivers \
+    vainfo \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

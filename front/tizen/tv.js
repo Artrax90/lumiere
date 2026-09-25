@@ -4953,8 +4953,11 @@
     // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
     if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
 
-    // SD / SATRip / AVI penalty
-    if (title.indexOf('SATRIP') !== -1 || title.indexOf('TVRIP') !== -1 || title.indexOf('XVID') !== -1 || title.indexOf('.AVI') !== -1) score -= 200;
+    // Native MKV / MP4 container bonus (direct HW playback on TV, 0% CPU on server)
+    if (title.indexOf('.MKV') !== -1 || title.indexOf('[MKV]') !== -1 || title.indexOf('.MP4') !== -1 || title.indexOf('[MP4]') !== -1 || title.indexOf('HEVC') !== -1 || title.indexOf('H.264') !== -1 || title.indexOf('AVC') !== -1) score += 300;
+
+    // SD / SATRip / AVI penalty (requires server transcoding, avoid if MKV exists)
+    if (title.indexOf('SATRIP') !== -1 || title.indexOf('TVRIP') !== -1 || title.indexOf('XVID') !== -1 || title.indexOf('DIVX') !== -1 || title.indexOf('.AVI') !== -1 || title.indexOf('[AVI]') !== -1) score -= 500;
 
     return score;
   }

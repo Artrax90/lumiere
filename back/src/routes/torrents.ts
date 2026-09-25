@@ -17,6 +17,28 @@ function isFfmpegAvailable(): boolean {
   }
 }
 
+let _vaapiAvailable: boolean | null = null;
+function isVaapiAvailable(): boolean {
+  if (_vaapiAvailable !== null) return _vaapiAvailable;
+  try {
+    const { existsSync } = require('fs');
+    if (!existsSync('/dev/dri/renderD128')) {
+      _vaapiAvailable = false;
+      return false;
+    }
+    // Check if FFmpeg has h264_vaapi encoder
+    const out = execSync('ffmpeg -encoders', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
+    _vaapiAvailable = out.includes('h264_vaapi');
+    if (_vaapiAvailable) {
+      console.log('[FFmpeg] Intel VA-API hardware acceleration ready (/dev/dri/renderD128 & h264_vaapi)');
+    }
+    return _vaapiAvailable;
+  } catch {
+    _vaapiAvailable = false;
+    return false;
+  }
+}
+
 function getHlsTmpBase(): string {
   if (process.env.HLS_TMP_DIR) return process.env.HLS_TMP_DIR;
   if (process.platform === 'win32') return join(os.tmpdir(), 'lumiere-hls');
@@ -366,7 +388,12 @@ export function torrentRoutes(app: FastifyInstance) {
         if (title.includes('1080P') || title.includes('WEB-DL') || title.includes('BDRIP') || title.includes('REMUX')) score += 250;
         if (title.includes('720P') || title.includes('HDTV')) score += 100;
         if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
-        if (title.includes('SATRIP') || title.includes('TVRIP') || title.includes('XVID') || title.includes('.AVI')) score -= 200;
+
+        // Native MKV / MP4 container bonus (direct HW playback on TV, 0% CPU on server)
+        if (title.includes('.MKV') || title.includes('[MKV]') || title.includes('.MP4') || title.includes('[MP4]') || title.includes('HEVC') || title.includes('H.264') || title.includes('AVC')) score += 300;
+
+        // SD / SATRip / AVI penalty (requires server transcoding, avoid if MKV exists)
+        if (title.includes('SATRIP') || title.includes('TVRIP') || title.includes('XVID') || title.includes('DIVX') || title.includes('.AVI') || title.includes('[AVI]')) score -= 500;
 
         return score;
       }
@@ -890,14 +917,25 @@ export function torrentRoutes(app: FastifyInstance) {
 
     if (isVideoTranscode) {
       // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
-      // Transcode video to ultra-compatible H.264 Main profile at 40-50x speed.
-      ffmpegArgs.push(
-        '-c:v', 'libx264',
-        '-preset', 'ultrafast',
-        '-tune', 'zerolatency',
-        '-crf', '22',
-        '-pix_fmt', 'yuv420p',
-      );
+      // If Intel QuickSync (VA-API) hardware is available, use hardware encoder (1-2% CPU).
+      // Otherwise, fallback to ultrafast libx264 limited to 1 thread to protect CPU.
+      if (isVaapiAvailable()) {
+        ffmpegArgs.push(
+          '-vaapi_device', '/dev/dri/renderD128',
+          '-vf', 'format=nv12,hwupload',
+          '-c:v', 'h264_vaapi',
+          '-qp', '24',
+        );
+      } else {
+        ffmpegArgs.push(
+          '-threads', '1',
+          '-c:v', 'libx264',
+          '-preset', 'ultrafast',
+          '-tune', 'zerolatency',
+          '-crf', '22',
+          '-pix_fmt', 'yuv420p',
+        );
+      }
     } else {
       ffmpegArgs.push('-c:v', 'copy');
     }
