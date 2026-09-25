@@ -162,6 +162,7 @@ export default function SeasonTorrentBrowser({
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
+  const [sortBy, setSortBy] = useState<'seeds' | 'date' | 'size'>('seeds');
   const [watchedList, setWatchedList] = useState<number[]>(() => getWatchedFiles(show.id));
   const [customSearchQuery, setCustomSearchQuery] = useState(show.name);
   const [viewMode, setViewMode] = useState<'torrents' | 'tmdb'>('torrents');
@@ -262,8 +263,17 @@ export default function SeasonTorrentBrowser({
       }
 
       return true;
+    }).sort((a, b) => {
+      if (sortBy === 'seeds') return (b.seeders || 0) - (a.seeders || 0);
+      if (sortBy === 'date') {
+        const da = a.date ? new Date(a.date).getTime() : 0;
+        const db = b.date ? new Date(b.date).getTime() : 0;
+        return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+      }
+      if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
+      return (b.seeders || 0) - (a.seeders || 0);
     });
-  }, [allTorrents, season, qualityFilter]);
+  }, [allTorrents, season, qualityFilter, sortBy]);
 
   // Load files from TorrServer for a selected torrent
   const loadTorrentFiles = async (torrent: TorrentItem) => {
@@ -597,27 +607,51 @@ export default function SeasonTorrentBrowser({
                   </p>
                 </div>
 
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-white/40 mr-1">Качество:</span>
-                  {[
-                    { id: 'all', label: 'Все' },
-                    { id: '4k', label: '4K UHD' },
-                    { id: '1080p', label: '1080p' },
-                    { id: '720p', label: '720p' },
-                  ].map((q) => (
-                    <button
-                      key={q.id}
-                      onClick={() => setQualityFilter(q.id as any)}
-                      className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                      style={{
-                        background: qualityFilter === q.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-                        color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                        border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      {q.label}
-                    </button>
-                  ))}
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-white/40 mr-1">Сортировка:</span>
+                    {[
+                      { id: 'seeds', label: 'По сидам' },
+                      { id: 'date', label: 'По дате' },
+                      { id: 'size', label: 'По размеру' },
+                    ].map((s) => (
+                      <button
+                        key={s.id}
+                        onClick={() => setSortBy(s.id as any)}
+                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                        style={{
+                          background: sortBy === s.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
+                          color: sortBy === s.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                          border: sortBy === s.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        {s.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[11px] text-white/40 mr-1">Качество:</span>
+                    {[
+                      { id: 'all', label: 'Все' },
+                      { id: '4k', label: '4K UHD' },
+                      { id: '1080p', label: '1080p' },
+                      { id: '720p', label: '720p' },
+                    ].map((q) => (
+                      <button
+                        key={q.id}
+                        onClick={() => setQualityFilter(q.id as any)}
+                        className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                        style={{
+                          background: qualityFilter === q.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
+                          color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                          border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        {q.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
 

@@ -126,7 +126,14 @@
         onerror: function(error) {
           console.error('[AVPlay] Error:', error);
           if (typeof window.sendTvLog === 'function') {
-            window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self.currentUrl });
+            window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
+          }
+          if (!self._hasFallenBackToVideo) {
+            self._hasFallenBackToVideo = true;
+            console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay hardware error');
+            try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+            self._playVideo(url);
+            return;
           }
           self._emit('error', { message: error });
         },
@@ -250,15 +257,24 @@
         }, 500);
       }, function(prepareErr) {
         console.error('[AVPlay] prepareAsync error:', prepareErr);
+        if (!self._hasFallenBackToVideo) {
+          self._hasFallenBackToVideo = true;
+          console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay prepare error');
+          try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+          self._playVideo(url);
+          return;
+        }
         self._emit('error', { message: 'AVPlay prepare error' });
-        self._playVideo(url);
       });
 
     } catch(e) {
       console.error('[AVPlay] Init error:', e);
+      if (!this._hasFallenBackToVideo) {
+        this._hasFallenBackToVideo = true;
+        this._playVideo(url);
+        return;
+      }
       this._emit('error', { message: e.message });
-      // Fallback to video
-      this._playVideo(url);
     }
   };
 

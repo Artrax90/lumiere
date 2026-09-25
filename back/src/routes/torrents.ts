@@ -494,6 +494,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
         const fileName = f.path.split('/').pop() || f.path;
         const ext = fileName.includes('.') ? fileName.substring(fileName.lastIndexOf('.')) : '.mkv';
+        const isAvi = ext.toLowerCase() === '.avi';
         const directProxyUrl = `/api/torrents/proxy/video${ext}?link=${encodeURIComponent(magnet)}&index=${f.id}`;
 
         return {
@@ -503,7 +504,7 @@ export function torrentRoutes(app: FastifyInstance) {
           size: f.length,
           streamUrl: directProxyUrl,
           directUrl: directProxyUrl,
-          hlsUrl: `/api/torrents/hls?link=${encodeURIComponent(magnet)}&index=${f.id}`,
+          hlsUrl: `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(magnet)}&index=${f.id}${isAvi ? '&vcodec=h264' : ''}`,
           externalSubs: matchingSubs,
         } as any;
       });
@@ -797,8 +798,8 @@ export function torrentRoutes(app: FastifyInstance) {
     } catch {}
   }
 
-  app.get('/api/torrents/hls', async (req, reply) => {
-    const { link, index, audio, start } = req.query as { link?: string; index?: string; audio?: string; start?: string };
+  const handleHls = async (req: any, reply: any) => {
+    const { link, index, audio, start, vcodec } = req.query as { link?: string; index?: string; audio?: string; start?: string; vcodec?: string };
 
     if (!link) {
       return reply.code(400).send({ error: 'link parameter required' });
@@ -810,15 +811,21 @@ export function torrentRoutes(app: FastifyInstance) {
 
     const audioIndex = parseInt(audio || '0', 10) || 0;
     const seekTime = parseFloat(start || '0') || 0;
+    const isVideoTranscode = vcodec === 'h264';
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
-    // Include audio index and seek time in session ID
-    const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}`).digest('hex').slice(0, 32);
+    // Include audio index, seek time, and vcodec in session ID for isolation
+    const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}-v${isVideoTranscode ? 'h264' : 'copy'}`).digest('hex').slice(0, 32);
     const hlsDir = getHlsDir(sessionId);
 
     const { mkdirSync, existsSync, readFileSync } = await import('fs');
     const { join } = await import('path');
     const playlistPath = join(hlsDir, 'playlist.m3u8');
+
+    // Build absolute URL prefix for segments so Tizen/AVPlay/WebKit never fail on relative paths
+    const host = req.headers.host || '192.168.1.196:3500';
+    const proto = req.headers['x-forwarded-proto'] || 'http';
+    const segBase = `${proto}://${host}/api/torrents/hls-seg?session=${sessionId}&id=`;
 
     // Check if session is already active
     const existingSession = activeSessions.get(sessionId);
@@ -828,10 +835,12 @@ export function torrentRoutes(app: FastifyInstance) {
       let manifest = readFileSync(playlistPath, 'utf-8');
       // Validate manifest is proper M3U8 before serving
       if (manifest.includes('#EXTM3U') && manifest.includes('#EXTINF')) {
-        manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+        manifest = manifest.replace(/seg-(\d+)\.ts/g, `${segBase}$1`);
         reply.header('Content-Type', 'application/vnd.apple.mpegurl');
         reply.header('Access-Control-Allow-Origin', '*');
-        reply.header('Cache-Control', 'no-cache');
+        reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+        reply.header('Access-Control-Allow-Headers', '*');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
         return reply.send(manifest);
       }
       // Manifest exists but not valid yet — fall through to wait
@@ -860,7 +869,7 @@ export function torrentRoutes(app: FastifyInstance) {
       mkdirSync(hlsDir, { recursive: true });
     }
 
-    // Start FFmpeg with selected audio track
+    // Start FFmpeg with selected audio track and video transcode if required
     // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
     const { spawn } = await import('child_process');
     const ffmpegArgs = [
@@ -877,7 +886,23 @@ export function torrentRoutes(app: FastifyInstance) {
     ffmpegArgs.push(
       '-map', '0:v:0',
       '-map', `0:a:${audioIndex}`,
-      '-c:v', 'copy',
+    );
+
+    if (isVideoTranscode) {
+      // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
+      // Transcode video to ultra-compatible H.264 Main profile at 40-50x speed.
+      ffmpegArgs.push(
+        '-c:v', 'libx264',
+        '-preset', 'ultrafast',
+        '-tune', 'zerolatency',
+        '-crf', '22',
+        '-pix_fmt', 'yuv420p',
+      );
+    } else {
+      ffmpegArgs.push('-c:v', 'copy');
+    }
+
+    ffmpegArgs.push(
       '-c:a', 'aac',
       '-b:a', '192k',
       '-ac', '2',
@@ -954,17 +979,22 @@ export function torrentRoutes(app: FastifyInstance) {
         reply.code(503).send({ error: 'Manifest not ready' });
         return;
       }
-      manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/torrents/hls-seg?session=${sessionId}&id=$1`);
+      manifest = manifest.replace(/seg-(\d+)\.ts/g, `${segBase}$1`);
 
       reply.header('Content-Type', 'application/vnd.apple.mpegurl');
       reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Cache-Control', 'no-cache');
+      reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      reply.header('Access-Control-Allow-Headers', '*');
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
       return reply.send(manifest);
     }
 
     reply.code(500);
     return { error: 'FFmpeg failed to generate manifest' };
-  });
+  };
+
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls', handler: handleHls });
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls/stream.m3u8', handler: handleHls });
 
   // Serve pre-extracted subtitles from HLS session
   app.get('/api/torrents/hls-subs', async (req, reply) => {
@@ -1157,14 +1187,14 @@ export function torrentRoutes(app: FastifyInstance) {
   });
 
   // Serve HLS segments (supports subdirectories for multi-audio)
-  app.get('/api/torrents/hls-seg', async (req, reply) => {
+  const handleHlsSeg = async (req: any, reply: any) => {
     const { session, id, dir } = req.query as { session?: string; id?: string; dir?: string };
 
     if (!session || !id) {
       return reply.code(400).send({ error: 'session and id required' });
     }
 
-    const { readFileSync, existsSync } = await import('fs');
+    const { readFileSync, existsSync, statSync } = await import('fs');
 
     // Support subdirectories: video/, audio-0/, audio-1/, etc.
     const segPath = dir
@@ -1207,12 +1237,22 @@ export function torrentRoutes(app: FastifyInstance) {
       checkThrottle(sess);
     }
 
-    const data = readFileSync(segPath);
+    const stat = statSync(segPath);
     reply.header('Content-Type', 'video/mp2t');
     reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Content-Length', data.length);
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    reply.header('Access-Control-Allow-Headers', '*');
+    reply.header('Content-Length', stat.size);
+
+    if (req.method === 'HEAD') {
+      return reply.send();
+    }
+
+    const data = readFileSync(segPath);
     return reply.send(data);
-  });
+  };
+
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls-seg', handler: handleHlsSeg });
 
   // Get TorrServer status
   app.get('/api/torrents/torrserver/status', async () => {

@@ -5078,13 +5078,38 @@
         }
       }
 
-      // Sort by smart score desc
-      var sorted = filtered.slice().sort(function(a, b) { return scoreTorrent(b) - scoreTorrent(a); });
+      if (!state._torrentSort) state._torrentSort = 'score';
+
+      // Sort according to user preference: seeds, date, size, or smart score
+      var sorted = filtered.slice().sort(function(a, b) {
+        if (state._torrentSort === 'seeds') {
+          return (b.seeders || 0) - (a.seeders || 0);
+        } else if (state._torrentSort === 'date') {
+          var da = a.date ? new Date(a.date).getTime() : 0;
+          var db = b.date ? new Date(b.date).getTime() : 0;
+          if (isNaN(da)) da = 0;
+          if (isNaN(db)) db = 0;
+          if (db !== da) return db - da;
+          return (b.seeders || 0) - (a.seeders || 0);
+        } else if (state._torrentSort === 'size') {
+          return (b.size || 0) - (a.size || 0);
+        }
+        return scoreTorrent(b) - scoreTorrent(a);
+      });
 
       var html = '';
       if (isFallback) {
         html += '<p class="detail-torrent-notice" style="color:#e8c170;padding:6px 12px;font-size:16px;">Показаны все раздачи сериала (точных совпадений для ' + season + ' сезона не найдено):</p>';
       }
+
+      html += '<div class="torrent-sort-bar">';
+      html += '<span class="torrent-sort-label">Сортировка:</span>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'score' ? ' active' : '') + '" data-sort="score" tabindex="0">По рейтингу</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'seeds' ? ' active' : '') + '" data-sort="seeds" tabindex="0">По сидам</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'date' ? ' active' : '') + '" data-sort="date" tabindex="0">По дате</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'size' ? ' active' : '') + '" data-sort="size" tabindex="0">По размеру</button>';
+      html += '</div>';
+
       html += '<div class="detail-torrents-list">';
       sorted.slice(0, 30).forEach(function(torrent, i) {
         html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
@@ -5104,6 +5129,19 @@
       });
       html += '</div>';
       container.innerHTML = html;
+
+      // Bind sort chip click listeners
+      container.querySelectorAll('.sort-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+          var s = chip.getAttribute('data-sort');
+          if (s && s !== state._torrentSort) {
+            state._torrentSort = s;
+            renderTorrentResults(allResults);
+            var activeChip = container.querySelector('.sort-chip[data-sort="' + s + '"]');
+            if (activeChip) setDetailFocus(activeChip);
+          }
+        });
+      });
 
       container.querySelectorAll('.torrent-item').forEach(function(item) {
         item.addEventListener('click', function() {
@@ -5530,7 +5568,14 @@
     if (isAvplay && isAvi && file && file.hlsUrl) {
       // Samsung Tizen 2018+ hardware AVPlay does not support XviD/DivX in AVI containers.
       // Route AVI through backend ffmpeg on-the-fly HLS transcoding to ensure 100% smooth playback without errors!
-      url = file.hlsUrl.indexOf('/') === 0 ? (API + file.hlsUrl) : file.hlsUrl;
+      var hlsPath = file.hlsUrl;
+      if (hlsPath.indexOf('/api/torrents/hls/stream.m3u8') === -1 && hlsPath.indexOf('/api/torrents/hls') !== -1) {
+        hlsPath = hlsPath.replace('/api/torrents/hls', '/api/torrents/hls/stream.m3u8');
+      }
+      if (hlsPath.indexOf('vcodec=') === -1) {
+        hlsPath += (hlsPath.indexOf('?') === -1 ? '?' : '&') + 'vcodec=h264';
+      }
+      url = hlsPath.indexOf('/') === 0 ? (API + hlsPath) : hlsPath;
       console.log('[TV] Routing AVI file through HLS transcoding for AVPlay:', url);
     } else {
       if (file && file.directUrl) {
@@ -8306,6 +8351,7 @@
     var items = $detail ? $detail.querySelectorAll(activePane + ' ' + itemClass) : [];
     var seasonBtns = $detail ? $detail.querySelectorAll('.season-btn') : [];
     var tabs = $detail ? $detail.querySelectorAll('.detail-tab') : [];
+    var sortChips = $detail ? Array.prototype.slice.call($detail.querySelectorAll(activePane + ' .sort-chip')) : [];
 
     var activeEl = document.activeElement;
     var focused = (activeEl && $detail.contains(activeEl) && activeEl !== $detail) ? activeEl : $detail.querySelector('.focused');
@@ -8323,6 +8369,8 @@
     var isActionBtn = (actionIdx !== -1);
     var isTab = focused && focused.classList.contains('detail-tab');
     var isSeason = focused && focused.classList.contains('season-btn');
+    var sortChipIdx = sortChips.indexOf(focused);
+    var isSortChip = (sortChipIdx !== -1);
     var isItem = focused && (focused.classList.contains('torrent-item') || focused.classList.contains('source-item') || focused.classList.contains('episode-card'));
     var castItems = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card, .detail-cast-item'));
     var allCastBtn = document.getElementById('detail-all-cast-btn');
@@ -8373,6 +8421,8 @@
             setDetailFocus(prevSeason);
             try { prevSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
           }
+        } else if (isSortChip) {
+          if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
@@ -8403,6 +8453,8 @@
             setDetailFocus(nextSeason);
             try { nextSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
           }
+        } else if (isSortChip) {
+          if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
@@ -8422,6 +8474,14 @@
         } else if (isAllCast) {
           var bBtn = document.getElementById('detail-back-btn');
           if (bBtn) setDetailFocus(bBtn);
+        } else if (isSortChip) {
+          var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
+          if (activeSeason) {
+            setDetailFocus(activeSeason);
+          } else {
+            var curTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+            if (curTab) setDetailFocus(curTab);
+          }
         } else if (isItem) {
           var targetClass = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
           var prevItem = focused.previousElementSibling;
@@ -8430,6 +8490,9 @@
           }
           if (prevItem) {
             setDetailFocus(prevItem);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
           } else {
             var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
             if (activeSeason) {
@@ -8469,10 +8532,20 @@
           var actSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
           if (actSeason) {
             setDetailFocus(actSeason);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
           } else if (items.length > 0) {
             setDetailFocus(items[0]);
           }
         } else if (isSeason) {
+          if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (items.length > 0) {
+            setDetailFocus(items[0]);
+          }
+        } else if (isSortChip) {
           if (items.length > 0) {
             setDetailFocus(items[0]);
           }
@@ -8500,6 +8573,11 @@
             return;
           }
           if (isCast) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isSortChip) {
             focused.click();
             if (e && e.preventDefault) e.preventDefault();
             return;

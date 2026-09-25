@@ -1459,6 +1459,46 @@ body.player-active .section {
   flex-shrink: 0; margin-left: 20px;
 }
 
+/* Detail: Torrent sorting bar */
+.torrent-sort-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 4px 0;
+}
+.torrent-sort-label {
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-mute);
+  margin-right: 4px;
+}
+.sort-chip {
+  padding: 8px 20px;
+  border-radius: 9999px;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-mute);
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.sort-chip.active {
+  background: rgba(232, 193, 112, 0.18);
+  color: var(--accent);
+  border-color: rgba(232, 193, 112, 0.45);
+  font-weight: 600;
+}
+.sort-chip.focused, .sort-chip:focus {
+  background: rgba(232, 193, 112, 0.28);
+  color: #ffffff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(232, 193, 112, 0.35);
+  transform: scale(1.05);
+}
+
 /* Detail: Torrents list */
 .detail-torrents-list { display: flex; flex-direction: column; }
 .detail-torrents-list .torrent-item { margin-bottom: 12px; }
