@@ -102,6 +102,7 @@
           self._emit('ended');
         },
         oncurrentplaytime: function(time) {
+          if (self._isSeeking) return;
           self._currentTime = time / 1000;
           self._emit('timeUpdate', { currentTime: self._currentTime });
         },
@@ -618,7 +619,15 @@
       self._isSeeking = true;
       var wasPlaying = (avState === 'PLAYING');
 
+      // Safety timeout: release lock after 4 seconds if callbacks don't fire
+      var seekTimeout = setTimeout(function() {
+        console.warn('[AVPlay] Seek safety timeout triggered');
+        onSeekDone();
+        if (errorCb) errorCb(new Error('Seek timeout'));
+      }, 4000);
+
       var onSeekDone = function() {
+        clearTimeout(seekTimeout);
         self._isSeeking = false;
         if (self._pendingSeek) {
           var next = self._pendingSeek;
@@ -628,17 +637,10 @@
       };
 
       try {
-        // Pausing before seekTo prevents PLAYER_ERROR_INVALID_STATE on Tizen 5.5 progressive streams
-        if (wasPlaying) {
-          try { webapis.avplay.pause(); } catch(pe) {}
-        }
-
+        // Call webapis.avplay.seekTo directly (no pause() to avoid state transition race conditions)
         webapis.avplay.seekTo(ms, function() {
           console.log('[AVPlay] seekTo success at', ms, 'ms');
           self._currentTime = targetSec;
-          if (wasPlaying) {
-            try { webapis.avplay.play(); } catch(re) {}
-          }
           setTimeout(onSeekDone, 150);
           if (successCb) successCb();
         }, function(err) {
@@ -648,7 +650,7 @@
           var deltaMs = ms - curMs;
           var absDeltaMs = Math.abs(deltaMs);
 
-          // Fallback 1: jumpForward / jumpBackward (parameter is in milliseconds)
+          // Fallback: jumpForward / jumpBackward if seekTo returned error
           if (absDeltaMs >= 1000) {
             var jumpFn = deltaMs > 0 ? webapis.avplay.jumpForward : webapis.avplay.jumpBackward;
             if (typeof jumpFn === 'function') {
@@ -656,20 +658,13 @@
                 jumpFn.call(webapis.avplay, absDeltaMs, function() {
                   console.log('[AVPlay] jump succeeded with', absDeltaMs, 'ms');
                   self._currentTime = targetSec;
-                  if (wasPlaying) {
-                    try { webapis.avplay.play(); } catch(re) {}
-                  }
                   setTimeout(onSeekDone, 150);
                   if (successCb) successCb();
                 }, function(jerr) {
-                  console.warn('[AVPlay] jump failed, trying _reloadAtTime:', jerr);
-                  self._reloadAtTime(targetSec, wasPlaying, function() {
-                    setTimeout(onSeekDone, 150);
-                    if (successCb) successCb();
-                  }, function(rerr) {
-                    setTimeout(onSeekDone, 150);
-                    if (errorCb) errorCb(rerr);
-                  });
+                  console.warn('[AVPlay] jump failed:', jerr);
+                  // NEVER reset to 0:00! Stay at current position.
+                  setTimeout(onSeekDone, 150);
+                  if (errorCb) errorCb(jerr);
                 });
                 return;
               } catch(je) {
@@ -678,24 +673,14 @@
             }
           }
 
-          // Fallback 2: Reload at target timestamp in IDLE state
-          self._reloadAtTime(targetSec, wasPlaying, function() {
-            setTimeout(onSeekDone, 150);
-            if (successCb) successCb();
-          }, function(rerr) {
-            setTimeout(onSeekDone, 150);
-            if (errorCb) errorCb(rerr);
-          });
+          // On error without jump, stay at current position, do NOT restart video at 0
+          setTimeout(onSeekDone, 150);
+          if (errorCb) errorCb(err);
         });
       } catch(e) {
-        console.warn('[AVPlay] seekTo exception:', e, '- falling back to _reloadAtTime');
-        self._reloadAtTime(targetSec, wasPlaying, function() {
-          setTimeout(onSeekDone, 150);
-          if (successCb) successCb();
-        }, function(rerr) {
-          setTimeout(onSeekDone, 150);
-          if (errorCb) errorCb(rerr);
-        });
+        console.warn('[AVPlay] seekTo exception:', e);
+        setTimeout(onSeekDone, 150);
+        if (errorCb) errorCb(e);
       }
     } else if (self._videoEl) {
       self._isSeeking = true;

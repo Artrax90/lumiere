@@ -122,7 +122,9 @@
       playerContainer.id = 'player-container';
       document.body.appendChild(playerContainer);
     }
-    state.playerOpenedFrom = (detail && !detail.classList.contains('hidden')) ? 'detail' : 'app';
+    var detailContent = detail ? detail.querySelector('#detail-content') : null;
+    var hasDetailContent = detailContent && detailContent.children.length > 0;
+    state.playerOpenedFrom = (detail && !detail.classList.contains('hidden') && detail.style.display !== 'none' && hasDetailContent) ? 'detail' : 'app';
     if (app) app.classList.add('hidden');
     if (detail) detail.classList.add('hidden');
     playerContainer.innerHTML = playerHtml;
@@ -221,8 +223,10 @@
       return;
     }
 
-    // If movie/series detail was open or state.detail is available, ALWAYS return to detail card!
-    if (detail && (state.playerOpenedFrom === 'detail' || state.detail)) {
+    // Only return to detail card if player was ACTUALLY opened from detail AND detail has content!
+    var detailContent = detail ? detail.querySelector('#detail-content') : null;
+    var hasDetailContent = detailContent && detailContent.children.length > 0;
+    if (detail && state.playerOpenedFrom === 'detail' && hasDetailContent) {
       detail.classList.remove('hidden');
       detail.style.display = 'block';
       detail.style.zIndex = '900';
@@ -241,6 +245,10 @@
       if (detail) {
         detail.classList.add('hidden');
         detail.style.display = 'none';
+      }
+      if (app) {
+        app.classList.remove('hidden');
+        app.style.display = 'block';
       }
       var c = document.querySelector('.card.focused');
       if (c) {
@@ -1987,6 +1995,8 @@
           var tObj = lastTorrents[item.id];
           var curType = (tObj && tObj.type) || (item.title && item.title.type) || 'movie';
           if (tObj && tObj.magnet) {
+            state.fromContinueWatching = true;
+            state.playerOpenedFrom = 'app';
             state.detail = { id: item.id, name: name, type: curType, poster: poster };
             openTorrent(tObj.magnet, tObj.title || name);
           } else {
@@ -4730,7 +4740,34 @@
           ? API + '/api/torrents/proxy/video.mkv?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
         var fallbackFiles = [{ name: title, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
+        if (state.fromContinueWatching) {
+          state.fromContinueWatching = false;
+          playFile(fallbackFiles[0], title, movieId);
+          return;
+        }
         showTorrentPrePlayModal(fallbackFiles, title, movieId, magnet);
+        return;
+      }
+
+      // If resuming from Continue Watching or if torrent has only 1 file, start playback immediately!
+      if (state.fromContinueWatching || data.files.length === 1) {
+        state.fromContinueWatching = false;
+        var targetFile = data.files[0];
+        if (movieId) {
+          try {
+            var savedT = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+            if (savedT) {
+              if (savedT.fileIndex !== undefined) {
+                var found = data.files.find(function(f) { return f.id === savedT.fileIndex; });
+                if (found) targetFile = found;
+              } else if (savedT.fileName) {
+                var foundByName = data.files.find(function(f) { return f.name === savedT.fileName; });
+                if (foundByName) targetFile = foundByName;
+              }
+            }
+          } catch(ex) {}
+        }
+        playFile(targetFile, title, movieId);
         return;
       }
 
@@ -4751,7 +4788,20 @@
 
     var selectedIdx = 0;
     var isMulti = files.length > 1;
-    var movieName = (state.detail && (state.detail.title || state.detail.name)) || title;
+    var movieName = '';
+    if (typeof title === 'string' && title.trim()) {
+      movieName = title;
+    } else if (title && typeof title === 'object') {
+      movieName = title.name || title.title || '';
+    }
+    if (!movieName && state.detail) {
+      if (typeof state.detail.name === 'string') movieName = state.detail.name;
+      else if (typeof state.detail.title === 'string') movieName = state.detail.title;
+      else if (state.detail.title && typeof state.detail.title === 'object') {
+        movieName = state.detail.title.name || state.detail.title.title || '';
+      }
+    }
+    if (!movieName) movieName = 'Воспроизведение';
 
     var wrap = document.createElement('div');
     wrap.id = 'torrent-confirm-modal';
@@ -4795,7 +4845,7 @@
 
       h += '<div class="torrent-confirm-actions">';
       h += '<button id="t-confirm-play" class="torrent-confirm-btn torrent-confirm-btn-play focused" tabindex="0">' + (isMulti ? '▶ Запустить выбранный' : '▶ Запустить фильм') + '</button>';
-      h += '<button id="t-confirm-back" class="torrent-confirm-btn torrent-confirm-btn-back" tabindex="0">← Назад к торрентам</button>';
+      h += '<button id="t-confirm-back" class="torrent-confirm-btn torrent-confirm-btn-back" tabindex="0">← Назад</button>';
       h += '</div>';
 
       h += '</div>';
@@ -5005,6 +5055,15 @@
           startParam = '&start=' + Math.floor(saved.time);
         }
       } catch(e) {}
+
+      try {
+        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        if (lastT[movieId]) {
+          if (file && file.id !== undefined) lastT[movieId].fileIndex = file.id;
+          if (file && file.name) lastT[movieId].fileName = file.name;
+          localStorage.setItem('last_torrents', JSON.stringify(lastT));
+        }
+      } catch(le) {}
     }
 
     openPlayer('?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&type=' + encodeURIComponent(mediaType) + '&poster=' + encodeURIComponent(poster) + startParam);

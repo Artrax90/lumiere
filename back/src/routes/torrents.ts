@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import os from 'os';
+import http from 'http';
 import { join } from 'path';
 import { execSync, spawn } from 'child_process';
 import { config } from '../config.js';
@@ -411,64 +412,64 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
-    try {
-      const url = `${TORRSERVER_URL}/stream/${encodeURIComponent(filename)}?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+    const torrUrl = new URL(`${TORRSERVER_URL}/stream/${encodeURIComponent(filename)}?link=${encodeURIComponent(link)}&index=${index || 0}&play`);
 
-      // Forward Range header from client for seeking
-      const headers: Record<string, string> = {};
-      const rangeHeader = req.headers.range;
-      if (rangeHeader) {
-        headers['Range'] = rangeHeader;
-      }
+    const headers: Record<string, string | string[]> = {};
+    if (req.headers.range) {
+      headers['range'] = req.headers.range;
+    }
+    if (req.headers['user-agent']) {
+      headers['user-agent'] = req.headers['user-agent'];
+    }
 
-      const abortController = new AbortController();
-      req.raw.on('close', () => {
-        try { abortController.abort(); } catch {}
-      });
-
-      const res = await fetch(url, {
+    return new Promise<void>((resolve) => {
+      const proxyReq = http.request(torrUrl, {
         method: req.method === 'HEAD' ? 'HEAD' : 'GET',
         headers,
-        signal: abortController.signal,
+      }, (proxyRes) => {
+        // Forward all headers from TorrServer with CORS and DLNA seeking indicators
+        const resHeaders: Record<string, any> = { ...proxyRes.headers };
+        resHeaders['access-control-allow-origin'] = '*';
+        resHeaders['access-control-allow-methods'] = 'GET, HEAD, OPTIONS';
+        resHeaders['access-control-allow-headers'] = 'Range, Content-Range';
+        resHeaders['access-control-expose-headers'] = 'Content-Length, Content-Range, transfermode.dlna.org, contentfeatures.dlna.org, Accept-Ranges';
+        if (!resHeaders['accept-ranges']) {
+          resHeaders['accept-ranges'] = 'bytes';
+        }
+        if (!resHeaders['transfermode.dlna.org']) {
+          resHeaders['transfermode.dlna.org'] = 'Streaming';
+        }
+
+        reply.raw.writeHead(proxyRes.statusCode || 200, resHeaders);
+
+        if (req.method === 'HEAD') {
+          reply.raw.end();
+          resolve();
+          return;
+        }
+
+        proxyRes.pipe(reply.raw);
+        proxyRes.on('end', () => resolve());
+        proxyRes.on('error', (err) => {
+          console.error('[Proxy] TorrServer stream pipe error:', err.message);
+          resolve();
+        });
       });
 
-      if (!res.ok && res.status !== 206) {
-        return reply.code(res.status).send({ error: 'TorrServer stream error' });
-      }
+      req.raw.on('close', () => {
+        try { proxyReq.destroy(); } catch {}
+      });
 
-      // Forward the response headers with CORS and DLNA seeking indicators
-      const contentType = res.headers.get('content-type') || (filename.endsWith('.mp4') ? 'video/mp4' : 'video/x-matroska');
-      const contentLength = res.headers.get('content-length');
-      const contentRange = res.headers.get('content-range');
-      const dlnaTransfer = res.headers.get('transfermode.dlna.org') || 'Streaming';
-      const dlnaFeatures = res.headers.get('contentfeatures.dlna.org');
+      proxyReq.on('error', (err) => {
+        console.error('[Proxy] TorrServer proxy request error:', err.message);
+        if (!reply.raw.headersSent) {
+          reply.code(502).send({ error: 'TorrServer connection error' });
+        }
+        resolve();
+      });
 
-      reply.header('Content-Type', contentType);
-      reply.header('Accept-Ranges', 'bytes');
-      reply.header('transfermode.dlna.org', dlnaTransfer);
-      if (dlnaFeatures) reply.header('contentfeatures.dlna.org', dlnaFeatures);
-      reply.header('Access-Control-Allow-Origin', '*');
-      reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-      reply.header('Access-Control-Allow-Headers', 'Range');
-      reply.header('Access-Control-Expose-Headers', 'Content-Length, Content-Range, transfermode.dlna.org, contentfeatures.dlna.org, Accept-Ranges');
-      if (contentLength) reply.header('Content-Length', contentLength);
-      if (contentRange) reply.header('Content-Range', contentRange);
-
-      if (res.status === 206) {
-        reply.code(206);
-      }
-
-      if (req.method === 'HEAD') {
-        return reply.send();
-      }
-
-      // Pipe the response body directly
-      return reply.send(res.body);
-    } catch (err: any) {
-      if (err.name === 'AbortError') return;
-      console.error('TorrServer proxy error:', err.message);
-      return reply.code(500).send({ error: err.message });
-    }
+      proxyReq.end();
+    });
   };
 
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/proxy', handler: handleTorrentProxy });
