@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import os from 'os';
 import http from 'http';
 import { join } from 'path';
+import { existsSync, readdirSync, readFileSync, mkdirSync, rmSync, statSync } from 'fs';
 import { execSync, spawn } from 'child_process';
 import { config } from '../config.js';
 
@@ -21,19 +22,20 @@ let _vaapiAvailable: boolean | null = null;
 function isVaapiAvailable(): boolean {
   if (_vaapiAvailable !== null) return _vaapiAvailable;
   try {
-    const { existsSync } = require('fs');
     if (!existsSync('/dev/dri/renderD128')) {
       _vaapiAvailable = false;
       return false;
     }
-    // Check if FFmpeg has h264_vaapi encoder
-    const out = execSync('ffmpeg -encoders', { stdio: ['ignore', 'pipe', 'ignore'] }).toString();
-    _vaapiAvailable = out.includes('h264_vaapi');
-    if (_vaapiAvailable) {
-      console.log('[FFmpeg] Intel VA-API hardware acceleration ready (/dev/dri/renderD128 & h264_vaapi)');
-    }
-    return _vaapiAvailable;
-  } catch {
+    // Verify that the driver can actually encode a test frame with VA-API
+    execSync('ffmpeg -f lavfi -i nullsrc=s=64x64:d=0.04 -vaapi_device /dev/dri/renderD128 -vf format=nv12,hwupload -c:v h264_vaapi -f null -', {
+      stdio: ['ignore', 'ignore', 'ignore'],
+      timeout: 3000,
+    });
+    _vaapiAvailable = true;
+    console.log('[FFmpeg] Intel QuickSync (VA-API) hardware acceleration active and verified (/dev/dri/renderD128)');
+    return true;
+  } catch (err: any) {
+    console.warn('[FFmpeg] Intel VA-API not usable, falling back to software transcode:', err.message);
     _vaapiAvailable = false;
     return false;
   }
@@ -795,7 +797,6 @@ export function torrentRoutes(app: FastifyInstance) {
 
   function checkThrottle(sess: FfmpegSession) {
     try {
-      const { readdirSync, existsSync } = require('fs');
       if (!existsSync(sess.hlsDir)) return;
       const files = readdirSync(sess.hlsDir) as string[];
       let maxSeg = -1;
@@ -816,32 +817,34 @@ export function torrentRoutes(app: FastifyInstance) {
 
       // Detection of TV pause:
       // If there are segments available on disk that the TV has NOT downloaded yet,
-      // and the TV hasn't requested any segment in > 10 seconds:
+      // and the TV hasn't requested any segment in > 8 seconds:
       // The TV is PAUSED or player stopped!
       const isTvPaused = sess.lastRequestedSeg >= 0 &&
                          maxSeg > sess.lastRequestedSeg &&
-                         (now - sess.lastSegRequestTime > 10000);
+                         (now - sess.lastSegRequestTime > 8000);
 
       if (!isTvPaused) {
         sess.playbackSeconds += deltaSec;
       }
 
-      // Initial buffer grace: player needs ~3s to initialize AVPlay and load first segment
-      const effectivePlaySec = Math.max(0, sess.playbackSeconds - 3);
+      // Initial buffer grace: player needs ~2s to initialize AVPlay and load first segment
+      const effectivePlaySec = Math.max(0, sess.playbackSeconds - 2);
       const playedSeg = Math.floor(effectivePlaySec / 4);
 
       // Buffer ahead of current playback position
       const ahead = maxSeg - playedSeg;
 
       // Throttling thresholds:
-      // - PAUSE if TV is paused OR if buffer is >= 6 segments (24 seconds) ahead of playhead.
-      // - RESUME if TV is active AND buffer drops to <= 3 segments (12 seconds) ahead.
-      if (isTvPaused || ahead >= 6) {
+      // - PAUSE if TV is paused OR if buffer is >= 4 segments (16 seconds) ahead of playhead.
+      // - RESUME if TV is active AND buffer drops to <= 2 segments (8 seconds) ahead.
+      if (isTvPaused || ahead >= 4) {
         pauseFfmpeg(sess);
-      } else if (ahead <= 3) {
+      } else if (ahead <= 2) {
         resumeFfmpeg(sess);
       }
-    } catch {}
+    } catch (err: any) {
+      console.error('[FFmpeg] checkThrottle error:', err.message);
+    }
   }
 
   function retireSession(sessionId: string) {
@@ -858,7 +861,6 @@ export function torrentRoutes(app: FastifyInstance) {
     // from the TV get served cleanly without 404 / connection reset!
     setTimeout(() => {
       try {
-        const { rmSync } = require('fs');
         rmSync(sess.hlsDir, { recursive: true, force: true });
       } catch {}
     }, 25000);
@@ -940,7 +942,7 @@ export function torrentRoutes(app: FastifyInstance) {
       // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
       const { spawn } = await import('child_process');
       const ffmpegArgs = [
-        '-threads', '1',
+        '-threads', '2',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
@@ -958,7 +960,7 @@ export function torrentRoutes(app: FastifyInstance) {
       if (isVideoTranscode) {
         // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
         // If Intel QuickSync (VA-API) hardware is available, use hardware encoder (1-2% CPU).
-        // Otherwise, fallback to ultrafast libx264 limited to 1 thread to protect CPU.
+        // Otherwise, fallback to ultrafast libx264 limited to 2 threads to protect CPU.
         if (isVaapiAvailable()) {
           ffmpegArgs.push(
             '-vaapi_device', '/dev/dri/renderD128',
@@ -968,7 +970,7 @@ export function torrentRoutes(app: FastifyInstance) {
           );
         } else {
           ffmpegArgs.push(
-            '-threads', '1',
+            '-threads', '2',
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
