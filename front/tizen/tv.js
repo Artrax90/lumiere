@@ -244,23 +244,49 @@
       return;
     }
 
-    // Only return to detail card if player was ACTUALLY opened from detail AND detail has content!
+    // Return to detail card if opened from detail OR if opened from continue watching!
     var detailContent = detail ? detail.querySelector('#detail-content') : null;
     var hasDetailContent = detailContent && detailContent.children.length > 0;
-    if (detail && state.playerOpenedFrom === 'detail' && hasDetailContent) {
-      detail.classList.remove('hidden');
-      detail.style.display = 'block';
-      detail.style.zIndex = '900';
-      var focusTarget = detail.querySelector('#detail-play') ||
-                        detail.querySelector('.episode-card.focused') ||
-                        detail.querySelector('.episode-card') ||
-                        detail.querySelector('.torrent-item.focused') ||
-                        detail.querySelector('.torrent-item') ||
-                        detail.querySelector('.detail-actions button') ||
-                        detail.querySelector('#detail-back-btn');
-      if (focusTarget) {
-        if (typeof setDetailFocus === 'function') setDetailFocus(focusTarget);
-        else try { focusTarget.focus(); } catch(e) {}
+
+    // User requested: When pressing Back in player, ALWAYS open the movie/series detail card!
+    var targetDetail = state.detail;
+    if (!targetDetail || !targetDetail.id) {
+      try {
+        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        for (var lid in lastT) {
+          if (lastT[lid] && Number(lid) > 0) {
+            targetDetail = { id: Number(lid), name: lastT[lid].title, type: lastT[lid].type };
+            break;
+          }
+        }
+      } catch(ex) {}
+    }
+
+    if (detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
+      if (app) {
+        app.classList.add('hidden');
+        app.style.display = 'none';
+      }
+      var isSameDetailLoaded = hasDetailContent && state.detail && (state.detail.id === targetDetail.id);
+      if (isSameDetailLoaded) {
+        detail.classList.remove('hidden');
+        detail.style.display = 'block';
+        detail.style.zIndex = '900';
+        var focusTarget = detail.querySelector('#detail-play') ||
+                          detail.querySelector('.episode-card.focused') ||
+                          detail.querySelector('.episode-card') ||
+                          detail.querySelector('.torrent-item.focused') ||
+                          detail.querySelector('.torrent-item') ||
+                          detail.querySelector('.detail-actions button') ||
+                          detail.querySelector('#detail-back-btn');
+        if (focusTarget) {
+          setDetailFocus(focusTarget);
+        }
+      } else {
+        if (targetDetail.type === 'tv') {
+          state.detailTab = 'episodes';
+        }
+        showDetail(targetDetail);
       }
     } else {
       if (detail) {
@@ -7901,33 +7927,32 @@
 
     var cRect = container.getBoundingClientRect();
     var eRect = el.getBoundingClientRect();
-    var topMargin = 120;
-    var botMargin = 120;
+    var pad = 90;
 
-    if (eRect.top < cRect.top + topMargin) {
-      container.scrollTop += (eRect.top - (cRect.top + topMargin));
-    } else if (eRect.bottom > cRect.bottom - botMargin) {
-      container.scrollTop += (eRect.bottom - (cRect.bottom - botMargin));
+    if (eRect.top < cRect.top + pad) {
+      container.scrollTop += (eRect.top - (cRect.top + pad));
+    } else if (eRect.bottom > cRect.bottom - pad) {
+      container.scrollTop += (eRect.bottom - (cRect.bottom - pad));
     }
   }
 
   function setDetailFocus(el) {
-    if (!$detail) $detail = document.getElementById('detail');
+    if (!el) return;
+    if (state._focusedDetailEl && state._focusedDetailEl !== el) {
+      state._focusedDetailEl.classList.remove('focused');
+    }
     if ($detail) {
-      var all = $detail.querySelectorAll('.focused');
-      for (var i = 0; i < all.length; i++) {
-        all[i].classList.remove('focused');
-      }
+      var cur = $detail.querySelector('.focused');
+      if (cur && cur !== el) cur.classList.remove('focused');
     }
-    if (el) {
-      el.classList.add('focused');
-      try {
-        el.focus({ preventScroll: true });
-      } catch(e) {
-        try { el.focus(); } catch(e2) {}
-      }
-      scrollIntoViewIfNeeded(el, $detail);
+    state._focusedDetailEl = el;
+    el.classList.add('focused');
+    try {
+      el.focus({ preventScroll: true });
+    } catch(e) {
+      try { el.focus(); } catch(e2) {}
     }
+    scrollIntoViewIfNeeded(el, $detail);
   }
 
   function handleDetailKeys(code, e) {
@@ -8059,12 +8084,13 @@
           var bBtn = document.getElementById('detail-back-btn');
           if (bBtn) setDetailFocus(bBtn);
         } else if (isItem) {
-          var itemIdx = -1;
-          for (var ii = 0; ii < items.length; ii++) {
-            if (items[ii] === focused) { itemIdx = ii; break; }
+          var targetClass = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
+          var prevItem = focused.previousElementSibling;
+          while (prevItem && !prevItem.classList.contains(targetClass)) {
+            prevItem = prevItem.previousElementSibling;
           }
-          if (itemIdx > 0) {
-            setDetailFocus(items[itemIdx - 1]);
+          if (prevItem) {
+            setDetailFocus(prevItem);
           } else {
             var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
             if (activeSeason) {
@@ -8112,12 +8138,13 @@
             setDetailFocus(items[0]);
           }
         } else if (isItem) {
-          var itIdx = -1;
-          for (var ij = 0; ij < items.length; ij++) {
-            if (items[ij] === focused) { itIdx = ij; break; }
+          var targetClassDown = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
+          var nextItem = focused.nextElementSibling;
+          while (nextItem && !nextItem.classList.contains(targetClassDown)) {
+            nextItem = nextItem.nextElementSibling;
           }
-          if (itIdx >= 0 && itIdx < items.length - 1) {
-            setDetailFocus(items[itIdx + 1]);
+          if (nextItem) {
+            setDetailFocus(nextItem);
           }
         }
         if (e && e.preventDefault) e.preventDefault();

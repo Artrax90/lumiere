@@ -2447,17 +2447,15 @@ body.player-active .section {
   border-radius: 16px;
   cursor: pointer;
   outline: none;
-  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   position: relative;
   align-items: center;
   contain: layout paint;
-  will-change: transform;
 }
 .episode-card.focused {
-  background: rgba(232, 193, 112, 0.12) !important;
+  background: rgba(232, 193, 112, 0.16) !important;
   border-color: #e8c170 !important;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7), 0 0 15px rgba(232, 193, 112, 0.3) !important;
-  transform: translateX(8px);
+  box-shadow: 0 0 0 2px #e8c170, 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+  transform: translateX(6px);
 }
 .ep-still-box {
   position: relative;
@@ -2551,14 +2549,13 @@ body.player-active .section {
   border: none;
   cursor: pointer;
   outline: none;
-  transition: all 0.18s ease;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 .episode-card.focused .ep-play-btn {
   background: #e8c170 !important;
-  box-shadow: 0 0 16px rgba(232, 193, 112, 0.8);
+  color: #0a0b0f !important;
 }
 
 /* Exit confirmation modal */
