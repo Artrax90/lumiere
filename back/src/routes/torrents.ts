@@ -875,128 +875,126 @@ export function torrentRoutes(app: FastifyInstance) {
 
     const streamKey = `${link}-${index || 0}`;
 
-    // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
-    for (const [sId, sess] of activeSessions.entries()) {
-      if (sess.streamKey === streamKey && sId !== sessionId) {
-        cleanupSession(sId);
+    if (!existingSession) {
+      // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
+      for (const [sId, sess] of activeSessions.entries()) {
+        if (sess.streamKey === streamKey && sId !== sessionId) {
+          cleanupSession(sId);
+        }
       }
-    }
 
-    // Clean up old session and HLS directory if exists
-    if (existingSession) {
-      cleanupSession(sessionId);
-    }
-    // Clean old HLS directory for fresh start
-    if (existsSync(hlsDir)) {
-      const { rmSync } = await import('fs');
-      try { rmSync(hlsDir, { recursive: true, force: true }); } catch {}
-    }
+      // Clean old HLS directory for fresh start
+      if (existsSync(hlsDir)) {
+        const { rmSync } = await import('fs');
+        try { rmSync(hlsDir, { recursive: true, force: true }); } catch {}
+      }
 
-    if (!existsSync(hlsDir)) {
-      mkdirSync(hlsDir, { recursive: true });
-    }
+      if (!existsSync(hlsDir)) {
+        mkdirSync(hlsDir, { recursive: true });
+      }
 
-    // Start FFmpeg with selected audio track and video transcode if required
-    // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
-    const { spawn } = await import('child_process');
-    const ffmpegArgs = [
-      '-threads', '1',
-      '-readrate', '2.0',
-      '-reconnect', '1',
-      '-reconnect_streamed', '1',
-      '-reconnect_delay_max', '5',
-    ];
-    // Input seek (-ss before -i) allows FFmpeg to use HTTP Range requests directly to TorrServer
-    if (seekTime > 0) {
-      ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
-    }
-    ffmpegArgs.push('-i', streamUrl);
-    ffmpegArgs.push(
-      '-map', '0:v:0',
-      '-map', `0:a:${audioIndex}`,
-    );
+      // Start FFmpeg with selected audio track and video transcode if required
+      // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
+      const { spawn } = await import('child_process');
+      const ffmpegArgs = [
+        '-threads', '1',
+        '-readrate', '2.0',
+        '-reconnect', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '5',
+      ];
+      // Input seek (-ss before -i) allows FFmpeg to use HTTP Range requests directly to TorrServer
+      if (seekTime > 0) {
+        ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
+      }
+      ffmpegArgs.push('-i', streamUrl);
+      ffmpegArgs.push(
+        '-map', '0:v:0',
+        '-map', `0:a:${audioIndex}`,
+      );
 
-    if (isVideoTranscode) {
-      // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
-      // If Intel QuickSync (VA-API) hardware is available, use hardware encoder (1-2% CPU).
-      // Otherwise, fallback to ultrafast libx264 limited to 1 thread to protect CPU.
-      if (isVaapiAvailable()) {
-        ffmpegArgs.push(
-          '-vaapi_device', '/dev/dri/renderD128',
-          '-vf', 'format=nv12,hwupload',
-          '-c:v', 'h264_vaapi',
-          '-qp', '24',
-        );
+      if (isVideoTranscode) {
+        // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
+        // If Intel QuickSync (VA-API) hardware is available, use hardware encoder (1-2% CPU).
+        // Otherwise, fallback to ultrafast libx264 limited to 1 thread to protect CPU.
+        if (isVaapiAvailable()) {
+          ffmpegArgs.push(
+            '-vaapi_device', '/dev/dri/renderD128',
+            '-vf', 'format=nv12,hwupload',
+            '-c:v', 'h264_vaapi',
+            '-qp', '24',
+          );
+        } else {
+          ffmpegArgs.push(
+            '-threads', '1',
+            '-c:v', 'libx264',
+            '-preset', 'ultrafast',
+            '-tune', 'zerolatency',
+            '-crf', '22',
+            '-pix_fmt', 'yuv420p',
+          );
+        }
       } else {
-        ffmpegArgs.push(
-          '-threads', '1',
-          '-c:v', 'libx264',
-          '-preset', 'ultrafast',
-          '-tune', 'zerolatency',
-          '-crf', '22',
-          '-pix_fmt', 'yuv420p',
-        );
+        ffmpegArgs.push('-c:v', 'copy');
       }
-    } else {
-      ffmpegArgs.push('-c:v', 'copy');
-    }
 
-    ffmpegArgs.push(
-      '-c:a', 'aac',
-      '-b:a', '192k',
-      '-ac', '2',
-      '-g', '50',
-      '-keyint_min', '25',
-      '-force_key_frames', 'expr:gte(t,n_forced*4)',
-      '-f', 'hls',
-      '-hls_time', '4',
-      '-hls_list_size', '0',
-      '-hls_segment_type', 'mpegts',
-      '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
-      '-y',
-      playlistPath,
-    );
-    const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
-    try {
-      if (ffmpeg.pid && typeof os.setPriority === 'function') {
-        os.setPriority(ffmpeg.pid, 10);
-      }
-    } catch {}
+      ffmpegArgs.push(
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-ac', '2',
+        '-g', '50',
+        '-keyint_min', '25',
+        '-force_key_frames', 'expr:gte(t,n_forced*4)',
+        '-f', 'hls',
+        '-hls_time', '4',
+        '-hls_list_size', '0',
+        '-hls_segment_type', 'mpegts',
+        '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
+        '-y',
+        playlistPath,
+      );
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      try {
+        if (ffmpeg.pid && typeof os.setPriority === 'function') {
+          os.setPriority(ffmpeg.pid, 10);
+        }
+      } catch {}
 
-    const sess: FfmpegSession = {
-      pid: ffmpeg.pid!,
-      hlsDir,
-      streamKey,
-      paused: false,
-      lastRequestedSeg: 0,
-      lastActivity: Date.now(),
-    };
-    activeSessions.set(sessionId, sess);
+      const sess: FfmpegSession = {
+        pid: ffmpeg.pid!,
+        hlsDir,
+        streamKey,
+        paused: false,
+        lastRequestedSeg: 0,
+        lastActivity: Date.now(),
+      };
+      activeSessions.set(sessionId, sess);
 
-    // Dynamic throttle loop: checks every 500ms to pause/resume FFmpeg and clean up after 90s idle
-    sess.timer = setInterval(() => {
-      if (Date.now() - sess.lastActivity > 90000) {
+      // Dynamic throttle loop: checks every 500ms to pause/resume FFmpeg and clean up after 90s idle
+      sess.timer = setInterval(() => {
+        if (Date.now() - sess.lastActivity > 90000) {
+          cleanupSession(sessionId);
+          return;
+        }
+        checkThrottle(sess);
+      }, 500);
+
+      ffmpeg.on('error', (err) => {
+        console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
         cleanupSession(sessionId);
-        return;
-      }
-      checkThrottle(sess);
-    }, 500);
-
-    ffmpeg.on('error', (err) => {
-      console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
-      cleanupSession(sessionId);
-    });
-    ffmpeg.on('close', (code, signal) => {
-      console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
-      if (sess.timer) clearInterval(sess.timer);
-      activeSessions.delete(sessionId);
-    });
-    ffmpeg.stderr?.on('data', (chunk: Buffer) => {
-      const msg = chunk.toString().trim();
-      if (msg.includes('Error') || msg.includes('error') || msg.includes('Invalid') || msg.includes('failed')) {
-        console.error(`[FFmpeg] ${sessionId}: ${msg.substring(0, 200)}`);
-      }
-    });
+      });
+      ffmpeg.on('close', (code, signal) => {
+        console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
+        if (sess.timer) clearInterval(sess.timer);
+        activeSessions.delete(sessionId);
+      });
+      ffmpeg.stderr?.on('data', (chunk: Buffer) => {
+        const msg = chunk.toString().trim();
+        if (msg.includes('Error') || msg.includes('error') || msg.includes('Invalid') || msg.includes('failed')) {
+          console.error(`[FFmpeg] ${sessionId}: ${msg.substring(0, 200)}`);
+        }
+      });
+    }
 
     // Wait for playlist
     const waitForPlaylist = () => new Promise<void>((resolve) => {

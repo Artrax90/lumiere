@@ -253,14 +253,6 @@
       });
     }
 
-    // Start playback
-    if (streamUrl && player) {
-      player.play(streamUrl);
-      fetchDurationFromApi(streamUrl);
-      loadTrackInfo(streamUrl);
-      startBufferPolling();
-    }
-
     // Resume from saved position (either params.start or playback_positions)
     var resumeTarget = 0;
     if (startParamSec > 10) {
@@ -277,9 +269,27 @@
       } catch(ex) {}
     }
 
-    if (resumeTarget > 10) {
+    var hasResumed = false;
+    // For HLS streams (e.g. AVI transcoding), pass start offset directly in initial URL to avoid double transcode start
+    if (streamUrl && resumeTarget > 10 && streamUrl.indexOf('/api/torrents/hls') !== -1 && streamUrl.indexOf('start=') === -1) {
+      var joinChar = streamUrl.indexOf('?') >= 0 ? '&' : '?';
+      streamUrl = streamUrl + joinChar + 'start=' + resumeTarget;
+      currentTime = resumeTarget;
+      pendingSeekTarget = resumeTarget;
+      hasResumed = true;
+      console.log('[Player] Initial HLS stream URL configured with start offset:', resumeTarget, 's');
+    }
+
+    // Start playback
+    if (streamUrl && player) {
+      player.play(streamUrl);
+      fetchDurationFromApi(streamUrl);
+      loadTrackInfo(streamUrl);
+      startBufferPolling();
+    }
+
+    if (resumeTarget > 10 && !hasResumed) {
       console.log('[Player] Target resume position:', resumeTarget, 'seconds');
-      var hasResumed = false;
       var executeResume = function() {
         if (hasResumed) return;
         var canSeek = false;

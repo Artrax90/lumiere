@@ -37,6 +37,8 @@
     this._currentTime = 0;
     this._isPlaying = false;
     this._isSeeking = false;
+    this._seekOffset = 0;
+    this._hasExternalDuration = false;
     this._avplayObj = null;
   }
 
@@ -67,10 +69,109 @@
   };
 
   // ========== AVPlay Engine ==========
+  PlayerAdapter.prototype._setupAvplayListener = function() {
+    var self = this;
+    webapis.avplay.setListener({
+      onstreamcompleted: function() {
+        self._isPlaying = false;
+        self._emit('ended');
+      },
+      oncurrentplaytime: function(time) {
+        if (self._isSeeking) return;
+        self._currentTime = (self._seekOffset || 0) + (time / 1000);
+        if (self._duration && self._currentTime > self._duration) {
+          self._currentTime = self._duration;
+        }
+        self._emit('timeUpdate', { currentTime: self._currentTime });
+      },
+      onbufferingstart: function() {
+        self._emit('bufferingStart');
+      },
+      onbufferingprogress: function(percent) {
+        self._emit('bufferingProgress', { percent: percent });
+      },
+      onbufferingcomplete: function() {
+        self._emit('bufferingEnd');
+        try {
+          var info = webapis.avplay.getStreamingProperty('DURATION_INFO');
+          if (info) {
+            var durVal = parseInt(info) / 1000;
+            if (durVal > 0 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+              self._duration = durVal;
+              self._emit('durationChange', { duration: self._duration });
+            }
+          }
+        } catch(e) {}
+      },
+      onerror: function(error) {
+        console.error('[AVPlay] Error:', error);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
+        }
+        if (!self._hasFallenBackToVideo) {
+          self._hasFallenBackToVideo = true;
+          console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay hardware error');
+          try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+          self._playVideo(self._currentUrl);
+          return;
+        }
+        self._emit('error', { message: error });
+      },
+      onevent: function(eventType, eventData) {
+        console.log('[AVPlay] onEvent:', eventType, eventData);
+        if (eventType === 'PLAYER_MSG_BUFFERING_START' || eventType === 'PLAYER_MSG_NONE_SKIP') {
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'avplay', 'Buffering event: ' + eventType, { data: eventData });
+          }
+        }
+      },
+      onsubtitlechange: function(duration, text) {
+        console.log('[AVPlay] onSubtitleChange:', text);
+      },
+      ondrmevent: function(drmEvent, drmData) {}
+    });
+  };
+
+  PlayerAdapter.prototype._startAvplayPollTimer = function() {
+    var self = this;
+    if (self._avplayPollTimer) {
+      clearInterval(self._avplayPollTimer);
+      self._avplayPollTimer = null;
+    }
+    self._avplayPollTimer = setInterval(function() {
+      if (self._isSeeking) return;
+      try {
+        var ct = webapis.avplay.getCurrentTime();
+        if (ct !== undefined && ct >= 0 && !self._isSeeking) {
+          self._currentTime = (self._seekOffset || 0) + (ct / 1000);
+          if (self._duration && self._currentTime > self._duration) {
+            self._currentTime = self._duration;
+          }
+          self._emit('timeUpdate', { currentTime: self._currentTime });
+        }
+      } catch(e) {}
+      try {
+        var dur = webapis.avplay.getDuration();
+        if (dur && dur > 0 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+          var durSec = dur / 1000;
+          if (Math.abs(durSec - self._duration) > 5) {
+            self._duration = durSec;
+            self._emit('durationChange', { duration: self._duration });
+          }
+        }
+      } catch(e) {}
+    }, 500);
+  };
+
   PlayerAdapter.prototype._playAvplay = function(url) {
     var self = this;
     self._currentUrl = url;
-    console.log('[AVPlay] Starting playback:', url.substring(0, 100));
+    var startMatch = url.match(/[?&]start=(\d+)/);
+    self._seekOffset = startMatch ? parseInt(startMatch[1], 10) : 0;
+    if (self._seekOffset > 0) {
+      self._currentTime = self._seekOffset;
+    }
+    console.log('[AVPlay] Starting playback:', url.substring(0, 100), 'initial offset:', self._seekOffset);
     try {
       if (this.container) {
         this.container.style.background = 'transparent';
@@ -95,61 +196,7 @@
         console.warn('[AVPlay] setDisplayRect error:', dre);
       }
 
-      // Set listener for events with all required callback stubs
-      webapis.avplay.setListener({
-        onstreamcompleted: function() {
-          self._isPlaying = false;
-          self._emit('ended');
-        },
-        oncurrentplaytime: function(time) {
-          if (self._isSeeking) return;
-          self._currentTime = time / 1000;
-          self._emit('timeUpdate', { currentTime: self._currentTime });
-        },
-        onbufferingstart: function() {
-          self._emit('bufferingStart');
-        },
-        onbufferingprogress: function(percent) {
-          self._emit('bufferingProgress', { percent: percent });
-        },
-        onbufferingcomplete: function() {
-          self._emit('bufferingEnd');
-          // Get duration
-          try {
-            var info = webapis.avplay.getStreamingProperty('DURATION_INFO');
-            if (info) {
-              self._duration = parseInt(info) / 1000;
-              self._emit('durationChange', { duration: self._duration });
-            }
-          } catch(e) {}
-        },
-        onerror: function(error) {
-          console.error('[AVPlay] Error:', error);
-          if (typeof window.sendTvLog === 'function') {
-            window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
-          }
-          if (!self._hasFallenBackToVideo) {
-            self._hasFallenBackToVideo = true;
-            console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay hardware error');
-            try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
-            self._playVideo(url);
-            return;
-          }
-          self._emit('error', { message: error });
-        },
-        onevent: function(eventType, eventData) {
-          console.log('[AVPlay] onEvent:', eventType, eventData);
-          if (eventType === 'PLAYER_MSG_BUFFERING_START' || eventType === 'PLAYER_MSG_NONE_SKIP') {
-            if (typeof window.sendTvLog === 'function') {
-              window.sendTvLog('warn', 'avplay', 'Buffering event: ' + eventType, { data: eventData });
-            }
-          }
-        },
-        onsubtitlechange: function(duration, text) {
-          console.log('[AVPlay] onSubtitleChange:', text);
-        },
-        ondrmevent: function(drmEvent, drmData) {}
-      });
+      self._setupAvplayListener();
 
       // Prepare and play with both success and error callbacks
       webapis.avplay.prepareAsync(function() {
@@ -184,25 +231,26 @@
           }
         } catch(e) { console.log('[AVPlay] Track info error:', e); }
 
-        // Get duration — try multiple methods for accuracy
-        try {
-          var durInfo = webapis.avplay.getStreamingProperty('DURATION_INFO');
-          if (durInfo) {
-            self._duration = parseInt(durInfo) / 1000;
-            self._emit('durationChange', { duration: self._duration });
-          }
-        } catch(e) {}
-        // Also try getDuration() which may be more accurate for MKV
-        try {
-          var totalDur = webapis.avplay.getDuration();
-          if (totalDur && totalDur > 0) {
-            var durSec = totalDur / 1000;
-            if (durSec > self._duration) {
-              self._duration = durSec;
+        // Get duration — try multiple methods for accuracy if not external
+        if (!self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+          try {
+            var durInfo = webapis.avplay.getStreamingProperty('DURATION_INFO');
+            if (durInfo) {
+              self._duration = parseInt(durInfo) / 1000;
               self._emit('durationChange', { duration: self._duration });
             }
-          }
-        } catch(e) {}
+          } catch(e) {}
+          try {
+            var totalDur = webapis.avplay.getDuration();
+            if (totalDur && totalDur > 0) {
+              var durSec = totalDur / 1000;
+              if (durSec > self._duration) {
+                self._duration = durSec;
+                self._emit('durationChange', { duration: self._duration });
+              }
+            }
+          } catch(e) {}
+        }
 
         try {
           webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
@@ -215,46 +263,8 @@
         webapis.avplay.play();
         self._emit('playing');
 
-        // DEBUG: Log AVPlay duration properties over time
-        var avplayDebugCount = 0;
-        self._avplayDebugTimer = setInterval(function() {
-          avplayDebugCount++;
-          var elapsed = avplayDebugCount * 5;
-          try {
-            var dur = webapis.avplay.getDuration();
-            var ct = webapis.avplay.getCurrentTime();
-            var streamInfo = '';
-            try { streamInfo = JSON.stringify(webapis.avplay.getCurrentStreamInfo()); } catch(e2) {}
-            var totalTrack = '';
-            try { totalTrack = webapis.avplay.getTotalTrackInfo(); } catch(e2) {}
-            console.log('[AVPlay-DEBUG] t=' + elapsed + 's | getDuration=' + dur + 'ms (' + (dur/1000).toFixed(1) + 's) | getCurrentTime=' + ct + 'ms | streamInfo=' + streamInfo);
-          } catch(e) {
-            console.log('[AVPlay-DEBUG] t=' + elapsed + 's | error: ' + e.message);
-          }
-        }, 5000);
-
         // Polling for AVPlay — updates currentTime and duration continuously
-        self._avplayPollTimer = setInterval(function() {
-          if (self._isSeeking) return;
-          try {
-            var ct = webapis.avplay.getCurrentTime();
-            if (ct !== undefined && ct >= 0 && !self._isSeeking) {
-              self._currentTime = ct / 1000;
-              self._emit('timeUpdate', { currentTime: self._currentTime });
-            }
-          } catch(e) {}
-          try {
-            var dur = webapis.avplay.getDuration();
-            if (dur && dur > 0) {
-              var durSec = dur / 1000;
-              // Always update duration — MKV metadata can be wrong
-              if (Math.abs(durSec - self._duration) > 5) {
-                self._duration = durSec;
-                self._emit('durationChange', { duration: self._duration });
-              }
-            }
-          } catch(e) {}
-        }, 500);
+        self._startAvplayPollTimer();
       }, function(prepareErr) {
         console.error('[AVPlay] prepareAsync error:', prepareErr);
         if (!self._hasFallenBackToVideo) {
@@ -541,6 +551,7 @@
   PlayerAdapter.prototype.setDuration = function(d) {
     if (d && isFinite(d) && d > 0) {
       this._duration = d;
+      this._hasExternalDuration = true;
       this._emit('durationChange', { duration: this._duration });
     }
   };
@@ -550,8 +561,96 @@
     this.seekTo(target);
   };
 
+  PlayerAdapter.prototype._seekHlsAvplay = function(targetSec, successCb, errorCb) {
+    var self = this;
+    var safeTargetSec = Math.max(0, Math.floor(targetSec));
+    if (self._duration > 2 && safeTargetSec > self._duration - 2) {
+      safeTargetSec = Math.max(0, Math.floor(self._duration - 2));
+    }
+
+    if (self._isSeeking) {
+      console.log('[AVPlay] Already seeking HLS, queuing target:', safeTargetSec, 's');
+      self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+      return;
+    }
+
+    self._isSeeking = true;
+    self._seekOffset = safeTargetSec;
+    self._currentTime = safeTargetSec;
+    self._emit('timeUpdate', { currentTime: safeTargetSec });
+    self._emit('bufferingStart');
+
+    var cleanUrl = (self._currentUrl || '').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+    var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
+    var newSeekUrl = cleanUrl + joinChar + 'start=' + safeTargetSec;
+    self._currentUrl = newSeekUrl;
+
+    console.log('[AVPlay] HLS seek to', safeTargetSec, 's, reloading URL:', newSeekUrl);
+
+    if (self._avplayPollTimer) {
+      clearInterval(self._avplayPollTimer);
+      self._avplayPollTimer = null;
+    }
+
+    var seekTimeout = setTimeout(function() {
+      console.warn('[AVPlay] HLS seek safety timeout at', safeTargetSec);
+      onSeekDone(new Error('HLS seek timeout'));
+    }, 12000);
+
+    var onSeekDone = function(err) {
+      clearTimeout(seekTimeout);
+      self._isSeeking = false;
+      self._emit('bufferingEnd');
+      if (self._pendingSeek) {
+        var next = self._pendingSeek;
+        self._pendingSeek = null;
+        self.seekTo(next.time, next.successCb, next.errorCb);
+      } else {
+        if (err && errorCb) errorCb(err);
+        else if (!err && successCb) successCb();
+      }
+    };
+
+    try {
+      try { webapis.avplay.stop(); } catch(se) {}
+      try { webapis.avplay.close(); } catch(ce) {}
+
+      webapis.avplay.open(newSeekUrl);
+      try {
+        webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+      } catch(de) {}
+
+      self._setupAvplayListener();
+
+      webapis.avplay.prepareAsync(function() {
+        console.log('[AVPlay] HLS seek prepareAsync succeeded at', safeTargetSec, 's');
+        self._isPlaying = true;
+        try { webapis.avplay.play(); } catch(pe) {}
+        self._emit('playing');
+        self._startAvplayPollTimer();
+        setTimeout(function() {
+          onSeekDone(null);
+        }, 150);
+      }, function(pErr) {
+        console.error('[AVPlay] HLS seek prepareAsync error:', pErr);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'seek', 'AVPlay HLS seek prepareAsync failed', { targetSec: safeTargetSec, err: pErr });
+        }
+        onSeekDone(pErr);
+      });
+    } catch(ex) {
+      console.error('[AVPlay] HLS seek exception:', ex);
+      onSeekDone(ex);
+    }
+  };
+
   PlayerAdapter.prototype._reloadAtTime = function(targetSec, wasPlaying, successCb, errorCb) {
     var self = this;
+    if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+      self._seekHlsAvplay(targetSec, successCb, errorCb);
+      return;
+    }
     console.log('[AVPlay] _reloadAtTime starting at targetSec:', targetSec);
     try {
       self._isSeeking = true;
@@ -574,6 +673,8 @@
         webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
       } catch(de) {}
 
+      self._setupAvplayListener();
+
       webapis.avplay.prepareAsync(function() {
         self._isPlaying = true;
         var targetMs = Math.round(Math.max(0.5, targetSec) * 1000);
@@ -585,17 +686,7 @@
           }
           self._currentTime = targetSec;
           self._isSeeking = false;
-
-          self._avplayPollTimer = setInterval(function() {
-            if (self._isSeeking) return;
-            try {
-              var ct = webapis.avplay.getCurrentTime();
-              if (ct !== undefined && ct >= 0 && !self._isSeeking) {
-                self._currentTime = ct / 1000;
-                self._emit('timeUpdate', { currentTime: self._currentTime });
-              }
-            } catch(e) {}
-          }, 500);
+          self._startAvplayPollTimer();
 
           if (successCb) successCb();
         };
@@ -635,6 +726,11 @@
     self._currentTime = targetSec;
 
     if (self.engineType === 'avplay') {
+      if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+        self._seekHlsAvplay(targetSec, successCb, errorCb);
+        return;
+      }
+
       var avState = '';
       try { avState = webapis.avplay.getState(); } catch(se) {}
 
@@ -825,6 +921,24 @@
   };
 
   PlayerAdapter.prototype.setAudioTrack = function(index) {
+    if (this._currentUrl && this._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+      if (index >= 0 && this.currentAudio !== index) {
+        this.currentAudio = index;
+        var cleanUrl = this._currentUrl.replace(/([?&])audio=\d+(&|$)/g, '$1').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+        var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
+        var newUrl = cleanUrl + joinChar + 'audio=' + index + '&start=' + Math.floor(this._currentTime);
+        this._currentUrl = newUrl;
+        console.log('[PlayerAdapter] Switching HLS audio track to', index, 'reloading:', newUrl);
+        if (this.engineType === 'avplay') {
+          this._seekHlsAvplay(this._currentTime);
+        } else if (this._hls && this._videoEl) {
+          this._hls.loadSource(newUrl);
+          this._hls.attachMedia(this._videoEl);
+          this._videoEl.play().catch(function() {});
+        }
+      }
+      return;
+    }
     if (this.engineType === 'avplay') {
       try {
         if (index >= 0 && index < this.audioTracks.length) {
