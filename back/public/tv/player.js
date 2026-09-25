@@ -44,6 +44,7 @@
   var isSeeking = false;
   var pendingSeekTarget = 0;
   var accumulatedDelta = 0;
+  var seekBaseTime = 0;
   var seekDebounceTimer = null;
   var iptvStatsTimer = null;
   var resumeTimer = null;
@@ -165,6 +166,7 @@
     isSeeking = false;
     pendingSeekTarget = 0;
     accumulatedDelta = 0;
+    seekBaseTime = 0;
     if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
     if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
 
@@ -374,14 +376,20 @@
 
     if (!isSeeking) {
       isSeeking = true;
-      pendingSeekTarget = currentTime;
+      seekBaseTime = currentTime;
       accumulatedDelta = 0;
     }
 
     accumulatedDelta += delta;
-    var target = pendingSeekTarget + delta;
-    if (target < 0) target = 0;
-    if (duration > 0 && target > duration - 2) target = Math.max(0, duration - 2);
+    var target = seekBaseTime + accumulatedDelta;
+    if (target < 0) {
+      target = 0;
+      accumulatedDelta = -seekBaseTime;
+    }
+    if (duration > 0 && target > duration - 2) {
+      target = Math.max(0, duration - 2);
+      accumulatedDelta = target - seekBaseTime;
+    }
     pendingSeekTarget = target;
     currentTime = target;
 
@@ -395,21 +403,23 @@
     if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
     seekDebounceTimer = setTimeout(function() {
       var executeTarget = pendingSeekTarget;
-      console.log('[Player] Executing debounced seek to', executeTarget, 's');
+      console.log('[Player] Executing debounced seek to', executeTarget, 's, accumulated delta:', accumulatedDelta);
       player.seekTo(executeTarget, function() {
         console.log('[Player] Debounced seek completed at', executeTarget, 's');
         setTimeout(function() {
           isSeeking = false;
           accumulatedDelta = 0;
-        }, 400);
+          seekBaseTime = 0;
+        }, 300);
       }, function(err) {
         console.warn('[Player] Debounced seek error:', err);
         setTimeout(function() {
           isSeeking = false;
           accumulatedDelta = 0;
-        }, 400);
+          seekBaseTime = 0;
+        }, 300);
       });
-    }, 350);
+    }, 400);
   }
 
   function seekTo(target) {
@@ -421,9 +431,17 @@
     isSeeking = true;
     updateTimelineUI(target);
     player.seekTo(target, function() {
-      setTimeout(function() { isSeeking = false; }, 400);
+      setTimeout(function() {
+        isSeeking = false;
+        accumulatedDelta = 0;
+        seekBaseTime = 0;
+      }, 300);
     }, function() {
-      setTimeout(function() { isSeeking = false; }, 400);
+      setTimeout(function() {
+        isSeeking = false;
+        accumulatedDelta = 0;
+        seekBaseTime = 0;
+      }, 300);
     });
     showOsd(true);
   }
@@ -1078,6 +1096,7 @@
     isSeeking = false;
     pendingSeekTarget = 0;
     accumulatedDelta = 0;
+    seekBaseTime = 0;
 
     if (player) {
       try { player.stop(); } catch(e) {}

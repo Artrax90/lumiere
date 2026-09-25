@@ -813,16 +813,25 @@ export function torrentRoutes(app: FastifyInstance) {
     } catch {}
   }
 
-  function cleanupSession(sessionId: string) {
+  function retireSession(sessionId: string) {
     const sess = activeSessions.get(sessionId);
     if (!sess) return;
     if (sess.timer) clearInterval(sess.timer);
     try { process.kill(sess.pid, 'SIGKILL'); } catch {}
     activeSessions.delete(sessionId);
-    try {
-      const { rmSync } = require('fs');
-      rmSync(sess.hlsDir, { recursive: true, force: true });
-    } catch {}
+    // Graceful delayed directory removal:
+    // Keep directory on disk for 25 seconds so any in-flight segment or playlist requests
+    // from the TV get served cleanly without 404 / connection reset!
+    setTimeout(() => {
+      try {
+        const { rmSync } = require('fs');
+        rmSync(sess.hlsDir, { recursive: true, force: true });
+      } catch {}
+    }, 25000);
+  }
+
+  function cleanupSession(sessionId: string) {
+    retireSession(sessionId);
   }
 
   const handleHls = async (req: any, reply: any) => {
@@ -879,7 +888,7 @@ export function torrentRoutes(app: FastifyInstance) {
       // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
       for (const [sId, sess] of activeSessions.entries()) {
         if (sess.streamKey === streamKey && sId !== sessionId) {
-          cleanupSession(sId);
+          retireSession(sId);
         }
       }
 
@@ -898,14 +907,13 @@ export function torrentRoutes(app: FastifyInstance) {
       const { spawn } = await import('child_process');
       const ffmpegArgs = [
         '-threads', '1',
-        '-readrate', '2.0',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
       ];
-      // Input seek (-ss before -i) allows FFmpeg to use HTTP Range requests directly to TorrServer
+      // Input seek with -accurate_seek ensures exact second seeking without keyframe undershoot
       if (seekTime > 0) {
-        ffmpegArgs.push('-ss', String(Math.floor(seekTime)));
+        ffmpegArgs.push('-accurate_seek', '-ss', String(Math.floor(seekTime)));
       }
       ffmpegArgs.push('-i', streamUrl);
       ffmpegArgs.push(

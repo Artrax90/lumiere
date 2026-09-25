@@ -6,6 +6,36 @@
   <title>Lumiere Player</title>
   <link rel="stylesheet" href="/tv/player.css?v=550">
   <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+  <script>
+    (function() {
+      var lastLogs = {};
+      window.sendTvLog = function(level, category, message, details) {
+        try {
+          var key = (level || '') + ':' + (category || '') + ':' + (message || '');
+          var now = Date.now();
+          if (lastLogs[key] && now - lastLogs[key] < 3000) return;
+          lastLogs[key] = now;
+          var server = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.location.origin;
+          if (!server || server.startsWith('file')) return;
+          var payload = JSON.stringify({
+            level: level || 'error',
+            category: category || 'client',
+            message: String(message || 'Unknown'),
+            details: details || null,
+            time: new Date().toISOString()
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(server + '/api/tv/log', new Blob([payload], { type: 'application/json' }));
+          } else {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', server + '/api/tv/log', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.send(payload);
+          }
+        } catch(e) {}
+      };
+    })();
+  </script>
 </head>
 <body>
   <div id="player">

@@ -73,16 +73,22 @@
     var self = this;
     webapis.avplay.setListener({
       onstreamcompleted: function() {
+        if (self._isSeeking || self._isAvplayPreparing) {
+          console.log('[AVPlay] Suppressing onstreamcompleted during seek/prepare');
+          return;
+        }
         self._isPlaying = false;
         self._emit('ended');
       },
       oncurrentplaytime: function(time) {
-        if (self._isSeeking) return;
-        self._currentTime = (self._seekOffset || 0) + (time / 1000);
-        if (self._duration && self._currentTime > self._duration) {
-          self._currentTime = self._duration;
+        if (self._isSeeking || self._isAvplayPreparing) return;
+        if (typeof time === 'number' && time >= 0) {
+          self._currentTime = (self._seekOffset || 0) + (time / 1000);
+          if (self._duration && self._currentTime > self._duration) {
+            self._currentTime = self._duration;
+          }
+          self._emit('timeUpdate', { currentTime: self._currentTime });
         }
-        self._emit('timeUpdate', { currentTime: self._currentTime });
       },
       onbufferingstart: function() {
         self._emit('bufferingStart');
@@ -107,6 +113,15 @@
         console.error('[AVPlay] Error:', error);
         if (typeof window.sendTvLog === 'function') {
           window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
+        }
+        if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+          console.warn('[AVPlay] Suppressing HTML5 video fallback for HLS transcode stream');
+          self._emit('error', { message: error });
+          return;
+        }
+        if (isTizen()) {
+          self._emit('error', { message: error });
+          return;
         }
         if (!self._hasFallenBackToVideo) {
           self._hasFallenBackToVideo = true;
@@ -139,10 +154,10 @@
       self._avplayPollTimer = null;
     }
     self._avplayPollTimer = setInterval(function() {
-      if (self._isSeeking) return;
+      if (self._isSeeking || self._isAvplayPreparing) return;
       try {
         var ct = webapis.avplay.getCurrentTime();
-        if (ct !== undefined && ct >= 0 && !self._isSeeking) {
+        if (typeof ct === 'number' && ct >= 0 && !self._isSeeking && !self._isAvplayPreparing) {
           self._currentTime = (self._seekOffset || 0) + (ct / 1000);
           if (self._duration && self._currentTime > self._duration) {
             self._currentTime = self._duration;
@@ -267,6 +282,14 @@
         self._startAvplayPollTimer();
       }, function(prepareErr) {
         console.error('[AVPlay] prepareAsync error:', prepareErr);
+        if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+          self._emit('error', { message: 'AVPlay HLS prepare error' });
+          return;
+        }
+        if (isTizen()) {
+          self._emit('error', { message: 'AVPlay prepare error' });
+          return;
+        }
         if (!self._hasFallenBackToVideo) {
           self._hasFallenBackToVideo = true;
           console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay prepare error');
@@ -279,6 +302,14 @@
 
     } catch(e) {
       console.error('[AVPlay] Init error:', e);
+      if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+        this._emit('error', { message: e.message });
+        return;
+      }
+      if (isTizen()) {
+        this._emit('error', { message: e.message });
+        return;
+      }
       if (!this._hasFallenBackToVideo) {
         this._hasFallenBackToVideo = true;
         this._playVideo(url);
@@ -568,13 +599,21 @@
       safeTargetSec = Math.max(0, Math.floor(self._duration - 2));
     }
 
-    if (self._isSeeking) {
-      console.log('[AVPlay] Already seeking HLS, queuing target:', safeTargetSec, 's');
+    // If AVPlay is currently executing prepareAsync, queue this seek.
+    // Calling stop() or close() in PREPARING state causes PLAYER_ERROR_INVALID_OPERATION on Tizen.
+    if (self._isAvplayPreparing) {
+      console.log('[AVPlay] AVPlay is currently preparing, queueing HLS seek to', safeTargetSec, 's');
       self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+      self._currentTime = safeTargetSec;
+      self._emit('timeUpdate', { currentTime: safeTargetSec });
       return;
     }
 
     self._isSeeking = true;
+    self._isAvplayPreparing = true;
+    self._hlsSeekSeq = (self._hlsSeekSeq || 0) + 1;
+    var thisSeq = self._hlsSeekSeq;
+
     self._seekOffset = safeTargetSec;
     self._currentTime = safeTargetSec;
     self._emit('timeUpdate', { currentTime: safeTargetSec });
@@ -585,7 +624,7 @@
     var newSeekUrl = cleanUrl + joinChar + 'start=' + safeTargetSec;
     self._currentUrl = newSeekUrl;
 
-    console.log('[AVPlay] HLS seek to', safeTargetSec, 's, reloading URL:', newSeekUrl);
+    console.log('[AVPlay] HLS seek #' + thisSeq + ' to', safeTargetSec, 's, reloading URL:', newSeekUrl);
 
     if (self._avplayPollTimer) {
       clearInterval(self._avplayPollTimer);
@@ -593,18 +632,23 @@
     }
 
     var seekTimeout = setTimeout(function() {
+      if (thisSeq !== self._hlsSeekSeq) return;
       console.warn('[AVPlay] HLS seek safety timeout at', safeTargetSec);
+      self._isAvplayPreparing = false;
       onSeekDone(new Error('HLS seek timeout'));
     }, 12000);
 
     var onSeekDone = function(err) {
       clearTimeout(seekTimeout);
+      self._isAvplayPreparing = false;
       self._isSeeking = false;
       self._emit('bufferingEnd');
+
       if (self._pendingSeek) {
         var next = self._pendingSeek;
         self._pendingSeek = null;
-        self.seekTo(next.time, next.successCb, next.errorCb);
+        console.log('[AVPlay] Executing queued HLS seek to', next.time, 's');
+        self._seekHlsAvplay(next.time, next.successCb, next.errorCb);
       } else {
         if (err && errorCb) errorCb(err);
         else if (!err && successCb) successCb();
@@ -612,7 +656,12 @@
     };
 
     try {
-      try { webapis.avplay.stop(); } catch(se) {}
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(se) {}
+      console.log('[AVPlay] State before HLS seek open:', avState);
+      if (avState === 'PLAYING' || avState === 'PAUSED') {
+        try { webapis.avplay.stop(); } catch(se) {}
+      }
       try { webapis.avplay.close(); } catch(ce) {}
 
       webapis.avplay.open(newSeekUrl);
@@ -624,23 +673,37 @@
       self._setupAvplayListener();
 
       webapis.avplay.prepareAsync(function() {
-        console.log('[AVPlay] HLS seek prepareAsync succeeded at', safeTargetSec, 's');
+        if (thisSeq !== self._hlsSeekSeq) {
+          console.log('[AVPlay] Stale HLS seek #' + thisSeq + ' prepareAsync resolved, ignoring');
+          return;
+        }
+        console.log('[AVPlay] HLS seek #' + thisSeq + ' prepareAsync succeeded at', safeTargetSec, 's');
+        self._isAvplayPreparing = false;
+        self.engineType = 'avplay';
         self._isPlaying = true;
         try { webapis.avplay.play(); } catch(pe) {}
         self._emit('playing');
         self._startAvplayPollTimer();
+
+        // Brief delay before releasing seek lock to allow AVPlay to decode the first video frame
         setTimeout(function() {
           onSeekDone(null);
-        }, 150);
+        }, 200);
       }, function(pErr) {
-        console.error('[AVPlay] HLS seek prepareAsync error:', pErr);
+        if (thisSeq !== self._hlsSeekSeq) {
+          console.warn('[AVPlay] Stale HLS seek #' + thisSeq + ' prepareAsync error, ignoring');
+          return;
+        }
+        console.error('[AVPlay] HLS seek #' + thisSeq + ' prepareAsync error:', pErr);
         if (typeof window.sendTvLog === 'function') {
           window.sendTvLog('error', 'seek', 'AVPlay HLS seek prepareAsync failed', { targetSec: safeTargetSec, err: pErr });
         }
+        self._isAvplayPreparing = false;
         onSeekDone(pErr);
       });
     } catch(ex) {
       console.error('[AVPlay] HLS seek exception:', ex);
+      self._isAvplayPreparing = false;
       onSeekDone(ex);
     }
   };
