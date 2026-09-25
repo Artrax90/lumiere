@@ -160,7 +160,13 @@ export function torrentRoutes(app: FastifyInstance) {
   ensureTorrServerOptimized().catch(() => {});
   // Search torrents via JacRed with multi-indexer aggregation & smart fallback
   app.get('/api/torrents/search', async (req, reply) => {
-    const { q, alt, category } = req.query as { q?: string; alt?: string; category?: string };
+    const { q, alt, category, tmdbId, type } = req.query as {
+      q?: string;
+      alt?: string;
+      category?: string;
+      tmdbId?: string;
+      type?: string;
+    };
 
     if (!q) {
       return reply.code(400).send({ error: 'Query required' });
@@ -187,6 +193,68 @@ export function torrentRoutes(app: FastifyInstance) {
           extraQueries.push(alt.trim());
         }
 
+        // Fetch English title / alternative titles from TMDB if tmdbId provided
+        if (tmdbId) {
+          try {
+            const mediaT = type === 'tv' ? 'tv' : 'movie';
+            const headers: Record<string, string> = {};
+            if (config.tmdb.token) headers['Authorization'] = `Bearer ${config.tmdb.token}`;
+            const [enRes, altRes] = await Promise.all([
+              fetch(`https://api.themoviedb.org/3/${mediaT}/${tmdbId}?language=en-US`, { headers, signal: AbortSignal.timeout(4000) })
+                .then((r) => r.json())
+                .catch(() => null),
+              fetch(`https://api.themoviedb.org/3/${mediaT}/${tmdbId}/alternative_titles`, { headers, signal: AbortSignal.timeout(4000) })
+                .then((r) => r.json())
+                .catch(() => null),
+            ]);
+            if (enRes && (enRes.title || enRes.name)) {
+              const enTitle = String(enRes.title || enRes.name).trim();
+              if (enTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(enTitle)) {
+                extraQueries.push(enTitle);
+              }
+            }
+            const altList = altRes ? (altRes.titles || altRes.results || []) : [];
+            for (const item of altList) {
+              const aTitle = String(item.title || item.name || '').trim();
+              if (aTitle && aTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(aTitle)) {
+                extraQueries.push(aTitle);
+              }
+            }
+          } catch {}
+        }
+
+        // Cyrillic-to-English phonetic loanwords mapping (e.g. "Камеди Клаб" -> "Comedy Club")
+        const loanwordMap: Record<string, string> = {
+          'камеди': 'comedy',
+          'клаб': 'club',
+          'шоу': 'show',
+          'лайв': 'live',
+          'батл': 'battle',
+          'батлл': 'battle',
+          'баттл': 'battle',
+          'стэндап': 'standup',
+          'стендап': 'standup',
+          'бойз': 'boys',
+          'герлз': 'girls',
+          'пацаны': 'the boys',
+        };
+        const words = q.toLowerCase().split(/\s+/);
+        let hasLoanword = false;
+        const convertedWords = words.map((w) => {
+          const cleanW = w.replace(/[^\w\u0400-\u04FF]/g, '');
+          if (loanwordMap[cleanW]) {
+            hasLoanword = true;
+            return loanwordMap[cleanW];
+          }
+          return w;
+        });
+        if (hasLoanword) {
+          const loanQuery = convertedWords.join(' ').trim();
+          if (loanQuery.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(loanQuery)) {
+            extraQueries.push(loanQuery);
+          }
+        }
+
         // Replace Roman numerals with Arabic numerals
         const withArabic = q
           .replace(/(^|[\s.,])VIII([\s.,]|$)/gi, '$18$2')
@@ -209,7 +277,7 @@ export function torrentRoutes(app: FastifyInstance) {
         // Run extra queries in parallel
         if (extraQueries.length > 0) {
           const extraResults = await Promise.all(
-            extraQueries.slice(0, 3).map((query) => fetchFromJacRed(mirrors[0], query, category))
+            extraQueries.slice(0, 4).map((query) => fetchFromJacRed(mirrors[0], query, category))
           );
           for (const resList of extraResults) {
             rawResults.push(...resList);

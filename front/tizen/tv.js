@@ -179,7 +179,8 @@
       id: effectiveId,
       name: cleanPlayerTitle || 'Видео',
       type: effectiveType,
-      poster: effectivePoster
+      poster: effectivePoster,
+      backdrop: (state.detail && state.detail.backdrop) || playerParams.backdrop || ''
     };
 
     if (typeof window.initPlayer === 'function') {
@@ -296,7 +297,8 @@
           id: targetDetail.id,
           name: cleanTitle || targetDetail.name || '',
           type: targetDetail.type,
-          poster: targetDetail.poster || ''
+          poster: targetDetail.poster || '',
+          backdrop: targetDetail.backdrop || (state.detail && state.detail.backdrop) || ''
         });
       }
     } else {
@@ -2081,7 +2083,7 @@
               }
             }
             if (seasonTorrent && seasonTorrent.magnet) {
-              state.detail = { id: item.id, name: cleanName, type: 'tv', poster: poster };
+              state.detail = { id: item.id, name: cleanName, type: 'tv', poster: poster, backdrop: item.backdrop || '' };
               openTorrent(seasonTorrent.magnet, seasonTorrent.title || cleanName);
             } else {
               var titleObj = { id: item.id, name: cleanName, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
@@ -3480,8 +3482,22 @@
 
     // Fetch full details
     var type = (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name))) ? 'tv' : 'movies';
+    var cacheKey = type + '_' + title.id;
+    if (state._detailCache && state._detailCache[cacheKey]) {
+      var cached = state._detailCache[cacheKey];
+      state.detail = cached;
+      state.detailLoadedId = cached.id;
+      renderDetail(cached);
+      return;
+    }
+
+    // Loading state
+    renderDetailLoading(title);
+
     apiFetch('/api/' + type + '/' + title.id, function(err, data) {
+      if (!state._detailCache) state._detailCache = {};
       if (data && data.id) {
+        state._detailCache[cacheKey] = data;
         state.detail = data;
         state.detailLoadedId = data.id;
         renderDetail(data);
@@ -3500,18 +3516,43 @@
     $detail.classList.remove('screen');
     $detail.style.display = 'block';
     $detail.style.zIndex = '900';
-    var poster = imgUrl(title.poster);
-    var backdrop = imgUrl(title.backdrop || title.poster);
+
+    var rawBackdrop = title.backdrop;
+    var hasBackdrop = rawBackdrop && rawBackdrop !== title.poster && !String(rawBackdrop).includes('placeholder');
+    var backdropUrl = hasBackdrop ? imgUrl(rawBackdrop) : '';
+    var typeLabel = title.type === 'tv' ? 'Сериал' : title.type === 'anime' ? 'Аниме' : 'Фильм';
+
     var html = '';
-    html += '<div class="detail-hero"><img src="' + esc(backdrop) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
+    if (hasBackdrop && backdropUrl) {
+      html += '<img src="' + esc(backdropUrl) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    }
     html += '<div class="detail-hero-gradient"></div></div>';
+
     html += '<div class="detail-overlay">';
-    html += '<div class="detail-top-row" style="display:block;"><button id="detail-back-btn" class="detail-back-btn" tabindex="0">Назад</button></div>';
-    html += '<div class="detail-main-row"><img src="' + esc(poster) + '" class="detail-poster" onerror="this.style.display=\'none\'">';
-    html += '<div class="detail-info"><h1 class="detail-title">' + esc(title.name) + '</h1>';
-    if (title.year) html += '<div class="detail-meta-row"><span class="detail-meta-item">' + title.year + '</span></div>';
+    html += '<div class="detail-top-row"><button id="detail-back-btn" class="detail-back-btn" tabindex="0">‹ Назад</button></div>';
+
+    html += '<div class="detail-upper-hero">';
+    html += '<div class="detail-hero-left">';
+    html += '<div class="detail-label-row"><span class="detail-type-label">' + esc(typeLabel) + '</span></div>';
+    html += '<h1 class="detail-title">' + esc(title.name || '') + '</h1>';
+    if (title.year) {
+      html += '<div class="detail-meta-row"><span class="detail-meta-item">📅 ' + title.year + '</span></div>';
+    }
+    html += '<div class="detail-actions" style="margin-top: 16px;">';
+    html += '<button class="detail-btn detail-btn-primary" id="detail-loading-btn" tabindex="0" style="opacity: 0.7;">⏳ Загрузка...</button>';
+    html += '</div>';
+    html += '</div>'; // end detail-hero-left
+    html += '</div>'; // end detail-upper-hero
+
+    html += '<div class="detail-tabs-bar" style="opacity: 0.6;">';
+    html += '<button class="detail-tab-btn active">' + (title.type === 'tv' ? 'Серии' : 'Торренты') + '</button>';
+    html += '</div>';
+    html += '<div class="detail-tab-content">';
     html += '<p class="detail-loading-text">Загрузка информации...</p>';
-    html += '</div></div></div>';
+    html += '</div>';
+    html += '</div>'; // end detail-overlay
+
     var contentEl = $detail.querySelector('#detail-content');
     if (contentEl) contentEl.innerHTML = html;
     bindDetailBack();
@@ -3554,13 +3595,24 @@
   }
 
   function renderDetail(d) {
+    if (!state._detailCache) state._detailCache = {};
+    if (d && d.id) {
+      var cKey = (d.type === 'tv' ? 'tv' : 'movies') + '_' + d.id;
+      state._detailCache[cKey] = d;
+    }
+
     var poster = imgUrl(d.poster);
-    var backdrop = imgUrl(d.backdrop || d.poster);
+    var rawBackdrop = d.backdrop;
+    var hasBackdrop = rawBackdrop && rawBackdrop !== d.poster && !String(rawBackdrop).includes('placeholder');
+    var backdrop = hasBackdrop ? imgUrl(rawBackdrop) : '';
     var typeLabel = d.type === 'tv' ? 'Сериал' : d.type === 'anime' ? 'Аниме' : 'Фильм';
     var html = '';
 
     // Hero
-    html += '<div class="detail-hero"><img src="' + esc(backdrop) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
+    if (hasBackdrop && backdrop) {
+      html += '<img src="' + esc(backdrop) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    }
     html += '<div class="detail-hero-gradient"></div></div>';
 
     // Overlay
@@ -4547,7 +4599,12 @@
       if (savedTorrent && savedTorrent.magnet) {
         chosenTorrent = savedTorrent;
       } else {
-        var sorted = filtered.slice().sort(function(a, b) { return (b.seeders || 0) - (a.seeders || 0); });
+        var sorted = filtered.slice().sort(function(a, b) {
+          var aIsAvi = /\.avi\b|xvid|divx/i.test(a.title || '');
+          var bIsAvi = /\.avi\b|xvid|divx/i.test(b.title || '');
+          if (aIsAvi !== bIsAvi) return aIsAvi ? 1 : -1;
+          return (b.seeders || 0) - (a.seeders || 0);
+        });
         chosenTorrent = sorted[0];
       }
 
@@ -4590,14 +4647,40 @@
     if (allTorrents) {
       proceedWithTorrents(allTorrents);
     } else {
-      apiFetch('/api/torrents/search?q=' + encodeURIComponent(showName), function(err, data) {
-        if (err || !data || !data.results) {
-          proceedWithTorrents([]);
+      var smart = getTorrentSmartQuery(title || state.detail || { name: showName });
+      var q = smart.primary || showName;
+      var altParam = smart.alt ? '&alt=' + encodeURIComponent(smart.alt) : '';
+      var tmdbParam = showId ? '&tmdbId=' + showId : '';
+      var typeParam = '&type=tv';
+
+      apiFetch('/api/torrents/search?q=' + encodeURIComponent(q) + altParam + tmdbParam + typeParam, function(err, data) {
+        var list = (data && data.results) ? data.results : [];
+        if (list.length < 10 && smart.alt) {
+          apiFetch('/api/torrents/search?q=' + encodeURIComponent(smart.alt) + tmdbParam + typeParam, function(err2, data2) {
+            var altList = (data2 && data2.results) ? data2.results : [];
+            var merged = list.slice();
+            var seen = {};
+            merged.forEach(function(item) {
+              var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+              seen[k] = true;
+            });
+            altList.forEach(function(item) {
+              var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+              if (!seen[k]) {
+                seen[k] = true;
+                merged.push(item);
+              }
+            });
+            if (!state._torrentCache) state._torrentCache = {};
+            state._torrentCache[cacheKey] = merged;
+            proceedWithTorrents(merged);
+          });
           return;
         }
+
         if (!state._torrentCache) state._torrentCache = {};
-        state._torrentCache[cacheKey] = data.results;
-        proceedWithTorrents(data.results);
+        state._torrentCache[cacheKey] = list;
+        proceedWithTorrents(list);
       });
     }
   }
@@ -4729,6 +4812,55 @@
   }
   window.pluralSeeds = pluralSeeds;
 
+  function getTorrentSmartQuery(title) {
+    var rawName = (typeof title === 'string') ? title : (title ? (title.name || title.title || '') : '');
+    if (!rawName || rawName === '[object Object]') return { primary: '', alt: '' };
+    var primary = rawName.trim();
+    var alt = '';
+
+    if (title && typeof title === 'object' && title.originalTitle && typeof title.originalTitle === 'string') {
+      var orig = title.originalTitle.trim();
+      if (orig && orig.toLowerCase() !== primary.toLowerCase()) {
+        alt = orig;
+      }
+    }
+
+    if (!alt) {
+      var loanwords = {
+        'камеди': 'comedy',
+        'клаб': 'club',
+        'шоу': 'show',
+        'лайв': 'live',
+        'батл': 'battle',
+        'батлл': 'battle',
+        'баттл': 'battle',
+        'стэндап': 'standup',
+        'стендап': 'standup',
+        'бойз': 'boys',
+        'герлз': 'girls',
+        'пацаны': 'the boys'
+      };
+      var words = primary.toLowerCase().split(/\s+/);
+      var hasLoan = false;
+      var translated = words.map(function(w) {
+        var clean = w.replace(/[^\w\u0400-\u04FF]/g, '');
+        if (loanwords[clean]) {
+          hasLoan = true;
+          return loanwords[clean];
+        }
+        return w;
+      });
+      if (hasLoan) {
+        var tStr = translated.join(' ').trim();
+        if (tStr && tStr.toLowerCase() !== primary.toLowerCase()) {
+          alt = tStr;
+        }
+      }
+    }
+    return { primary: primary, alt: alt };
+  }
+  window.getTorrentSmartQuery = getTorrentSmartQuery;
+
   // ========== Season Matching & Torrent Search ==========
   function matchesTorrentSeason(title, s) {
     if (!title || !s) return true;
@@ -4847,15 +4979,47 @@
 
     container.innerHTML = '<p class="detail-loading-text">Поиск торрентов' + (season ? ' (' + season + ' сезон)...' : '...') + '</p>';
 
-    // Always query by base show name (never append ' S01' which causes Russian trackers to return 0 results)
-    var query = title.name;
-    apiFetch('/api/torrents/search?q=' + encodeURIComponent(query), function(err, data) {
-      if (err || !data || !data.results || data.results.length === 0) {
+    // Smart multi-variant query: base name + phonetic loanwords translation + TMDB metadata
+    var smart = getTorrentSmartQuery(title);
+    var query = smart.primary || title.name;
+    var altParam = smart.alt ? '&alt=' + encodeURIComponent(smart.alt) : '';
+    var tmdbParam = title.id ? '&tmdbId=' + title.id : '';
+    var typeParam = '&type=' + (title.type || (state.detail && state.detail.type) || 'movie');
+
+    apiFetch('/api/torrents/search?q=' + encodeURIComponent(query) + altParam + tmdbParam + typeParam, function(err, data) {
+      var list = (data && data.results) ? data.results : [];
+      if (list.length < 10 && smart.alt) {
+        apiFetch('/api/torrents/search?q=' + encodeURIComponent(smart.alt) + tmdbParam + typeParam, function(err2, data2) {
+          var altList = (data2 && data2.results) ? data2.results : [];
+          var merged = list.slice();
+          var seen = {};
+          merged.forEach(function(item) {
+            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+            seen[k] = true;
+          });
+          altList.forEach(function(item) {
+            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+            if (!seen[k]) {
+              seen[k] = true;
+              merged.push(item);
+            }
+          });
+          if (merged.length === 0) {
+            container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
+            return;
+          }
+          state._torrentCache[cacheKey] = merged;
+          renderTorrentResults(merged);
+        });
+        return;
+      }
+
+      if (err || list.length === 0) {
         container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
         return;
       }
-      state._torrentCache[cacheKey] = data.results;
-      renderTorrentResults(data.results);
+      state._torrentCache[cacheKey] = list;
+      renderTorrentResults(list);
     });
   }
 
@@ -8742,7 +8906,7 @@
           }
         }
         if (seasonTorrent && seasonTorrent.magnet) {
-          state.detail = { id: cItem.id, name: cName, type: 'tv', poster: cPoster };
+          state.detail = { id: cItem.id, name: cName, type: 'tv', poster: cPoster, backdrop: cItem.backdrop || '' };
           openTorrent(seasonTorrent.magnet, seasonTorrent.title || cName);
           return;
         }
