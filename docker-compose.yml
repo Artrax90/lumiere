@@ -68,9 +68,6 @@ services:
       - hls-temp:/tmp
     devices:
       - /dev/dri:/dev/dri
-    group_add:
-      - video
-      - render
     networks:
       - lumiere-net
 
