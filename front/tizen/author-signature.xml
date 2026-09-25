@@ -19,13 +19,13 @@ PlmFTDcPXg==</DigestValue>
 </Reference>
 <Reference URI="index.html">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>T05We0+l4I+DfyCdX8hr7o0FjIHfq19JWVCeLIUFBU6mH2KLB8Gb1hpi1eK01yTnq7eXiQdO3B+O
-/NGczA047Q==</DigestValue>
+<DigestValue>Ro8FCSGPW3ryQDk+b47qhhXAtJTkKTTW9CGc0oO7RWYBzWvK6YFk9CyUG16iQlIveIX8K/ksAQdd
+9Fmw14fEMA==</DigestValue>
 </Reference>
 <Reference URI="player-adapter.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>3Yy5LKOkwFLABIOF06N2bywwzbVy6uRd/x7mLxmzKNANrbYHeIEhY2lr4M0B7Pu9YS0jBlp+BGfX
-AdprP6US5g==</DigestValue>
+<DigestValue>l8uZiNmrOTGQ5yc/KL/UsajStGMnqQimY6mHDn+uUDj3HKPztKHnfb52aKE0TMwMU90LDBrBhKAZ
+Kbhxw96gtA==</DigestValue>
 </Reference>
 <Reference URI="player.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -49,8 +49,8 @@ YXXC4uLCfg==</DigestValue>
 </Reference>
 <Reference URI="tv.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>edXbmamRyLnfRmsPOtMIZvKCrvZdL4yhg4GTm9cxMw9akkGxLtGUPQxIM25Y2hMr3wXsLD7ie4L4
-io/8G30qIg==</DigestValue>
+<DigestValue>jSJ7YPythMJahFRhmI4keabWBa+stLVCl/kRs9fnN4h/AWf4LQhUuovJxzAC1lqxz2V0lQfVKTGO
+/hHIrJsB6Q==</DigestValue>
 </Reference>
 <Reference URI="#prop">
 <Transforms>
@@ -62,11 +62,11 @@ QY10fG1EWQ==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-VuotppX0ufMqJhTHvsfyEIsHTKEDQiRiZXZFkdr1CxhtvUK0SorJ6ExYmDJXGjrHn+GG0k9L4eBn
-zBlACnv6Bw5JWLO5aYe55Sy1ZXc+sRDB6xPlXMOOxlF4dosv8KvIwP+8Fbs/JxmqWLMwN5HCKou4
-LmvNRpLYLZHsn1uUO8tmechr5wDdqFYIgcOkoDXfuSGW2HpA3A4I01S1kt8mFWyTU5S6BKqBJ8H7
-Sn2+E7iPFL9dMLU4Dt170AjtwXxbV1Pt5jP0pG4nn90hRDZy3nGXtdd88WdDdHH2jbE+xSASI40q
-4pkXHrWNdWs6TdVfa0usmlJfL2j7vwIb1QG4kQ==
+P3WxAduTtxoo/PgYQLvUjmCg3yg8sgYvj0h95mBztORONKCYRYLoyOlrMQufATiMav/RoucRQPi6
+YUYTwnXJFZRuIRFUTMFFEdpwKsUADxXeUpcPu8tqlsTIqQ4udCs8UoqXGRqAEniT4boLTGjk5gcK
+p0hVlo5kQcMvbzW9E5YbCgrQJJQ+SWt30g4zahcwH7GN3iiUyluXkfxuaGV32fHST0zUjlaIxb6E
+wFWKuXDBatBJvsDYljGYiVPKGPUU0nlntgN3IMy9LWeZtCp4YsTwXCrO2BxQgNyuWkiA5B5gnMLo
+qdHxrHqm6+cj636mtEDNKlXCP6q55FLVyVmIXw==
 </SignatureValue>
 <KeyInfo>
 <X509Data>
