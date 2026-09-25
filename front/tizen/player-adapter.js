@@ -69,6 +69,7 @@
   // ========== AVPlay Engine ==========
   PlayerAdapter.prototype._playAvplay = function(url) {
     var self = this;
+    self._currentUrl = url;
     console.log('[AVPlay] Starting playback:', url.substring(0, 100));
     try {
       if (this.container) {
@@ -524,6 +525,72 @@
     this.seekTo(target);
   };
 
+  PlayerAdapter.prototype._reloadAtTime = function(targetSec, wasPlaying, successCb, errorCb) {
+    var self = this;
+    console.log('[AVPlay] _reloadAtTime starting at targetSec:', targetSec);
+    try {
+      self._isSeeking = true;
+      if (self._avplayPollTimer) {
+        clearInterval(self._avplayPollTimer);
+        self._avplayPollTimer = null;
+      }
+      try { webapis.avplay.stop(); } catch(e) {}
+      try { webapis.avplay.close(); } catch(e) {}
+
+      if (!self._currentUrl) {
+        self._isSeeking = false;
+        if (errorCb) errorCb(new Error('No currentUrl for reload'));
+        return;
+      }
+
+      webapis.avplay.open(self._currentUrl);
+      try {
+        webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+      } catch(de) {}
+
+      // In IDLE state, seekTo sets initial playback position in AVPlay
+      var targetMs = Math.round(targetSec * 1000);
+      try {
+        webapis.avplay.seekTo(targetMs);
+        console.log('[AVPlay] IDLE state seekTo set to', targetMs, 'ms');
+      } catch(ie) {
+        console.warn('[AVPlay] IDLE seekTo warning:', ie);
+      }
+
+      webapis.avplay.prepareAsync(function() {
+        self._isPlaying = true;
+        if (wasPlaying !== false) {
+          try { webapis.avplay.play(); } catch(pe) {}
+          self._emit('playing');
+        }
+        self._currentTime = targetSec;
+        self._isSeeking = false;
+
+        self._avplayPollTimer = setInterval(function() {
+          if (self._isSeeking) return;
+          try {
+            var ct = webapis.avplay.getCurrentTime();
+            if (ct !== undefined && ct >= 0 && !self._isSeeking) {
+              self._currentTime = ct / 1000;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+            }
+          } catch(e) {}
+        }, 500);
+
+        if (successCb) successCb();
+      }, function(pErr) {
+        console.error('[AVPlay] _reloadAtTime prepareAsync failed:', pErr);
+        self._isSeeking = false;
+        if (errorCb) errorCb(pErr);
+      });
+    } catch(err) {
+      console.error('[AVPlay] _reloadAtTime error:', err);
+      self._isSeeking = false;
+      if (errorCb) errorCb(err);
+    }
+  };
+
   PlayerAdapter.prototype.seekTo = function(timeSeconds, successCb, errorCb) {
     var self = this;
     var targetSec = Math.max(0, Number(timeSeconds) || 0);
@@ -531,78 +598,104 @@
 
     if (self.engineType === 'avplay') {
       var ms = Math.round(targetSec * 1000);
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(se) {}
+      console.log('[AVPlay] Seeking to', ms, 'ms (' + targetSec.toFixed(1) + 's), state:', avState);
+
+      if (avState === 'NONE' || avState === 'IDLE') {
+        console.warn('[AVPlay] Cannot seek in state:', avState);
+        self._isSeeking = false;
+        if (errorCb) errorCb(new Error('Cannot seek in state ' + avState));
+        return;
+      }
+
+      if (self._isSeeking) {
+        console.log('[AVPlay] Already seeking, queuing target:', targetSec, 's');
+        self._pendingSeek = { time: targetSec, successCb: successCb, errorCb: errorCb };
+        return;
+      }
+
+      self._isSeeking = true;
+      var wasPlaying = (avState === 'PLAYING');
+
+      var onSeekDone = function() {
+        self._isSeeking = false;
+        if (self._pendingSeek) {
+          var next = self._pendingSeek;
+          self._pendingSeek = null;
+          self.seekTo(next.time, next.successCb, next.errorCb);
+        }
+      };
+
       try {
-        var avState = '';
-        try { avState = webapis.avplay.getState(); } catch(se) {}
-        console.log('[AVPlay] Seeking to', ms, 'ms (' + targetSec.toFixed(1) + 's), state:', avState);
-
-        if (avState === 'NONE' || avState === 'IDLE') {
-          console.warn('[AVPlay] Cannot seek in state:', avState);
-          self._isSeeking = false;
-          if (errorCb) errorCb(new Error('Cannot seek in state ' + avState));
-          return;
+        // Pausing before seekTo prevents PLAYER_ERROR_INVALID_STATE on Tizen 5.5 progressive streams
+        if (wasPlaying) {
+          try { webapis.avplay.pause(); } catch(pe) {}
         }
-
-        if (self._isSeeking) {
-          console.log('[AVPlay] Already seeking, queuing target:', targetSec, 's');
-          self._pendingSeek = { time: targetSec, successCb: successCb, errorCb: errorCb };
-          return;
-        }
-
-        self._isSeeking = true;
-
-        var onSeekDone = function() {
-          self._isSeeking = false;
-          if (self._pendingSeek) {
-            var next = self._pendingSeek;
-            self._pendingSeek = null;
-            self.seekTo(next.time, next.successCb, next.errorCb);
-          }
-        };
 
         webapis.avplay.seekTo(ms, function() {
           console.log('[AVPlay] seekTo success at', ms, 'ms');
           self._currentTime = targetSec;
+          if (wasPlaying) {
+            try { webapis.avplay.play(); } catch(re) {}
+          }
           setTimeout(onSeekDone, 150);
           if (successCb) successCb();
         }, function(err) {
-          console.error('[AVPlay] seekTo error callback:', err);
+          console.warn('[AVPlay] seekTo error callback:', err);
           var curMs = 0;
           try { curMs = webapis.avplay.getCurrentTime() || 0; } catch(ce) {}
-          // Note: AVPlay jumpForward/jumpBackward accept SECONDS, not milliseconds!
-          var deltaSec = Math.round((ms - curMs) / 1000);
-          if (deltaSec > 0 && typeof webapis.avplay.jumpForward === 'function') {
-            try {
-              webapis.avplay.jumpForward(deltaSec, function() {
-                self._currentTime = targetSec;
-                setTimeout(onSeekDone, 150);
-                if (successCb) successCb();
-              }, function(jerr) {
-                setTimeout(onSeekDone, 150);
-                if (errorCb) errorCb(jerr);
-              });
-              return;
-            } catch(je) {}
-          } else if (deltaSec < 0 && typeof webapis.avplay.jumpBackward === 'function') {
-            try {
-              webapis.avplay.jumpBackward(Math.abs(deltaSec), function() {
-                self._currentTime = targetSec;
-                setTimeout(onSeekDone, 150);
-                if (successCb) successCb();
-              }, function(jerr) {
-                setTimeout(onSeekDone, 150);
-                if (errorCb) errorCb(jerr);
-              });
-              return;
-            } catch(je) {}
+          var deltaMs = ms - curMs;
+          var absDeltaMs = Math.abs(deltaMs);
+
+          // Fallback 1: jumpForward / jumpBackward (parameter is in milliseconds)
+          if (absDeltaMs >= 1000) {
+            var jumpFn = deltaMs > 0 ? webapis.avplay.jumpForward : webapis.avplay.jumpBackward;
+            if (typeof jumpFn === 'function') {
+              try {
+                jumpFn.call(webapis.avplay, absDeltaMs, function() {
+                  console.log('[AVPlay] jump succeeded with', absDeltaMs, 'ms');
+                  self._currentTime = targetSec;
+                  if (wasPlaying) {
+                    try { webapis.avplay.play(); } catch(re) {}
+                  }
+                  setTimeout(onSeekDone, 150);
+                  if (successCb) successCb();
+                }, function(jerr) {
+                  console.warn('[AVPlay] jump failed, trying _reloadAtTime:', jerr);
+                  self._reloadAtTime(targetSec, wasPlaying, function() {
+                    setTimeout(onSeekDone, 150);
+                    if (successCb) successCb();
+                  }, function(rerr) {
+                    setTimeout(onSeekDone, 150);
+                    if (errorCb) errorCb(rerr);
+                  });
+                });
+                return;
+              } catch(je) {
+                console.warn('[AVPlay] jump exception:', je);
+              }
+            }
           }
-          setTimeout(onSeekDone, 150);
-          if (errorCb) errorCb(err);
+
+          // Fallback 2: Reload at target timestamp in IDLE state
+          self._reloadAtTime(targetSec, wasPlaying, function() {
+            setTimeout(onSeekDone, 150);
+            if (successCb) successCb();
+          }, function(rerr) {
+            setTimeout(onSeekDone, 150);
+            if (errorCb) errorCb(rerr);
+          });
         });
       } catch(e) {
-        console.error('[AVPlay] seekTo exception:', e);
-        self._isSeeking = false;
-        if (errorCb) errorCb(e);
+        console.warn('[AVPlay] seekTo exception:', e, '- falling back to _reloadAtTime');
+        self._reloadAtTime(targetSec, wasPlaying, function() {
+          setTimeout(onSeekDone, 150);
+          if (successCb) successCb();
+        }, function(rerr) {
+          setTimeout(onSeekDone, 150);
+          if (errorCb) errorCb(rerr);
+        });
       }
     } else if (self._videoEl) {
       self._isSeeking = true;

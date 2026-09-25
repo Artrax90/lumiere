@@ -405,13 +405,14 @@ export function torrentRoutes(app: FastifyInstance) {
   // Proxy TorrServer streams (direct) — supports Range & container hint for AVPlay seeking
   const handleTorrentProxy = async (req: any, reply: any) => {
     const { link, index } = req.query as { link?: string; index?: string };
+    const filename = req.params?.filename || 'video.mkv';
 
     if (!link) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
     try {
-      const url = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      const url = `${TORRSERVER_URL}/stream/${encodeURIComponent(filename)}?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
 
       // Forward Range header from client for seeking
       const headers: Record<string, string> = {};
@@ -435,16 +436,21 @@ export function torrentRoutes(app: FastifyInstance) {
         return reply.code(res.status).send({ error: 'TorrServer stream error' });
       }
 
-      // Forward the response headers with CORS
-      const contentType = res.headers.get('content-type') || 'video/mp4';
+      // Forward the response headers with CORS and DLNA seeking indicators
+      const contentType = res.headers.get('content-type') || (filename.endsWith('.mp4') ? 'video/mp4' : 'video/x-matroska');
       const contentLength = res.headers.get('content-length');
       const contentRange = res.headers.get('content-range');
+      const dlnaTransfer = res.headers.get('transfermode.dlna.org') || 'Streaming';
+      const dlnaFeatures = res.headers.get('contentfeatures.dlna.org');
+
       reply.header('Content-Type', contentType);
       reply.header('Accept-Ranges', 'bytes');
+      reply.header('transfermode.dlna.org', dlnaTransfer);
+      if (dlnaFeatures) reply.header('contentfeatures.dlna.org', dlnaFeatures);
       reply.header('Access-Control-Allow-Origin', '*');
       reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
       reply.header('Access-Control-Allow-Headers', 'Range');
-      reply.header('Access-Control-Expose-Headers', 'Content-Length, Content-Range');
+      reply.header('Access-Control-Expose-Headers', 'Content-Length, Content-Range, transfermode.dlna.org, contentfeatures.dlna.org, Accept-Ranges');
       if (contentLength) reply.header('Content-Length', contentLength);
       if (contentRange) reply.header('Content-Range', contentRange);
 
