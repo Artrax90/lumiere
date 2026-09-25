@@ -125,10 +125,18 @@
         },
         onerror: function(error) {
           console.error('[AVPlay] Error:', error);
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self.currentUrl });
+          }
           self._emit('error', { message: error });
         },
         onevent: function(eventType, eventData) {
           console.log('[AVPlay] onEvent:', eventType, eventData);
+          if (eventType === 'PLAYER_MSG_BUFFERING_START' || eventType === 'PLAYER_MSG_NONE_SKIP') {
+            if (typeof window.sendTvLog === 'function') {
+              window.sendTvLog('warn', 'avplay', 'Buffering event: ' + eventType, { data: eventData });
+            }
+          }
         },
         onsubtitlechange: function(duration, text) {
           console.log('[AVPlay] onSubtitleChange:', text);
@@ -673,17 +681,21 @@
           if (successCb) successCb();
         }, function(err) {
           console.warn('[AVPlay] seekTo error callback:', err);
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'seek', 'AVPlay seekTo failed, attempting jump fallback', { targetSec: safeTargetSec, err: err });
+          }
           var curMs = 0;
           try { curMs = webapis.avplay.getCurrentTime() || 0; } catch(ce) {}
           var deltaMs = ms - curMs;
           var absDeltaMs = Math.abs(deltaMs);
+          var absDeltaSec = Math.max(1, Math.round(absDeltaMs / 1000));
 
           // Fallback 1: jumpForward / jumpBackward if seekTo returned error
-          if (absDeltaMs >= 1000 && (typeof webapis.avplay.jumpForward === 'function' || typeof webapis.avplay.jumpBackward === 'function')) {
+          if (absDeltaSec >= 1 && (typeof webapis.avplay.jumpForward === 'function' || typeof webapis.avplay.jumpBackward === 'function')) {
             var jumpFn = deltaMs > 0 ? webapis.avplay.jumpForward : webapis.avplay.jumpBackward;
             try {
-              jumpFn.call(webapis.avplay, absDeltaMs, function() {
-                console.log('[AVPlay] jump succeeded with', absDeltaMs, 'ms');
+              jumpFn.call(webapis.avplay, absDeltaSec, function() {
+                console.log('[AVPlay] jump succeeded with', absDeltaSec, 's');
                 self._currentTime = safeTargetSec;
                 if (wasPlaying) {
                   try { webapis.avplay.play(); } catch(plErr) {}
@@ -692,6 +704,9 @@
                 if (successCb) successCb();
               }, function(jerr) {
                 console.warn('[AVPlay] jump failed:', jerr);
+                if (typeof window.sendTvLog === 'function') {
+                  window.sendTvLog('warn', 'seek', 'AVPlay jump failed, reloading at time', { targetSec: safeTargetSec, jerr: jerr });
+                }
                 // Fallback 2: reload at time
                 self._reloadAtTime(safeTargetSec, wasPlaying, function() {
                   setTimeout(onSeekDone, 150);

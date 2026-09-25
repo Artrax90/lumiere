@@ -12,6 +12,54 @@
       }
     } catch(e) {}
   }
+
+  // Automatic remote TV error & event logging to server
+  (function() {
+    var lastLogs = {};
+    window.sendTvLog = function(level, category, message, details) {
+      try {
+        var key = (level || '') + ':' + (category || '') + ':' + (message || '');
+        var now = Date.now();
+        if (lastLogs[key] && now - lastLogs[key] < 3000) return; // Debounce 3s identical errors
+        lastLogs[key] = now;
+
+        var server = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.__DEFAULT_SERVER_URL__ || window.location.origin;
+        if (!server || server.startsWith('file')) return;
+
+        var payload = JSON.stringify({
+          level: level || 'error',
+          category: category || 'client',
+          message: String(message || 'Unknown'),
+          details: details || null,
+          time: new Date().toISOString()
+        });
+
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(server + '/api/tv/log', new Blob([payload], { type: 'application/json' }));
+        } else {
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', server + '/api/tv/log', true);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.send(payload);
+        }
+      } catch(e) {}
+    };
+
+    var origError = console.error;
+    console.error = function() {
+      try {
+        var args = Array.prototype.slice.call(arguments);
+        var msg = args.map(function(a) { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }).join(' ');
+        window.sendTvLog('error', 'console', msg);
+      } catch(e) {}
+      if (origError) origError.apply(console, arguments);
+    };
+
+    window.addEventListener('unhandledrejection', function(e) {
+      var reason = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : 'Unhandled rejection';
+      window.sendTvLog('error', 'unhandled-promise', reason);
+    });
+  })();
 </script>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
