@@ -3970,10 +3970,12 @@
     if (trackBtn && d.type === 'tv') {
       apiFetch('/api/notifications/is-subscribed/' + d.id, function(err, res) {
         if (!err && res && res.isSubscribed) {
-          trackBtn.textContent = '🔕 Не следить';
+          trackBtn.innerHTML = '🔕';
+          trackBtn.setAttribute('title', 'Отписаться от серий');
           trackBtn.classList.add('active-action');
         } else {
-          trackBtn.textContent = '🔔 Следить';
+          trackBtn.innerHTML = '🔔';
+          trackBtn.setAttribute('title', 'Следить за новыми сериями');
           trackBtn.classList.remove('active-action');
         }
       });
@@ -3982,7 +3984,8 @@
         if (isSubbed) {
           apiDelete('/api/notifications/subscribe/' + d.id, function(err) {
             if (!err) {
-              trackBtn.textContent = '🔔 Следить';
+              trackBtn.innerHTML = '🔔';
+              trackBtn.setAttribute('title', 'Следить за новыми сериями');
               trackBtn.classList.remove('active-action');
               showTvToast('Вы отписались от обновлений серий', 2000);
             }
@@ -3994,7 +3997,8 @@
             poster: d.poster
           }, function(err) {
             if (!err) {
-              trackBtn.textContent = '🔕 Не следить';
+              trackBtn.innerHTML = '🔕';
+              trackBtn.setAttribute('title', 'Отписаться от серий');
               trackBtn.classList.add('active-action');
               showTvToast('Вы подписались на новые серии!', 2000);
             }
@@ -4581,27 +4585,46 @@
     var tags = [];
     var s = str.toUpperCase();
 
-    // 1. Resolution
+    // 1. Container / File Format (.mkv, .avi, .mp4, etc.)
+    if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) {
+      tags.push({ text: '.MKV', type: 'fmt' });
+    } else if (/\.AVI\b|\[AVI\]|\bAVI\b/.test(s)) {
+      tags.push({ text: '.AVI', type: 'fmt' });
+    } else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) {
+      tags.push({ text: '.MP4', type: 'fmt' });
+    } else if (/\.TS\b|\[TS\]|\bM2TS\b|\bBDMV\b/.test(s)) {
+      tags.push({ text: '.TS', type: 'fmt' });
+    } else if (/\.MOV\b|\bMOV\b/.test(s)) {
+      tags.push({ text: '.MOV', type: 'fmt' });
+    } else if (/\b(XVID|DIVX)\b/.test(s)) {
+      tags.push({ text: '.AVI', type: 'fmt' });
+    } else if (/\b(DVDRIP|DVD9|DVD5)\b/.test(s) && !/\b(HEVC|H\.?265|AVC|H\.?264)\b/.test(s)) {
+      tags.push({ text: '.AVI', type: 'fmt' });
+    } else {
+      tags.push({ text: '.MKV', type: 'fmt' });
+    }
+
+    // 2. Resolution
     if (/\b(4K|UHD|2160P)\b/.test(s)) tags.push({ text: '4K UHD', type: 'res-4k' });
     else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) tags.push({ text: '1080p', type: 'res-1080' });
     else if (/\b(720P|HD)\b/.test(s)) tags.push({ text: '720p', type: 'res-720' });
     else if (/\b(480P|576P|SD)\b/.test(s)) tags.push({ text: 'SD', type: 'res-sd' });
 
-    // 2. Video HDR / Dynamic Range
+    // 3. Video HDR / Dynamic Range
     if (/\b(DV|DOLBY[\s._-]?VISION)\b/.test(s)) tags.push({ text: 'Dolby Vision', type: 'hdr-dv' });
     else if (/\bHDR10\+\b/.test(s)) tags.push({ text: 'HDR10+', type: 'hdr' });
     else if (/\b(HDR10|HDR)\b/.test(s)) tags.push({ text: 'HDR', type: 'hdr' });
 
-    // 3. Codec
+    // 4. Codec
     if (/\b(HEVC|H\.?265|X265)\b/.test(s)) tags.push({ text: 'HEVC', type: 'codec' });
     else if (/\b(AVC|H\.?264|X264)\b/.test(s)) tags.push({ text: 'H.264', type: 'codec' });
     else if (/\bAV1\b/.test(s)) tags.push({ text: 'AV1', type: 'codec' });
     else if (/\b(XVID|DIVX)\b/.test(s)) tags.push({ text: 'XviD', type: 'codec' });
 
-    // 4. Color bit depth
+    // 5. Color bit depth
     if (/\b(10-?BIT|10BIT|HI10P)\b/.test(s)) tags.push({ text: '10-bit', type: 'color' });
 
-    // 5. Rip / Release Quality
+    // 6. Rip / Release Quality
     if (/\b(REMUX|BD-REMUX|BDREMUX)\b/.test(s)) tags.push({ text: 'Remux', type: 'qual' });
     else if (/\b(BDRIP|BRRIP|BLURAY|BLU-RAY)\b/.test(s)) tags.push({ text: 'BDRip', type: 'qual' });
     else if (/\b(WEB-DL|WEBDL|WEB-DLRIP)\b/.test(s)) tags.push({ text: 'WEB-DL', type: 'qual' });
@@ -4610,19 +4633,12 @@
     else if (/\b(DVDRIP|DVD9|DVD5|DVD)\b/.test(s)) tags.push({ text: 'DVDRip', type: 'qual' });
     else if (/\b(CAM|CAMRIP|TELESYNC|TELE-SYNC|TS-RIP)\b/.test(s)) tags.push({ text: 'CAM', type: 'qual-cam' });
 
-    // 6. Audio
+    // 7. Audio
     if (/\b(ATMOS|DOLBY[\s._-]?ATMOS)\b/.test(s)) tags.push({ text: 'Dolby Atmos', type: 'audio-atmos' });
     if (/\b(DTS-HD[\s._-]?MA|DTS-HD)\b/.test(s)) tags.push({ text: 'DTS-HD', type: 'audio' });
     else if (/\b(DTS-HR|DTS)\b/.test(s)) tags.push({ text: 'DTS', type: 'audio' });
     else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
     else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
-
-    // 7. Container / File Format
-    if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) tags.push({ text: 'MKV', type: 'fmt' });
-    else if (/\.AVI\b|\[AVI\]|\bAVI\b/.test(s)) tags.push({ text: 'AVI', type: 'fmt' });
-    else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) tags.push({ text: 'MP4', type: 'fmt' });
-    else if (/\.TS\b|\[TS\]|\bM2TS\b|\bBDMV\b/.test(s)) tags.push({ text: 'TS', type: 'fmt' });
-    else if (/\.MOV\b|\bMOV\b/.test(s)) tags.push({ text: 'MOV', type: 'fmt' });
 
     return tags;
   }
@@ -7872,6 +7888,29 @@
     }, 400);
   }
 
+  function scrollIntoViewIfNeeded(el, container) {
+    if (!el) return;
+    if (!container) {
+      if ($detail && !$detail.classList.contains('hidden') && $detail.contains(el)) {
+        container = $detail;
+      } else {
+        container = document.getElementById('content') || document.body;
+      }
+    }
+    if (!container || !container.getBoundingClientRect) return;
+
+    var cRect = container.getBoundingClientRect();
+    var eRect = el.getBoundingClientRect();
+    var topMargin = 120;
+    var botMargin = 120;
+
+    if (eRect.top < cRect.top + topMargin) {
+      container.scrollTop += (eRect.top - (cRect.top + topMargin));
+    } else if (eRect.bottom > cRect.bottom - botMargin) {
+      container.scrollTop += (eRect.bottom - (cRect.bottom - botMargin));
+    }
+  }
+
   function setDetailFocus(el) {
     if (!$detail) $detail = document.getElementById('detail');
     if ($detail) {
@@ -7882,8 +7921,12 @@
     }
     if (el) {
       el.classList.add('focused');
-      try { el.focus(); } catch(e) {}
-      scrollToCenter(el);
+      try {
+        el.focus({ preventScroll: true });
+      } catch(e) {
+        try { el.focus(); } catch(e2) {}
+      }
+      scrollIntoViewIfNeeded(el, $detail);
     }
   }
 
@@ -8155,18 +8198,9 @@
     }
   }
 
-  // Scroll helper — center element in viewport
+  // Scroll helper — scroll element into view smoothly without jitter
   function scrollToCenter(el) {
-    if (!el) return;
-    var content = document.getElementById('content');
-    if ($detail && !$detail.classList.contains('hidden') && $detail.contains(el)) {
-      content = $detail;
-    }
-    if (!content) return;
-    var elTop = el.offsetTop;
-    var elH = el.offsetHeight;
-    var contentH = content.clientHeight;
-    content.scrollTop = elTop - (contentH / 2) + (elH / 2);
+    scrollIntoViewIfNeeded(el);
   }
 
   function focusDetailItem(list, fromIndex, toIndex) {

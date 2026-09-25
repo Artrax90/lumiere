@@ -1620,9 +1620,11 @@ body.player-active .section {
   border: 1px solid rgba(139, 92, 246, 0.4);
 }
 .t-badge-fmt {
-  background: rgba(255, 255, 255, 0.08);
-  color: #cbd5e1;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(14, 165, 233, 0.22);
+  color: #38bdf8;
+  border: 1px solid rgba(14, 165, 233, 0.55);
+  font-weight: 800;
+  letter-spacing: 0.5px;
 }
 .t-badge-size {
   background: rgba(255, 255, 255, 0.1);
@@ -2438,22 +2440,24 @@ body.player-active .section {
 }
 .episode-card {
   display: flex;
-  gap: 24px;
-  padding: 16px 20px;
-  background: rgba(255, 255, 255, 0.035);
-  border: 1.5px solid rgba(255, 255, 255, 0.07);
-  border-radius: 18px;
+  gap: 20px;
+  padding: 14px 20px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1.5px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
   position: relative;
   align-items: center;
+  contain: layout paint;
+  will-change: transform;
 }
 .episode-card.focused {
   background: rgba(232, 193, 112, 0.12) !important;
   border-color: #e8c170 !important;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.8), 0 0 20px rgba(232, 193, 112, 0.4) !important;
-  transform: scale(1.02);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.7), 0 0 15px rgba(232, 193, 112, 0.3) !important;
+  transform: translateX(8px);
 }
 .ep-still-box {
   position: relative;
@@ -2469,35 +2473,29 @@ body.player-active .section {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: transform 0.3s ease;
-}
-.episode-card.focused .ep-still-img {
-  transform: scale(1.06);
 }
 .ep-badge-num {
   position: absolute;
   top: 8px;
   left: 8px;
-  padding: 4px 10px;
-  background: rgba(0, 0, 0, 0.8);
+  padding: 3px 8px;
+  background: rgba(10, 12, 18, 0.9);
   border: 1px solid rgba(232, 193, 112, 0.5);
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 800;
   color: #e8c170;
-  backdrop-filter: blur(4px);
 }
 .ep-badge-dur {
   position: absolute;
   bottom: 8px;
   right: 8px;
   padding: 3px 8px;
-  background: rgba(0, 0, 0, 0.8);
+  background: rgba(10, 12, 18, 0.9);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(4px);
 }
 .ep-content {
   flex: 1;
