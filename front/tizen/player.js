@@ -95,6 +95,10 @@
 
     try {
       if (typeof tizen !== 'undefined' && tizen.tvinputdevice) {
+        try { tizen.tvinputdevice.unregisterKey('VolumeUp'); } catch(e1) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeDown'); } catch(e2) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeMute'); } catch(e3) {}
+
         var pKeys = ['MediaPlay', 'MediaPause', 'MediaPlayPause', 'MediaStop', 'MediaFastForward', 'MediaRewind'];
         for (var pk = 0; pk < pKeys.length; pk++) {
           try { tizen.tvinputdevice.registerKey(pKeys[pk]); } catch(ke) {}
@@ -141,6 +145,12 @@
     // Parameters
     params = params || {};
     movieTitle = params.title || '';
+    if (typeof movieTitle === 'object') {
+      movieTitle = movieTitle.name || movieTitle.title || '';
+    }
+    if (movieTitle === '[object Object]' || !movieTitle) {
+      movieTitle = 'Видео';
+    }
     movieId = parseInt(params.id) || 0;
     mediaType = params.type || 'movie';
     streamUrl = params.url || '';

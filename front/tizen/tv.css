@@ -3793,6 +3793,207 @@ body.player-active .section {
   box-shadow: 0 0 24px rgba(232, 193, 112, 0.8);
 }
 
+/* ==========================================================================
+   Profile & Statistics Screen
+   ========================================================================== */
+.profile-view-wrap {
+  max-width: 1400px;
+  margin: 20px auto 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.profile-header-card {
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 24px;
+  padding: 32px 40px;
+  display: flex;
+  align-items: center;
+  gap: 32px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+}
+
+.profile-avatar-large {
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e8c170 0%, #b89344 100%);
+  color: #0a0b0f;
+  font-size: 44px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 8px 24px rgba(232, 193, 112, 0.3);
+}
+
+.profile-header-info {
+  flex: 1;
+}
+
+.profile-name-large {
+  font-size: 32px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
+}
+
+.profile-role-badge {
+  display: inline-block;
+  background: rgba(232, 193, 112, 0.15);
+  border: 1px solid rgba(232, 193, 112, 0.3);
+  color: #e8c170;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 14px;
+  border-radius: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.profile-email-sub {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 14px;
+  margin-top: 6px;
+}
+
+.profile-header-actions {
+  display: flex;
+  gap: 16px;
+}
+
+.profile-action-btn {
+  padding: 14px 28px;
+  border-radius: 14px;
+  border: 1px solid rgba(232, 193, 112, 0.4);
+  background: rgba(232, 193, 112, 0.1);
+  color: #e8c170;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.profile-action-btn.focused {
+  background: #e8c170 !important;
+  color: #0a0b0f !important;
+  border-color: #e8c170 !important;
+  transform: scale(1.06);
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.8);
+}
+
+.profile-action-btn.danger {
+  border-color: rgba(239, 68, 68, 0.4);
+  background: rgba(239, 68, 68, 0.1);
+  color: #f87171;
+}
+
+.profile-action-btn.danger.focused {
+  background: #ef4444 !important;
+  color: #ffffff !important;
+  border-color: #ef4444 !important;
+  transform: scale(1.06);
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.8);
+}
+
+.profile-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+
+.profile-stat-card {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.profile-stat-icon {
+  font-size: 32px;
+  margin-bottom: 12px;
+}
+
+.profile-stat-val {
+  font-size: 36px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 6px;
+  letter-spacing: -0.5px;
+}
+
+.profile-stat-lbl {
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.profile-genres-block {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  padding: 32px;
+}
+
+.profile-section-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-bottom: 24px;
+}
+
+.profile-genre-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.profile-genre-name {
+  width: 180px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.85);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-genre-track {
+  flex: 1;
+  height: 10px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.profile-genre-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #e8c170 0%, #f59e0b 100%);
+  border-radius: 5px;
+}
+
+.profile-genre-count {
+  width: 60px;
+  text-align: right;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.profile-genre-empty {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 15px;
+  padding: 12px 0;
+}
+
+
 
 
 

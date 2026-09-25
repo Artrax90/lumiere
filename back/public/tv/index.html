@@ -156,7 +156,7 @@
         <button class="nav-btn" data-section="my">Моё</button>
         <button class="nav-btn" data-section="notifications" id="nav-notifications" title="Уведомления">🔔<span id="tv-notif-badge" class="tv-notif-badge hidden">0</span></button>
         <button class="nav-btn" data-section="settings">Настройки</button>
-        <button class="nav-btn nav-profile-pill" data-section="switch-profile" id="nav-user-pill" title="Текущий профиль (нажмите для смены)">
+        <button class="nav-btn nav-profile-pill" data-section="profile" id="nav-user-pill" title="Мой профиль">
           <span id="tv-user-avatar" class="tv-user-avatar">👤</span>
           <span id="tv-user-name" class="tv-user-name">Войти</span>
         </button>
@@ -351,6 +351,50 @@
         </div>
         <div id="tv-notif-container" class="tv-notif-container">
           <div class="tv-notif-empty">Загрузка уведомлений...</div>
+        </div>
+      </section>
+
+      <!-- Profile & Statistics -->
+      <section id="sec-profile" class="section">
+        <h1 class="page-title">Мой профиль</h1>
+        <div class="profile-view-wrap">
+          <div class="profile-header-card">
+            <div class="profile-avatar-large" id="tv-profile-avatar-large">👤</div>
+            <div class="profile-header-info">
+              <div class="profile-name-large" id="tv-profile-name-large">Пользователь</div>
+              <div class="profile-role-badge" id="tv-profile-role-badge">Основной профиль</div>
+              <div class="profile-email-sub" id="tv-profile-email-sub"></div>
+            </div>
+            <div class="profile-header-actions">
+              <button class="profile-action-btn" id="btn-profile-switch" data-action="switch" tabindex="0">Сменить профиль</button>
+              <button class="profile-action-btn danger" id="btn-profile-logout" data-action="logout" tabindex="0">Выйти</button>
+            </div>
+          </div>
+
+          <div class="profile-stats-grid">
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">⏱</div>
+              <div class="profile-stat-val" id="tv-stat-hours">0 ч</div>
+              <div class="profile-stat-lbl">Время просмотра</div>
+            </div>
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">🎬</div>
+              <div class="profile-stat-val" id="tv-stat-count">0</div>
+              <div class="profile-stat-lbl">Фильмов и серий</div>
+            </div>
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">📺</div>
+              <div class="profile-stat-val" id="tv-stat-device">Samsung Smart TV</div>
+              <div class="profile-stat-lbl">Устройство</div>
+            </div>
+          </div>
+
+          <div class="profile-genres-block" id="tv-profile-genres-block">
+            <h2 class="profile-section-title">Любимые жанры</h2>
+            <div class="profile-genres-list" id="tv-profile-genres-list">
+              <div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>
+            </div>
+          </div>
         </div>
       </section>
     </main>

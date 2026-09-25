@@ -51,10 +51,15 @@
   function openPlayer(params) {
     if (typeof stopPreview === 'function') stopPreview();
     var p = {};
-    params.substring(1).split('&').forEach(function(pair) {
-      var parts = pair.split('=');
-      if (parts.length === 2) p[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
-    });
+    if (typeof params === 'string') {
+      var q = params.charAt(0) === '?' ? params.substring(1) : params;
+      q.split('&').forEach(function(pair) {
+        var parts = pair.split('=');
+        if (parts.length === 2) p[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+      });
+    } else if (params && typeof params === 'object') {
+      p = params;
+    }
 
     var playerHtml = '<div id="player">' +
       '<video id="video" playsinline></video>' +
@@ -140,10 +145,26 @@
     document.body.style.background = 'transparent';
     document.body.style.backgroundColor = 'transparent';
 
-    // Initialize player
+    // Initialize player with sanitized title
+    var cleanPlayerTitle = '';
+    if (typeof p.title === 'string') {
+      cleanPlayerTitle = (p.title === '[object Object]') ? '' : p.title;
+    } else if (p.title && typeof p.title === 'object') {
+      cleanPlayerTitle = p.title.name || p.title.title || '';
+    }
+    if (!cleanPlayerTitle && p.file && typeof p.file === 'object') {
+      cleanPlayerTitle = p.file.name || '';
+    }
+    if (!cleanPlayerTitle && state.detail) {
+      if (typeof state.detail.name === 'string') cleanPlayerTitle = state.detail.name;
+      else if (typeof state.detail.title === 'string') cleanPlayerTitle = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') cleanPlayerTitle = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (cleanPlayerTitle === '[object Object]') cleanPlayerTitle = '';
+
     var playerParams = {
       url: p.url || '',
-      title: p.title || '',
+      title: cleanPlayerTitle || 'Видео',
       id: parseInt(p.id) || 0,
       type: p.type || 'movie',
       poster: p.poster || '',
@@ -1799,6 +1820,11 @@
 
   function cleanMovieTitle(raw) {
     if (!raw) return '';
+    if (typeof raw === 'object') {
+      raw = raw.name || raw.title || '';
+    }
+    if (typeof raw !== 'string') return '';
+    if (raw === '[object Object]') return '';
     if (raw.indexOf(' / ') !== -1) {
       var parts = raw.split(' / ');
       if (/[\u0400-\u04FF]/.test(parts[0])) return parts[0].trim();
@@ -1992,16 +2018,38 @@
         });
 
         card.addEventListener('click', function() {
+          var cleanName = (typeof name === 'string' && name !== '[object Object]') ? name : '';
+          if (!cleanName && item.title) {
+            cleanName = (typeof item.title === 'object') ? (item.title.name || item.title.title || '') : item.title;
+          }
+          if (cleanName === '[object Object]') cleanName = '';
+
           var tObj = lastTorrents[item.id];
-          var curType = (tObj && tObj.type) || (item.title && item.title.type) || 'movie';
+          var curType = (tObj && tObj.type) || (item.title && item.title.type) || ((cleanName && / · S[0-9]+/i.test(cleanName)) ? 'tv' : 'movie');
+
+          state.fromContinueWatching = true;
+          state.playerOpenedFrom = 'app';
+
           if (tObj && tObj.magnet) {
-            state.fromContinueWatching = true;
-            state.playerOpenedFrom = 'app';
-            state.detail = { id: item.id, name: name, type: curType, poster: poster };
-            openTorrent(tObj.magnet, tObj.title || name);
+            state.detail = { id: item.id, name: cleanName, type: curType, poster: poster };
+            openTorrent(tObj.magnet, tObj.title || cleanName);
           } else {
-            var titleObj = { id: item.id, name: name, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
-            showDetail(titleObj);
+            var seasonTorrent = null;
+            if (curType === 'tv') {
+              for (var k in localStorage) {
+                if (k.indexOf('season_torrent_' + item.id + '_') === 0) {
+                  try { seasonTorrent = JSON.parse(localStorage.getItem(k)); } catch(e) {}
+                  if (seasonTorrent && seasonTorrent.magnet) break;
+                }
+              }
+            }
+            if (seasonTorrent && seasonTorrent.magnet) {
+              state.detail = { id: item.id, name: cleanName, type: 'tv', poster: poster };
+              openTorrent(seasonTorrent.magnet, seasonTorrent.title || cleanName);
+            } else {
+              var titleObj = { id: item.id, name: cleanName, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
+              showDetail(titleObj);
+            }
           }
         });
 
@@ -3345,6 +3393,19 @@
   // ========== Detail View ==========
   function showDetail(title) {
     if (!title) return;
+    if (typeof title.name === 'object' && title.name) {
+      title.name = title.name.name || title.name.title || '';
+    }
+    if (title.name === '[object Object]') title.name = '';
+    if (!title.name && title.title) {
+      title.name = (typeof title.title === 'object') ? (title.title.name || title.title.title || '') : title.title;
+    }
+    if (title.name === '[object Object]') title.name = '';
+
+    if (/ · S[0-9]+/i.test(title.name)) {
+      title.type = 'tv';
+    }
+
     if (!$detail) $detail = document.getElementById('detail');
     if (!$detail) return;
     $detail.classList.remove('hidden');
@@ -3359,7 +3420,7 @@
     renderDetailLoading(title);
 
     // Fetch full details
-    var type = title.type === 'tv' ? 'tv' : 'movies';
+    var type = (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name))) ? 'tv' : 'movies';
     apiFetch('/api/' + type + '/' + title.id, function(err, data) {
       if (data && data.id) {
         state.detail = data;
@@ -4699,9 +4760,21 @@
   }
 
   function openTorrent(magnet, title) {
+    var titleStr = '';
+    if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
+    else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
+
     var movieId = (state.detail && state.detail.id) || 0;
-    var movieName = (state.detail && (state.detail.name || state.detail.title)) || title;
-    var mediaType = (state.detail && state.detail.type) || 'movie';
+    var detailName = '';
+    if (state.detail) {
+      if (typeof state.detail.name === 'string') detailName = state.detail.name;
+      else if (typeof state.detail.title === 'string') detailName = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') detailName = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (detailName === '[object Object]') detailName = '';
+
+    var movieName = detailName || titleStr || '';
+    var mediaType = (state.detail && state.detail.type) || ((movieName && / · S[0-9]+/i.test(movieName)) ? 'tv' : 'movie');
 
     // Save torrent info for resume
     if (movieId) {
@@ -4711,7 +4784,7 @@
         localStorage.setItem('last_torrents', JSON.stringify(last));
       } catch(e) {}
 
-      if (state.detail && state.detail.type === 'tv' && state.detailSeason) {
+      if ((mediaType === 'tv' || (state.detail && state.detail.type === 'tv')) && state.detailSeason) {
         try {
           localStorage.setItem('season_torrent_' + movieId + '_' + state.detailSeason, JSON.stringify({ magnet: magnet, title: movieName, type: mediaType }));
         } catch(se) {}
@@ -4734,18 +4807,18 @@
 
     var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
 
-    apiPost('/api/torrents/stream', { magnet: magnet, title: title }, function(err, data) {
+    apiPost('/api/torrents/stream', { magnet: magnet, title: movieName }, function(err, data) {
       if (err || !data || !data.files || data.files.length === 0) {
         var fallbackUrl = isAvplay
           ? API + '/api/torrents/proxy/video.mkv?link=' + encodeURIComponent(magnet) + '&index=0'
           : API + '/api/torrents/hls?link=' + encodeURIComponent(magnet) + '&index=0' + startParam;
-        var fallbackFiles = [{ name: title, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
+        var fallbackFiles = [{ name: movieName, directUrl: fallbackUrl, streamUrl: fallbackUrl, sizeFormatted: '' }];
         if (state.fromContinueWatching) {
           state.fromContinueWatching = false;
-          playFile(fallbackFiles[0], title, movieId);
+          playFile(fallbackFiles[0], movieName, movieId);
           return;
         }
-        showTorrentPrePlayModal(fallbackFiles, title, movieId, magnet);
+        showTorrentPrePlayModal(fallbackFiles, movieName, movieId, magnet);
         return;
       }
 
@@ -4767,11 +4840,11 @@
             }
           } catch(ex) {}
         }
-        playFile(targetFile, title, movieId);
+        playFile(targetFile, movieName, movieId);
         return;
       }
 
-      showTorrentPrePlayModal(data.files, title, movieId, magnet);
+      showTorrentPrePlayModal(data.files, movieName, movieId, magnet);
     });
   }
 
@@ -5040,13 +5113,24 @@
         console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
       }
     }
-    var detailName = (state.detail && (state.detail.name || state.detail.title)) || '';
-    var isTv = state.detail && state.detail.type === 'tv';
-    var mediaType = (state.detail && state.detail.type) || 'movie';
+    var detailName = '';
+    if (state.detail) {
+      if (typeof state.detail.name === 'string') detailName = state.detail.name;
+      else if (typeof state.detail.title === 'string') detailName = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') detailName = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (detailName === '[object Object]') detailName = '';
+
+    var titleStr = '';
+    if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
+    else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
+
+    var isTv = (state.detail && state.detail.type === 'tv') || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
+    var mediaType = isTv ? 'tv' : ((state.detail && state.detail.type) || 'movie');
     var name = '';
 
-    if (title && (title.indexOf(' · S') !== -1 || !detailName)) {
-      name = title;
+    if (titleStr && (titleStr.indexOf(' · S') !== -1 || !detailName)) {
+      name = titleStr;
     } else if (detailName) {
       if (isTv && file && file.name && file.name !== detailName) {
         name = detailName + ' · ' + file.name;
@@ -5054,7 +5138,10 @@
         name = detailName;
       }
     } else {
-      name = (file && file.name) || title || '';
+      name = (file && file.name) || titleStr || '';
+    }
+    if (name === '[object Object]' || !name) {
+      name = (file && file.name) || 'Видео';
     }
 
     movieId = movieId || (state.detail && state.detail.id) || 0;
@@ -5689,6 +5776,25 @@
         if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
         if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
         loadProfilesAndShowPicker();
+      });
+    }
+
+    var profileSwitchBtn = document.getElementById('btn-profile-switch');
+    if (profileSwitchBtn) {
+      profileSwitchBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        state.user = null;
+        if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
+        if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
+        loadProfilesAndShowPicker();
+      });
+    }
+
+    var profileLogoutBtn = document.getElementById('btn-profile-logout');
+    if (profileLogoutBtn) {
+      profileLogoutBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        window.location.reload();
       });
     }
 
@@ -6397,6 +6503,126 @@
       setupMySection();
       loadMyData();
     }
+
+    if (section === 'profile') {
+      renderProfileStats();
+    }
+  }
+
+  // ========== Profile & Statistics View ==========
+  function renderProfileStats() {
+    var user = state.user;
+    if (!user) {
+      try {
+        user = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+      } catch(e) {}
+    }
+
+    var $avatarLarge = document.getElementById('tv-profile-avatar-large');
+    var $nameLarge = document.getElementById('tv-profile-name-large');
+    var $roleBadge = document.getElementById('tv-profile-role-badge');
+    var $emailSub = document.getElementById('tv-profile-email-sub');
+    var $statHours = document.getElementById('tv-stat-hours');
+    var $statCount = document.getElementById('tv-stat-count');
+    var $statDevice = document.getElementById('tv-stat-device');
+    var $genresList = document.getElementById('tv-profile-genres-list');
+
+    var displayName = user ? (user.name || user.username || user.login || 'Пользователь') : 'Пользователь';
+    if ($nameLarge) $nameLarge.textContent = displayName;
+
+    if ($avatarLarge) {
+      if (user && user.avatar) {
+        if (user.avatar.indexOf('http') === 0 || user.avatar.indexOf('/') === 0) {
+          $avatarLarge.innerHTML = '<img src="' + user.avatar + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />';
+        } else {
+          $avatarLarge.textContent = user.avatar;
+        }
+      } else {
+        $avatarLarge.textContent = displayName.charAt(0).toUpperCase();
+      }
+    }
+
+    if ($roleBadge) {
+      if (user && user.role === 'admin') {
+        $roleBadge.textContent = 'Администратор';
+        $roleBadge.className = 'profile-role-badge profile-role-admin';
+      } else if (user && user.isKids) {
+        $roleBadge.textContent = 'Детский профиль';
+        $roleBadge.className = 'profile-role-badge profile-role-kids';
+      } else {
+        $roleBadge.textContent = 'Основной профиль';
+        $roleBadge.className = 'profile-role-badge';
+      }
+    }
+
+    if ($emailSub) {
+      $emailSub.textContent = (user && user.email) ? user.email : '';
+    }
+
+    // Calculate stats from playback_positions
+    var positions = {};
+    try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
+
+    var totalSeconds = 0;
+    var watchedCount = 0;
+    var genreCounts = {};
+
+    for (var k in positions) {
+      if (!positions.hasOwnProperty(k)) continue;
+      var pos = positions[k];
+      if (!pos) continue;
+      var t = typeof pos === 'object' ? (pos.time || 0) : Number(pos);
+      if (t > 15) {
+        watchedCount++;
+        var dur = (typeof pos === 'object' && pos.duration > 0) ? pos.duration : 7200;
+        totalSeconds += Math.min(t, dur);
+
+        // Track genres if available
+        if (typeof pos === 'object' && pos.title && Array.isArray(pos.title.genres)) {
+          pos.title.genres.forEach(function(g) {
+            var gName = typeof g === 'object' ? (g.name || '') : g;
+            if (gName) {
+              genreCounts[gName] = (genreCounts[gName] || 0) + 1;
+            }
+          });
+        }
+      }
+    }
+
+    if ($statHours) {
+      var hrs = (totalSeconds / 3600);
+      $statHours.textContent = hrs >= 1 ? (hrs.toFixed(1) + ' ч') : (Math.round(totalSeconds / 60) + ' мин');
+    }
+    if ($statCount) {
+      $statCount.textContent = watchedCount;
+    }
+    if ($statDevice) {
+      var dName = 'Samsung Smart TV';
+      if (window.tizen) dName = 'Samsung Tizen TV';
+      $statDevice.textContent = dName;
+    }
+
+    if ($genresList) {
+      var sortedGenres = Object.keys(genreCounts).sort(function(a, b) {
+        return genreCounts[b] - genreCounts[a];
+      });
+      if (sortedGenres.length > 0) {
+        var maxG = genreCounts[sortedGenres[0]] || 1;
+        var gHtml = '';
+        sortedGenres.slice(0, 5).forEach(function(g) {
+          var count = genreCounts[g];
+          var pct = Math.round((count / maxG) * 100);
+          gHtml += '<div class="profile-genre-row">' +
+            '<span class="profile-genre-name">' + esc(g) + '</span>' +
+            '<div class="profile-genre-bar-wrap"><div class="profile-genre-bar" style="width:' + pct + '%"></div></div>' +
+            '<span class="profile-genre-count">' + count + '</span>' +
+            '</div>';
+        });
+        $genresList.innerHTML = gHtml;
+      } else {
+        $genresList.innerHTML = '<div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>';
+      }
+    }
   }
 
   // ========== D-pad Navigation ==========
@@ -6407,16 +6633,21 @@
   function registerTizenKeys() {
     try {
       if (window.tizen && tizen.tvinputdevice) {
+        // Explicitly unregister Volume keys so native Samsung TV volume overlay and speaker control work
+        try { tizen.tvinputdevice.unregisterKey('VolumeUp'); } catch(ve1) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeDown'); } catch(ve2) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeMute'); } catch(ve3) {}
+
         var keys = [
           'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop',
           'MediaFastForward', 'MediaRewind',
           'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue',
-          'ChannelUp', 'ChannelDown', 'VolumeUp', 'VolumeDown'
+          'ChannelUp', 'ChannelDown'
         ];
         for (var i = 0; i < keys.length; i++) {
           try { tizen.tvinputdevice.registerKey(keys[i]); } catch(ke) {}
         }
-        console.log('[Lumiere] Registered Tizen remote keys');
+        console.log('[Lumiere] Registered Tizen remote keys (Volume keys left to native TV control)');
       }
     } catch(te) {
       console.warn('[Lumiere] tvinputdevice not available:', te);
@@ -6951,6 +7182,9 @@
     var settingBtns = document.querySelectorAll('#sec-settings .setting-btn');
     var focusedSetting = targetFocus && targetFocus.classList.contains('setting-btn') ? targetFocus : null;
     var isOnSetting = (state.section === 'settings' && focusedSetting !== null);
+    var profileBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+    var focusedProfileBtn = targetFocus && targetFocus.classList.contains('profile-action-btn') ? targetFocus : null;
+    var isOnProfile = (state.section === 'profile' && focusedProfileBtn !== null);
     var isOnNotif = (state.section === 'notifications' && !!(targetFocus && (targetFocus.classList.contains('notif-btn') || targetFocus.classList.contains('tv-notif-card'))));
     var isOnMyTab = (state.section === 'my' && !!(targetFocus && targetFocus.classList.contains('my-tab')));
 
@@ -6995,7 +7229,7 @@
     }
 
     // FOCUS RECOVERY: If nothing is focused, recover focus!
-    if (!isOnNav && !isOnCard && !isOnSetting && !isOnOsk && !isOnChip && !isOnIptv && !isOnNotif) {
+    if (!isOnNav && !isOnCard && !isOnSetting && !isOnOsk && !isOnChip && !isOnIptv && !isOnNotif && !isOnProfile) {
       if (state.section === 'iptv') {
         if (iptvState.focusedCol === -1) {
           focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
@@ -7008,9 +7242,62 @@
         focusNotificationElement('topBtn', 0);
         return;
       }
+      if (state.section === 'profile') {
+        var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+        if (prBtns.length > 0) {
+          prBtns[0].classList.add('focused');
+          prBtns[0].focus();
+          return;
+        }
+      }
       console.log('[Lumiere] Recovering focus to nav button');
       focusNav(state.focusedNav || 0);
       isOnNav = true;
+    }
+
+    // Profile buttons handling
+    if (isOnProfile) {
+      var pIdx = -1;
+      for (var pi = 0; pi < profileBtns.length; pi++) {
+        if (profileBtns[pi] === focusedProfileBtn) { pIdx = pi; break; }
+      }
+      if (isLeft) {
+        if (pIdx > 0) {
+          focusedProfileBtn.classList.remove('focused');
+          profileBtns[pIdx - 1].classList.add('focused');
+          profileBtns[pIdx - 1].focus();
+        } else {
+          focusedProfileBtn.classList.remove('focused');
+          focusNav(state.focusedNav);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isRight) {
+        if (pIdx >= 0 && pIdx < profileBtns.length - 1) {
+          focusedProfileBtn.classList.remove('focused');
+          profileBtns[pIdx + 1].classList.add('focused');
+          profileBtns[pIdx + 1].focus();
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isUp) {
+        focusedProfileBtn.classList.remove('focused');
+        focusNav(state.focusedNav);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isEnter) {
+        focusedProfileBtn.click();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isDown) {
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      return;
     }
 
     // Settings buttons handling
@@ -7105,6 +7392,13 @@
         } else if (state.section === 'notifications') {
           clearNavFocus();
           focusNotificationElement('topBtn', 0);
+        } else if (state.section === 'profile') {
+          var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+          if (prBtns.length > 0) {
+            clearNavFocus();
+            prBtns[0].classList.add('focused');
+            prBtns[0].focus();
+          }
         } else {
           var cards = getVisibleCards();
           if (cards.length > 0) {
@@ -7147,6 +7441,13 @@
         } else if (state.section === 'notifications') {
           clearNavFocus();
           focusNotificationElement('topBtn', 0);
+        } else if (state.section === 'profile') {
+          var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+          if (prBtns.length > 0) {
+            clearNavFocus();
+            prBtns[0].classList.add('focused');
+            prBtns[0].focus();
+          }
         } else {
           var cards = getVisibleCards();
           if (cards.length > 0) {
@@ -8228,9 +8529,14 @@
   function selectFocused() {
     var activeEl = document.activeElement;
     var focused = document.querySelector('.focused');
-    var target = (activeEl && (activeEl.classList.contains('focused') || activeEl.classList.contains('card') || activeEl.classList.contains('iptv-channel') || activeEl.classList.contains('setting-btn'))) ? activeEl : focused;
+    var target = (activeEl && (activeEl.classList.contains('focused') || activeEl.classList.contains('card') || activeEl.classList.contains('iptv-channel') || activeEl.classList.contains('setting-btn') || activeEl.classList.contains('profile-action-btn'))) ? activeEl : focused;
 
     if (!target) return;
+
+    if (target.classList.contains('profile-action-btn')) {
+      target.click();
+      return;
+    }
 
     // 1. If it's a card
     if (target.classList.contains('card')) {
@@ -8239,18 +8545,50 @@
       }
       if (target._continueItem) {
         var cItem = target._continueItem;
+        var cName = (cItem.title && typeof cItem.title === 'object') ? (cItem.title.name || cItem.title.title) : cItem.title;
+        if (!cName || cName === '[object Object]') {
+          if (target._titleData && target._titleData.name) cName = target._titleData.name;
+          else {
+            var tEl = target.querySelector('.card-title');
+            if (tEl) cName = tEl.textContent.trim();
+          }
+        }
+        if (cName === '[object Object]') cName = '';
+        var cPoster = (cItem.title && typeof cItem.title === 'object') ? (cItem.title.poster || '') : (target._titleData ? target._titleData.poster : '');
+
         var lastTorrents = {};
         try { lastTorrents = JSON.parse(localStorage.getItem('last_torrents') || '{}'); } catch(e) {}
         var torrent = lastTorrents[cItem.id];
+        var cType = (cItem.title && cItem.title.type) || (torrent && torrent.type) || ((cName && / · S[0-9]+/i.test(cName)) ? 'tv' : 'movie');
+
+        state.fromContinueWatching = true;
+        state.playerOpenedFrom = 'app';
+
         if (torrent && torrent.magnet) {
-          state.detail = { id: cItem.id, name: cItem.title, type: 'movie' };
-          openTorrent(torrent.magnet, torrent.title || cItem.title);
-          return;
-        } else {
-          var titleObj = { id: cItem.id, name: cItem.title, type: 'movie', poster: '', backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
-          showDetail(titleObj);
+          state.detail = { id: cItem.id, name: cName, type: cType, poster: cPoster };
+          openTorrent(torrent.magnet, torrent.title || cName);
           return;
         }
+
+        // For TV shows, check if season torrent is cached in localStorage
+        var seasonTorrent = null;
+        if (cType === 'tv') {
+          for (var k in localStorage) {
+            if (k.indexOf('season_torrent_' + cItem.id + '_') === 0) {
+              try { seasonTorrent = JSON.parse(localStorage.getItem(k)); } catch(e) {}
+              if (seasonTorrent && seasonTorrent.magnet) break;
+            }
+          }
+        }
+        if (seasonTorrent && seasonTorrent.magnet) {
+          state.detail = { id: cItem.id, name: cName, type: 'tv', poster: cPoster };
+          openTorrent(seasonTorrent.magnet, seasonTorrent.title || cName);
+          return;
+        }
+
+        var titleObj = { id: cItem.id, name: cName, type: cType, poster: cPoster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
+        showDetail(titleObj);
+        return;
       }
       if (target._titleData) {
         showDetail(target._titleData);
