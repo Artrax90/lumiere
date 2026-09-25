@@ -759,6 +759,9 @@ export function torrentRoutes(app: FastifyInstance) {
     streamKey: string;
     paused: boolean;
     lastRequestedSeg: number;
+    lastSegRequestTime: number;
+    playbackSeconds: number;
+    lastPlayheadUpdate: number;
     lastActivity: number;
     timer?: NodeJS.Timeout;
   }
@@ -767,20 +770,26 @@ export function torrentRoutes(app: FastifyInstance) {
   const activeSubtitles = new Map<string, { pid: number }>();
 
   function pauseFfmpeg(sess: FfmpegSession) {
-    if (!sess.paused && process.platform !== 'win32') {
+    if (!sess.paused && sess.pid && process.platform !== 'win32') {
       try {
         process.kill(sess.pid, 'SIGSTOP');
         sess.paused = true;
-      } catch {}
+        console.log(`[FFmpeg] Throttled: PAUSED pid=${sess.pid}`);
+      } catch (err: any) {
+        console.error(`[FFmpeg] Pause error pid=${sess.pid}:`, err.message);
+      }
     }
   }
 
   function resumeFfmpeg(sess: FfmpegSession) {
-    if (sess.paused && process.platform !== 'win32') {
+    if (sess.paused && sess.pid && process.platform !== 'win32') {
       try {
         process.kill(sess.pid, 'SIGCONT');
         sess.paused = false;
-      } catch {}
+        console.log(`[FFmpeg] Throttled: RESUMED pid=${sess.pid}`);
+      } catch (err: any) {
+        console.error(`[FFmpeg] Resume error pid=${sess.pid}:`, err.message);
+      }
     }
   }
 
@@ -801,13 +810,35 @@ export function torrentRoutes(app: FastifyInstance) {
 
       if (maxSeg < 0) return;
 
-      const ahead = maxSeg - sess.lastRequestedSeg;
-      // Buffer target: maintain ~16-24s buffer (4-6 segments of 4s).
-      // If FFmpeg has produced 4+ segments ahead of the player, suspend it to save 100% CPU.
-      // If buffer drops below 2 segments (<8s), resume FFmpeg to generate more.
-      if (ahead >= 4) {
+      const now = Date.now();
+      const deltaSec = Math.min(2, Math.max(0, (now - (sess.lastPlayheadUpdate || now)) / 1000));
+      sess.lastPlayheadUpdate = now;
+
+      // Detection of TV pause:
+      // If there are segments available on disk that the TV has NOT downloaded yet,
+      // and the TV hasn't requested any segment in > 10 seconds:
+      // The TV is PAUSED or player stopped!
+      const isTvPaused = sess.lastRequestedSeg >= 0 &&
+                         maxSeg > sess.lastRequestedSeg &&
+                         (now - sess.lastSegRequestTime > 10000);
+
+      if (!isTvPaused) {
+        sess.playbackSeconds += deltaSec;
+      }
+
+      // Initial buffer grace: player needs ~3s to initialize AVPlay and load first segment
+      const effectivePlaySec = Math.max(0, sess.playbackSeconds - 3);
+      const playedSeg = Math.floor(effectivePlaySec / 4);
+
+      // Buffer ahead of current playback position
+      const ahead = maxSeg - playedSeg;
+
+      // Throttling thresholds:
+      // - PAUSE if TV is paused OR if buffer is >= 6 segments (24 seconds) ahead of playhead.
+      // - RESUME if TV is active AND buffer drops to <= 3 segments (12 seconds) ahead.
+      if (isTvPaused || ahead >= 6) {
         pauseFfmpeg(sess);
-      } else if (ahead < 2) {
+      } else if (ahead <= 3) {
         resumeFfmpeg(sess);
       }
     } catch {}
@@ -817,6 +848,9 @@ export function torrentRoutes(app: FastifyInstance) {
     const sess = activeSessions.get(sessionId);
     if (!sess) return;
     if (sess.timer) clearInterval(sess.timer);
+    if (sess.paused && process.platform !== 'win32') {
+      try { process.kill(sess.pid, 'SIGCONT'); } catch {}
+    }
     try { process.kill(sess.pid, 'SIGKILL'); } catch {}
     activeSessions.delete(sessionId);
     // Graceful delayed directory removal:
@@ -968,13 +1002,17 @@ export function torrentRoutes(app: FastifyInstance) {
         }
       } catch {}
 
+      const now = Date.now();
       const sess: FfmpegSession = {
         pid: ffmpeg.pid!,
         hlsDir,
         streamKey,
         paused: false,
-        lastRequestedSeg: 0,
-        lastActivity: Date.now(),
+        lastRequestedSeg: -1,
+        lastSegRequestTime: now,
+        playbackSeconds: 0,
+        lastPlayheadUpdate: now,
+        lastActivity: now,
       };
       activeSessions.set(sessionId, sess);
 
@@ -1260,6 +1298,7 @@ export function torrentRoutes(app: FastifyInstance) {
       if (!isNaN(segNum)) {
         sess.lastRequestedSeg = Math.max(sess.lastRequestedSeg, segNum);
       }
+      sess.lastSegRequestTime = Date.now();
       sess.lastActivity = Date.now();
       // If segment isn't on disk yet, wake up FFmpeg right away
       if (!existsSync(segPath)) {
