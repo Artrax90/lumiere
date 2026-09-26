@@ -92,7 +92,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
         const data = await res.json();
         if (data.files?.length > 0) {
           const file = data.files[0];
-          onPlay({ ...current, videoUrl: file.streamUrl });
+          onPlay({ ...current, videoUrl: file.hlsUrl || file.streamUrl, directUrl: file.directUrl, hlsUrl: file.hlsUrl });
           return;
         }
       } catch (err) {

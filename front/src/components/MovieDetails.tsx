@@ -307,7 +307,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                         const data = await res.json();
                         if (data.files?.length > 0) {
                           const file = data.files[0];
-                          onPlay({ ...displayTitle, videoUrl: file.streamUrl, directUrl: file.directUrl });
+                          onPlay({ ...displayTitle, videoUrl: file.hlsUrl || file.streamUrl, directUrl: file.directUrl, hlsUrl: file.hlsUrl });
                         }
                       } catch (err) {
                         console.error('Resume error:', err);
@@ -648,7 +648,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           {activeTab === 'torrents' && (
             <TorrentSearch
               title={displayTitle}
-              onPlay={(url, episodeName, externalSubs, directUrl) => onPlay({ ...displayTitle, videoUrl: url, directUrl, episode: episodeName }, externalSubs)}
+              onPlay={(url, episodeName, externalSubs, directUrl, hlsUrl) => onPlay({ ...displayTitle, videoUrl: hlsUrl || url, directUrl, hlsUrl, episode: episodeName }, externalSubs)}
             />
           )}
         </div>

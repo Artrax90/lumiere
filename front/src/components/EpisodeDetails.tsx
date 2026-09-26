@@ -128,12 +128,14 @@ export default function EpisodeDetails({ episode, series: initialSeries, onBack,
           </div>
           <TorrentSearch
             title={episodeTitle}
-            onPlay={(url, epName, extSubs) =>
+            onPlay={(url, epName, extSubs, directUrl, hlsUrl) =>
               onPlay(
                 {
                   ...series,
                   name: `${series.name} — ${epName || `S${episode.season}E${episode.episode}`}`,
-                  videoUrl: url,
+                  videoUrl: hlsUrl || url,
+                  directUrl: directUrl || url,
+                  hlsUrl,
                   episode: epName || `S${episode.season}E${episode.episode}`,
                 },
                 extSubs

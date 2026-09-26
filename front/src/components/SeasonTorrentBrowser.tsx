@@ -35,6 +35,7 @@ interface TorrentFile {
   sizeFormatted: string;
   streamUrl: string;
   directUrl?: string;
+  hlsUrl?: string;
   externalSubs?: any[];
 }
 
@@ -411,8 +412,9 @@ export default function SeasonTorrentBrowser({
       {
         ...show,
         name: baseName,
-        videoUrl: file.streamUrl,
+        videoUrl: file.hlsUrl || file.streamUrl,
         directUrl: file.directUrl,
+        hlsUrl: file.hlsUrl,
         episode: episodeLabel,
       },
       file.externalSubs || []

@@ -75,21 +75,37 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const settingsPanelRef = useRef<SettingsPanel>('none');
   settingsPanelRef.current = settingsPanel;
 
-  const canPlayDirect = Boolean(
-    title.directUrl ||
-    title.videoUrl?.includes('/api/torrents/proxy') ||
-    title.videoUrl?.endsWith('.mp4') ||
-    title.videoUrl?.endsWith('.webm') ||
-    Capacitor.isNativePlatform()
+  // Check if media source is a torrent stream
+  const isTorrent = Boolean(
+    title.videoUrl?.includes('/api/torrents/') ||
+    title.directUrl?.includes('/api/torrents/') ||
+    title.hlsUrl?.includes('/api/torrents/')
   );
 
-  const hasVideo = !!(title.videoUrl || title.directUrl);
-  const isHls = hasVideo && !canPlayDirect && (
-    title.videoUrl?.includes('.m3u') ||
-    title.videoUrl?.includes('m3u8') ||
-    title.videoUrl?.includes('/hls') ||
-    title.videoUrl?.includes('/api/iptv/stream') ||
-    title.type === 'live'
+  // Check if file is native HTML5 web safe container (only MP4 and WebM)
+  const isWebSafeFormat = Boolean(
+    title.videoUrl?.endsWith('.mp4') ||
+    title.videoUrl?.endsWith('.webm') ||
+    title.directUrl?.endsWith('.mp4') ||
+    title.directUrl?.endsWith('.webm')
+  );
+
+  // Direct play is only allowed for verified web-safe containers or non-torrents with directUrl
+  const canPlayDirect = isTorrent
+    ? isWebSafeFormat
+    : Boolean(title.directUrl || isWebSafeFormat);
+
+  const hasVideo = !!(title.videoUrl || title.directUrl || title.hlsUrl);
+  const isHls = hasVideo && (
+    !canPlayDirect ||
+    Boolean(
+      title.hlsUrl ||
+      title.videoUrl?.includes('.m3u') ||
+      title.videoUrl?.includes('m3u8') ||
+      title.videoUrl?.includes('/hls') ||
+      title.videoUrl?.includes('/api/iptv/stream') ||
+      title.type === 'live'
+    )
   );
 
   const resetHideTimer = useCallback(() => {
@@ -214,12 +230,17 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
   // Fetch duration, audio tracks, and subtitles from backend for torrent streams
   useEffect(() => {
-    if (!title.videoUrl?.includes('/api/torrents/hls')) return;
+    const rawUrl = title.hlsUrl || title.videoUrl || title.directUrl || '';
+    if (!rawUrl.includes('/api/torrents/')) return;
 
-    const fullUrl = serverUrl(title.videoUrl);
-    const urlObj = new URL(fullUrl, window.location.origin);
-    const link = urlObj.searchParams.get('link');
-    const index = urlObj.searchParams.get('index');
+    let link: string | null = null;
+    let index: string | null = null;
+    try {
+      const fullUrl = serverUrl(rawUrl);
+      const urlObj = new URL(fullUrl, window.location.origin);
+      link = urlObj.searchParams.get('link');
+      index = urlObj.searchParams.get('index');
+    } catch {}
 
     if (!link) return;
 
@@ -274,7 +295,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       // Skip if we're in the middle of an audio switch
       if (audioSwitchRef.current) return;
       if (video.readyState >= 2) { // HAVE_CURRENT_DATA
-        if (!isHls || !title.videoUrl?.includes('/api/torrents/hls') || !seekOffsetRef.current) {
+        if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls')) || !seekOffsetRef.current) {
           video.currentTime = initialTime;
         }
       }
@@ -289,7 +310,31 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const video = videoRef.current;
     if (!video || !hasVideo) return;
 
-    let url = serverUrl((canPlayDirect && title.directUrl) ? title.directUrl : (title.videoUrl || title.directUrl || ''));
+    let rawStreamUrl = '';
+    if (isHls) {
+      if (title.hlsUrl) {
+        rawStreamUrl = title.hlsUrl;
+      } else if (title.videoUrl && (title.videoUrl.includes('.m3u') || title.videoUrl.includes('/hls') || title.videoUrl.includes('/api/iptv/stream') || title.type === 'live')) {
+        rawStreamUrl = title.videoUrl;
+      } else if (isTorrent) {
+        const sourceUrl = title.videoUrl || title.directUrl || '';
+        try {
+          const parsed = new URL(sourceUrl, 'http://localhost');
+          const link = parsed.searchParams.get('link') || '';
+          const index = parsed.searchParams.get('index') || '0';
+          const isAvi = sourceUrl.toLowerCase().includes('.avi');
+          rawStreamUrl = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+        } catch {
+          rawStreamUrl = sourceUrl;
+        }
+      } else {
+        rawStreamUrl = title.videoUrl || title.directUrl || '';
+      }
+    } else {
+      rawStreamUrl = (canPlayDirect && title.directUrl) ? title.directUrl : (title.videoUrl || title.directUrl || '');
+    }
+
+    let url = serverUrl(rawStreamUrl);
 
     // On web, if live stream is an external direct URL, ensure it routes through proxy to avoid CORS/Mixed-Content
     if (!Capacitor.isNativePlatform() && title.type === 'live' && !url.includes('/api/iptv/stream') && (url.startsWith('http://') || url.startsWith('https://'))) {
@@ -329,7 +374,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         setQualityLevels(levels);
         // Seek to initial time if provided
         if (initialTime && initialTime > 0) {
-          if (!isHls || !title.videoUrl?.includes('/api/torrents/hls') || !seekOffsetRef.current) {
+          if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls')) || !seekOffsetRef.current) {
             video.currentTime = initialTime;
           }
         }
@@ -497,11 +542,25 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       video.addEventListener('canplay', () => setLoading(false));
       video.addEventListener('error', () => {
         // Fallback to HLS if direct play fails in browser (e.g. unsupported container or audio codec)
-        const fallbackHls = title.hlsUrl || (url.includes('/api/torrents/proxy') ? url.replace('/api/torrents/proxy', '/api/torrents/hls') : '');
+        let fallbackHls = title.hlsUrl;
+        if (!fallbackHls && (url.includes('/api/torrents/proxy') || url.includes('/api/torrents/'))) {
+          try {
+            const urlObj = new URL(url, window.location.origin);
+            const link = urlObj.searchParams.get('link');
+            const index = urlObj.searchParams.get('index') || '0';
+            const isAvi = url.toLowerCase().includes('.avi');
+            if (link) {
+              fallbackHls = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+            }
+          } catch {}
+        }
+
         if (fallbackHls && !url.includes('/api/torrents/hls')) {
           console.warn('[Player] Direct playback failed, falling back to HLS transcoding:', fallbackHls);
           const hlsUrl = serverUrl(fallbackHls);
           if (Hls.isSupported()) {
+            video.removeAttribute('src');
+            video.load();
             const hls = new Hls({
               maxBufferLength: 30,
               maxMaxBufferLength: 60,
@@ -768,7 +827,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const targetTime = Math.max(0, Math.min(fraction * duration, duration));
     setCurrentTime(targetTime);
 
-    if (isHls && title.videoUrl?.includes('/api/torrents/hls')) {
+    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || isTorrent);
+    if (isTorrentHls) {
       const offset = seekOffsetRef.current || 0;
       const localTarget = targetTime - offset;
       let isBuffered = false;
@@ -797,8 +857,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           end: Math.max(0, (newOffset / duration) * 100),
         });
 
-        let cleanUrl = title.videoUrl!;
-        cleanUrl = cleanUrl.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+        let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
+        if (!activeHlsSource && isTorrent) {
+          const sourceUrl = title.videoUrl || title.directUrl || '';
+          try {
+            const parsed = new URL(sourceUrl, 'http://localhost');
+            const link = parsed.searchParams.get('link') || '';
+            const index = parsed.searchParams.get('index') || '0';
+            const isAvi = sourceUrl.toLowerCase().includes('.avi');
+            activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+          } catch {}
+        }
+        if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
+
+        let cleanUrl = activeHlsSource.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
         const separator = cleanUrl.includes('?') ? '&' : '?';
         const newSeekUrl = serverUrl(`${cleanUrl}${separator}start=${newOffset}&audio=${currentAudioIndex}`);
 
@@ -918,7 +990,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   };
 
   const setAudio = (id: number) => {
-    if (!title.videoUrl?.includes('/api/torrents/hls')) {
+    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || isTorrent);
+    if (!isTorrentHls) {
       // For non-torrent HLS, use built-in switching
       if (hlsRef.current) {
         hlsRef.current.audioTrack = id;
@@ -950,8 +1023,21 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       hlsRef.current = null;
     }
 
+    let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
+    if (!activeHlsSource && isTorrent) {
+      const sourceUrl = title.videoUrl || title.directUrl || '';
+      try {
+        const parsed = new URL(sourceUrl, 'http://localhost');
+        const link = parsed.searchParams.get('link') || '';
+        const index = parsed.searchParams.get('index') || '0';
+        const isAvi = sourceUrl.toLowerCase().includes('.avi');
+        activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+      } catch {}
+    }
+    if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
+
     // Build new URL with audio parameter and current offset
-    const fullUrl = serverUrl(title.videoUrl);
+    const fullUrl = serverUrl(activeHlsSource);
     const urlObj = new URL(fullUrl, window.location.origin);
     urlObj.searchParams.set('audio', String(id));
     const effectiveCurTime = (seekOffsetRef.current || 0) + saveTime;

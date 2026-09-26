@@ -906,7 +906,26 @@ export function torrentRoutes(app: FastifyInstance) {
 
     const audioIndex = parseInt(audio || '0', 10) || 0;
     const seekTime = parseFloat(start || '0') || 0;
-    const isVideoTranscode = vcodec === 'h264';
+    const paramFilename = (req.params?.filename || '').toLowerCase();
+    const isAviRequested = paramFilename.endsWith('.avi');
+    let isVideoTranscode = vcodec === 'h264' || isAviRequested;
+
+    // If transcode not explicitly requested, check if target file is .avi to prevent browser decode error
+    if (!isVideoTranscode && link) {
+      try {
+        const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=-1&stat`, {
+          signal: AbortSignal.timeout(1000),
+        });
+        if (statRes.ok) {
+          const statData = (await statRes.json()) as any;
+          const targetFile = statData.file_stats?.find((f: any) => String(f.id) === String(index || 0));
+          if (targetFile?.path?.toLowerCase().endsWith('.avi')) {
+            isVideoTranscode = true;
+          }
+        }
+      } catch {}
+    }
+
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
     // Include audio index, seek time, and vcodec in session ID for isolation
@@ -1111,6 +1130,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls', handler: handleHls });
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls/stream.m3u8', handler: handleHls });
+  app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls/:filename', handler: handleHls });
 
   // Serve pre-extracted subtitles from HLS session
   app.get('/api/torrents/hls-subs', async (req, reply) => {
