@@ -22,7 +22,7 @@
     var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
     if (server) return server;
     if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
-    if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
+    if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
       return window.location.origin;
     }
     return '';
@@ -397,10 +397,13 @@
       }
       var server = savedServer;
       if (!server) {
-        if (window.__DEFAULT_SERVER_URL__) {
+        if (window.__DEFAULT_SERVER_URL__ && !window.__DEFAULT_SERVER_URL__.startsWith('file') && !window.__DEFAULT_SERVER_URL__.includes('localhost')) {
           server = window.__DEFAULT_SERVER_URL__;
-        } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
+        } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
           server = window.location.origin;
+        } else {
+          // Pre-populate default local server candidate if in native app container
+          server = 'http://192.168.1.196:3500';
         }
       }
       if (server) {
@@ -7239,6 +7242,10 @@
     try {
       if (window.tizen && tizen.application) {
         tizen.application.getCurrentApplication().exit();
+      } else if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+        window.Capacitor.Plugins.App.exitApp();
+      } else if (navigator.app && navigator.app.exitApp) {
+        navigator.app.exitApp();
       } else {
         window.close();
       }
@@ -7457,7 +7464,7 @@
   }
 
   function isEnterKey(code, key) {
-    return code === 13 || code === 29443 || code === 65385 || code === 65376 ||
+    return code === 13 || code === 23 || code === 66 || code === 29443 || code === 65385 || code === 65376 ||
       key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK' || key === 'Accept' || key === 'Return';
   }
 
@@ -7480,10 +7487,36 @@
       }
     });
 
+    // Hardware back key on Android TV / Cordova / Capacitor
+    document.addEventListener('backbutton', function(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      handleBackKey(e);
+    });
+
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+      try {
+        window.Capacitor.Plugins.App.addListener('backButton', function(data) {
+          handleBackKey(data);
+        });
+      } catch(ce) {}
+    }
+
     var onKeyDown = function(e) {
       try {
       var code = e.keyCode || e.which;
       var key = e.key;
+
+      // Android TV / Remote keycode normalization
+      if (code === 19) { code = 38; key = 'ArrowUp'; }
+      if (code === 20) { code = 40; key = 'ArrowDown'; }
+      if (code === 21) { code = 37; key = 'ArrowLeft'; }
+      if (code === 22) { code = 39; key = 'ArrowRight'; }
+      if (code === 23 || code === 66) { code = 13; key = 'Enter'; }
+      if (code === 4) { code = 27; key = 'Escape'; }
+      if (code === 85 || code === 126 || code === 127) { key = 'MediaPlayPause'; }
+      if (code === 89) { key = 'MediaRewind'; }
+      if (code === 90) { key = 'MediaFastForward'; }
+
       console.log('[KEY] code=' + code + ' key=' + key);
 
       // -5. If Server change modal is open:

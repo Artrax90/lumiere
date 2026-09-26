@@ -3,7 +3,7 @@
 <head>
   <script type="text/javascript" src="$WEBAPIS/webapis/webapis.js"></script>
   <script>
-  if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
+  if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     window.__DEFAULT_SERVER_URL__ = window.location.origin;
     try {
       if (!localStorage.getItem('lumiere_server') && !localStorage.getItem('lumiere_server_url') && !localStorage.getItem('lumiere_tv_server')) {
