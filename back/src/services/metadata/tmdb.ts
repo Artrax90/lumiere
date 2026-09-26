@@ -155,17 +155,23 @@ export class TmdbProvider implements MetadataProvider {
     const data: TmdbSeason = await this.client.get(`/tv/${tvId}/season/${seasonNumber}`, {
       language: this.client.lang(lang),
     });
-    return data.episodes.map((ep) => ({
-      id: `tv-${tvId}-s${seasonNumber}e${ep.episode_number}`,
-      seriesId: tvId,
-      season: ep.season_number,
-      episode: ep.episode_number,
-      title: ep.name,
-      synopsis: ep.overview,
-      runtime: ep.runtime ? `${ep.runtime}m` : '—',
-      thumbnail: this.client.backdropUrl(ep.still_path),
-      aired: ep.air_date || '—',
-    }));
+    const today = new Date().toISOString().slice(0, 10);
+    return data.episodes.map((ep) => {
+      const airDate = ep.air_date || '';
+      const isAired = Boolean(airDate && airDate <= today);
+      return {
+        id: `tv-${tvId}-s${seasonNumber}e${ep.episode_number}`,
+        seriesId: tvId,
+        season: ep.season_number,
+        episode: ep.episode_number,
+        title: ep.name,
+        synopsis: ep.overview,
+        runtime: ep.runtime ? `${ep.runtime}m` : '—',
+        thumbnail: this.client.backdropUrl(ep.still_path),
+        aired: ep.air_date || '—',
+        isAired,
+      };
+    });
   }
 
   async genres(mediaType: 'movie' | 'tv', lang?: Lang): Promise<Genre[]> {

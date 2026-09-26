@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Loader2, Star, Check, AlertCircle } from 'lucide-react';
+import { Play, Loader2, Star, Check, AlertCircle, Calendar } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
@@ -128,6 +128,60 @@ export default function SeasonTorrentBrowser({
     () => Array.from({ length: Math.max(1, Math.min(seasonsCount, 40)) }, (_, i) => i + 1),
     [seasonsCount]
   );
+
+  // Filter only actually aired episodes by default (handles future scheduled episodes)
+  const [onlyAired, setOnlyAired] = useState(true);
+
+  const { airedEpisodes, futureEpisodes } = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    let maxAiredNum = 0;
+    let hasAnyDates = false;
+
+    for (const ep of episodesList) {
+      if (ep.aired && ep.aired !== '—') {
+        const dStr = ep.aired.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+          hasAnyDates = true;
+          if (dStr <= today && ep.episode > maxAiredNum) {
+            maxAiredNum = ep.episode;
+          }
+        }
+      }
+    }
+
+    if (!hasAnyDates) {
+      return { airedEpisodes: episodesList, futureEpisodes: [] as Episode[] };
+    }
+
+    const aired: Episode[] = [];
+    const future: Episode[] = [];
+
+    for (const ep of episodesList) {
+      let isAired = false;
+      if (ep.isAired !== undefined) {
+        isAired = ep.isAired;
+      } else if (ep.aired && ep.aired !== '—') {
+        const dStr = ep.aired.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+          isAired = dStr <= today;
+        } else {
+          isAired = true;
+        }
+      } else {
+        isAired = maxAiredNum > 0 ? ep.episode <= maxAiredNum : true;
+      }
+
+      if (isAired) {
+        aired.push(ep);
+      } else {
+        future.push(ep);
+      }
+    }
+
+    return { airedEpisodes: aired, futureEpisodes: future };
+  }, [episodesList]);
+
+  const displayEpisodes = onlyAired && futureEpisodes.length > 0 ? airedEpisodes : episodesList;
 
   // Fetch all torrent releases for this show in the background
   const fetchTorrentsList = useCallback(async (queryText?: string): Promise<TorrentItem[]> => {
@@ -399,15 +453,33 @@ export default function SeasonTorrentBrowser({
       {/* TAB 1: [Серии] — Complete Episodes List from TMDB (1 в 1 как на ТВ) */}
       {activeTab === 'episodes' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between pb-1">
-            <h3 className="text-[18px] font-bold text-white flex items-center gap-2">
-              <span>Серии {activeSeason} сезона</span>
-              {episodesList.length > 0 && (
-                <span className="text-[13px] font-normal text-white/50">
-                  ({episodesList.length} {episodesList.length === 1 ? 'серия' : episodesList.length < 5 ? 'серии' : 'серий'})
-                </span>
+          <div className="flex flex-wrap items-center justify-between gap-3 pb-1">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h3 className="text-[18px] font-bold text-white flex items-center gap-2">
+                <span>Серии {activeSeason} сезона</span>
+                {displayEpisodes.length > 0 && (
+                  <span className="text-[13px] font-normal text-white/50">
+                    ({displayEpisodes.length} {displayEpisodes.length === 1 ? 'серия' : displayEpisodes.length < 5 ? 'серии' : 'серий'}{futureEpisodes.length > 0 && onlyAired ? ` из ${episodesList.length}` : ''})
+                  </span>
+                )}
+              </h3>
+
+              {futureEpisodes.length > 0 && (
+                <button
+                  onClick={() => setOnlyAired(!onlyAired)}
+                  className="rounded-full px-3 py-1 text-[11px] font-semibold transition-all cursor-pointer"
+                  style={{
+                    background: onlyAired ? 'rgba(232, 193, 112, 0.12)' : 'rgba(255, 255, 255, 0.08)',
+                    color: onlyAired ? '#e8c170' : 'rgba(255, 255, 255, 0.7)',
+                    border: onlyAired ? '1px solid rgba(232, 193, 112, 0.3)' : '1px solid rgba(255, 255, 255, 0.12)',
+                  }}
+                  title={onlyAired ? 'Показать все запланированные серии' : 'Показать только вышедшие серии'}
+                >
+                  {onlyAired ? `Показать будущие серии (+${futureEpisodes.length})` : 'Только вышедшие'}
+                </button>
               )}
-            </h3>
+            </div>
+
             {loadingTorrents && (
               <span className="text-[12px] text-amber-300/80 flex items-center gap-1.5 animate-pulse">
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -421,7 +493,7 @@ export default function SeasonTorrentBrowser({
               <Loader2 className="w-5 h-5 animate-spin text-amber-300" />
               <span>Загрузка серий {activeSeason} сезона...</span>
             </div>
-          ) : episodesList.length === 0 ? (
+          ) : displayEpisodes.length === 0 ? (
             <div className="rounded-2xl p-8 bg-white/[0.03] border border-white/[0.08] text-center space-y-3">
               <p className="text-white/60 text-[15px]">Серии {activeSeason} сезона не найдены в TMDB</p>
               <button
@@ -433,7 +505,8 @@ export default function SeasonTorrentBrowser({
             </div>
           ) : (
             <div className="flex flex-col gap-3.5">
-              {episodesList.map((ep) => {
+              {displayEpisodes.map((ep) => {
+                const isFuture = futureEpisodes.some((f) => f.episode === ep.episode);
                 const epStill = ep.thumbnail
                   ? serverUrl(ep.thumbnail)
                   : show.backdrop
@@ -447,21 +520,33 @@ export default function SeasonTorrentBrowser({
                   <div
                     key={ep.id || ep.episode}
                     id={`episode-${ep.id || ep.episode}`}
-                    onClick={() => handlePlayEpisode(ep)}
-                    className="group relative flex flex-col md:flex-row items-start md:items-center gap-5 p-3.5 md:p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:bg-[#e8c170]/[0.08] hover:border-[#e8c170]/40 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-2xl hover:translate-x-1"
+                    onClick={() => {
+                      if (!isFuture) handlePlayEpisode(ep);
+                    }}
+                    className={`group relative flex flex-col md:flex-row items-start md:items-center gap-5 p-3.5 md:p-4 rounded-2xl bg-white/[0.03] border transition-all duration-200 ${
+                      isFuture
+                        ? 'border-white/[0.05] opacity-75'
+                        : 'border-white/[0.08] hover:bg-[#e8c170]/[0.08] hover:border-[#e8c170]/40 cursor-pointer shadow-lg hover:shadow-2xl hover:translate-x-1'
+                    }`}
                   >
                     {/* Thumbnail: 16:9 still image preview with badges */}
                     <div className="relative w-full md:w-[260px] h-[146px] rounded-xl overflow-hidden bg-[#11141e] border border-white/10 flex-shrink-0">
                       <SafeImg
                         src={epStill}
                         alt={epTitle}
-                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        className={`w-full h-full object-cover transition-transform duration-300 ${!isFuture ? 'group-hover:scale-105' : ''}`}
                         loading="lazy"
                       />
                       {/* Top-left Season/Episode Badge */}
                       <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-[#0a0c12]/90 border border-[#e8c170]/50 text-[#e8c170] text-[12px] font-extrabold tracking-tight">
                         S{activeSeason} E{ep.episode}
                       </div>
+                      {/* Top-right Status Badge for future episode */}
+                      {isFuture && (
+                        <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-blue-500/25 border border-blue-400/50 text-blue-300 text-[11px] font-bold">
+                          Ожидается
+                        </div>
+                      )}
                       {/* Bottom-right Duration Badge */}
                       {duration && (
                         <div className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/85 text-white/85 text-[11px] font-semibold">
@@ -500,7 +585,12 @@ export default function SeasonTorrentBrowser({
 
                     {/* Action Button */}
                     <div className="flex items-center gap-3 self-end md:self-center flex-shrink-0 mt-2 md:mt-0">
-                      {isLoadingThis ? (
+                      {isFuture ? (
+                        <div className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white/50 text-[13px] font-medium select-none">
+                          <Calendar className="w-3.5 h-3.5 text-white/40" />
+                          <span>{ep.aired && ep.aired !== '—' ? ep.aired : 'Скоро'}</span>
+                        </div>
+                      ) : isLoadingThis ? (
                         <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 font-semibold text-[13px] animate-pulse">
                           <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
                           <span>{loadingStatus || 'Подключение...'}</span>

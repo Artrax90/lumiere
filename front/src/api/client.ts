@@ -48,6 +48,7 @@ export interface Episode {
   runtime: string;
   thumbnail: string;
   aired: string;
+  isAired?: boolean;
   progress?: number;
 }
 
