@@ -9,6 +9,7 @@ import { apiPost, apiDelete } from '@/api/client';
 import Card from './Card';
 import SourceSelector from './SourceSelector';
 import TorrentSearch from './TorrentSearch';
+import SeasonTorrentBrowser from './SeasonTorrentBrowser';
 import PersonModal from './PersonModal';
 
 interface MovieDetailsProps {
@@ -327,7 +328,14 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                   </button>
                 ) : (
                   <button
-                    onClick={() => setActiveTab('torrents')}
+                    onClick={() => {
+                      if (displayTitle.type === 'tv' || displayTitle.type === 'show') {
+                        const el = document.getElementById('episodes-section');
+                        if (el) el.scrollIntoView({ behavior: 'smooth' });
+                      } else {
+                        setActiveTab('torrents');
+                      }
+                    }}
                     className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all"
                   >
                     <Play className="h-4.5 w-4.5 fill-current" />
@@ -612,46 +620,55 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           </div>
         )}
 
-        {/* Tabs: Sources / Torrents */}
-        <div className="mt-6 animate-detail-rise" style={{ animationDelay: '180ms' }}>
-          <div className="flex gap-1 mb-6">
-            <button
-              onClick={() => setActiveTab('sources')}
-              className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
-              style={{
-                background: activeTab === 'sources' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                color: activeTab === 'sources' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                border: activeTab === 'sources' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
-              {t('movie.sources')}
-            </button>
-            <button
-              onClick={() => setActiveTab('torrents')}
-              className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
-              style={{
-                background: activeTab === 'torrents' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                color: activeTab === 'torrents' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-                border: activeTab === 'torrents' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
-              {t('movie.torrents')}
-            </button>
+        {/* Full-width streaming section: For TV shows use unified TV-style Series Browser */}
+        {(displayTitle.type === 'tv' || displayTitle.type === 'show') ? (
+          <div id="episodes-section" className="mt-8 animate-detail-rise scroll-mt-20" style={{ animationDelay: '180ms' }}>
+            <SeasonTorrentBrowser
+              show={displayTitle}
+              onPlay={onPlay}
+            />
           </div>
+        ) : (
+          <div className="mt-6 animate-detail-rise" style={{ animationDelay: '180ms' }}>
+            <div className="flex gap-1 mb-6">
+              <button
+                onClick={() => setActiveTab('sources')}
+                className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
+                style={{
+                  background: activeTab === 'sources' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                  color: activeTab === 'sources' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                  border: activeTab === 'sources' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                {t('movie.sources')}
+              </button>
+              <button
+                onClick={() => setActiveTab('torrents')}
+                className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
+                style={{
+                  background: activeTab === 'torrents' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                  color: activeTab === 'torrents' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
+                  border: activeTab === 'torrents' ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                }}
+              >
+                {t('movie.torrents')}
+              </button>
+            </div>
 
-          {activeTab === 'sources' && (
-            <SourceSelector
-              title={displayTitle}
-              onPlay={(url) => onPlay({ ...displayTitle, videoUrl: url })}
-            />
-          )}
-          {activeTab === 'torrents' && (
-            <TorrentSearch
-              title={displayTitle}
-              onPlay={(url, episodeName, externalSubs, directUrl, hlsUrl) => onPlay({ ...displayTitle, videoUrl: hlsUrl || url, directUrl, hlsUrl, episode: episodeName }, externalSubs)}
-            />
-          )}
-        </div>
+            {activeTab === 'sources' && (
+              <SourceSelector
+                title={displayTitle}
+                onPlay={(url) => onPlay({ ...displayTitle, videoUrl: url })}
+              />
+            )}
+            {activeTab === 'torrents' && (
+              <TorrentSearch
+                title={displayTitle}
+                onPlay={(url, episodeName, externalSubs, directUrl, hlsUrl) => onPlay({ ...displayTitle, videoUrl: hlsUrl || url, directUrl, hlsUrl, episode: episodeName }, externalSubs)}
+              />
+            )}
+          </div>
+        )}
 
 
 

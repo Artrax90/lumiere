@@ -89,12 +89,13 @@ interface TorrentFile {
 
 interface TorrentSearchProps {
   title: Title;
+  initialSeason?: number | null;
   onPlay: (url: string, episodeName?: string, externalSubs?: any[], directUrl?: string, hlsUrl?: string) => void;
 }
 
 type SortKey = 'score' | 'seeders' | 'size' | 'date';
 
-export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
+export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentSearchProps) {
   const { t } = useTranslation();
   const [results, setResults] = useState<TorrentItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -104,10 +105,16 @@ export default function TorrentSearch({ title, onPlay }: TorrentSearchProps) {
   const [files, setFiles] = useState<TorrentFile[] | null>(null);
   const [streamError, setStreamError] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('score');
-  const [seasonFilter, setSeasonFilter] = useState<number | null>(null);
+  const [seasonFilter, setSeasonFilter] = useState<number | null>(initialSeason || null);
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [searchQuery, setSearchQuery] = useState(title.name);
+
+  useEffect(() => {
+    if (initialSeason !== undefined && initialSeason !== null) {
+      setSeasonFilter(initialSeason);
+    }
+  }, [initialSeason]);
 
   const searchWithQuery = async (queryText?: string) => {
     const q = queryText !== undefined ? queryText : searchQuery;

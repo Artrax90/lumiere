@@ -1,16 +1,29 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Play, Folder, Magnet, Users, HardDrive, ArrowUpDown, Filter, Check, RefreshCw, ChevronRight, Star, Clock, AlertCircle, Sparkles, Search, X } from 'lucide-react';
+import { Play, Loader2, Star, Check, AlertCircle } from 'lucide-react';
 import type { Title, Episode } from '@/api/client';
+import { apiFetch } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
-import TorrentBadges from './TorrentBadges';
+import TorrentSearch from './TorrentSearch';
+import SourceSelector from './SourceSelector';
 import {
-  pluralSeeds,
+  matchesTorrentSeason,
+  checkTorrentEpisode,
+  extractEpisodeNumber,
   scoreTorrent,
   getTorrentSmartQueries,
-  matchesTorrentSeason,
 } from '@/utils/torrentMeta';
+
+interface SeasonTorrentBrowserProps {
+  show: Title;
+  season?: number;
+  onSelectSeason?: (season: number) => void;
+  totalSeasons?: number;
+  tmdbEpisodes?: Episode[];
+  onPlay: (title: Title, externalSubs?: any[]) => void;
+  activeEpisodeId?: string | null;
+}
 
 interface TorrentItem {
   id: string;
@@ -27,181 +40,103 @@ interface TorrentItem {
   date: string;
 }
 
-interface TorrentFile {
-  id: number;
-  name: string;
-  path: string;
-  size: number;
-  sizeFormatted: string;
-  streamUrl: string;
-  directUrl?: string;
-  hlsUrl?: string;
-  externalSubs?: any[];
-}
-
-interface SeasonTorrentBrowserProps {
-  show: Title;
-  season: number;
-  tmdbEpisodes: Episode[];
-  onPlay: (title: Title, externalSubs?: any[]) => void;
-  activeEpisodeId?: string | null;
-}
-
-interface SavedSeasonData {
-  torrent: TorrentItem;
-  files: TorrentFile[];
-  lastPlayedFileId?: number;
-  timestamp?: number;
-}
-
-// Helpers for localStorage persistence
-function getSavedSeasonData(showId: number, season: number): SavedSeasonData | null {
-  try {
-    const raw = localStorage.getItem(`season_data_${showId}_${season}`);
-    if (raw) return JSON.parse(raw);
-    const legacyRaw = localStorage.getItem(`season_torrent_${showId}_${season}`);
-    if (legacyRaw) {
-      return { torrent: JSON.parse(legacyRaw), files: [] };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-function saveSeasonData(showId: number, season: number, data: SavedSeasonData | null) {
-  try {
-    const key = `season_data_${showId}_${season}`;
-    if (data) {
-      localStorage.setItem(key, JSON.stringify(data));
-      localStorage.setItem(`season_torrent_${showId}_${season}`, JSON.stringify(data.torrent));
-    } else {
-      localStorage.removeItem(key);
-      localStorage.removeItem(`season_torrent_${showId}_${season}`);
-    }
-  } catch {}
-}
-
-function getBaseShowName(name: string): string {
-  if (!name) return '';
-  return name
-    .replace(/\s*—\s*Сезон.*$/i, '')
-    .replace(/\s*—\s*S\d+.*$/i, '')
-    .replace(/\s*-\s*Season.*$/i, '')
-    .trim();
-}
-
-function extractEpisodeNumber(fileName: string, fallbackIndex: number, season?: number): number {
-  if (!fileName) return fallbackIndex + 1;
-
-  const cleanName = fileName.replace(/\.[a-z0-9]{2,4}$/i, '');
-
-  // 1. S01E05, S1E5, s01.e05, s01_e05, s01-e05
-  const sMatch = cleanName.match(/s\d{1,2}[\s._-]*e(\d{1,3})/i);
-  if (sMatch) return parseInt(sMatch[1], 10);
-
-  // 2. 01x05, 1x5
-  const xMatch = cleanName.match(/\b\d{1,2}x(\d{1,3})\b/i);
-  if (xMatch) return parseInt(xMatch[1], 10);
-
-  // 3. Match season-episode pattern like "05-01", "05.01", "05_01" (e.g. "Доктор Хаус 05-01.mkv")
-  if (season !== undefined) {
-    const sPadded = String(season).padStart(2, '0');
-    const seasonEpRegex = new RegExp(`(?:^|[^\\d])(?:0?${season}|${sPadded})[-._](\\d{1,3})(?:[^\\d]|$)`, 'i');
-    const seMatch = cleanName.match(seasonEpRegex);
-    if (seMatch) return parseInt(seMatch[1], 10);
-  }
-
-  // 4. Two numbers separated by delimiter: "05-01", "05_01" -> 2nd number is episode
-  const seGeneric = cleanName.match(/(?:^|[^\d])\d{1,2}[-._](\d{2,3})(?:[^\d]|$)/);
-  if (seGeneric) {
-    const ep = parseInt(seGeneric[1], 10);
-    if (ep > 0 && ep <= 100) return ep;
-  }
-
-  // 5. "ep05", "ep.5", "серия 5", "эпизод 5", "серия 05", "выпуск 13"
-  const epMatch = cleanName.match(/(?:e|ep|серия|эпизод|выпуск)[\s._-]*(\d{1,3})/i);
-  if (epMatch) return parseInt(epMatch[1], 10);
-
-  // 6. Standalone number at the end of the filename: "House - 01", "House_[01]"
-  const endNumMatch = cleanName.match(/(?:[-_#\s\[(])(\d{1,3})[\])]?$/);
-  if (endNumMatch) {
-    const ep = parseInt(endNumMatch[1], 10);
-    if (ep > 0 && ep <= 100) return ep;
-  }
-
-  // 7. Fallback to index + 1 (1..N sequence)
-  return fallbackIndex + 1;
-}
-
-function getWatchedFiles(showId: number): number[] {
-  try {
-    const raw = localStorage.getItem(`watched_files_${showId}`);
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveWatchedFile(showId: number, fileId: number) {
-  try {
-    const key = `watched_files_${showId}`;
-    const list = getWatchedFiles(showId);
-    if (!list.includes(fileId)) {
-      list.push(fileId);
-      localStorage.setItem(key, JSON.stringify(list));
-    }
-  } catch {}
-}
-
 export default function SeasonTorrentBrowser({
   show,
   season,
+  onSelectSeason,
+  totalSeasons,
   tmdbEpisodes,
   onPlay,
+  activeEpisodeId,
 }: SeasonTorrentBrowserProps) {
   const { t } = useTranslation();
-  const initialSaved = useMemo(() => getSavedSeasonData(show.id, season), [show.id, season]);
+  const [activeTab, setActiveTab] = useState<'episodes' | 'torrents' | 'sources'>('episodes');
+  const [loadingEpisodeNum, setLoadingEpisodeNum] = useState<number | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState('');
   const [allTorrents, setAllTorrents] = useState<TorrentItem[]>([]);
   const [loadingTorrents, setLoadingTorrents] = useState(false);
-  const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(() => initialSaved?.torrent || null);
-  const [files, setFiles] = useState<TorrentFile[] | null>(() => (initialSaved?.files && initialSaved.files.length > 0) ? initialSaved.files : null);
-  const [lastPlayedFileId, setLastPlayedFileId] = useState<number | null>(() => initialSaved?.lastPlayedFileId || null);
-  const [loadingFiles, setLoadingFiles] = useState(false);
-  const [fileError, setFileError] = useState<string | null>(null);
-  type SortKey = 'score' | 'seeds' | 'date' | 'size';
-  const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
-  const [sortBy, setSortBy] = useState<SortKey>('score');
-  const [watchedList, setWatchedList] = useState<number[]>(() => getWatchedFiles(show.id));
-  const [customSearchQuery, setCustomSearchQuery] = useState(show.name);
-  const [viewMode, setViewMode] = useState<'torrents' | 'tmdb'>('torrents');
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Auto-scroll to selected torrent or last played episode on mount / return from player
-  useEffect(() => {
-    if (selectedTorrent) {
-      const timer = setTimeout(() => {
-        const target = lastPlayedFileId
-          ? document.getElementById(`episode-file-${lastPlayedFileId}`)
-          : document.getElementById('season-torrent-episodes-container');
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        } else {
-          const container = document.getElementById('season-torrent-episodes-container');
-          container?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        }
-      }, 150);
-      return () => clearTimeout(timer);
-    }
+  const showToast = useCallback((msg: string) => {
+    setToastMessage(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMessage(null), 3500);
   }, []);
 
-  // Load torrents for this show with multi-query smart search
-  const fetchTorrents = async (queryText?: string) => {
-    const q = queryText || show.name;
-    if (!q.trim()) return;
+  const [internalSeason, setInternalSeason] = useState(() => {
+    if (season !== undefined && season > 0) return season;
+    try {
+      const saved = localStorage.getItem(`last_season_${show.id}`);
+      if (saved) {
+        const s = parseInt(saved, 10);
+        if (s > 0) return s;
+      }
+    } catch {}
+    return 1;
+  });
+
+  const activeSeason = season !== undefined ? season : internalSeason;
+
+  const handleSelectSeason = (s: number) => {
+    setInternalSeason(s);
+    try {
+      localStorage.setItem(`last_season_${show.id}`, String(s));
+    } catch {}
+    onSelectSeason?.(s);
+  };
+
+  const [episodesList, setEpisodesList] = useState<Episode[]>(tmdbEpisodes || []);
+  const [loadingEpisodes, setLoadingEpisodes] = useState(false);
+
+  useEffect(() => {
+    if (season !== undefined) {
+      setInternalSeason(season);
+    }
+  }, [season]);
+
+  // Sync / fetch episodes
+  useEffect(() => {
+    if (tmdbEpisodes && tmdbEpisodes.length > 0) {
+      setEpisodesList(tmdbEpisodes);
+      return;
+    }
+    if (!show.id) return;
+    let cancelled = false;
+    setLoadingEpisodes(true);
+    apiFetch<{ episodes: Episode[] }>(`/api/tv/${show.id}/season/${activeSeason}`)
+      .then((res) => {
+        if (!cancelled) {
+          setEpisodesList(res.episodes || []);
+          setLoadingEpisodes(false);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          console.warn('[SeasonTorrentBrowser] Failed to fetch episodes:', err);
+          setEpisodesList([]);
+          setLoadingEpisodes(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [show.id, activeSeason, tmdbEpisodes]);
+
+  const seasonsCount = show.seasonsCount || totalSeasons || (show.seasons && show.seasons.length) || Math.max(activeSeason, 1);
+  const seasonList = useMemo(
+    () => Array.from({ length: Math.max(1, Math.min(seasonsCount, 40)) }, (_, i) => i + 1),
+    [seasonsCount]
+  );
+
+  // Fetch all torrent releases for this show in the background
+  const fetchTorrentsList = useCallback(async (queryText?: string): Promise<TorrentItem[]> => {
+    const q = (queryText || show.name).trim();
+    if (!q) return [];
     setLoadingTorrents(true);
     try {
       const queries = getTorrentSmartQueries({
-        name: q.trim(),
+        name: q,
         originalTitle: show.originalTitle,
         logoText: show.logoText,
       });
@@ -231,674 +166,400 @@ export default function SeasonTorrentBrowser({
           }
         }
       }
-      setAllTorrents(merged);
+      return merged;
     } catch {
-      setAllTorrents([]);
+      return [];
     } finally {
       setLoadingTorrents(false);
     }
-  };
+  }, [show.id, show.name, show.originalTitle, show.logoText]);
 
   useEffect(() => {
-    setCustomSearchQuery(show.name);
-    fetchTorrents(show.name);
-  }, [show.id, show.name]);
-
-  // When season changes, check for previously chosen torrent & files
-  useEffect(() => {
-    const saved = getSavedSeasonData(show.id, season);
-    if (saved) {
-      setSelectedTorrent(saved.torrent);
-      if (saved.files && saved.files.length > 0) {
-        setFiles(saved.files);
-      } else {
-        loadTorrentFiles(saved.torrent);
-      }
-      if (saved.lastPlayedFileId) {
-        setLastPlayedFileId(saved.lastPlayedFileId);
-      }
-    } else {
-      setSelectedTorrent(null);
-      setFiles(null);
-      setFileError(null);
-      setLastPlayedFileId(null);
-    }
-  }, [show.id, season]);
-
-  const [loadingStepText, setLoadingStepText] = useState<string | null>(null);
-
-  // Filter torrents matching this season, with fallback to all show releases if no exact match found
-  const { seasonTorrents, isSeasonFallback } = useMemo(() => {
-    const s = season;
-
-    let filtered = allTorrents.filter((item) => {
-      // Check season patterns using smart season matcher
-      if (!matchesTorrentSeason(item.title, s)) return false;
-
-      // Quality filter
-      const tLower = item.title.toLowerCase();
-      if (qualityFilter === '4k') {
-        return tLower.includes('2160') || tLower.includes('4k') || tLower.includes('uhd');
-      }
-      if (qualityFilter === '1080p') {
-        return tLower.includes('1080');
-      }
-      if (qualityFilter === '720p') {
-        return tLower.includes('720');
-      }
-
-      return true;
+    fetchTorrentsList().then((res) => {
+      setAllTorrents(res);
     });
+  }, [fetchTorrentsList]);
 
-    let isFallback = false;
-    if (filtered.length === 0 && allTorrents.length > 0) {
-      filtered = allTorrents.filter((item) => {
-        const tLower = item.title.toLowerCase();
-        if (qualityFilter === '4k') {
-          return tLower.includes('2160') || tLower.includes('4k') || tLower.includes('uhd');
-        }
-        if (qualityFilter === '1080p') {
-          return tLower.includes('1080');
-        }
-        if (qualityFilter === '720p') {
-          return tLower.includes('720');
-        }
-        return true;
-      });
-      isFallback = true;
-    }
+  // 1-Click Smart Episode Playback (matches Samsung TV behavior 1-in-1)
+  const handlePlayEpisode = async (ep: Episode) => {
+    if (loadingEpisodeNum !== null) return;
+    setLoadingEpisodeNum(ep.episode);
+    setLoadingStatus('Поиск серии...');
 
-    filtered.sort((a, b) => {
-      if (sortBy === 'score') return scoreTorrent(b) - scoreTorrent(a);
-      if (sortBy === 'seeds') return (b.seeders || 0) - (a.seeders || 0);
-      if (sortBy === 'date') {
-        const da = a.date ? new Date(a.date).getTime() : 0;
-        const db = b.date ? new Date(b.date).getTime() : 0;
-        return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
-      }
-      if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
-      return scoreTorrent(b) - scoreTorrent(a);
-    });
-
-    return { seasonTorrents: filtered, isSeasonFallback: isFallback };
-  }, [allTorrents, season, qualityFilter, sortBy]);
-
-  // Load files from TorrServer for a selected torrent with auto-retry
-  const loadTorrentFiles = async (torrent: TorrentItem, retryAttempt = 0) => {
-    setLoadingFiles(true);
-    setFileError(null);
-    setLoadingStepText(retryAttempt > 0 ? `Поиск пиров и загрузка списка серий... (попытка ${retryAttempt + 1} из 3)` : 'Подключение к раздаче и опрос пиров...');
     try {
-      const res = await serverFetch('/api/torrents/stream', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ magnet: torrent.magnet, title: torrent.title }),
-      });
-      const data = await res.json();
-      if (data.pending || (data.error && (!data.files || data.files.length === 0))) {
-        if (retryAttempt < 2) {
-          setLoadingStepText('Ожидание ответа TorrServer... (повтор через 2 сек)');
-          setTimeout(() => {
-            loadTorrentFiles(torrent, retryAttempt + 1);
-          }, 2000);
-          return;
-        }
-        setFileError(data.error || 'Раздача пока недоступна (нет активных пиров). Выберите другую раздачу из списка.');
-      } else if (data.files && data.files.length > 0) {
-        setFiles(data.files);
-        saveSeasonData(show.id, season, {
-          torrent,
-          files: data.files,
-          lastPlayedFileId: lastPlayedFileId || undefined,
-          timestamp: Date.now(),
-        });
-      } else {
-        setFileError('В этой раздаче не найдено поддерживаемых видеофайлов.');
+      let torrents = allTorrents;
+      if (!torrents || torrents.length === 0) {
+        torrents = await fetchTorrentsList();
+        setAllTorrents(torrents);
       }
-    } catch (err: any) {
-      if (retryAttempt < 2) {
-        setTimeout(() => {
-          loadTorrentFiles(torrent, retryAttempt + 1);
-        }, 2000);
+
+      if (!torrents || torrents.length === 0) {
+        showToast('Торренты не найдены. Открываем источники...');
+        setActiveTab('sources');
+        setLoadingEpisodeNum(null);
         return;
       }
-      setFileError(err.message || 'Ошибка подключения к TorrServer');
-    } finally {
-      if (retryAttempt >= 2) {
-        setLoadingFiles(false);
-        setLoadingStepText(null);
-      }
-    }
-  };
 
-  const handleSelectTorrent = (torrent: TorrentItem) => {
-    setSelectedTorrent(torrent);
-    loadTorrentFiles(torrent);
-  };
+      // Filter by season
+      let filtered = torrents.filter((item) => matchesTorrentSeason(item.title, activeSeason));
+      if (filtered.length === 0) filtered = torrents;
 
-  const handleChangeTorrent = () => {
-    setSelectedTorrent(null);
-    setFiles(null);
-    setFileError(null);
-    setLastPlayedFileId(null);
-    saveSeasonData(show.id, season, null);
-  };
+      // Score torrents by episode match
+      const epMatches: Array<TorrentItem & { _score: number }> = [];
+      const epFallbacks: Array<TorrentItem & { _score: number }> = [];
 
-  const handlePlayFile = (file: TorrentFile, index: number, epNumber: number) => {
-    saveWatchedFile(show.id, file.id);
-    setWatchedList((prev) => [...prev, file.id]);
-    setLastPlayedFileId(file.id);
-
-    if (selectedTorrent && files) {
-      saveSeasonData(show.id, season, {
-        torrent: selectedTorrent,
-        files,
-        lastPlayedFileId: file.id,
-        timestamp: Date.now(),
+      filtered.forEach((item) => {
+        const check = checkTorrentEpisode(item.title, activeSeason, ep.episode);
+        if (check.matches) {
+          epMatches.push({ ...item, _score: scoreTorrent(item) + (check.score || 0) });
+        } else {
+          epFallbacks.push({ ...item, _score: scoreTorrent(item) - 1000 });
+        }
       });
+
+      const candidates = (epMatches.length > 0 ? epMatches : epFallbacks).sort((a, b) => b._score - a._score);
+
+      // Check for saved preferred torrent
+      const savedKey = `season_torrent_${show.id}_${activeSeason}`;
+      let savedTorrent: any = null;
+      try {
+        savedTorrent = JSON.parse(localStorage.getItem(savedKey) || 'null');
+      } catch {}
+
+      if (savedTorrent?.magnet) {
+        const sIdx = candidates.findIndex((c) => c.magnet === savedTorrent.magnet);
+        if (sIdx > 0) {
+          const preferred = candidates.splice(sIdx, 1)[0];
+          candidates.unshift(preferred);
+        }
+      }
+
+      // Loop over candidate torrents (try up to 5 best options)
+      let matchedFile: any = null;
+      let matchedTorrent: any = null;
+
+      for (let i = 0; i < Math.min(candidates.length, 5); i++) {
+        const cand = candidates[i];
+        setLoadingStatus(i === 0 ? 'Подключение к раздаче...' : `Вариант ${i + 1}...`);
+
+        try {
+          const res = await serverFetch('/api/torrents/stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ magnet: cand.magnet, title: cand.title }),
+          });
+          const data = await res.json();
+          if (data.files && data.files.length > 0) {
+            // Find file matching episode
+            for (let f = 0; f < data.files.length; f++) {
+              const file = data.files[f];
+              const epInFile = extractEpisodeNumber(file.name, f, activeSeason);
+              if (epInFile === ep.episode) {
+                matchedFile = file;
+                matchedTorrent = cand;
+                break;
+              }
+            }
+
+            // Fallback for single-episode torrent release where cand matched exact episode
+            if (!matchedFile && data.files.length === 1) {
+              const check = checkTorrentEpisode(cand.title, activeSeason, ep.episode);
+              if (check.exact) {
+                matchedFile = data.files[0];
+                matchedTorrent = cand;
+              }
+            }
+
+            if (matchedFile) break;
+          }
+        } catch (e) {
+          console.warn('[SeasonTorrentBrowser] Candidate failed:', cand.title, e);
+        }
+      }
+
+      if (matchedFile && matchedTorrent) {
+        setLoadingStatus('Запуск...');
+
+        // Remember preferred torrent for this season
+        try {
+          localStorage.setItem(savedKey, JSON.stringify({ magnet: matchedTorrent.magnet, title: matchedTorrent.title }));
+          localStorage.setItem(`last_season_${show.id}`, String(activeSeason));
+        } catch {}
+
+        const baseName = show.name;
+        const epTitle = ep.title ? ` «${ep.title}»` : '';
+        const episodeLabel = `Сезон ${activeSeason}, Серия ${ep.episode}${epTitle}`;
+        const fullTitleName = `${baseName} · S${activeSeason} E${ep.episode}${epTitle}`;
+
+        onPlay(
+          {
+            ...show,
+            name: fullTitleName,
+            videoUrl: matchedFile.hlsUrl || matchedFile.streamUrl,
+            directUrl: matchedFile.directUrl,
+            hlsUrl: matchedFile.hlsUrl,
+            episode: episodeLabel,
+            poster: ep.thumbnail ? serverUrl(ep.thumbnail) : show.poster,
+          },
+          matchedFile.externalSubs || []
+        );
+      } else {
+        showToast(`Серия ${ep.episode} не найдена в торрентах. Переключаем на онлайн-источники...`);
+        setActiveTab('sources');
+      }
+    } catch (err: any) {
+      showToast(err.message || 'Ошибка воспроизведения');
+    } finally {
+      setLoadingEpisodeNum(null);
+      setLoadingStatus('');
     }
-
-    // Remember season
-    try {
-      localStorage.setItem(`last_season_${show.id}`, String(season));
-    } catch {}
-
-    const baseName = getBaseShowName(show.name);
-    const tmdbMatch = tmdbEpisodes.find((e) => e.episode === epNumber) || tmdbEpisodes[index];
-    const epTitle = tmdbMatch?.title ? ` «${tmdbMatch.title}»` : '';
-    const episodeLabel = `Сезон ${season}, Серия ${epNumber}${epTitle}`;
-
-    onPlay(
-      {
-        ...show,
-        name: baseName,
-        videoUrl: file.hlsUrl || file.streamUrl,
-        directUrl: file.directUrl,
-        hlsUrl: file.hlsUrl,
-        episode: episodeLabel,
-      },
-      file.externalSubs || []
-    );
   };
 
   return (
     <div className="space-y-6">
-      {/* Top Controls: Mode Switcher */}
-      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] pb-4">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setViewMode('torrents')}
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
-            style={{
-              background: viewMode === 'torrents' ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-              color: viewMode === 'torrents' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-              border: viewMode === 'torrents' ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-            }}
-          >
-            <Magnet className="h-4 w-4" />
-            <span>Раздачи и серии сезона</span>
-            {seasonTorrents.length > 0 && (
-              <span className="rounded-full bg-amber-400/20 px-2 py-0.2 text-[10px] font-bold text-amber-300">
-                {seasonTorrents.length}
-              </span>
-            )}
-          </button>
-
-          <button
-            onClick={() => setViewMode('tmdb')}
-            className="flex items-center gap-2 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
-            style={{
-              background: viewMode === 'tmdb' ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-              color: viewMode === 'tmdb' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
-              border: viewMode === 'tmdb' ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-            }}
-          >
-            <span>Описание серий (TMDB)</span>
-            <span className="text-[11px] text-white/40">({tmdbEpisodes.length})</span>
-          </button>
+      {/* Toast message notification */}
+      {toastMessage && (
+        <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-amber-400 px-5 py-2.5 text-[13px] font-bold text-black shadow-2xl animate-fade-in">
+          <AlertCircle className="w-4 h-4 text-black flex-shrink-0" />
+          <span>{toastMessage}</span>
         </div>
+      )}
 
-        {/* Selected Torrent indicator */}
-        {selectedTorrent && viewMode === 'torrents' && (
-          <button
-            onClick={handleChangeTorrent}
-            className="flex items-center gap-2 rounded-full bg-white/[0.06] hover:bg-white/[0.1] border border-white/10 px-3.5 py-1.5 text-[12px] text-white/80 transition-cinematic"
-          >
-            <RefreshCw className="h-3.5 w-3.5 text-amber-300" />
-            <span>Сменить торрент-раздачу</span>
-          </button>
-        )}
+      {/* Tabs: [Серии] | [Торренты] | [Источники] */}
+      <div className="flex flex-wrap items-center gap-2 border-b border-white/[0.06] pb-5">
+        <button
+          onClick={() => setActiveTab('episodes')}
+          className="rounded-full px-6 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer"
+          style={{
+            background: activeTab === 'episodes' ? 'rgba(232, 193, 112, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+            color: activeTab === 'episodes' ? '#e8c170' : 'rgba(255, 255, 255, 0.65)',
+            border: activeTab === 'episodes' ? '1px solid rgba(232, 193, 112, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: activeTab === 'episodes' ? '0 0 16px -4px rgba(232, 193, 112, 0.3)' : 'none',
+          }}
+        >
+          Серии
+        </button>
+
+        <button
+          onClick={() => setActiveTab('torrents')}
+          className="rounded-full px-6 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer"
+          style={{
+            background: activeTab === 'torrents' ? 'rgba(232, 193, 112, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+            color: activeTab === 'torrents' ? '#e8c170' : 'rgba(255, 255, 255, 0.65)',
+            border: activeTab === 'torrents' ? '1px solid rgba(232, 193, 112, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: activeTab === 'torrents' ? '0 0 16px -4px rgba(232, 193, 112, 0.3)' : 'none',
+          }}
+        >
+          Торренты
+        </button>
+
+        <button
+          onClick={() => setActiveTab('sources')}
+          className="rounded-full px-6 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer"
+          style={{
+            background: activeTab === 'sources' ? 'rgba(232, 193, 112, 0.18)' : 'rgba(255, 255, 255, 0.04)',
+            color: activeTab === 'sources' ? '#e8c170' : 'rgba(255, 255, 255, 0.65)',
+            border: activeTab === 'sources' ? '1px solid rgba(232, 193, 112, 0.35)' : '1px solid rgba(255, 255, 255, 0.08)',
+            boxShadow: activeTab === 'sources' ? '0 0 16px -4px rgba(232, 193, 112, 0.3)' : 'none',
+          }}
+        >
+          Источники
+        </button>
       </div>
 
-      {/* MODE 1: TORRENTS & EPISODES WORKFLOW */}
-      {viewMode === 'torrents' && (
-        <>
-          {/* STATE A: A torrent is chosen -> SHOW ITS EPISODES! */}
-          {selectedTorrent ? (
-            <div id="season-torrent-episodes-container" className="space-y-4 animate-fade-in scroll-mt-24">
-              {/* Active Torrent Banner */}
-              <div className="rounded-[16px] border border-amber-300/30 bg-amber-300/[0.04] p-5 shadow-lg shadow-black/20">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-2.5 min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="rounded-full bg-amber-400/20 px-2.5 py-0.5 text-[11px] font-bold text-amber-300 border border-amber-400/30">
-                        Выбранная раздача для {season} сезона
-                      </span>
-                    </div>
+      {/* Season Row: 1 сезон, 2 сезон, ..., 22 сезон (Shown for Episodes and Torrents tabs) */}
+      {activeTab !== 'sources' && (
+        <div className="flex items-center gap-3.5 mb-6">
+          <span className="text-[13px] font-bold text-white/50 uppercase tracking-wider flex-shrink-0">
+            Сезон:
+          </span>
+          <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
+            {seasonList.map((s) => {
+              const isAct = activeSeason === s;
+              return (
+                <button
+                  key={s}
+                  onClick={() => handleSelectSeason(s)}
+                  className="flex-shrink-0 rounded-full px-5 py-2 text-[14px] font-medium transition-all duration-200 cursor-pointer"
+                  style={{
+                    background: isAct ? 'rgba(110, 231, 183, 0.18)' : 'rgba(255, 255, 255, 0.05)',
+                    color: isAct ? '#6ee7b7' : 'rgba(255, 255, 255, 0.75)',
+                    border: isAct ? '1px solid rgba(110, 231, 183, 0.45)' : '1px solid rgba(255, 255, 255, 0.1)',
+                    boxShadow: isAct ? '0 0 14px -3px rgba(110, 231, 183, 0.3)' : 'none',
+                  }}
+                >
+                  {s} сезон
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-                    <h3 className="text-[15px] font-semibold text-white/95 line-clamp-2 leading-snug">
-                      {selectedTorrent.title}
-                    </h3>
-
-                    <TorrentBadges
-                      title={selectedTorrent.title}
-                      tracker={selectedTorrent.tracker}
-                      sizeFormatted={selectedTorrent.sizeFormatted}
-                      seeders={selectedTorrent.seeders}
-                      peers={selectedTorrent.peers}
-                    />
-                  </div>
-
-                  <button
-                    onClick={handleChangeTorrent}
-                    className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/[0.06] hover:bg-white/15 px-4 py-2 text-[12px] font-semibold text-white transition-cinematic shrink-0 shadow"
-                  >
-                    <span>Выбрать другой торрент</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Loading files from TorrServer */}
-              {loadingFiles && (
-                <div className="flex flex-col items-center justify-center p-12 text-white/60 animate-fade-in">
-                  <RefreshCw className="h-8 w-8 animate-spin text-amber-300 mb-3" />
-                  <p className="text-[14px] font-medium">{loadingStepText || 'Подключение к раздаче и получение списка серий...'}</p>
-                  <p className="text-[12px] text-white/35 mt-1">TorrServer опрашивает пиров и загружает структуру торрента</p>
-                </div>
+      {/* TAB 1: [Серии] — Complete Episodes List from TMDB (1 в 1 как на ТВ) */}
+      {activeTab === 'episodes' && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between pb-1">
+            <h3 className="text-[18px] font-bold text-white flex items-center gap-2">
+              <span>Серии {activeSeason} сезона</span>
+              {episodesList.length > 0 && (
+                <span className="text-[13px] font-normal text-white/50">
+                  ({episodesList.length} {episodesList.length === 1 ? 'серия' : episodesList.length < 5 ? 'серии' : 'серий'})
+                </span>
               )}
+            </h3>
+            {loadingTorrents && (
+              <span className="text-[12px] text-amber-300/80 flex items-center gap-1.5 animate-pulse">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                Синхронизация торрентов...
+              </span>
+            )}
+          </div>
 
-              {/* Error loading files */}
-              {fileError && !loadingFiles && (
-                <div className="rounded-[16px] border border-rose-500/30 bg-rose-500/10 p-5 text-rose-300 animate-fade-in">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
-                    <span className="font-semibold text-[14px]">Не удалось загрузить серии из этой раздачи</span>
-                  </div>
-                  <p className="text-[13px] text-rose-300/80 mb-4">{fileError}</p>
-                  <div className="flex flex-wrap items-center gap-3">
-                    {selectedTorrent && (
-                      <button
-                        onClick={() => loadTorrentFiles(selectedTorrent)}
-                        className="flex items-center gap-2 rounded-full bg-amber-400 hover:bg-amber-300 text-black px-4 py-2 text-[12px] font-bold transition-cinematic shadow"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" />
-                        <span>Повторить попытку</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={handleChangeTorrent}
-                      className="rounded-full bg-white/10 hover:bg-white/20 border border-white/20 px-4 py-2 text-[12px] font-medium text-white transition-cinematic"
-                    >
-                      Выбрать другую раздачу из списка
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Episode Files List with Preview Thumbnails */}
-              {files && files.length > 0 && (
-                <div className="space-y-3 animate-fade-in">
-                  <div className="flex items-center justify-between px-1 mb-1">
-                    <h4 className="text-[15px] font-medium text-white/90">
-                      Серии {season} сезона ({files.length} серий в раздаче)
-                    </h4>
-                    <span className="text-[12px] text-white/40">
-                      Нажмите на серию или «Смотреть» для воспроизведения
-                    </span>
-                  </div>
-
-                  {files.map((file, idx) => {
-                    const isWatched = watchedList.includes(file.id);
-                    const isLastPlayed = lastPlayedFileId === file.id;
-                    const epNumber = extractEpisodeNumber(file.name, idx, season);
-                    const tmdbMatch = tmdbEpisodes.find((e) => e.episode === epNumber) || tmdbEpisodes[idx];
-
-                    return (
-                      <div
-                        key={file.id}
-                        id={`episode-file-${file.id}`}
-                        onClick={() => handlePlayFile(file, idx, epNumber)}
-                        className={`group/file relative flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[16px] p-3.5 sm:p-4 transition-cinematic cursor-pointer ${
-                          isLastPlayed
-                            ? 'bg-amber-400/[0.09] border-2 border-amber-400/40 shadow-lg shadow-amber-400/5'
-                            : isWatched
-                            ? 'bg-white/[0.025] border border-white/[0.08] hover:bg-white/[0.06] hover:border-amber-300/30'
-                            : 'bg-white/[0.035] border border-white/[0.06] hover:bg-white/[0.08] hover:border-amber-300/30'
-                        }`}
-                      >
-                        <div className="flex items-start sm:items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
-                          {/* 16:9 Preview Thumbnail */}
-                          <div className="relative h-20 w-36 sm:h-24 sm:w-44 shrink-0 overflow-hidden rounded-[10px] bg-black/50 border border-white/[0.08] group-hover/file:border-amber-300/40 transition-cinematic">
-                            {tmdbMatch?.thumbnail ? (
-                              <SafeImg
-                                src={tmdbMatch.thumbnail}
-                                alt={tmdbMatch.title || file.name}
-                                className="h-full w-full object-cover transition-cinematic duration-500 group-hover/file:scale-105"
-                              />
-                            ) : (
-                              <div className="flex h-full w-full items-center justify-center bg-white/[0.02]">
-                                <Play className="h-7 w-7 text-white/20" />
-                              </div>
-                            )}
-
-                            {/* Episode number badge */}
-                            <div className="absolute top-1.5 left-1.5 rounded-md bg-black/75 backdrop-blur-md px-2 py-0.5 text-[11px] font-bold text-amber-300 border border-white/10 shadow">
-                              {epNumber}
-                            </div>
-
-                            {/* Runtime badge */}
-                            {tmdbMatch?.runtime && tmdbMatch.runtime !== '—' && (
-                              <div className="absolute bottom-1.5 right-1.5 rounded-md bg-black/75 backdrop-blur-md px-1.5 py-0.5 text-[10px] font-medium text-white/80 border border-white/10">
-                                {tmdbMatch.runtime}
-                              </div>
-                            )}
-
-                            {/* Play hover overlay */}
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/35 opacity-0 group-hover/file:opacity-100 transition-opacity">
-                              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black shadow-lg transform transition-transform group-hover/file:scale-110">
-                                <Play className="h-4 w-4 fill-current ml-0.5" />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Episode Details */}
-                          <div className="min-w-0 flex-1 py-0.5">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <span className="font-semibold text-[14px] text-amber-300">
-                                Серия {epNumber}
-                              </span>
-                              {tmdbMatch?.title && (
-                                <span className="text-[14px] font-medium text-white/95 truncate">
-                                  — {tmdbMatch.title}
-                                </span>
-                              )}
-                              {isLastPlayed && (
-                                <span className="flex items-center gap-1 rounded-full bg-amber-400/20 border border-amber-400/30 px-2 py-0.5 text-[10px] font-bold text-amber-300 animate-pulse">
-                                  Текущая серия
-                                </span>
-                              )}
-                              {isWatched && !isLastPlayed && (
-                                <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 border border-emerald-400/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
-                                  <Check className="h-3 w-3" /> Просмотрено
-                                </span>
-                              )}
-                            </div>
-
-                            {/* Technical file name */}
-                            <div className="mt-1 truncate font-mono text-[11px] text-white/40">
-                              {file.name}
-                            </div>
-
-                            {/* TMDB Synopsis */}
-                            {tmdbMatch?.synopsis && (
-                              <p className="mt-1.5 line-clamp-2 text-[12px] leading-relaxed text-white/60">
-                                {tmdbMatch.synopsis}
-                              </p>
-                            )}
-                          </div>
-                        </div>
-
-                        {/* Right side size and action button */}
-                        <div className="flex items-center justify-between sm:justify-end gap-4 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-white/[0.04]">
-                          <span className="text-[12px] text-white/45 font-medium">
-                            {file.sizeFormatted}
-                          </span>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handlePlayFile(file, idx, epNumber);
-                            }}
-                            className="flex items-center gap-2 rounded-full bg-white hover:bg-amber-300 px-5 py-2 text-[13px] font-semibold text-black transition-cinematic hover:scale-105 active:scale-95 shadow-md shadow-black/40"
-                          >
-                            <Play className="h-3.5 w-3.5 fill-current" />
-                            <span>Смотреть</span>
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          {loadingEpisodes ? (
+            <div className="rounded-2xl p-12 bg-white/[0.03] border border-white/[0.08] flex items-center justify-center gap-3 text-white/60">
+              <Loader2 className="w-5 h-5 animate-spin text-amber-300" />
+              <span>Загрузка серий {activeSeason} сезона...</span>
+            </div>
+          ) : episodesList.length === 0 ? (
+            <div className="rounded-2xl p-8 bg-white/[0.03] border border-white/[0.08] text-center space-y-3">
+              <p className="text-white/60 text-[15px]">Серии {activeSeason} сезона не найдены в TMDB</p>
+              <button
+                onClick={() => setActiveTab('torrents')}
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full bg-amber-400/20 border border-amber-400/40 text-amber-300 text-[13px] font-semibold hover:bg-amber-400/30 transition-all cursor-pointer"
+              >
+                Открыть вкладку «Торренты»
+              </button>
             </div>
           ) : (
-            /* STATE B: NO TORRENT CHOSEN YET -> SHOW LIST OF TORRENTS FOR THIS SEASON */
-            <div className="space-y-4 animate-fade-in">
-              {/* Header & Search */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div>
-                  <h3 className="text-[16px] font-medium text-white/95">
-                    Выберите раздачу для {season} сезона
-                  </h3>
-                  <p className="mt-0.5 text-[12px] text-white/40">
-                    Выберите подходящую озвучку и качество — откроются серии для онлайн-просмотра
-                  </p>
-                </div>
+            <div className="flex flex-col gap-3.5">
+              {episodesList.map((ep) => {
+                const epStill = ep.thumbnail
+                  ? serverUrl(ep.thumbnail)
+                  : show.backdrop
+                  ? serverUrl(show.backdrop)
+                  : show.poster;
+                const epTitle = ep.title || `Серия ${ep.episode}`;
+                const duration = ep.runtime && ep.runtime !== '—' ? ep.runtime : '';
+                const isLoadingThis = loadingEpisodeNum === ep.episode;
 
-                {/* Optional manual search input */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    fetchTorrents(customSearchQuery);
-                  }}
-                  className="flex items-center gap-2 max-w-sm w-full sm:w-auto"
-                >
-                  <div className="relative flex-1 sm:w-60">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-white/40" />
-                    <input
-                      type="text"
-                      value={customSearchQuery}
-                      onChange={(e) => setCustomSearchQuery(e.target.value)}
-                      placeholder="Уточнить поиск сериала..."
-                      className="w-full rounded-full bg-white/[0.05] border border-white/10 pl-8 pr-7 py-1.5 text-[12px] text-white placeholder-white/30 focus:border-amber-400/50 focus:outline-none transition-cinematic"
-                    />
-                    {customSearchQuery && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setCustomSearchQuery(show.name);
-                          fetchTorrents(show.name);
-                        }}
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </div>
-                  <button
-                    type="submit"
-                    disabled={loadingTorrents}
-                    className="rounded-full bg-white/10 hover:bg-amber-300 hover:text-black border border-white/10 px-3.5 py-1.5 text-[12px] font-medium text-white transition-cinematic disabled:opacity-50 shrink-0"
+                return (
+                  <div
+                    key={ep.id || ep.episode}
+                    id={`episode-${ep.id || ep.episode}`}
+                    onClick={() => handlePlayEpisode(ep)}
+                    className="group relative flex flex-col md:flex-row items-start md:items-center gap-5 p-3.5 md:p-4 rounded-2xl bg-white/[0.03] border border-white/[0.08] hover:bg-[#e8c170]/[0.08] hover:border-[#e8c170]/40 transition-all duration-200 cursor-pointer shadow-lg hover:shadow-2xl hover:translate-x-1"
                   >
-                    Поиск
-                  </button>
-                </form>
-              </div>
-
-              {/* Quality & Sort Controls */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-white/[0.04] pt-3">
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-white/40 mr-1">Сортировка:</span>
-                  {[
-                    { id: 'score', label: 'По рейтингу' },
-                    { id: 'seeds', label: 'По сидам' },
-                    { id: 'date', label: 'По дате' },
-                    { id: 'size', label: 'По размеру' },
-                  ].map((s) => (
-                    <button
-                      key={s.id}
-                      onClick={() => setSortBy(s.id as any)}
-                      className="flex items-center gap-1.5 rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                      style={{
-                        background: sortBy === s.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-                        color: sortBy === s.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                        border: sortBy === s.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      {s.id === 'score' && <Sparkles className="h-3 w-3 text-amber-300" />}
-                      <span>{s.label}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="flex flex-wrap items-center gap-1.5">
-                  <span className="text-[11px] text-white/40 mr-1">Качество:</span>
-                  {[
-                    { id: 'all', label: 'Все' },
-                    { id: '4k', label: '4K UHD' },
-                    { id: '1080p', label: '1080p' },
-                    { id: '720p', label: '720p' },
-                  ].map((q) => (
-                    <button
-                      key={q.id}
-                      onClick={() => setQualityFilter(q.id as any)}
-                      className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                      style={{
-                        background: qualityFilter === q.id ? 'rgba(232,193,112,0.18)' : 'rgba(255,255,255,0.04)',
-                        color: qualityFilter === q.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                        border: qualityFilter === q.id ? '1px solid rgba(232,193,112,0.3)' : '1px solid rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      {q.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Loading state */}
-              {loadingTorrents && (
-                <div className="flex flex-col items-center justify-center p-12 text-white/50 animate-fade-in">
-                  <RefreshCw className="h-7 w-7 animate-spin text-amber-300 mb-2" />
-                  <span className="text-[13px]">Поиск доступных раздач {season} сезона...</span>
-                </div>
-              )}
-
-              {/* No torrents found */}
-              {!loadingTorrents && seasonTorrents.length === 0 && (
-                <div className="rounded-[16px] border border-white/[0.06] bg-white/[0.02] p-8 text-center">
-                  <p className="text-[14px] text-white/60">
-                    Не найдено подходящих раздач для сезона {season} {qualityFilter !== 'all' ? `(фильтр ${qualityFilter})` : ''}.
-                  </p>
-                  <p className="text-[12px] text-white/35 mt-1 mb-4">
-                    Попробуйте сбросить фильтр качества или уточнить поисковый запрос выше.
-                  </p>
-                  {qualityFilter !== 'all' && (
-                    <button
-                      onClick={() => setQualityFilter('all')}
-                      className="rounded-full bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-1.5 text-[12px] font-medium text-white transition-cinematic"
-                    >
-                      Сбросить фильтр качества
-                    </button>
-                  )}
-                </div>
-              )}
-
-              {/* Fallback notice if no exact match for this season */}
-              {isSeasonFallback && seasonTorrents.length > 0 && (
-                <div className="rounded-[12px] border border-amber-300/25 bg-amber-300/[0.06] p-3.5 text-[13px] text-amber-200/90 flex items-center gap-2.5 animate-fade-in">
-                  <Sparkles className="h-4 w-4 text-amber-400 shrink-0" />
-                  <span>Показаны все доступные раздачи сериала (точных совпадений для {season} сезона не найдено):</span>
-                </div>
-              )}
-
-              {/* Torrents list */}
-              {!loadingTorrents && seasonTorrents.length > 0 && (
-                <div className="space-y-2.5">
-                  {seasonTorrents.map((torrent, idx) => {
-                    return (
-                      <div
-                        key={`${torrent.tracker}-${torrent.id}-${idx}`}
-                        onClick={() => handleSelectTorrent(torrent)}
-                        className="group/item flex flex-col md:flex-row md:items-center justify-between gap-4 rounded-[14px] border border-white/[0.06] bg-white/[0.03] p-4 transition-cinematic hover:border-amber-300/30 hover:bg-white/[0.06] cursor-pointer"
-                      >
-                        <div className="space-y-2 min-w-0 flex-1">
-                          <h4 className="text-[14px] font-semibold text-white/95 line-clamp-2 leading-snug group-hover/item:text-amber-300 transition-colors">
-                            {torrent.title}
-                          </h4>
-
-                          <TorrentBadges
-                            title={torrent.title}
-                            tracker={torrent.tracker}
-                            sizeFormatted={torrent.sizeFormatted}
-                            seeders={torrent.seeders}
-                            peers={torrent.peers}
-                          />
-
-                          {torrent.date && (
-                            <div className="text-[11px] text-white/35">
-                              Добавлено: {new Date(torrent.date).toLocaleDateString('ru')}
-                            </div>
-                          )}
+                    {/* Thumbnail: 16:9 still image preview with badges */}
+                    <div className="relative w-full md:w-[260px] h-[146px] rounded-xl overflow-hidden bg-[#11141e] border border-white/10 flex-shrink-0">
+                      <SafeImg
+                        src={epStill}
+                        alt={epTitle}
+                        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                        loading="lazy"
+                      />
+                      {/* Top-left Season/Episode Badge */}
+                      <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-[#0a0c12]/90 border border-[#e8c170]/50 text-[#e8c170] text-[12px] font-extrabold tracking-tight">
+                        S{activeSeason} E{ep.episode}
+                      </div>
+                      {/* Bottom-right Duration Badge */}
+                      {duration && (
+                        <div className="absolute bottom-2.5 right-2.5 px-2 py-0.5 rounded bg-black/85 text-white/85 text-[11px] font-semibold">
+                          {duration}
                         </div>
+                      )}
+                    </div>
 
+                    {/* Content */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-[17px] font-extrabold text-[#e8c170] flex-shrink-0">
+                          {ep.episode}.
+                        </span>
+                        <h4 className="text-[17px] font-bold text-white group-hover:text-amber-300 transition-colors truncate">
+                          {epTitle}
+                        </h4>
+                      </div>
+
+                      {ep.aired && (
+                        <div className="text-[12px] text-white/40">
+                          {ep.aired}
+                        </div>
+                      )}
+
+                      {ep.synopsis ? (
+                        <p className="text-[13px] sm:text-[14px] leading-relaxed text-white/65 line-clamp-2">
+                          {ep.synopsis}
+                        </p>
+                      ) : (
+                        <p className="text-[13px] text-white/40 italic">
+                          Описание серии отсутствует
+                        </p>
+                      )}
+                    </div>
+
+                    {/* Action Button */}
+                    <div className="flex items-center gap-3 self-end md:self-center flex-shrink-0 mt-2 md:mt-0">
+                      {isLoadingThis ? (
+                        <div className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-400/20 border border-amber-400/40 text-amber-300 font-semibold text-[13px] animate-pulse">
+                          <Loader2 className="w-4 h-4 animate-spin text-amber-300" />
+                          <span>{loadingStatus || 'Подключение...'}</span>
+                        </div>
+                      ) : (
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleSelectTorrent(torrent);
+                            handlePlayEpisode(ep);
                           }}
-                          className="flex items-center gap-2 rounded-full bg-white/[0.08] group-hover/item:bg-amber-300 group-hover/item:text-black border border-white/10 px-4 py-2 text-[12px] font-semibold text-white transition-cinematic shrink-0 self-end md:self-center shadow"
+                          className="flex items-center gap-2 px-6 py-2.5 rounded-xl bg-white hover:bg-[#e8c170] text-[#0a0b0f] font-bold text-[14px] transition-all shadow-md active:scale-95 group-hover:bg-[#e8c170] cursor-pointer"
                         >
-                          <Folder className="h-3.5 w-3.5" />
-                          <span>Открыть серии</span>
+                          <Play className="w-4 h-4 fill-current" />
+                          <span>Смотреть</span>
                         </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
-        </>
+        </div>
       )}
 
-      {/* MODE 2: TMDB EPISODES GUIDE */}
-      {viewMode === 'tmdb' && (
-        <div className="space-y-3 animate-fade-in">
-          {tmdbEpisodes.map((ep, i) => (
-            <div
-              key={ep.id}
-              className="flex items-start gap-4 rounded-[14px] border border-white/[0.06] bg-white/[0.03] p-4 text-left"
-            >
-              <div className="relative h-20 w-36 shrink-0 overflow-hidden rounded-[10px] bg-black/40">
-                <img
-                  src={serverUrl(ep.thumbnail || show.backdrop || show.poster || '')}
-                  alt={ep.title}
-                  className="h-full w-full object-cover"
-                  loading="lazy"
-                />
-                <div className="absolute left-2 top-2 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white">
-                  Э{ep.episode}
-                </div>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-semibold text-amber-300">
-                    Серия {ep.episode}
-                  </span>
-                  <h4 className="truncate text-[14px] font-medium text-white/90">
-                    {ep.title}
-                  </h4>
-                </div>
-                <p className="mt-1 line-clamp-2 text-[12px] leading-relaxed text-white/50">
-                  {ep.synopsis || 'Описание отсутствует'}
-                </p>
-                <div className="mt-1.5 flex items-center gap-2 text-[11px] text-white/35">
-                  <Clock className="h-3 w-3" /> {ep.runtime}
-                  <span>·</span>
-                  <span>{ep.aired}</span>
-                </div>
-              </div>
-            </div>
-          ))}
+      {/* TAB 2: [Торренты] — Manual torrent browser with quality filter and files */}
+      {activeTab === 'torrents' && (
+        <div className="space-y-4">
+          <TorrentSearch
+            title={show}
+            initialSeason={activeSeason}
+            onPlay={(url, episodeName, externalSubs, directUrl, hlsUrl) =>
+              onPlay(
+                {
+                  ...show,
+                  videoUrl: hlsUrl || url,
+                  directUrl: directUrl || url,
+                  hlsUrl,
+                  episode: episodeName,
+                },
+                externalSubs
+              )
+            }
+          />
+        </div>
+      )}
+
+      {/* TAB 3: [Источники] — Online Players / Balancers (Collaps, Kodik, Alloha) */}
+      {activeTab === 'sources' && (
+        <div className="space-y-4">
+          <SourceSelector
+            title={show}
+            onPlay={(url) =>
+              onPlay({
+                ...show,
+                videoUrl: url,
+              })
+            }
+          />
         </div>
       )}
     </div>
