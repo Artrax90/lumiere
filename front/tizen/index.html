@@ -1,17 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>
-  window.__DEFAULT_SERVER_URL__ = 'http://192.168.1.196:3500';
-  try {
-    var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
-    if (!cur || /:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1 || cur.indexOf('lumiere.artrax.net') !== -1) {
-      localStorage.setItem('lumiere_server_url', 'http://192.168.1.196:3500');
-      localStorage.setItem('lumiere_tv_server', 'http://192.168.1.196:3500');
-      localStorage.setItem('lumiere_server', 'http://192.168.1.196:3500');
-    }
-  } catch(e) {}
-</script>
   <script type="text/javascript" src="$WEBAPIS/webapis/webapis.js"></script>
   <script>
   if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
@@ -75,8 +64,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="./tv.css?v=584">
-  <link rel="stylesheet" href="./player.css?v=584">
+  <link rel="stylesheet" href="/tv/tv.css?v=584">
+  <link rel="stylesheet" href="/tv/player.css?v=584">
 </head>
 <body>
   <!-- Loading -->
@@ -507,10 +496,10 @@
     </div>
   </div>
 
-  <script src="./hls.min.js?v=585" charset="UTF-8"></script>
-  <script src="./player-adapter.js?v=585" charset="UTF-8"></script>
-  <script src="./player.js?v=585" charset="UTF-8"></script>
-  <script src="./tv.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/hls.min.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/player-adapter.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/player.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/tv.js?v=585" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {

@@ -4526,6 +4526,40 @@
       }
 
       var episodes = data.episodes;
+      var today = new Date().toISOString().slice(0, 10);
+      
+      // Filter out unreleased future episodes
+      var maxAiredNum = 0;
+      var hasAnyDates = false;
+      for (var k = 0; k < episodes.length; k++) {
+        var epCheck = episodes[k];
+        if (epCheck.aired && epCheck.aired !== '—') {
+          var dCheck = String(epCheck.aired).slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dCheck)) {
+            hasAnyDates = true;
+            if (dCheck <= today && epCheck.episode > maxAiredNum) {
+              maxAiredNum = epCheck.episode;
+            }
+          }
+        }
+      }
+
+      if (hasAnyDates && maxAiredNum > 0) {
+        var airedOnly = episodes.filter(function(ep) {
+          if (ep.isAired !== undefined) return ep.isAired;
+          if (ep.aired && ep.aired !== '—') {
+            var dStr = String(ep.aired).slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+              return dStr <= today;
+            }
+          }
+          return ep.episode <= maxAiredNum;
+        });
+        if (airedOnly.length > 0) {
+          episodes = airedOnly;
+        }
+      }
+
       var html = '<div class="episodes-grid">';
       for (var i = 0; i < episodes.length; i++) {
         var ep = episodes[i];
