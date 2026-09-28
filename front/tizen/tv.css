@@ -4261,41 +4261,61 @@ body.player-active .section {
   box-sizing: border-box !important;
   transition: transform 0.22s ease, border-color 0.22s ease, box-shadow 0.22s ease !important;
 }
+.collection-tv-img {
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  filter: brightness(0.65) saturate(0.95) !important;
+  transition: transform 0.3s ease, filter 0.3s ease !important;
+  display: block !important;
+}
 .collection-tv-card .collection-tv-bg {
-  position: absolute;
-  inset: 0;
-  background-size: cover;
-  background-position: center;
-  filter: brightness(0.6) saturate(0.9);
-  transition: transform 0.3s ease, filter 0.3s ease;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background-size: cover !important;
+  background-position: center !important;
+  filter: brightness(0.6) saturate(0.9) !important;
+  transition: transform 0.3s ease, filter 0.3s ease !important;
 }
 .collection-tv-card .collection-tv-overlay {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(8, 9, 13, 0.88) 0%, rgba(8, 9, 13, 0.4) 60%, transparent 100%);
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  padding: 20px 22px;
-  box-sizing: border-box;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  background: linear-gradient(135deg, rgba(8, 9, 13, 0.88) 0%, rgba(8, 9, 13, 0.4) 60%, transparent 100%) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: flex-end !important;
+  padding: 20px 22px !important;
+  box-sizing: border-box !important;
+  z-index: 2 !important;
 }
 .collection-tv-badge {
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 1.5px;
-  margin-bottom: 6px;
-  text-transform: uppercase;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 1.5px !important;
+  margin-bottom: 6px !important;
+  text-transform: uppercase !important;
 }
 .collection-tv-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: #ffffff;
-  margin-bottom: 4px;
+  font-size: 22px !important;
+  font-weight: 700 !important;
+  color: #ffffff !important;
+  margin-bottom: 4px !important;
 }
 .collection-tv-sub {
-  font-size: 14px;
-  color: rgba(255, 255, 255, 0.65);
-  line-height: 1.3;
+  font-size: 14px !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  line-height: 1.3 !important;
 }
 .collection-tv-card:focus,
 .collection-tv-card.focused {
@@ -4305,10 +4325,12 @@ body.player-active .section {
   box-shadow: 0 0 28px rgba(232, 193, 112, 0.65), 0 14px 40px rgba(0, 0, 0, 0.9) !important;
   z-index: 50 !important;
 }
+.collection-tv-card:focus .collection-tv-img,
+.collection-tv-card.focused .collection-tv-img,
 .collection-tv-card:focus .collection-tv-bg,
 .collection-tv-card.focused .collection-tv-bg {
-  transform: scale(1.06);
-  filter: brightness(0.8) saturate(1.1);
+  transform: scale(1.06) !important;
+  filter: brightness(0.85) saturate(1.1) !important;
 }
 
 .collections-tv-grid {

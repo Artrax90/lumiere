@@ -43,7 +43,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Культовые научно-фантастические картины, расширяющие границы воображения и человеческого познания.',
     endpoint: '/api/movies/genre/878',
     accent: 'rgba(99,140,255,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/qeQJx07rK2xm8SD2sJxFKhE7gs0.jpg',
     featured: true,
   },
   {
@@ -63,7 +63,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Захватывающие сюжеты, эстетика и эмоциональные путешествия от ведущих анимационных студий.',
     endpoint: '/api/movies/genre/16',
     accent: 'rgba(244,114,182,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/kkcwhgSFd81QDlXo8ytrpHPQjhy.jpg',
     featured: true,
   },
   {
@@ -73,7 +73,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Самые зрелищные блокбастеры с передовыми спецэффектами и безупречной хореографией экшна.',
     endpoint: '/api/movies/genre/28',
     accent: 'rgba(245,158,11,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/zOpeFTcbAQDgPebL49y0w58mfl3.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/caBIySpwuFi2i7ynvHIlnxJLOdN.jpg',
   },
   {
     id: 'comedy',
@@ -82,7 +82,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Остроумные, легкие и уморительные комедии для отдыха в компании друзей и семьи.',
     endpoint: '/api/movies/genre/35',
     accent: 'rgba(16,185,129,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/ctMserH8g2SeOAnCw5gFjd2NTL6.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/viZqGq9TNvQ5uXSD4ahg2RpRONT.jpg',
   },
   {
     id: 'crime',
@@ -109,7 +109,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Сложные головоломки, неожиданные развязки и расследования гениальных сыщиков.',
     endpoint: '/api/movies/genre/9648',
     accent: 'rgba(129,140,248,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/5mzr6AnAnnavZeMVjSGq39DJ5Ij.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/b9q9VmbXDvJmTziRqkwdEmFdwhr.jpg',
   },
   {
     id: 'adventure',
@@ -118,7 +118,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Путешествия в неизведанные земли, поиски древних артефактов и испытания стихией.',
     endpoint: '/api/movies/genre/12',
     accent: 'rgba(56,189,248,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/vL5LR6WdxWPjC0vWbZ54x4vJmsa.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/lzWHmYZrWpmV7gQI2Vs2dIRGsVn.jpg',
   },
   {
     id: 'family',
@@ -127,7 +127,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Тёплое, вдохновляющее кино для уютного просмотра в кругу самых близких людей.',
     endpoint: '/api/movies/genre/10751',
     accent: 'rgba(52,211,153,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/7BPb7nZ6r4P2H4bSg7m64wQ2GgR.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/4D1pdB27uph7J8HQzNf8QvvH9bn.jpg',
   },
   {
     id: 'fantasy',
@@ -145,7 +145,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Проникновенные сюжеты, раскрывающие силу характера, любовь и сложные жизненные испытания.',
     endpoint: '/api/movies/genre/18',
     accent: 'rgba(251,113,133,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/w71a06B62Xq0U4hG7Qd8lX4z3mE.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/k22XyPbce7zvzzf5OnT4uaY8ZD1.jpg',
   },
   {
     id: 'romance',
@@ -163,7 +163,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Масштабные реконструкции ключевых моментов истории человечества и судьбы правителей.',
     endpoint: '/api/movies/genre/36',
     accent: 'rgba(217,119,6,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/rktDFPbfHfUbArZ6OOOKsXcv0Bm.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/8FCHJ21JBQOgATY2WI8vwYAiXg8.jpg',
   },
   {
     id: 'war',
@@ -172,7 +172,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Суровые хроники боевых действий, героизм солдат и цена мира.',
     endpoint: '/api/movies/genre/10752',
     accent: 'rgba(120,113,108,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/yYrvNvt2CrhuESGd3UvT95ZeO7R.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/1ebY06Gc1eUZcCoO7IoD4tWCFxm.jpg',
   },
   {
     id: 'documentary',
@@ -181,7 +181,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Увлекательные исследования планеты, тайн космоса, технологий и биографий выдающихся людей.',
     endpoint: '/api/movies/genre/99',
     accent: 'rgba(6,182,212,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/h75QJgB0b3D40573e0H1jN5K1qU.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/dUbP1HNdI0aCq1zgRJw28PWSqmk.jpg',
   },
   {
     id: 'music',
@@ -190,7 +190,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Кинематографичные музыкальные шедевры, байопики музыкантов и легендарные мюзиклы.',
     endpoint: '/api/movies/genre/10402',
     accent: 'rgba(236,72,153,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/fOy2JurzKANt6DCvNs29U5i6zY5.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/ufSwlnECLoUbBjPrFqEQcWBzHwc.jpg',
   },
   {
     id: 'western',
@@ -199,7 +199,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Классические и современные истории о бескрайних прериях, законе револьвера и чести.',
     endpoint: '/api/movies/genre/37',
     accent: 'rgba(180,83,9,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/x26Mw1V6d19oIq0V1rM7n4xV06p.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/2oZklIzUbvZXXzIFzv7Hi68d6xf.jpg',
   },
   {
     id: 'tv-drama',
@@ -208,7 +208,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Многосерийные драмы с продуманными до мелочей сюжетами и глубоким раскрытием персонажей.',
     endpoint: '/api/tv/genre/18',
     accent: 'rgba(59,130,246,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/9faGSFi5jam6pDWGNd0id8JimmL.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/dyFTt1a9ZpFdKE96kPlE9fQvXOJ.jpg',
   },
   {
     id: 'tv-scifi',
@@ -217,7 +217,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Масштабные фантастические вселенные, разворачивающиеся на протяжении нескольких сезонов.',
     endpoint: '/api/tv/genre/10765',
     accent: 'rgba(139,92,246,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/2OMB0ynKlyIenMJWI2Dy9IWT4c.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/c2oiRa7V3bQzof4wVGzLXtWJ5QU.jpg',
   },
   {
     id: 'now-playing',
@@ -226,7 +226,7 @@ export const curatedCollections: CollectionDef[] = [
     description: 'Горячие премьеры последних месяцев, только появившиеся на экранах и в сети.',
     endpoint: '/api/movies/now_playing',
     accent: 'rgba(34,197,94,0.75)',
-    bg: 'https://image.tmdb.org/t/p/w780/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg',
+    bg: 'https://image.tmdb.org/t/p/w780/3icyRAqgakNcQn6aDVz9libFmBA.jpg',
   },
 ];
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowUpRight } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
+import { curatedCollections } from './CollectionsView';
 import SafeImg from './SafeImg';
 
 interface CollectionBannerProps {
@@ -33,7 +34,8 @@ export default function CollectionBanner({ onSelect, onSelectCollection }: Colle
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         {collections.map((col, i) => {
           const isHovered = hovered === i;
-          const bgImage = trending[i]?.backdrop || trending[0]?.backdrop || '';
+          const colDef = curatedCollections.find((c) => c.id === col.id);
+          const bgImage = colDef?.bg || trending[i]?.backdrop || trending[0]?.backdrop || '';
           return (
             <button
               key={col.id}

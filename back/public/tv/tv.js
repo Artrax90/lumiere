@@ -3403,27 +3403,27 @@
   // ========== Curated TV Collections ==========
   var TV_COLLECTIONS = [
     { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg', featured: true },
-    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg', featured: true },
+    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/qeQJx07rK2xm8SD2sJxFKhE7gs0.jpg', featured: true },
     { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, endpoint: '/api/movies/genre/53', accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg', featured: true },
-    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg', featured: true },
-    { id: 'action', name: 'Боевики и Экшн', subtitle: 'Драйв, погони и масштабные баталии', genreId: 28, endpoint: '/api/movies/genre/28', accent: '#f59e0b', bg: 'https://image.tmdb.org/t/p/w780/zOpeFTcbAQDgPebL49y0w58mfl3.jpg' },
-    { id: 'comedy', name: 'Комедии и Юмор', subtitle: 'Отличное настроение и море улыбок', genreId: 35, endpoint: '/api/movies/genre/35', accent: '#10b981', bg: 'https://image.tmdb.org/t/p/w780/ctMserH8g2SeOAnCw5gFjd2NTL6.jpg' },
+    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kkcwhgSFd81QDlXo8ytrpHPQjhy.jpg', featured: true },
+    { id: 'action', name: 'Боевики и Экшн', subtitle: 'Драйв, погони и масштабные баталии', genreId: 28, endpoint: '/api/movies/genre/28', accent: '#f59e0b', bg: 'https://image.tmdb.org/t/p/w780/caBIySpwuFi2i7ynvHIlnxJLOdN.jpg' },
+    { id: 'comedy', name: 'Комедии и Юмор', subtitle: 'Отличное настроение и море улыбок', genreId: 35, endpoint: '/api/movies/genre/35', accent: '#10b981', bg: 'https://image.tmdb.org/t/p/w780/viZqGq9TNvQ5uXSD4ahg2RpRONT.jpg' },
     { id: 'crime', name: 'Криминал и Гангстеры', subtitle: 'Улицы, тайны и моральные дилеммы', genreId: 80, endpoint: '/api/movies/genre/80', accent: '#94a3b8', bg: 'https://image.tmdb.org/t/p/w780/tmU7GeKVybMWFButWEGl2M4GeiP.jpg' },
     { id: 'horror', name: 'Ужасы и Хорроры', subtitle: 'Загадочные явления и леденящий страх', genreId: 27, endpoint: '/api/movies/genre/27', accent: '#a855f7', bg: 'https://image.tmdb.org/t/p/w780/t5zCBSB5xMDKcDqe91qahCOUYVV.jpg' },
-    { id: 'mystery', name: 'Детективы и Загадки', subtitle: 'Запутанные тайны и поиск истины', genreId: 9648, endpoint: '/api/movies/genre/9648', accent: '#818cf8', bg: 'https://image.tmdb.org/t/p/w780/5mzr6AnAnnavZeMVjSGq39DJ5Ij.jpg' },
-    { id: 'adventure', name: 'Приключения', subtitle: 'Опасные экспедиции и сокровища', genreId: 12, endpoint: '/api/movies/genre/12', accent: '#38bdf8', bg: 'https://image.tmdb.org/t/p/w780/vL5LR6WdxWPjC0vWbZ54x4vJmsa.jpg' },
-    { id: 'family', name: 'Семейный вечер', subtitle: 'Добрые истории для любого возраста', genreId: 10751, endpoint: '/api/movies/genre/10751', accent: '#34d399', bg: 'https://image.tmdb.org/t/p/w780/7BPb7nZ6r4P2H4bSg7m64wQ2GgR.jpg' },
+    { id: 'mystery', name: 'Детективы и Загадки', subtitle: 'Запутанные тайны и поиск истины', genreId: 9648, endpoint: '/api/movies/genre/9648', accent: '#818cf8', bg: 'https://image.tmdb.org/t/p/w780/b9q9VmbXDvJmTziRqkwdEmFdwhr.jpg' },
+    { id: 'adventure', name: 'Приключения', subtitle: 'Опасные экспедиции и сокровища', genreId: 12, endpoint: '/api/movies/genre/12', accent: '#38bdf8', bg: 'https://image.tmdb.org/t/p/w780/lzWHmYZrWpmV7gQI2Vs2dIRGsVn.jpg' },
+    { id: 'family', name: 'Семейный вечер', subtitle: 'Добрые истории для любого возраста', genreId: 10751, endpoint: '/api/movies/genre/10751', accent: '#34d399', bg: 'https://image.tmdb.org/t/p/w780/4D1pdB27uph7J8HQzNf8QvvH9bn.jpg' },
     { id: 'fantasy', name: 'Фэнтези и Магия', subtitle: 'Драконы, волшебство и древние легенды', genreId: 14, endpoint: '/api/movies/genre/14', accent: '#c084fc', bg: 'https://image.tmdb.org/t/p/w780/628Dep6AxEtDxjZoGP78TsOxYbK.jpg' },
-    { id: 'drama', name: 'Драмы', subtitle: 'Глубокие истории о человеческих судьбах', genreId: 18, endpoint: '/api/movies/genre/18', accent: '#fb7185', bg: 'https://image.tmdb.org/t/p/w780/w71a06B62Xq0U4hG7Qd8lX4z3mE.jpg' },
+    { id: 'drama', name: 'Драмы', subtitle: 'Глубокие истории о человеческих судьбах', genreId: 18, endpoint: '/api/movies/genre/18', accent: '#fb7185', bg: 'https://image.tmdb.org/t/p/w780/k22XyPbce7zvzzf5OnT4uaY8ZD1.jpg' },
     { id: 'romance', name: 'Мелодрамы и Любовь', subtitle: 'Романтика, искренние чувства и страсть', genreId: 10749, endpoint: '/api/movies/genre/10749', accent: '#f43f5e', bg: 'https://image.tmdb.org/t/p/w780/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg' },
-    { id: 'history', name: 'Историческое кино', subtitle: 'Эпохальные события и великие личности', genreId: 36, endpoint: '/api/movies/genre/36', accent: '#d97706', bg: 'https://image.tmdb.org/t/p/w780/rktDFPbfHfUbArZ6OOOKsXcv0Bm.jpg' },
-    { id: 'war', name: 'Военное кино', subtitle: 'Мужество, баталии и подвиги', genreId: 10752, endpoint: '/api/movies/genre/10752', accent: '#78716c', bg: 'https://image.tmdb.org/t/p/w780/yYrvNvt2CrhuESGd3UvT95ZeO7R.jpg' },
-    { id: 'documentary', name: 'Документальные фильмы', subtitle: 'Реальные факты, наука и природа', genreId: 99, endpoint: '/api/movies/genre/99', accent: '#06b6d4', bg: 'https://image.tmdb.org/t/p/w780/h75QJgB0b3D40573e0H1jN5K1qU.jpg' },
-    { id: 'music', name: 'Музыка и Мюзиклы', subtitle: 'Концерты, мюзиклы и ритм', genreId: 10402, endpoint: '/api/movies/genre/10402', accent: '#ec4899', bg: 'https://image.tmdb.org/t/p/w780/fOy2JurzKANt6DCvNs29U5i6zY5.jpg' },
-    { id: 'western', name: 'Вестерны', subtitle: 'Дикий Запад, дуэли и ковбои', genreId: 37, endpoint: '/api/movies/genre/37', accent: '#b45309', bg: 'https://image.tmdb.org/t/p/w780/x26Mw1V6d19oIq0V1rM7n4xV06p.jpg' },
-    { id: 'tv-drama', name: 'Культовые сериалы', subtitle: 'Лучшие драматические саги', genreId: 18, endpoint: '/api/tv/genre/18', accent: '#3b82f6', bg: 'https://image.tmdb.org/t/p/w780/9faGSFi5jam6pDWGNd0id8JimmL.jpg' },
-    { id: 'tv-scifi', name: 'Фантастические сериалы', subtitle: 'Эпическая фантастика и фэнтези на ТВ', genreId: 10765, endpoint: '/api/tv/genre/10765', accent: '#8b5cf6', bg: 'https://image.tmdb.org/t/p/w780/2OMB0ynKlyIenMJWI2Dy9IWT4c.jpg' },
-    { id: 'now-playing', name: 'Свежие цифровые релизы', subtitle: 'Самые последние фильмы в прокате и цифре', endpoint: '/api/movies/now_playing', accent: '#22c55e', bg: 'https://image.tmdb.org/t/p/w780/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg' }
+    { id: 'history', name: 'Историческое кино', subtitle: 'Эпохальные события и великие личности', genreId: 36, endpoint: '/api/movies/genre/36', accent: '#d97706', bg: 'https://image.tmdb.org/t/p/w780/8FCHJ21JBQOgATY2WI8vwYAiXg8.jpg' },
+    { id: 'war', name: 'Военное кино', subtitle: 'Мужество, баталии и подвиги', genreId: 10752, endpoint: '/api/movies/genre/10752', accent: '#78716c', bg: 'https://image.tmdb.org/t/p/w780/1ebY06Gc1eUZcCoO7IoD4tWCFxm.jpg' },
+    { id: 'documentary', name: 'Документальные фильмы', subtitle: 'Реальные факты, наука и природа', genreId: 99, endpoint: '/api/movies/genre/99', accent: '#06b6d4', bg: 'https://image.tmdb.org/t/p/w780/dUbP1HNdI0aCq1zgRJw28PWSqmk.jpg' },
+    { id: 'music', name: 'Музыка и Мюзиклы', subtitle: 'Концерты, мюзиклы и ритм', genreId: 10402, endpoint: '/api/movies/genre/10402', accent: '#ec4899', bg: 'https://image.tmdb.org/t/p/w780/ufSwlnECLoUbBjPrFqEQcWBzHwc.jpg' },
+    { id: 'western', name: 'Вестерны', subtitle: 'Дикий Запад, дуэли и ковбои', genreId: 37, endpoint: '/api/movies/genre/37', accent: '#b45309', bg: 'https://image.tmdb.org/t/p/w780/2oZklIzUbvZXXzIFzv7Hi68d6xf.jpg' },
+    { id: 'tv-drama', name: 'Культовые сериалы', subtitle: 'Лучшие драматические саги', genreId: 18, endpoint: '/api/tv/genre/18', accent: '#3b82f6', bg: 'https://image.tmdb.org/t/p/w780/dyFTt1a9ZpFdKE96kPlE9fQvXOJ.jpg' },
+    { id: 'tv-scifi', name: 'Фантастические сериалы', subtitle: 'Эпическая фантастика и фэнтези на ТВ', genreId: 10765, endpoint: '/api/tv/genre/10765', accent: '#8b5cf6', bg: 'https://image.tmdb.org/t/p/w780/c2oiRa7V3bQzof4wVGzLXtWJ5QU.jpg' },
+    { id: 'now-playing', name: 'Свежие цифровые релизы', subtitle: 'Самые последние фильмы в прокате и цифре', endpoint: '/api/movies/now_playing', accent: '#22c55e', bg: 'https://image.tmdb.org/t/p/w780/3icyRAqgakNcQn6aDVz9libFmBA.jpg' }
   ];
 
   function renderCollectionBanners(containerId) {
@@ -3441,12 +3441,9 @@
       card._collectionData = col;
 
       var fallbackImg = col.bg;
-      if (state.trendingMovies && state.trendingMovies[i] && state.trendingMovies[i].backdrop) {
-        fallbackImg = imgUrl(state.trendingMovies[i].backdrop);
-      }
 
       card.innerHTML =
-        '<div class="collection-tv-bg" style="background-image:url(\'' + esc(fallbackImg) + '\')"></div>' +
+        '<img class="collection-tv-img" src="' + esc(imgUrl(fallbackImg)) + '" alt="' + esc(col.name) + '" loading="lazy" onerror="this.style.display=\'none\';" />' +
         '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
           '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
           '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
@@ -3495,12 +3492,9 @@
       card._collectionData = col;
 
       var fallbackImg = col.bg;
-      if (state.trendingMovies && state.trendingMovies[i] && state.trendingMovies[i].backdrop) {
-        fallbackImg = imgUrl(state.trendingMovies[i].backdrop);
-      }
 
       card.innerHTML =
-        '<div class="collection-tv-bg" style="background-image:url(\'' + esc(fallbackImg) + '\')"></div>' +
+        '<img class="collection-tv-img" src="' + esc(imgUrl(fallbackImg)) + '" alt="' + esc(col.name) + '" loading="lazy" onerror="this.style.display=\'none\';" />' +
         '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
           '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
           '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
@@ -4186,6 +4180,9 @@
   function imgUrl(path) {
     if (!path) return '';
     if (path.indexOf('/') === 0) return API + path;
+    if (path.indexOf('https://image.tmdb.org/') === 0) {
+      return API + '/api/image?url=' + encodeURIComponent(path);
+    }
     return path;
   }
 
