@@ -36,6 +36,9 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   const [resumingTorrent, setResumingTorrent] = useState(false);
   const [similarTitles, setSimilarTitles] = useState<Title[]>([]);
   const [showTrailer, setShowTrailer] = useState(false);
+  const [trailerUrl, setTrailerUrl] = useState<string | null>(null);
+  const [trailerLoading, setTrailerLoading] = useState(false);
+  const [trailerError, setTrailerError] = useState<string | null>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [showAllCastModal, setShowAllCastModal] = useState(false);
   const [isLightBg, setIsLightBg] = useState(false);
@@ -62,6 +65,27 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
   const { data: details } = useDetails(title.id, title.type === 'tv' ? 'tv' : 'movie');
   const displayTitle = details || title;
+
+  const handleOpenTrailer = async () => {
+    setShowTrailer(true);
+    setTrailerLoading(true);
+    setTrailerError(null);
+    setTrailerUrl(null);
+    try {
+      const mediaType = displayTitle.type === 'tv' ? 'tv' : 'movies';
+      const res = await serverFetch(`/api/${mediaType}/${displayTitle.id}/trailer?lang=ru`);
+      const data = await res.json();
+      if (data && data.trailer && data.trailer.url) {
+        setTrailerUrl(data.trailer.url);
+      } else {
+        setTrailerError('Трейлер не найден');
+      }
+    } catch {
+      setTrailerError('Не удалось загрузить трейлер');
+    } finally {
+      setTrailerLoading(false);
+    }
+  };
 
   useEffect(() => {
     const bgUrl = displayTitle.backdrop || displayTitle.poster;
@@ -100,6 +124,8 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
     setImgLoaded(false);
     setExpanded(false);
     setShowTrailer(false);
+    setTrailerUrl(null);
+    setTrailerError(null);
     window.scrollTo({ top: 0, behavior: 'instant' });
 
     let active = true;
@@ -111,6 +137,8 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           setFavorited(true);
         }
       })
+      .catch(() => {});
+
     const token = localStorage.getItem('lumiere_access');
     if (token && (title.type === 'tv' || title.type === 'show')) {
       serverFetch(`/api/notifications/is-subscribed/${title.id}`, {
@@ -126,11 +154,20 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
     }
 
     const mediaType = title.type === 'tv' ? 'tv' : 'movies';
-    serverFetch(`/api/${mediaType}/${title.id}/similar`)
+    serverFetch(`/api/${mediaType}/${title.id}/recommendations?lang=ru`)
       .then((res) => res.json())
       .then((data) => {
         if (active && data.results?.length > 0) {
           setSimilarTitles(data.results.filter((t: Title) => t.poster && t.backdrop).slice(0, 12));
+        } else if (active) {
+          serverFetch(`/api/${mediaType}/${title.id}/similar?lang=ru`)
+            .then((res2) => res2.json())
+            .then((data2) => {
+              if (active && data2.results?.length > 0) {
+                setSimilarTitles(data2.results.filter((t: Title) => t.poster && t.backdrop).slice(0, 12));
+              }
+            })
+            .catch(() => {});
         }
       })
       .catch(() => {});
@@ -441,7 +478,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
                 {/* Trailer pill button */}
                 <button
-                  onClick={() => setShowTrailer(true)}
+                  onClick={handleOpenTrailer}
                   className="flex items-center gap-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-2 text-xs font-semibold text-white backdrop-blur-md transition-all active:scale-95 shadow-md"
                   title="Смотреть трейлер"
                 >
@@ -694,16 +731,33 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           onClick={() => setShowTrailer(false)}
         >
           <div
-            className="relative w-full max-w-4xl aspect-video overflow-hidden rounded-[20px] bg-black shadow-2xl ring-1 ring-white/10"
+            className="relative w-full max-w-4xl aspect-video overflow-hidden rounded-[20px] bg-black shadow-2xl ring-1 ring-white/10 flex items-center justify-center"
             onClick={(e) => e.stopPropagation()}
           >
-            <iframe
-              src={`https://www.youtube-nocookie.com/embed?listType=search&list=${encodeURIComponent(displayTitle.name + ' ' + (displayTitle.year || '') + ' русский трейлер')}&autoplay=1`}
-              title="Трейлер"
-              className="h-full w-full border-0"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-              allowFullScreen
-            />
+            {trailerLoading ? (
+              <div className="flex flex-col items-center gap-3 text-white/60">
+                <Loader2 className="h-8 w-8 animate-spin text-amber-300" />
+                <span className="text-[13px]">Поиск трейлера...</span>
+              </div>
+            ) : trailerError ? (
+              <div className="flex flex-col items-center gap-3 text-white/80 text-center px-4">
+                <span className="text-base font-medium">🎬 {trailerError}</span>
+                <button
+                  onClick={() => setShowTrailer(false)}
+                  className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-xs text-white transition-all"
+                >
+                  Закрыть
+                </button>
+              </div>
+            ) : trailerUrl ? (
+              <iframe
+                src={trailerUrl}
+                title="Трейлер"
+                className="h-full w-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
+              />
+            ) : null}
             <button
               onClick={() => setShowTrailer(false)}
               className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-white/80 transition-cinematic hover:bg-black hover:text-white backdrop-blur-md"

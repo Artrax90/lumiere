@@ -180,7 +180,33 @@ export class TmdbProvider implements MetadataProvider {
     return valid.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
   }
 
-  async trailer(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<{ url: string; key: string; name: string } | null> {
+  async trailer(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<{ url: string; key?: string; name: string; source: string } | null> {
+    // 1. Primary: Search Russian trailer on Rutube (works reliably in Russia without VPN, fast HD iframe)
+    try {
+      const details = await this.client.get(`/${mediaType}/${id}`, { language: this.client.lang(lang) });
+      const name = details.title || details.name || '';
+      const year = (details.release_date || details.first_air_date || '').slice(0, 4);
+      if (name) {
+        const q = `${name} ${year} русский трейлер`.trim();
+        const rutubeRes = await fetch(`https://rutube.ru/api/search/video/?query=${encodeURIComponent(q)}`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (rutubeRes.ok) {
+          const data = (await rutubeRes.json()) as any;
+          const results = data.results || [];
+          const match = results.find((v: any) => /трейлер|тизер/i.test(v.title)) || results[0];
+          if (match && match.id) {
+            return {
+              url: `https://rutube.ru/play/embed/${match.id}?autoPlay=1`,
+              name: match.title || 'Русский трейлер',
+              source: 'rutube',
+            };
+          }
+        }
+      }
+    } catch {}
+
+    // 2. Fallback: TMDB videos (YouTube)
     try {
       const ruData = await this.client.get(`/${mediaType}/${id}/videos`, { language: 'ru-RU' });
       let videos = ruData.results || [];
@@ -197,6 +223,7 @@ export class TmdbProvider implements MetadataProvider {
           key: trailer.key,
           name: trailer.name || 'Трейлер',
           url: `https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&enablejsapi=1&rel=0`,
+          source: 'youtube',
         };
       }
     } catch {}

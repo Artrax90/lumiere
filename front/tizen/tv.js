@@ -3947,18 +3947,20 @@
 
   function playTrailer(d) {
     if (!d || !d.id) return;
-    showTvToast('Поиск трейлера...', 1500);
+    if (typeof showToast === 'function') {
+      showToast('Поиск трейлера...');
+    }
 
-    var mType = d.type === 'tv' ? 'tv' : 'movie';
+    var mType = d.type === 'tv' ? 'tv' : 'movies';
     apiFetch('/api/' + mType + '/' + d.id + '/trailer?lang=ru', function(err, res) {
-      var trailerUrl = '';
-      if (!err && res && res.trailer && res.trailer.url) {
-        trailerUrl = res.trailer.url;
-      } else {
-        var query = encodeURIComponent((d.logoText || d.name || '') + ' ' + (d.year || '') + ' русский трейлер');
-        trailerUrl = 'https://www.youtube-nocookie.com/embed?listType=search&list=' + query + '&autoplay=1';
+      if (err || !res || !res.trailer || !res.trailer.url) {
+        if (typeof showToast === 'function') {
+          showToast('Трейлер не найден');
+        }
+        return;
       }
 
+      var trailerUrl = res.trailer.url;
       var existing = document.getElementById('trailer-modal');
       if (existing) existing.remove();
 
@@ -3990,18 +3992,18 @@
     var section = document.getElementById('detail-rec-section');
     if (!container || !section) return;
 
-    var mType = d.type === 'tv' ? 'tv' : 'movie';
+    var mType = d.type === 'tv' ? 'tv' : 'movies';
     apiFetch('/api/' + mType + '/' + d.id + '/recommendations?lang=ru', function(err, res) {
       var list = (res && Array.isArray(res.results)) ? res.results : [];
       list = list.filter(function(item) {
-        return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !item.poster.includes('null');
+        return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !String(item.poster).includes('null');
       });
 
       if (list.length === 0) {
         apiFetch('/api/' + mType + '/' + d.id + '/similar?lang=ru', function(err2, res2) {
           var list2 = (res2 && Array.isArray(res2.results)) ? res2.results : [];
           list2 = list2.filter(function(item) {
-            return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !item.poster.includes('null');
+            return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !String(item.poster).includes('null');
           });
           renderDetailRecCards(container, section, list2);
         });
@@ -4019,8 +4021,8 @@
     }
     section.style.display = 'block';
     container.innerHTML = '';
-    list.slice(0, 16).forEach(function(rec) {
-      var card = createCard(rec);
+    list.slice(0, 16).forEach(function(rec, idx) {
+      var card = createCard(rec, idx);
       card.addEventListener('click', function() {
         showDetail(rec);
       });

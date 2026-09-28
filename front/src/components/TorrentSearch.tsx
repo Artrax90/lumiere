@@ -109,6 +109,7 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [searchQuery, setSearchQuery] = useState(title.name);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     if (initialSeason !== undefined && initialSeason !== null) {
@@ -491,62 +492,83 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
         </div>
       )}
 
-      {!loading && sortedResults.map((item, idx) => {
-        const isStreaming = streamingId === item.id;
-        const magnetHash = hashMagnet(item.magnet);
-        const isLastPlayed = lastTorrentId === magnetHash;
-        return (
-          <div
-            key={`${item.tracker}-${item.id}-${idx}`}
-            onClick={() => streamTorrent(item)}
-            className={`rounded-[12px] p-4 transition-cinematic cursor-pointer ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'} ${isStreaming ? 'opacity-50' : ''}`}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <div className="text-[13px] font-medium text-white/85 line-clamp-2">{item.title}</div>
-                  {isLastPlayed && (
-                    <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
-                      <Check className="h-3 w-3" /> {t('torrents.watched')}
-                    </span>
-                  )}
-                  {isStreaming && (
-                    <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
-                      <Loader2 className="h-3 w-3 animate-spin" /> {t('torrents.loading')}
-                    </span>
-                  )}
-                </div>
-                <TorrentBadges
-                  title={item.title}
-                  tracker={item.tracker}
-                  sizeFormatted={item.sizeFormatted}
-                  seeders={item.seeders}
-                  peers={item.peers}
-                  className="mt-2"
-                />
-                {item.date && (
-                  <div className="mt-1.5 text-[11px] text-white/35">
-                    Добавлено: {new Date(item.date).toLocaleDateString('ru')}
+      {!loading && (
+        <>
+          {(isExpanded ? sortedResults : sortedResults.slice(0, 5)).map((item, idx) => {
+            const isStreaming = streamingId === item.id;
+            const magnetHash = hashMagnet(item.magnet);
+            const isLastPlayed = lastTorrentId === magnetHash;
+            return (
+              <div
+                key={`${item.tracker}-${item.id}-${idx}`}
+                onClick={() => streamTorrent(item)}
+                className={`rounded-[12px] p-4 transition-cinematic cursor-pointer ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'} ${isStreaming ? 'opacity-50' : ''}`}
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <div className="text-[13px] font-medium text-white/85 line-clamp-2">{item.title}</div>
+                      {isLastPlayed && (
+                        <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
+                          <Check className="h-3 w-3" /> {t('torrents.watched')}
+                        </span>
+                      )}
+                      {isStreaming && (
+                        <span className="flex items-center gap-1 text-[10px] text-amber-300/80 shrink-0">
+                          <Loader2 className="h-3 w-3 animate-spin" /> {t('torrents.loading')}
+                        </span>
+                      )}
+                    </div>
+                    <TorrentBadges
+                      title={item.title}
+                      tracker={item.tracker}
+                      sizeFormatted={item.sizeFormatted}
+                      seeders={item.seeders}
+                      peers={item.peers}
+                      className="mt-2"
+                    />
+                    {item.date && (
+                      <div className="mt-1.5 text-[11px] text-white/35">
+                        Добавлено: {new Date(item.date).toLocaleDateString('ru')}
+                      </div>
+                    )}
                   </div>
-                )}
+                  <div className="flex items-center gap-2 shrink-0">
+                    {item.details && (
+                      <a
+                        href={item.details}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-white/40 hover:text-white/70 transition-cinematic"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
+                      </a>
+                    )}
+                  </div>
+                </div>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
-                {item.details && (
-                  <a
-                    href={item.details}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-white/40 hover:text-white/70 transition-cinematic"
-                  >
-                    <ExternalLink className="h-3.5 w-3.5" strokeWidth={1.5} />
-                  </a>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+            );
+          })}
+
+          {sortedResults.length > 5 && (
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="w-full py-3 px-4 rounded-[12px] bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.08] text-[12px] font-medium text-amber-300/90 hover:text-amber-300 transition-all flex items-center justify-center gap-2 mt-1"
+            >
+              {isExpanded ? (
+                <>
+                  <span>▲</span> Свернуть список раздач
+                </>
+              ) : (
+                <>
+                  <span>▼</span> Показать ещё {sortedResults.length - 5} раздач...
+                </>
+              )}
+            </button>
+          )}
+        </>
+      )}
     </div>
   );
 }

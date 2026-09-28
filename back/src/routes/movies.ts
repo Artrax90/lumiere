@@ -30,32 +30,40 @@ export function movieRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return provider.discoverGenre('movie', parseInt(genreId), page ? parseInt(page) : 1, lang);
   });
 
-  app.get('/api/movies/:id', async (req) => {
+  const getMovieDetails = async (req: any) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };
     return provider.details(parseInt(id), 'movie', lang);
-  });
+  };
+  app.get('/api/movies/:id', getMovieDetails);
+  app.get('/api/movie/:id', getMovieDetails);
 
-  app.get('/api/movies/:id/recommendations', async (req) => {
+  const getMovieRecs = async (req: any) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };
     const results = await provider.recommendations(parseInt(id), 'movie', lang);
     return { results };
-  });
+  };
+  app.get('/api/movies/:id/recommendations', getMovieRecs);
+  app.get('/api/movie/:id/recommendations', getMovieRecs);
 
-  app.get('/api/movies/:id/trailer', async (req) => {
+  const getMovieTrailer = async (req: any) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };
     const trailer = await provider.trailer(parseInt(id), 'movie', lang);
     return { trailer };
-  });
+  };
+  app.get('/api/movies/:id/trailer', getMovieTrailer);
+  app.get('/api/movie/:id/trailer', getMovieTrailer);
 
-  app.get('/api/movies/:id/similar', async (req) => {
+  const getMovieSimilar = async (req: any) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };
     const results = await provider.similar(parseInt(id), 'movie', lang);
     return { results };
-  });
+  };
+  app.get('/api/movies/:id/similar', getMovieSimilar);
+  app.get('/api/movie/:id/similar', getMovieSimilar);
 
   app.post('/api/recommendations/personal', async (req) => {
     const { lang } = req.query as { lang?: Lang };
