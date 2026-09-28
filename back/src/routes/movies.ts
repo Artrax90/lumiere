@@ -24,11 +24,14 @@ export function movieRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return provider.nowPlaying(page ? parseInt(page) : 1, lang);
   });
 
-  app.get('/api/movies/genre/:genreId', async (req) => {
+  const getGenreMovies = async (req: any) => {
     const { genreId } = req.params as { genreId: string };
     const { page, lang } = req.query as { page?: string; lang?: Lang };
     return provider.discoverGenre('movie', parseInt(genreId), page ? parseInt(page) : 1, lang);
-  });
+  };
+  app.get('/api/movies/genre/:genreId', getGenreMovies);
+  app.get('/api/catalog/genre/movie/:genreId', getGenreMovies);
+  app.get('/api/catalog/genre/:genreId', getGenreMovies);
 
   const getMovieDetails = async (req: any) => {
     const { id } = req.params as { id: string };

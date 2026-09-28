@@ -4317,3 +4317,14 @@ body.player-active .section {
   gap: 24px;
   padding-bottom: 50px;
 }
+
+.collection-back-btn:focus,
+.collection-back-btn.focused {
+  background: rgba(232, 193, 112, 0.25) !important;
+  border-color: #ffffff !important;
+  color: #ffffff !important;
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.6), 0 10px 30px rgba(0, 0, 0, 0.8) !important;
+  transform: scale(1.05) translateY(-4px) !important;
+  outline: none !important;
+}
+

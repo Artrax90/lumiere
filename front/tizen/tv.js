@@ -1857,7 +1857,7 @@
     });
 
     // 7. Action movies (Боевики и приключения)
-    apiFetch('/api/catalog/genre/movie/28?page=1', function(err, data) {
+    apiFetch('/api/movies/genre/28?page=1', function(err, data) {
       if (data && data.results && data.results.length > 0) {
         renderRow('action-items', data.results.slice(0, 25));
       }
@@ -1869,21 +1869,21 @@
     }
 
     // 9. Comedy movies (Комедии для отличного настроения)
-    apiFetch('/api/catalog/genre/movie/35?page=1', function(err, data) {
+    apiFetch('/api/movies/genre/35?page=1', function(err, data) {
       if (data && data.results && data.results.length > 0) {
         renderRow('comedy-items', data.results.slice(0, 25));
       }
     });
 
     // 10. Sci-Fi movies (Фантастика и другие миры)
-    apiFetch('/api/catalog/genre/movie/878?page=1', function(err, data) {
+    apiFetch('/api/movies/genre/878?page=1', function(err, data) {
       if (data && data.results && data.results.length > 0) {
         renderRow('scifi-items', data.results.slice(0, 25));
       }
     });
 
     // 11. Family & Animation movies (Семейный вечер и анимация)
-    apiFetch('/api/catalog/genre/movie/16?page=1', function(err, data) {
+    apiFetch('/api/movies/genre/16?page=1', function(err, data) {
       if (data && data.results && data.results.length > 0) {
         renderRow('family-items', data.results.slice(0, 25));
       }
@@ -3402,10 +3402,10 @@
 
   // ========== Curated TV Collections ==========
   var TV_COLLECTIONS = [
-    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg' },
-    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg' },
+    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg' },
+    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, endpoint: '/api/movies/genre/53', accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg' },
     { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg' },
-    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg' }
+    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg' }
   ];
 
   function renderCollectionBanners(containerId) {
@@ -3450,6 +3450,7 @@
 
   function openTvCollection(col) {
     if (!col) return;
+    state.inCollectionDetail = true;
     switchSection('collections');
     loadCollectionTitles(col);
   }
@@ -3458,6 +3459,7 @@
     var grid = document.getElementById('collections-grid');
     if (!grid) return;
     grid.innerHTML = '';
+    state.inCollectionDetail = false;
 
     var sec = document.getElementById('sec-collections');
     if (sec) {
@@ -3486,7 +3488,7 @@
         '</div>';
 
       card.addEventListener('click', function() {
-        loadCollectionTitles(col);
+        openTvCollection(col);
       });
 
       card.addEventListener('focus', function() {
@@ -3498,12 +3500,23 @@
 
       grid.appendChild(card);
     });
+
+    setTimeout(function() {
+      var firstCard = grid.querySelector('.card');
+      if (firstCard) {
+        clearCardFocus();
+        clearNavFocus();
+        state.focusedCard = 0;
+        firstCard.classList.add('focused');
+        firstCard.focus();
+      }
+    }, 50);
   }
 
   function loadCollectionTitles(col) {
     var sec = document.getElementById('sec-collections');
     if (!sec) return;
-    var url = col.endpoint || ('/api/catalog/genre/movie/' + col.genreId + '?page=1');
+    var url = col.endpoint || ('/api/movies/genre/' + (col.genreId || 878) + '?page=1');
     var subtitleEl = sec.querySelector('.page-subtitle');
     if (subtitleEl) subtitleEl.textContent = col.name + ' — ' + col.subtitle;
 
@@ -3515,11 +3528,12 @@
       if (data && data.results && data.results.length > 0) {
         grid.innerHTML = '';
         var backBtn = document.createElement('div');
-        backBtn.className = 'card';
+        backBtn.className = 'card collection-back-btn';
         backBtn.setAttribute('tabindex', '0');
-        backBtn.style.cssText = 'width:200px;height:300px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;';
+        backBtn.style.cssText = 'width:200px;height:300px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;flex-shrink:0;';
         backBtn.innerHTML = '<span style="font-size:36px;margin-bottom:8px;">←</span>Все подборки';
         backBtn.addEventListener('click', function() {
+          state.inCollectionDetail = false;
           renderCollectionsSection();
         });
         backBtn.addEventListener('focus', function() { backBtn.classList.add('focused'); });
@@ -3529,6 +3543,19 @@
         data.results.forEach(function(t, i) {
           grid.appendChild(createCard(t, i + 1));
         });
+
+        setTimeout(function() {
+          var firstCard = grid.querySelector('.card:not(.collection-back-btn)') || backBtn;
+          if (firstCard) {
+            clearCardFocus();
+            clearNavFocus();
+            state.focusedCard = 0;
+            firstCard.classList.add('focused');
+            firstCard.focus();
+          }
+        }, 50);
+      } else {
+        grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Не удалось загрузить фильмы подборки</div>';
       }
     });
   }
@@ -7325,7 +7352,9 @@
     $content.scrollTop = 0;
 
     if (section === 'collections') {
-      if (typeof renderCollectionsSection === 'function') renderCollectionsSection();
+      if (!state.inCollectionDetail && typeof renderCollectionsSection === 'function') {
+        renderCollectionsSection();
+      }
     }
 
     if (section === 'search') {
@@ -7804,6 +7833,18 @@
       if (!isNavActive) {
         clearAllFocus();
         focusNav(5);
+        return;
+      }
+      switchSection('home');
+      focusNav(0);
+      return;
+    }
+
+    // 4.9. If in collections section:
+    if (state.section === 'collections') {
+      if (state.inCollectionDetail) {
+        state.inCollectionDetail = false;
+        renderCollectionsSection();
         return;
       }
       switchSection('home');
@@ -9588,6 +9629,10 @@
     if (target.classList.contains('card')) {
       if (state.section === 'search' && oskState && oskState.query && oskState.query.trim().length >= 2) {
         saveRecentSearch(oskState.query.trim());
+      }
+      if (target._collectionData) {
+        openTvCollection(target._collectionData);
+        return;
       }
       if (target._continueItem) {
         var cItem = target._continueItem;
