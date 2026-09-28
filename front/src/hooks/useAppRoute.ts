@@ -7,6 +7,7 @@ export interface AppRoute {
   id?: number;
   type?: 'movie' | 'tv' | 'anime';
   searchQuery?: string;
+  collectionId?: string;
 }
 
 const SECTION_PATHS: Record<NavSection, string> = {
@@ -35,7 +36,7 @@ const SECTION_TITLES: Partial<Record<NavSection, string>> = {
   iptv: 'IPTV — Lumière',
   live: 'IPTV — Lumière',
   my: 'Моё — Lumière',
-  collections: 'Коллекции — Lumière',
+  collections: 'Подборки — Lumière',
   search: 'Поиск — Lumière',
   settings: 'Настройки — Lumière',
   profile: 'Профиль — Lumière',
@@ -44,11 +45,14 @@ const SECTION_TITLES: Partial<Record<NavSection, string>> = {
   notifications: 'Уведомления — Lumière',
 };
 
-export function getSectionPath(section: NavSection, id?: number): string {
+export function getSectionPath(section: NavSection, id?: number, collectionId?: string): string {
   if (id) {
     if (section === 'movies') return `/film/${id}`;
     if (section === 'shows') return `/series/${id}`;
     if (section === 'anime') return `/anime/${id}`;
+  }
+  if (section === 'collections' && collectionId) {
+    return `/collections/${collectionId}`;
   }
   return SECTION_PATHS[section] || '/';
 }
@@ -99,7 +103,7 @@ export function parseRoute(pathname: string, searchStr = ''): AppRoute {
       return { section: 'my' };
 
     case 'collections':
-      return { section: 'collections' };
+      return { section: 'collections', collectionId: second || undefined };
 
     case 'search':
       return { section: 'search', searchQuery: query };
@@ -141,28 +145,28 @@ export function useAppRoute(onRouteChange?: (newRoute: AppRoute) => void) {
     return parseRoute(window.location.pathname, window.location.search);
   });
 
-  const pushRoute = useCallback((section: NavSection, id?: number, titleName?: string) => {
-    const nextRoute: AppRoute = { section, id };
+  const pushRoute = useCallback((section: NavSection, id?: number, titleName?: string, collectionId?: string) => {
+    const nextRoute: AppRoute = { section, id, collectionId };
     setRoute(nextRoute);
     updateDocumentTitle(section, titleName);
 
     if (isWeb() && typeof window !== 'undefined') {
-      const path = getSectionPath(section, id);
+      const path = getSectionPath(section, id, collectionId);
       if (window.location.pathname !== path) {
-        window.history.pushState({ section, id, titleName }, '', path);
+        window.history.pushState({ section, id, titleName, collectionId }, '', path);
       }
     }
   }, []);
 
-  const replaceRoute = useCallback((section: NavSection, id?: number, titleName?: string) => {
-    const nextRoute: AppRoute = { section, id };
+  const replaceRoute = useCallback((section: NavSection, id?: number, titleName?: string, collectionId?: string) => {
+    const nextRoute: AppRoute = { section, id, collectionId };
     setRoute(nextRoute);
     updateDocumentTitle(section, titleName);
 
     if (isWeb() && typeof window !== 'undefined') {
-      const path = getSectionPath(section, id);
+      const path = getSectionPath(section, id, collectionId);
       if (window.location.pathname !== path) {
-        window.history.replaceState({ section, id, titleName }, '', path);
+        window.history.replaceState({ section, id, titleName, collectionId }, '', path);
       }
     }
   }, []);

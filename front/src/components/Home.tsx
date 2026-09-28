@@ -39,11 +39,12 @@ interface HomeProps {
   heroTitles: Title[];
   onSelect: (title: Title) => void;
   onPlay: (title: Title) => void;
+  onSelectCollection?: (collectionId: string) => void;
   onMoodChange: (mood: Mood, image: string) => void;
   mood: Mood;
 }
 
-export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood }: HomeProps) {
+export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection, onMoodChange, mood }: HomeProps) {
   const { t } = useTranslation();
   const [active, setActive] = useState(0);
   const [imgLoaded, setImgLoaded] = useState(false);
@@ -314,7 +315,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
           />
         ) : null;
       case 'banner':
-        return <CollectionBanner key="banner" onSelect={onSelect} onPlay={onPlay} />;
+        return <CollectionBanner key="banner" onSelect={onSelect} onPlay={onPlay} onSelectCollection={onSelectCollection} />;
       case 'comedy':
         return comedyMovies.length > 0 ? (
           <ContentRow

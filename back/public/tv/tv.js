@@ -3402,10 +3402,28 @@
 
   // ========== Curated TV Collections ==========
   var TV_COLLECTIONS = [
-    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg' },
-    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, endpoint: '/api/movies/genre/53', accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg' },
-    { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg' },
-    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg' }
+    { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg', featured: true },
+    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg', featured: true },
+    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, endpoint: '/api/movies/genre/53', accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg', featured: true },
+    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg', featured: true },
+    { id: 'action', name: 'Боевики и Экшн', subtitle: 'Драйв, погони и масштабные баталии', genreId: 28, endpoint: '/api/movies/genre/28', accent: '#f59e0b', bg: 'https://image.tmdb.org/t/p/w780/zOpeFTcbAQDgPebL49y0w58mfl3.jpg' },
+    { id: 'comedy', name: 'Комедии и Юмор', subtitle: 'Отличное настроение и море улыбок', genreId: 35, endpoint: '/api/movies/genre/35', accent: '#10b981', bg: 'https://image.tmdb.org/t/p/w780/ctMserH8g2SeOAnCw5gFjd2NTL6.jpg' },
+    { id: 'crime', name: 'Криминал и Гангстеры', subtitle: 'Улицы, тайны и моральные дилеммы', genreId: 80, endpoint: '/api/movies/genre/80', accent: '#94a3b8', bg: 'https://image.tmdb.org/t/p/w780/tmU7GeKVybMWFButWEGl2M4GeiP.jpg' },
+    { id: 'horror', name: 'Ужасы и Хорроры', subtitle: 'Загадочные явления и леденящий страх', genreId: 27, endpoint: '/api/movies/genre/27', accent: '#a855f7', bg: 'https://image.tmdb.org/t/p/w780/t5zCBSB5xMDKcDqe91qahCOUYVV.jpg' },
+    { id: 'mystery', name: 'Детективы и Загадки', subtitle: 'Запутанные тайны и поиск истины', genreId: 9648, endpoint: '/api/movies/genre/9648', accent: '#818cf8', bg: 'https://image.tmdb.org/t/p/w780/5mzr6AnAnnavZeMVjSGq39DJ5Ij.jpg' },
+    { id: 'adventure', name: 'Приключения', subtitle: 'Опасные экспедиции и сокровища', genreId: 12, endpoint: '/api/movies/genre/12', accent: '#38bdf8', bg: 'https://image.tmdb.org/t/p/w780/vL5LR6WdxWPjC0vWbZ54x4vJmsa.jpg' },
+    { id: 'family', name: 'Семейный вечер', subtitle: 'Добрые истории для любого возраста', genreId: 10751, endpoint: '/api/movies/genre/10751', accent: '#34d399', bg: 'https://image.tmdb.org/t/p/w780/7BPb7nZ6r4P2H4bSg7m64wQ2GgR.jpg' },
+    { id: 'fantasy', name: 'Фэнтези и Магия', subtitle: 'Драконы, волшебство и древние легенды', genreId: 14, endpoint: '/api/movies/genre/14', accent: '#c084fc', bg: 'https://image.tmdb.org/t/p/w780/628Dep6AxEtDxjZoGP78TsOxYbK.jpg' },
+    { id: 'drama', name: 'Драмы', subtitle: 'Глубокие истории о человеческих судьбах', genreId: 18, endpoint: '/api/movies/genre/18', accent: '#fb7185', bg: 'https://image.tmdb.org/t/p/w780/w71a06B62Xq0U4hG7Qd8lX4z3mE.jpg' },
+    { id: 'romance', name: 'Мелодрамы и Любовь', subtitle: 'Романтика, искренние чувства и страсть', genreId: 10749, endpoint: '/api/movies/genre/10749', accent: '#f43f5e', bg: 'https://image.tmdb.org/t/p/w780/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg' },
+    { id: 'history', name: 'Историческое кино', subtitle: 'Эпохальные события и великие личности', genreId: 36, endpoint: '/api/movies/genre/36', accent: '#d97706', bg: 'https://image.tmdb.org/t/p/w780/rktDFPbfHfUbArZ6OOOKsXcv0Bm.jpg' },
+    { id: 'war', name: 'Военное кино', subtitle: 'Мужество, баталии и подвиги', genreId: 10752, endpoint: '/api/movies/genre/10752', accent: '#78716c', bg: 'https://image.tmdb.org/t/p/w780/yYrvNvt2CrhuESGd3UvT95ZeO7R.jpg' },
+    { id: 'documentary', name: 'Документальные фильмы', subtitle: 'Реальные факты, наука и природа', genreId: 99, endpoint: '/api/movies/genre/99', accent: '#06b6d4', bg: 'https://image.tmdb.org/t/p/w780/h75QJgB0b3D40573e0H1jN5K1qU.jpg' },
+    { id: 'music', name: 'Музыка и Мюзиклы', subtitle: 'Концерты, мюзиклы и ритм', genreId: 10402, endpoint: '/api/movies/genre/10402', accent: '#ec4899', bg: 'https://image.tmdb.org/t/p/w780/fOy2JurzKANt6DCvNs29U5i6zY5.jpg' },
+    { id: 'western', name: 'Вестерны', subtitle: 'Дикий Запад, дуэли и ковбои', genreId: 37, endpoint: '/api/movies/genre/37', accent: '#b45309', bg: 'https://image.tmdb.org/t/p/w780/x26Mw1V6d19oIq0V1rM7n4xV06p.jpg' },
+    { id: 'tv-drama', name: 'Культовые сериалы', subtitle: 'Лучшие драматические саги', genreId: 18, endpoint: '/api/tv/genre/18', accent: '#3b82f6', bg: 'https://image.tmdb.org/t/p/w780/9faGSFi5jam6pDWGNd0id8JimmL.jpg' },
+    { id: 'tv-scifi', name: 'Фантастические сериалы', subtitle: 'Эпическая фантастика и фэнтези на ТВ', genreId: 10765, endpoint: '/api/tv/genre/10765', accent: '#8b5cf6', bg: 'https://image.tmdb.org/t/p/w780/2OMB0ynKlyIenMJWI2Dy9IWT4c.jpg' },
+    { id: 'now-playing', name: 'Свежие цифровые релизы', subtitle: 'Самые последние фильмы в прокате и цифре', endpoint: '/api/movies/now_playing', accent: '#22c55e', bg: 'https://image.tmdb.org/t/p/w780/yDHYTfA3R0jFYba16jBB1ef8oIt.jpg' }
   ];
 
   function renderCollectionBanners(containerId) {
@@ -3413,7 +3431,9 @@
     if (!container) return;
     container.innerHTML = '';
 
-    TV_COLLECTIONS.forEach(function(col, i) {
+    // Show top 8 curated banners on Home shelf
+    var bannersToShow = TV_COLLECTIONS.slice(0, 8);
+    bannersToShow.forEach(function(col, i) {
       var card = document.createElement('div');
       card.className = 'card collection-tv-card';
       card.setAttribute('tabindex', '0');
@@ -3464,7 +3484,7 @@
     var sec = document.getElementById('sec-collections');
     if (sec) {
       var subtitleEl = sec.querySelector('.page-subtitle');
-      if (subtitleEl) subtitleEl.textContent = 'Тематические коллекции и шедевры мирового кино';
+      if (subtitleEl) subtitleEl.textContent = 'Кураторские подборки и все жанры кино';
     }
 
     TV_COLLECTIONS.forEach(function(col, i) {
@@ -3516,7 +3536,9 @@
   function loadCollectionTitles(col) {
     var sec = document.getElementById('sec-collections');
     if (!sec) return;
-    var url = col.endpoint || ('/api/movies/genre/' + (col.genreId || 878) + '?page=1');
+    var baseUrl = col.endpoint || ('/api/movies/genre/' + (col.genreId || 878));
+    var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+
     var subtitleEl = sec.querySelector('.page-subtitle');
     if (subtitleEl) subtitleEl.textContent = col.name + ' — ' + col.subtitle;
 
@@ -3524,13 +3546,18 @@
     if (!grid) return;
     grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Загрузка фильмов...</div>';
 
-    apiFetch(url, function(err, data) {
-      if (data && data.results && data.results.length > 0) {
+    var results = [];
+    var pending = 4;
+    var completed = false;
+
+    function renderCollectionResults(list) {
+      if (!grid) return;
+      if (list && list.length > 0) {
         grid.innerHTML = '';
         var backBtn = document.createElement('div');
         backBtn.className = 'card collection-back-btn';
         backBtn.setAttribute('tabindex', '0');
-        backBtn.style.cssText = 'width:200px;height:300px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;flex-shrink:0;';
+        backBtn.style.cssText = 'width:170px;height:255px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;flex-shrink:0;box-sizing:border-box;';
         backBtn.innerHTML = '<span style="font-size:36px;margin-bottom:8px;">←</span>Все подборки';
         backBtn.addEventListener('click', function() {
           state.inCollectionDetail = false;
@@ -3540,7 +3567,7 @@
         backBtn.addEventListener('blur', function() { backBtn.classList.remove('focused'); });
         grid.appendChild(backBtn);
 
-        data.results.forEach(function(t, i) {
+        list.forEach(function(t, i) {
           grid.appendChild(createCard(t, i + 1));
         });
 
@@ -3557,7 +3584,40 @@
       } else {
         grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Не удалось загрузить фильмы подборки</div>';
       }
+    }
+
+    function checkDone() {
+      if (completed) return;
+      if (pending === 0 || results.length >= 60) {
+        completed = true;
+        renderCollectionResults(results);
+      }
+    }
+
+    [1, 2, 3, 4].forEach(function(p) {
+      apiFetch(baseUrl + sep + 'page=' + p, function(err, data) {
+        pending--;
+        if (data && data.results && data.results.length > 0) {
+          data.results.forEach(function(t) {
+            if (t && t.id && (t.poster || t.backdrop)) {
+              var exists = false;
+              for (var k = 0; k < results.length; k++) {
+                if (results[k].id === t.id) { exists = true; break; }
+              }
+              if (!exists) results.push(t);
+            }
+          });
+        }
+        checkDone();
+      });
     });
+
+    setTimeout(function() {
+      if (!completed) {
+        completed = true;
+        renderCollectionResults(results);
+      }
+    }, 1500);
   }
 
   // ========== Card Title Marquee Animation ==========

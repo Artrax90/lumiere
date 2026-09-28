@@ -5,18 +5,19 @@ import { useTrending } from '@/hooks/useTrending';
 import SafeImg from './SafeImg';
 
 interface CollectionBannerProps {
-  onSelect: (title: Title) => void;
+  onSelect?: (title: Title) => void;
   onPlay?: (title: Title) => void;
+  onSelectCollection?: (collectionId: string) => void;
 }
 
 const collections = [
-  { id: 'sci-fi', name: 'Научная фантастика', subtitle: 'Путешествия сквозь время и пространство' },
-  { id: 'thriller', name: 'Триллеры', subtitle: 'Истории, которые держат в напряжении' },
-  { id: 'drama', name: 'Драмы', subtitle: 'Глубокие истории о жизни' },
-  { id: 'anime', name: 'Аниме', subtitle: 'Японская анимация нового поколения' },
+  { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры' },
+  { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды' },
+  { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков' },
+  { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Японская анимация и шедевры мультипликации' },
 ];
 
-export default function CollectionBanner({ onSelect }: CollectionBannerProps) {
+export default function CollectionBanner({ onSelect, onSelectCollection }: CollectionBannerProps) {
   const [hovered, setHovered] = useState<number | null>(null);
   const { data: trending } = useTrending('movie');
 
@@ -25,7 +26,7 @@ export default function CollectionBanner({ onSelect }: CollectionBannerProps) {
       <div className="mb-7 flex items-end justify-between">
         <div>
           <h2 className="text-display text-[23px] font-medium tracking-tight text-white/88 md:text-[26px]">Подборки</h2>
-          <p className="mt-2 text-[13px] text-white/35">Тщательно отобранные коллекции</p>
+          <p className="mt-2 text-[13px] text-white/35">Тематические подборки и жанры кино</p>
         </div>
       </div>
 
@@ -38,7 +39,13 @@ export default function CollectionBanner({ onSelect }: CollectionBannerProps) {
               key={col.id}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
-              onClick={() => trending[i] && onSelect(trending[i])}
+              onClick={() => {
+                if (onSelectCollection) {
+                  onSelectCollection(col.id);
+                } else if (trending[i] && onSelect) {
+                  onSelect(trending[i]);
+                }
+              }}
               className={`group relative h-52 overflow-hidden rounded-[16px] text-left transition-all duration-500 ease-out animate-stagger-in ${isHovered ? 'card-edge-hover' : 'card-edge'}`}
               style={{ transform: isHovered ? 'translateY(-3px)' : 'translateY(0)', animationDelay: `${i * 100}ms` }}
             >

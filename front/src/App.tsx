@@ -141,6 +141,13 @@ export default function App() {
   const [playingExternalSubs, setPlayingExternalSubs] = useState<any[]>([]);
   const [mood, setMood] = useState<Mood>('warm');
   const [tvNavFocused, setTvNavFocused] = useState<string | null>(null);
+  const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>(() => route.collectionId || null);
+
+  useEffect(() => {
+    if (route.collectionId !== undefined) {
+      setSelectedCollectionId(route.collectionId || null);
+    }
+  }, [route.collectionId]);
 
   // Load initial deep link metadata if opened with /film/:id or /series/:id
   useEffect(() => {
@@ -158,15 +165,20 @@ export default function App() {
 
   const { data: trendingMovies } = useTrending('movie');
 
-  const handleNavigate = useCallback((s: NavSection) => {
+  const handleNavigate = useCallback((s: NavSection, collectionId?: string) => {
     setSelectedTitle(null);
     setSelectedEpisode(null);
     if (s !== 'shows') {
       setSelectedShow(null);
       setActiveEpisodeId(null);
     }
+    if (s === 'collections') {
+      setSelectedCollectionId(collectionId || null);
+    } else {
+      setSelectedCollectionId(null);
+    }
     setSection(s);
-    pushRoute(s);
+    pushRoute(s, undefined, undefined, collectionId);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   }, [pushRoute]);
 
@@ -345,6 +357,9 @@ export default function App() {
           if (!handled) {
             setSection('home');
           }
+        } else if (section === 'collections' && selectedCollectionId) {
+          setSelectedCollectionId(null);
+          pushRoute('collections');
         } else if (section !== 'home') {
           setSection('home');
         } else if (canGoBack) {
@@ -445,6 +460,7 @@ export default function App() {
               heroTitles={trendingMovies}
               onSelect={handleSelect}
               onPlay={handlePlay}
+              onSelectCollection={(colId) => handleNavigate('collections', colId)}
               onMoodChange={handleMoodChange}
               mood={mood}
             />
@@ -456,7 +472,18 @@ export default function App() {
         ) : section === 'settings' ? (
           <SettingsView onClose={() => handleNavigate('home')} />
         ) : section === 'collections' ? (
-          <CollectionsView onSelect={handleSelect} />
+          <CollectionsView
+            onSelect={handleSelect}
+            initialCollectionId={selectedCollectionId}
+            onCollectionChange={(colId) => {
+              setSelectedCollectionId(colId);
+              if (colId) {
+                pushRoute('collections', undefined, undefined, colId);
+              } else {
+                pushRoute('collections');
+              }
+            }}
+          />
         ) : section === 'my' ? (
           <MyView onSelect={handleSelect} />
         ) : section === 'movies' ? (

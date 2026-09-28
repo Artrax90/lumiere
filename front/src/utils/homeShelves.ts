@@ -14,7 +14,7 @@ export const DEFAULT_SHELVES: HomeShelfConfig[] = [
   { id: 'top10Tv', label: 'Топ-10 сериалов недели', description: 'Полка топовых сериалов недели с крупными номерами 1–10', enabled: true },
   { id: 'topRated', label: 'Шедевры мирового кино (Высокий рейтинг)', description: 'Фильмы с высочайшим рейтингом и золотым свечением', enabled: true },
   { id: 'action', label: 'Боевики и приключения', description: 'Динамичный экшн, блокбастеры и адреналин', enabled: true },
-  { id: 'banner', label: 'Тематическая подборка (Баннер)', description: 'Широкий кинематографичный баннер коллекции', enabled: true },
+  { id: 'banner', label: 'Подборки (Баннер)', description: 'Широкий кинематографичный баннер подборок', enabled: true },
   { id: 'comedy', label: 'Комедии для отличного настроения', description: 'Легкие и остроумные комедии для приятного вечера', enabled: true },
   { id: 'scifi', label: 'Фантастика и другие миры', description: 'Космос, киберпанк, магия и альтернативные вселенные', enabled: true },
   { id: 'family', label: 'Семейный вечер и анимация', description: 'Шедевры мультипликации и доброе кино для всей семьи', enabled: true },

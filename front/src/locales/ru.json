@@ -7,7 +7,7 @@
     "live": "Эфир",
     "iptv": "IPTV",
     "my": "Моё",
-    "collections": "Коллекции",
+    "collections": "Подборки",
     "search": "Поиск",
     "settings": "Настройки",
     "profile": "Профиль"
@@ -201,8 +201,9 @@
   },
   "collections": {
     "title": "Подборки",
-    "subtitle": "Тщательно отобранные коллекции",
-    "collection": "Подборка"
+    "subtitle": "Тематические подборки и жанры кино",
+    "collection": "Подборка",
+    "all": "Все подборки"
   },
   "episode": {
     "season": "С",
