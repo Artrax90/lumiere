@@ -152,7 +152,7 @@ export default function Card({
         {!imgLoaded && <div className={`absolute inset-0 skeleton ${radius}`} />}
 
         <SafeImg
-          src={isPortrait ? title.poster : title.backdrop}
+          src={isPortrait ? (title.poster || title.backdrop) : (title.backdrop || title.poster)}
           alt={title.name}
           loading="lazy"
           onLoad={() => setImgLoaded(true)}
@@ -287,12 +287,20 @@ export default function Card({
       >
         <CardMarqueeTitle name={title.name} featured={featured} hovered={hovered} />
         <div className="mt-1 flex items-center gap-1.5 text-[11px] text-white/38 min-w-0">
-          <span className="shrink-0">{title.year}</span>
-          <span className="shrink-0 text-white/15">·</span>
-          <span className="truncate">{title.genres.slice(0, 2).join(', ')}</span>
+          {title.year && title.year > 1900 ? (
+            <>
+              <span className="shrink-0">{title.year}</span>
+              {title.genres && title.genres.length > 0 && <span className="shrink-0 text-white/15">·</span>}
+            </>
+          ) : null}
+          {title.genres && title.genres.length > 0 && (
+            <span className="truncate">{title.genres.slice(0, 2).join(', ')}</span>
+          )}
           {title.score > 0 && (
             <>
-              <span className="shrink-0 text-white/15">·</span>
+              {(Boolean(title.year && title.year > 1900) || (title.genres && title.genres.length > 0)) && (
+                <span className="shrink-0 text-white/15">·</span>
+              )}
               <span className="shrink-0 flex items-center gap-0.5">
                 <Star className="h-[9px] w-[9px] text-amber-300/55" fill="currentColor" strokeWidth={0} />
                 {title.score}

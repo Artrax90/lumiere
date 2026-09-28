@@ -154,6 +154,8 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
         const cleanSavedName = saved.name
           ? saved.name.replace(/\s*—\s*Сезон.*$/i, '').replace(/\s*—\s*S\d+.*$/i, '').trim()
           : 'Unknown';
+        const bestPoster = saved.poster || saved.backdrop || '';
+        const bestBackdrop = saved.backdrop || saved.poster || '';
         watched.push({
           id: saved.id || Number(id),
           tmdbId: saved.tmdbId || saved.id || Number(id),
@@ -165,8 +167,8 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
           score: saved.score || 0,
           genres: saved.genres || [],
           description: saved.description || '',
-          backdrop: saved.backdrop || '',
-          poster: saved.poster || '',
+          backdrop: bestBackdrop,
+          poster: bestPoster,
           logoText: saved.logoText ? saved.logoText.replace(/\s*—\s*Сезон.*$/i, '').trim() : cleanSavedName,
         } as Title);
       }
@@ -175,6 +177,60 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
 
     return watched;
   }, [trendingMovies, popularMovies, positionsVersion]);
+
+  // Enrich continueWatching items that lack backdrops or year
+  useEffect(() => {
+    if (continueWatching.length === 0) return;
+    const needEnrich = continueWatching.filter(
+      (t) => !t.backdrop || !t.year || t.year <= 1900
+    );
+    if (needEnrich.length === 0) return;
+
+    let active = true;
+    (async () => {
+      let updatedAny = false;
+      const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+
+      for (const item of needEnrich.slice(0, 6)) {
+        if (!active) break;
+        try {
+          const endpoint = item.type === 'tv' ? `/api/tv/${item.id}` : `/api/movies/${item.id}`;
+          const res = await serverFetch(endpoint);
+          if (!res.ok) continue;
+          const details = await res.json();
+          if (details && (details.backdrop || details.poster || details.year)) {
+            const entry = positions[item.id] || { time: 0, timestamp: Date.now() };
+            const existingTitle = (typeof entry === 'object' && entry.title) || {};
+            positions[item.id] = {
+              ...entry,
+              title: {
+                ...existingTitle,
+                id: item.id,
+                name: details.name || existingTitle.name || item.name,
+                poster: details.poster || existingTitle.poster || item.poster,
+                backdrop: details.backdrop || existingTitle.backdrop || item.backdrop,
+                year: details.year || existingTitle.year || item.year,
+                runtime: details.runtime || existingTitle.runtime || item.runtime,
+                score: details.score || existingTitle.score || item.score,
+                genres: details.genres || existingTitle.genres || item.genres,
+                type: item.type,
+              },
+            };
+            updatedAny = true;
+          }
+        } catch {}
+      }
+
+      if (active && updatedAny) {
+        localStorage.setItem('playback_positions', JSON.stringify(positions));
+        setPositionsVersion((v) => v + 1);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [continueWatching]);
 
   const becauseYouWatched = trendingMovies;
   const tonightForYou = popularMovies;

@@ -1856,6 +1856,39 @@
       }
     });
 
+    // 7. Action movies (Боевики и приключения)
+    apiFetch('/api/catalog/genre/movie/28?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('action-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 8. Collection Banners (Подборки)
+    if (typeof renderCollectionBanners === 'function') {
+      renderCollectionBanners('banner-items');
+    }
+
+    // 9. Comedy movies (Комедии для отличного настроения)
+    apiFetch('/api/catalog/genre/movie/35?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('comedy-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 10. Sci-Fi movies (Фантастика и другие миры)
+    apiFetch('/api/catalog/genre/movie/878?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('scifi-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 11. Family & Animation movies (Семейный вечер и анимация)
+    apiFetch('/api/catalog/genre/movie/16?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('family-items', data.results.slice(0, 25));
+      }
+    });
+
     // Continue watching from localStorage & server
     renderContinueWatching();
 
@@ -3365,6 +3398,139 @@
     if (!grid) return;
     grid.innerHTML = '';
     titles.forEach(function(t, i) { grid.appendChild(createCard(t, i)); });
+  }
+
+  // ========== Curated TV Collections ==========
+  var TV_COLLECTIONS = [
+    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/mXLOHHc1Zeuwsl4xYKzKhbe2L9V.jpg' },
+    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg' },
+    { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg' },
+    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kGzFbGjtdaQpmfqeq35PVvlW93Y.jpg' }
+  ];
+
+  function renderCollectionBanners(containerId) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    TV_COLLECTIONS.forEach(function(col, i) {
+      var card = document.createElement('div');
+      card.className = 'card collection-tv-card';
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('data-index', i);
+      card._collectionData = col;
+
+      var fallbackImg = col.bg;
+      if (state.trendingMovies && state.trendingMovies[i] && state.trendingMovies[i].backdrop) {
+        fallbackImg = imgUrl(state.trendingMovies[i].backdrop);
+      }
+
+      card.innerHTML =
+        '<div class="collection-tv-bg" style="background-image:url(\'' + esc(fallbackImg) + '\')"></div>' +
+        '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
+          '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
+          '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
+          '<div class="collection-tv-sub">' + esc(col.subtitle) + '</div>' +
+        '</div>';
+
+      card.addEventListener('click', function() {
+        openTvCollection(col);
+      });
+
+      card.addEventListener('focus', function() {
+        card.classList.add('focused');
+      });
+      card.addEventListener('blur', function() {
+        card.classList.remove('focused');
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  function openTvCollection(col) {
+    if (!col) return;
+    switchSection('collections');
+    loadCollectionTitles(col);
+  }
+
+  function renderCollectionsSection() {
+    var grid = document.getElementById('collections-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    var sec = document.getElementById('sec-collections');
+    if (sec) {
+      var subtitleEl = sec.querySelector('.page-subtitle');
+      if (subtitleEl) subtitleEl.textContent = 'Тематические коллекции и шедевры мирового кино';
+    }
+
+    TV_COLLECTIONS.forEach(function(col, i) {
+      var card = document.createElement('div');
+      card.className = 'card collection-tv-card collections-page-card';
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('data-index', i);
+      card._collectionData = col;
+
+      var fallbackImg = col.bg;
+      if (state.trendingMovies && state.trendingMovies[i] && state.trendingMovies[i].backdrop) {
+        fallbackImg = imgUrl(state.trendingMovies[i].backdrop);
+      }
+
+      card.innerHTML =
+        '<div class="collection-tv-bg" style="background-image:url(\'' + esc(fallbackImg) + '\')"></div>' +
+        '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
+          '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
+          '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
+          '<div class="collection-tv-sub">' + esc(col.subtitle) + '</div>' +
+        '</div>';
+
+      card.addEventListener('click', function() {
+        loadCollectionTitles(col);
+      });
+
+      card.addEventListener('focus', function() {
+        card.classList.add('focused');
+      });
+      card.addEventListener('blur', function() {
+        card.classList.remove('focused');
+      });
+
+      grid.appendChild(card);
+    });
+  }
+
+  function loadCollectionTitles(col) {
+    var sec = document.getElementById('sec-collections');
+    if (!sec) return;
+    var url = col.endpoint || ('/api/catalog/genre/movie/' + col.genreId + '?page=1');
+    var subtitleEl = sec.querySelector('.page-subtitle');
+    if (subtitleEl) subtitleEl.textContent = col.name + ' — ' + col.subtitle;
+
+    var grid = document.getElementById('collections-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Загрузка фильмов...</div>';
+
+    apiFetch(url, function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        grid.innerHTML = '';
+        var backBtn = document.createElement('div');
+        backBtn.className = 'card';
+        backBtn.setAttribute('tabindex', '0');
+        backBtn.style.cssText = 'width:200px;height:300px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;';
+        backBtn.innerHTML = '<span style="font-size:36px;margin-bottom:8px;">←</span>Все подборки';
+        backBtn.addEventListener('click', function() {
+          renderCollectionsSection();
+        });
+        backBtn.addEventListener('focus', function() { backBtn.classList.add('focused'); });
+        backBtn.addEventListener('blur', function() { backBtn.classList.remove('focused'); });
+        grid.appendChild(backBtn);
+
+        data.results.forEach(function(t, i) {
+          grid.appendChild(createCard(t, i + 1));
+        });
+      }
+    });
   }
 
   // ========== Card Title Marquee Animation ==========
@@ -7158,6 +7324,10 @@
 
     $content.scrollTop = 0;
 
+    if (section === 'collections') {
+      if (typeof renderCollectionsSection === 'function') renderCollectionsSection();
+    }
+
     if (section === 'search') {
       if (typeof setupSearch === 'function') setupSearch();
       if (typeof renderRecentSearches === 'function') renderRecentSearches();
@@ -9079,16 +9249,21 @@
 
   var SHELF_ROW_MAP = {
     'continueWatching': 'row-continue',
-    'recommendedHistory': 'row-recommended-history',
     'top10Movies': 'row-top10-movies',
-    'trending': 'row-trending',
     'nowPlaying': 'row-now-playing',
+    'top10Tv': 'row-top10-tv',
+    'topRated': 'row-top-rated',
+    'action': 'row-action',
+    'banner': 'row-banner',
+    'comedy': 'row-comedy',
+    'scifi': 'row-scifi',
+    'family': 'row-family',
     'popular': 'row-popular',
     'popularMovies': 'row-popular',
-    'topRated': 'row-top-rated',
-    'top10Tv': 'row-top10-tv',
     'tv': 'row-tv',
-    'popularTv': 'row-tv'
+    'popularTv': 'row-tv',
+    'trending': 'row-trending',
+    'recommendedHistory': 'row-recommended-history'
   };
 
   function applyHomeShelvesLayout(shelves) {

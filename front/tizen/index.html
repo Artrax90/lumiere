@@ -1,17 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <script>
-  window.__DEFAULT_SERVER_URL__ = 'http://192.168.1.196:3500';
-  try {
-    var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
-    if (!cur || /:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1 || cur.indexOf('lumiere.artrax.net') !== -1) {
-      localStorage.setItem('lumiere_server_url', 'http://192.168.1.196:3500');
-      localStorage.setItem('lumiere_tv_server', 'http://192.168.1.196:3500');
-      localStorage.setItem('lumiere_server', 'http://192.168.1.196:3500');
-    }
-  } catch(e) {}
-</script>
   <script type="text/javascript" src="$WEBAPIS/webapis/webapis.js"></script>
   <script>
   if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -75,8 +64,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="./tv.css?v=584">
-  <link rel="stylesheet" href="./player.css?v=584">
+  <link rel="stylesheet" href="/tv/tv.css?v=584">
+  <link rel="stylesheet" href="/tv/player.css?v=584">
 </head>
 <body>
   <!-- Loading -->
@@ -213,6 +202,7 @@
         <button class="nav-btn" data-section="tv">Сериалы</button>
         <button class="nav-btn" data-section="iptv">IPTV</button>
         <button class="nav-btn" data-section="my">Моё</button>
+        <button class="nav-btn" data-section="collections">Подборки</button>
         <button class="nav-btn" data-section="notifications" id="nav-notifications" title="Уведомления">🔔<span id="tv-notif-badge" class="tv-notif-badge hidden">0</span></button>
         <button class="nav-btn" data-section="settings">Настройки</button>
         <button class="nav-btn nav-profile-pill" data-section="profile" id="nav-user-pill" title="Мой профиль">
@@ -231,37 +221,57 @@
           <h2 class="row-title">Продолжить просмотр</h2>
           <div class="row-items" id="continue-items"></div>
         </div>
-        <div class="row" id="row-recommended-history">
-          <h2 class="row-title">✨ Вам может понравиться</h2>
-          <div class="row-items" id="recommended-history-items"></div>
-        </div>
         <div class="row" id="row-top10-movies">
-          <h2 class="row-title">🏆 Топ-10 фильмов недели</h2>
+          <h2 class="row-title">🏆 Топ-10 фильмов сегодня</h2>
           <div class="row-items top10-row-items" id="top10-movies-items"></div>
         </div>
-        <div class="row" id="row-trending">
-          <h2 class="row-title">🔥 В тренде прямо сейчас</h2>
-          <div class="row-items" id="trending-items"></div>
-        </div>
         <div class="row" id="row-now-playing">
-          <h2 class="row-title">✨ Рекомендации: Новинки и премьеры</h2>
+          <h2 class="row-title">✨ Новинки в кино и цифровые релизы</h2>
           <div class="row-items" id="now-playing-items"></div>
-        </div>
-        <div class="row" id="row-popular">
-          <h2 class="row-title">🎬 Популярные фильмы</h2>
-          <div class="row-items" id="popular-items"></div>
-        </div>
-        <div class="row" id="row-top-rated">
-          <h2 class="row-title">⭐ Шедевры мирового кино (Высокий рейтинг)</h2>
-          <div class="row-items" id="top-rated-items"></div>
         </div>
         <div class="row" id="row-top10-tv">
           <h2 class="row-title">📺 Топ-10 сериалов недели</h2>
           <div class="row-items top10-row-items" id="top10-tv-items"></div>
         </div>
+        <div class="row" id="row-top-rated">
+          <h2 class="row-title">⭐ Шедевры мирового кино (Высокий рейтинг)</h2>
+          <div class="row-items" id="top-rated-items"></div>
+        </div>
+        <div class="row" id="row-action">
+          <h2 class="row-title">💥 Боевики и приключения</h2>
+          <div class="row-items" id="action-items"></div>
+        </div>
+        <div class="row" id="row-banner">
+          <h2 class="row-title">🎬 Тематические подборки</h2>
+          <div class="row-items banner-row-items" id="banner-items"></div>
+        </div>
+        <div class="row" id="row-comedy">
+          <h2 class="row-title">😄 Комедии для отличного настроения</h2>
+          <div class="row-items" id="comedy-items"></div>
+        </div>
+        <div class="row" id="row-scifi">
+          <h2 class="row-title">🚀 Фантастика и другие миры</h2>
+          <div class="row-items" id="scifi-items"></div>
+        </div>
+        <div class="row" id="row-family">
+          <h2 class="row-title">🎨 Семейный вечер и анимация</h2>
+          <div class="row-items" id="family-items"></div>
+        </div>
+        <div class="row" id="row-popular">
+          <h2 class="row-title">🎬 Популярные фильмы</h2>
+          <div class="row-items" id="popular-items"></div>
+        </div>
         <div class="row" id="row-tv">
           <h2 class="row-title">🍿 Популярные сериалы</h2>
           <div class="row-items" id="tv-items"></div>
+        </div>
+        <div class="row" id="row-trending">
+          <h2 class="row-title">🔥 В тренде прямо сейчас</h2>
+          <div class="row-items" id="trending-items"></div>
+        </div>
+        <div class="row" id="row-recommended-history">
+          <h2 class="row-title">✨ Вам может понравиться</h2>
+          <div class="row-items" id="recommended-history-items"></div>
         </div>
       </section>
 
@@ -290,6 +300,13 @@
       <section id="sec-tv" class="section">
         <h1 class="page-title">Сериалы</h1>
         <div class="grid" id="tv-grid"></div>
+      </section>
+
+      <!-- Collections (Подборки) -->
+      <section id="sec-collections" class="section">
+        <h1 class="page-title">Подборки</h1>
+        <p class="page-subtitle" style="color:var(--text-dim);font-size:20px;margin-top:-20px;margin-bottom:30px;">Тематические коллекции и шедевры мирового кино</p>
+        <div id="collections-grid" class="collections-tv-grid"></div>
       </section>
 
       <!-- IPTV — Three-column layout: Categories | Channels | Preview -->
@@ -507,10 +524,10 @@
     </div>
   </div>
 
-  <script src="./hls.min.js?v=585" charset="UTF-8"></script>
-  <script src="./player-adapter.js?v=585" charset="UTF-8"></script>
-  <script src="./player.js?v=585" charset="UTF-8"></script>
-  <script src="./tv.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/hls.min.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/player-adapter.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/player.js?v=585" charset="UTF-8"></script>
+  <script src="/tv/tv.js?v=585" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {

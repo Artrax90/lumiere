@@ -202,6 +202,7 @@
         <button class="nav-btn" data-section="tv">Сериалы</button>
         <button class="nav-btn" data-section="iptv">IPTV</button>
         <button class="nav-btn" data-section="my">Моё</button>
+        <button class="nav-btn" data-section="collections">Подборки</button>
         <button class="nav-btn" data-section="notifications" id="nav-notifications" title="Уведомления">🔔<span id="tv-notif-badge" class="tv-notif-badge hidden">0</span></button>
         <button class="nav-btn" data-section="settings">Настройки</button>
         <button class="nav-btn nav-profile-pill" data-section="profile" id="nav-user-pill" title="Мой профиль">
@@ -220,37 +221,57 @@
           <h2 class="row-title">Продолжить просмотр</h2>
           <div class="row-items" id="continue-items"></div>
         </div>
-        <div class="row" id="row-recommended-history">
-          <h2 class="row-title">✨ Вам может понравиться</h2>
-          <div class="row-items" id="recommended-history-items"></div>
-        </div>
         <div class="row" id="row-top10-movies">
-          <h2 class="row-title">🏆 Топ-10 фильмов недели</h2>
+          <h2 class="row-title">🏆 Топ-10 фильмов сегодня</h2>
           <div class="row-items top10-row-items" id="top10-movies-items"></div>
         </div>
-        <div class="row" id="row-trending">
-          <h2 class="row-title">🔥 В тренде прямо сейчас</h2>
-          <div class="row-items" id="trending-items"></div>
-        </div>
         <div class="row" id="row-now-playing">
-          <h2 class="row-title">✨ Рекомендации: Новинки и премьеры</h2>
+          <h2 class="row-title">✨ Новинки в кино и цифровые релизы</h2>
           <div class="row-items" id="now-playing-items"></div>
-        </div>
-        <div class="row" id="row-popular">
-          <h2 class="row-title">🎬 Популярные фильмы</h2>
-          <div class="row-items" id="popular-items"></div>
-        </div>
-        <div class="row" id="row-top-rated">
-          <h2 class="row-title">⭐ Шедевры мирового кино (Высокий рейтинг)</h2>
-          <div class="row-items" id="top-rated-items"></div>
         </div>
         <div class="row" id="row-top10-tv">
           <h2 class="row-title">📺 Топ-10 сериалов недели</h2>
           <div class="row-items top10-row-items" id="top10-tv-items"></div>
         </div>
+        <div class="row" id="row-top-rated">
+          <h2 class="row-title">⭐ Шедевры мирового кино (Высокий рейтинг)</h2>
+          <div class="row-items" id="top-rated-items"></div>
+        </div>
+        <div class="row" id="row-action">
+          <h2 class="row-title">💥 Боевики и приключения</h2>
+          <div class="row-items" id="action-items"></div>
+        </div>
+        <div class="row" id="row-banner">
+          <h2 class="row-title">🎬 Тематические подборки</h2>
+          <div class="row-items banner-row-items" id="banner-items"></div>
+        </div>
+        <div class="row" id="row-comedy">
+          <h2 class="row-title">😄 Комедии для отличного настроения</h2>
+          <div class="row-items" id="comedy-items"></div>
+        </div>
+        <div class="row" id="row-scifi">
+          <h2 class="row-title">🚀 Фантастика и другие миры</h2>
+          <div class="row-items" id="scifi-items"></div>
+        </div>
+        <div class="row" id="row-family">
+          <h2 class="row-title">🎨 Семейный вечер и анимация</h2>
+          <div class="row-items" id="family-items"></div>
+        </div>
+        <div class="row" id="row-popular">
+          <h2 class="row-title">🎬 Популярные фильмы</h2>
+          <div class="row-items" id="popular-items"></div>
+        </div>
         <div class="row" id="row-tv">
           <h2 class="row-title">🍿 Популярные сериалы</h2>
           <div class="row-items" id="tv-items"></div>
+        </div>
+        <div class="row" id="row-trending">
+          <h2 class="row-title">🔥 В тренде прямо сейчас</h2>
+          <div class="row-items" id="trending-items"></div>
+        </div>
+        <div class="row" id="row-recommended-history">
+          <h2 class="row-title">✨ Вам может понравиться</h2>
+          <div class="row-items" id="recommended-history-items"></div>
         </div>
       </section>
 
@@ -279,6 +300,13 @@
       <section id="sec-tv" class="section">
         <h1 class="page-title">Сериалы</h1>
         <div class="grid" id="tv-grid"></div>
+      </section>
+
+      <!-- Collections (Подборки) -->
+      <section id="sec-collections" class="section">
+        <h1 class="page-title">Подборки</h1>
+        <p class="page-subtitle" style="color:var(--text-dim);font-size:20px;margin-top:-20px;margin-bottom:30px;">Тематические коллекции и шедевры мирового кино</p>
+        <div id="collections-grid" class="collections-tv-grid"></div>
       </section>
 
       <!-- IPTV — Three-column layout: Categories | Channels | Preview -->
