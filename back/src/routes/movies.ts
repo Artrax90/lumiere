@@ -43,6 +43,13 @@ export function movieRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return { results };
   });
 
+  app.get('/api/movies/:id/trailer', async (req) => {
+    const { id } = req.params as { id: string };
+    const { lang } = req.query as { lang?: Lang };
+    const trailer = await provider.trailer(parseInt(id), 'movie', lang);
+    return { trailer };
+  });
+
   app.get('/api/movies/:id/similar', async (req) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };

@@ -3859,6 +3859,12 @@
     html += '</div>'; // end tab-content
     html += '</div>'; // end detail-stream-section
 
+    // Bottom recommendations section: "Вам может понравиться"
+    html += '<div class="detail-recommendations-section" id="detail-rec-section">';
+    html += '<h3 class="detail-rec-title">✨ Вам может понравиться</h3>';
+    html += '<div class="row-items detail-rec-items" id="detail-rec-items"><p class="detail-loading-text">Загрузка рекомендаций...</p></div>';
+    html += '</div>';
+
     html += '</div>'; // end overlay
 
     if (!$detail) $detail = document.getElementById('detail');
@@ -3866,6 +3872,8 @@
       var contentEl = $detail.querySelector('#detail-content');
       if (contentEl) contentEl.innerHTML = html;
     }
+
+    state._expandedTorrents = false;
 
     // Detect backdrop luminance and apply theme to the about card
     detectBackdropLuminance(backdrop, function(isLight) {
@@ -3900,6 +3908,7 @@
       searchTorrents(d, null);
     }
     searchSources(d);
+    loadDetailRecommendations(d);
 
     // Focus primary play button
     setTimeout(function() {
@@ -3934,6 +3943,89 @@
     } else {
       focusNav(state.focusedNav || 0);
     }
+  }
+
+  function playTrailer(d) {
+    if (!d || !d.id) return;
+    showTvToast('Поиск трейлера...', 1500);
+
+    var mType = d.type === 'tv' ? 'tv' : 'movie';
+    apiFetch('/api/' + mType + '/' + d.id + '/trailer?lang=ru', function(err, res) {
+      var trailerUrl = '';
+      if (!err && res && res.trailer && res.trailer.url) {
+        trailerUrl = res.trailer.url;
+      } else {
+        var query = encodeURIComponent((d.logoText || d.name || '') + ' ' + (d.year || '') + ' русский трейлер');
+        trailerUrl = 'https://www.youtube-nocookie.com/embed?listType=search&list=' + query + '&autoplay=1';
+      }
+
+      var existing = document.getElementById('trailer-modal');
+      if (existing) existing.remove();
+
+      var modal = document.createElement('div');
+      modal.id = 'trailer-modal';
+      modal.innerHTML = '<div class="trailer-cinema-wrap">' +
+        '<iframe id="trailer-iframe" src="' + trailerUrl + '" style="width:100%;height:100%;border:none;" allow="autoplay; fullscreen" allowfullscreen></iframe>' +
+        '<button class="trailer-close-btn focused" id="trailer-close-btn" tabindex="0">✕ Закрыть (Назад)</button>' +
+        '</div>';
+
+      document.body.appendChild(modal);
+
+      var closeBtn = document.getElementById('trailer-close-btn');
+      var closeTrailer = function() {
+        if (modal && modal.parentNode) modal.remove();
+        var trailerBtn = document.getElementById('detail-trailer-btn');
+        if (trailerBtn) setDetailFocus(trailerBtn);
+      };
+
+      if (closeBtn) closeBtn.addEventListener('click', closeTrailer);
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeTrailer();
+      });
+    });
+  }
+
+  function loadDetailRecommendations(d) {
+    var container = document.getElementById('detail-rec-items');
+    var section = document.getElementById('detail-rec-section');
+    if (!container || !section) return;
+
+    var mType = d.type === 'tv' ? 'tv' : 'movie';
+    apiFetch('/api/' + mType + '/' + d.id + '/recommendations?lang=ru', function(err, res) {
+      var list = (res && Array.isArray(res.results)) ? res.results : [];
+      list = list.filter(function(item) {
+        return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !item.poster.includes('null');
+      });
+
+      if (list.length === 0) {
+        apiFetch('/api/' + mType + '/' + d.id + '/similar?lang=ru', function(err2, res2) {
+          var list2 = (res2 && Array.isArray(res2.results)) ? res2.results : [];
+          list2 = list2.filter(function(item) {
+            return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !item.poster.includes('null');
+          });
+          renderDetailRecCards(container, section, list2);
+        });
+        return;
+      }
+
+      renderDetailRecCards(container, section, list);
+    });
+  }
+
+  function renderDetailRecCards(container, section, list) {
+    if (!list || list.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    container.innerHTML = '';
+    list.slice(0, 16).forEach(function(rec) {
+      var card = createCard(rec);
+      card.addEventListener('click', function() {
+        showDetail(rec);
+      });
+      container.appendChild(card);
+    });
   }
 
   function bindDetailBack() {
@@ -3996,7 +4088,7 @@
     var trailerBtn = document.getElementById('detail-trailer-btn');
     if (trailerBtn) {
       trailerBtn.addEventListener('click', function() {
-        showTvToast('Трейлер: ' + (d.logoText || d.name), 2000);
+        playTrailer(d);
       });
     }
 
@@ -5195,8 +5287,12 @@
       html += '<button class="sort-chip' + (state._torrentSort === 'size' ? ' active' : '') + '" data-sort="size" tabindex="0">По размеру</button>';
       html += '</div>';
 
+      var isExpanded = Boolean(state._expandedTorrents);
+      var visibleLimit = isExpanded ? 35 : 5;
+      var hasMore = sorted.length > 5;
+
       html += '<div class="detail-torrents-list">';
-      sorted.slice(0, 30).forEach(function(torrent, i) {
+      sorted.slice(0, visibleLimit).forEach(function(torrent, i) {
         html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
         html += '<div class="detail-torrent-title">' + esc(torrent.title || '') + '</div>';
         html += '<div class="detail-torrent-badges">';
@@ -5213,7 +5309,28 @@
         html += '</div></div>';
       });
       html += '</div>';
+
+      if (hasMore) {
+        html += '<button class="torrent-show-more-btn" id="torrent-show-more-btn" tabindex="0">';
+        html += isExpanded ? '▲ Свернуть список раздач' : ('▼ Показать ещё ' + (sorted.length - 5) + ' раздач...');
+        html += '</button>';
+      }
       container.innerHTML = html;
+
+      var showMoreBtn = container.querySelector('#torrent-show-more-btn');
+      if (showMoreBtn) {
+        showMoreBtn.addEventListener('click', function() {
+          state._expandedTorrents = !state._expandedTorrents;
+          renderTorrentResults(allResults);
+          if (state._expandedTorrents) {
+            var nextItem = container.querySelector('.torrent-item[data-index="5"]') || container.querySelector('#torrent-show-more-btn');
+            if (nextItem) setDetailFocus(nextItem);
+          } else {
+            var fifthItem = container.querySelector('.torrent-item[data-index="4"]') || container.querySelector('#torrent-show-more-btn');
+            if (fifthItem) setDetailFocus(fifthItem);
+          }
+        });
+      }
 
       // Bind sort chip click listeners
       container.querySelectorAll('.sort-chip').forEach(function(chip) {
@@ -7361,6 +7478,15 @@
       return;
     }
 
+    // -1.5. If trailer modal open, close it
+    var trailerModal = document.getElementById('trailer-modal');
+    if (trailerModal) {
+      trailerModal.remove();
+      var trailerBtn = document.getElementById('detail-trailer-btn');
+      if (trailerBtn) setDetailFocus(trailerBtn);
+      return;
+    }
+
     // -1. If exit confirmation modal open, close it
     var exitModal = document.getElementById('exit-confirm-modal');
     if (exitModal) {
@@ -8495,9 +8621,23 @@
     var detailBackBtn = document.getElementById('detail-back-btn');
     var isDetailBack = (focused === detailBackBtn);
 
+    var showMoreBtn = $detail ? $detail.querySelector('#torrent-show-more-btn') : null;
+    var isShowMore = (focused === showMoreBtn);
+    var recCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-rec-items .card')) : [];
+    var recIdx = recCards.indexOf(focused);
+    var isRec = (recIdx !== -1);
+
     switch (code) {
       case 10009: // Back
       case 27:
+        var tModal = document.getElementById('trailer-modal');
+        if (tModal) {
+          tModal.remove();
+          var tBtn = document.getElementById('detail-trailer-btn');
+          if (tBtn) setDetailFocus(tBtn);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
         if (state.modalCloseTimestamp && (Date.now() - state.modalCloseTimestamp < 700)) {
           if (e && e.preventDefault) e.preventDefault();
           return;
@@ -8536,6 +8676,11 @@
             setDetailFocus(prevSeason);
             try { prevSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
           }
+        } else if (isRec) {
+          if (recIdx > 0) {
+            setDetailFocus(recCards[recIdx - 1]);
+            try { recCards[recIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
         } else if (isSortChip) {
           if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
         }
@@ -8568,6 +8713,11 @@
             setDetailFocus(nextSeason);
             try { nextSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
           }
+        } else if (isRec) {
+          if (recIdx < recCards.length - 1) {
+            setDetailFocus(recCards[recIdx + 1]);
+            try { recCards[recIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
         } else if (isSortChip) {
           if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
         }
@@ -8589,6 +8739,21 @@
         } else if (isAllCast) {
           var bBtn = document.getElementById('detail-back-btn');
           if (bBtn) setDetailFocus(bBtn);
+        } else if (isRec) {
+          if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (items.length > 0) {
+            setDetailFocus(items[items.length - 1]);
+          } else if (tabs.length > 0) {
+            setDetailFocus(tabs[0]);
+          }
+        } else if (isShowMore) {
+          if (items.length > 0) {
+            var targetIdx = state._expandedTorrents ? (items.length - 1) : Math.min(4, items.length - 1);
+            setDetailFocus(items[targetIdx]);
+          } else if (tabs.length > 0) {
+            setDetailFocus(tabs[0]);
+          }
         } else if (isSortChip) {
           var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
           if (activeSeason) {
@@ -8670,9 +8835,21 @@
           while (nextItem && !nextItem.classList.contains(targetClassDown)) {
             nextItem = nextItem.nextElementSibling;
           }
-          if (nextItem) {
+          if (nextItem && nextItem.offsetParent !== null) {
             setDetailFocus(nextItem);
+          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
+        } else if (isShowMore) {
+          if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isRec) {
+          // Bottom reached
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
@@ -8682,6 +8859,16 @@
       case 65385:
       case 65376:
         if (focused) {
+          if (isShowMore) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isRec) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
           if (isDetailBack) {
             hideDetail();
             if (e && e.preventDefault) e.preventDefault();

@@ -180,6 +180,29 @@ export class TmdbProvider implements MetadataProvider {
     return valid.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
   }
 
+  async trailer(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<{ url: string; key: string; name: string } | null> {
+    try {
+      const ruData = await this.client.get(`/${mediaType}/${id}/videos`, { language: 'ru-RU' });
+      let videos = ruData.results || [];
+      if (videos.length === 0) {
+        const enData = await this.client.get(`/${mediaType}/${id}/videos`, { language: 'en-US' });
+        videos = enData.results || [];
+      }
+      const trailer = videos.find((v: any) => v.site === 'YouTube' && v.type === 'Trailer') ||
+                      videos.find((v: any) => v.site === 'YouTube' && v.type === 'Teaser') ||
+                      videos.find((v: any) => v.site === 'YouTube') ||
+                      videos[0];
+      if (trailer && trailer.key) {
+        return {
+          key: trailer.key,
+          name: trailer.name || 'Трейлер',
+          url: `https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&enablejsapi=1&rel=0`,
+        };
+      }
+    } catch {}
+    return null;
+  }
+
   async seasonDetails(tvId: number, seasonNumber: number, lang?: Lang): Promise<Episode[]> {
     const data: TmdbSeason = await this.client.get(`/tv/${tvId}/season/${seasonNumber}`, {
       language: this.client.lang(lang),
