@@ -180,7 +180,7 @@ export class TmdbProvider implements MetadataProvider {
     return valid.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
   }
 
-  async trailer(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<{ url: string; key?: string; name: string; source: string } | null> {
+  async trailer(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<{ url: string; streamUrl?: string | null; embedUrl?: string; key?: string; name: string; source: string } | null> {
     // 1. Primary: Search Russian trailer on Rutube (works reliably in Russia without VPN, fast HD iframe)
     try {
       const details = await this.client.get(`/${mediaType}/${id}`, { language: this.client.lang(lang) });
@@ -196,8 +196,21 @@ export class TmdbProvider implements MetadataProvider {
           const results = data.results || [];
           const match = results.find((v: any) => /трейлер|тизер/i.test(v.title)) || results[0];
           if (match && match.id) {
+            let streamUrl: string | null = null;
+            try {
+              const optRes = await fetch(`https://rutube.ru/api/play/options/${match.id}/?format=json`, {
+                signal: AbortSignal.timeout(3000),
+              });
+              if (optRes.ok) {
+                const optData = (await optRes.json()) as any;
+                streamUrl = optData.video_balancer?.m3u8 || optData.video_balancer?.default || null;
+              }
+            } catch {}
+
             return {
-              url: `https://rutube.ru/play/embed/${match.id}?autoPlay=1`,
+              url: streamUrl || `https://rutube.ru/play/embed/${match.id}?autoPlay=1`,
+              streamUrl,
+              embedUrl: `https://rutube.ru/play/embed/${match.id}?autoPlay=1`,
               name: match.title || 'Русский трейлер',
               source: 'rutube',
             };
@@ -223,6 +236,8 @@ export class TmdbProvider implements MetadataProvider {
           key: trailer.key,
           name: trailer.name || 'Трейлер',
           url: `https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&enablejsapi=1&rel=0`,
+          embedUrl: `https://www.youtube-nocookie.com/embed/${trailer.key}?autoplay=1&enablejsapi=1&rel=0`,
+          streamUrl: null,
           source: 'youtube',
         };
       }

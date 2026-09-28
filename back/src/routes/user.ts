@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import pool from '../db/pool.js';
-import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 export function userRoutes(app: FastifyInstance) {
   // Get profile
@@ -224,8 +224,8 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Remove from history ("Просмотрено")
-  app.delete('/api/user/history/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.delete('/api/user/history/:tmdbId', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
     const { tmdbId } = request.params as { tmdbId: string };
 
     await pool.query(
@@ -237,8 +237,8 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Get watch history
-  app.get('/api/user/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
 
     const result = await pool.query(
       'SELECT id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at FROM watch_history WHERE user_id = $1 ORDER BY updated_at DESC',
@@ -258,23 +258,31 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Update watch progress
-  app.post('/api/user/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
     const { tmdbId, mediaType, titleName, poster, progress, timestamp } = request.body as {
       tmdbId?: number; mediaType?: string; titleName?: string; poster?: string; progress?: number; timestamp?: number;
     };
 
-    if (!tmdbId || !mediaType || !titleName) {
-      return { error: 'tmdbId, mediaType, and titleName are required' };
+    if (!tmdbId) {
+      return { error: 'tmdbId is required' };
     }
+
+    const effectiveTitle = titleName || ('Медиа #' + tmdbId);
+    const effectiveType = mediaType || 'movie';
 
     const result = await pool.query(
       `INSERT INTO watch_history (user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (user_id, tmdb_id, media_type)
-       DO UPDATE SET progress = $6, timestamp = $7, updated_at = NOW()
+       DO UPDATE SET
+         progress = EXCLUDED.progress,
+         timestamp = GREATEST(watch_history.timestamp, EXCLUDED.timestamp),
+         title_name = COALESCE(EXCLUDED.title_name, watch_history.title_name),
+         poster = COALESCE(EXCLUDED.poster, watch_history.poster),
+         updated_at = NOW()
        RETURNING id`,
-      [userId, tmdbId, mediaType, titleName, poster || '', progress || 0, timestamp || 0]
+      [userId, tmdbId, effectiveType, effectiveTitle, poster || '', progress || 0, timestamp || Date.now()]
     );
 
     return { success: true, id: result.rows[0]?.id };

@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import Hls from 'hls.js';
 import { Play, Plus, Check, Star, ChevronLeft, ChevronRight, Heart, Share2, Download, Clock, Calendar, Award, Film, Loader2, Bell, Bookmark, RotateCcw, X } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useDetails } from '@/hooks/useDetails';
@@ -37,8 +38,10 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   const [similarTitles, setSimilarTitles] = useState<Title[]>([]);
   const [showTrailer, setShowTrailer] = useState(false);
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null);
+  const [trailerStream, setTrailerStream] = useState<string | null>(null);
   const [trailerLoading, setTrailerLoading] = useState(false);
   const [trailerError, setTrailerError] = useState<string | null>(null);
+  const trailerVideoRef = useRef<HTMLVideoElement>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [showAllCastModal, setShowAllCastModal] = useState(false);
   const [isLightBg, setIsLightBg] = useState(false);
@@ -71,12 +74,19 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
     setTrailerLoading(true);
     setTrailerError(null);
     setTrailerUrl(null);
+    setTrailerStream(null);
     try {
       const mediaType = displayTitle.type === 'tv' ? 'tv' : 'movies';
       const res = await serverFetch(`/api/${mediaType}/${displayTitle.id}/trailer?lang=ru`);
       const data = await res.json();
-      if (data && data.trailer && data.trailer.url) {
-        setTrailerUrl(data.trailer.url);
+      if (data && data.trailer) {
+        if (data.trailer.streamUrl) {
+          setTrailerStream(data.trailer.streamUrl);
+        } else if (data.trailer.embedUrl || data.trailer.url) {
+          setTrailerUrl(data.trailer.embedUrl || data.trailer.url);
+        } else {
+          setTrailerError('Трейлер не найден');
+        }
       } else {
         setTrailerError('Трейлер не найден');
       }
@@ -86,6 +96,35 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
       setTrailerLoading(false);
     }
   };
+
+  const handleCloseTrailer = () => {
+    setShowTrailer(false);
+    setTrailerUrl(null);
+    setTrailerStream(null);
+    setTrailerError(null);
+  };
+
+  useEffect(() => {
+    if (!trailerStream || !trailerVideoRef.current) return;
+    const video = trailerVideoRef.current;
+    let hls: Hls | null = null;
+    if (Hls.isSupported()) {
+      hls = new Hls({ enableWorker: true });
+      hls.loadSource(trailerStream);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.src = trailerStream;
+      video.play().catch(() => {});
+    }
+    return () => {
+      if (hls) {
+        hls.destroy();
+      }
+    };
+  }, [trailerStream]);
 
   useEffect(() => {
     const bgUrl = displayTitle.backdrop || displayTitle.poster;
@@ -728,7 +767,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
       {showTrailer && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-fade-in"
-          onClick={() => setShowTrailer(false)}
+          onClick={handleCloseTrailer}
         >
           <div
             className="relative w-full max-w-4xl aspect-video overflow-hidden rounded-[20px] bg-black shadow-2xl ring-1 ring-white/10 flex items-center justify-center"
@@ -743,12 +782,20 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               <div className="flex flex-col items-center gap-3 text-white/80 text-center px-4">
                 <span className="text-base font-medium">🎬 {trailerError}</span>
                 <button
-                  onClick={() => setShowTrailer(false)}
+                  onClick={handleCloseTrailer}
                   className="px-4 py-1.5 rounded-full bg-white/10 hover:bg-white/20 text-xs text-white transition-all"
                 >
                   Закрыть
                 </button>
               </div>
+            ) : trailerStream ? (
+              <video
+                ref={trailerVideoRef}
+                controls
+                autoPlay
+                playsInline
+                className="h-full w-full object-contain"
+              />
             ) : trailerUrl ? (
               <iframe
                 src={trailerUrl}
@@ -759,7 +806,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               />
             ) : null}
             <button
-              onClick={() => setShowTrailer(false)}
+              onClick={handleCloseTrailer}
               className="absolute right-4 top-4 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/70 text-white/80 transition-cinematic hover:bg-black hover:text-white backdrop-blur-md"
             >
               ✕

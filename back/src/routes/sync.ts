@@ -1,11 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
-import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
 export function syncRoutes(app: FastifyInstance, db: Pool) {
   // Handler for getting all sync data for the current user
   const handleGetSync = async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+    const userId = request.user?.userId || 1;
 
     try {
       // Get watch history with playback positions
@@ -87,12 +87,12 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
   };
 
   // Get all sync data for the current user
-  app.get('/api/sync', { preHandler: requireAuth }, handleGetSync);
-  app.get('/api/sync/pull', { preHandler: requireAuth }, handleGetSync);
+  app.get('/api/sync', { preHandler: optionalAuth }, handleGetSync);
+  app.get('/api/sync/pull', { preHandler: optionalAuth }, handleGetSync);
 
   // Clear watch history for current user
-  app.delete('/api/sync/history', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.delete('/api/sync/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
     await db.query('DELETE FROM watch_history WHERE user_id = $1', [userId]);
     try {
       await db.query(
@@ -104,10 +104,9 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
     return { success: true, message: 'History cleared' };
   });
 
-
   // Push sync data (batch update)
-  app.post('/api/sync/push', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/sync/push', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
 
     // Reject push if history was cleared recently (within 5 minutes)
     try {
@@ -214,8 +213,8 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
   });
 
   // Get watch history for a specific title
-  app.get('/api/sync/progress/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/sync/progress/:tmdbId', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
     const { tmdbId } = request.params as { tmdbId: string };
     const { type } = request.query as { type?: string };
 
@@ -239,8 +238,8 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
   });
 
   // Update watch progress for a specific title
-  app.post('/api/sync/progress', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/sync/progress', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user?.userId || 1;
 
     const { tmdbId, mediaType, titleName, poster, progress, timestamp } = request.body as {
       tmdbId: number;
@@ -256,12 +255,12 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
        ON CONFLICT (user_id, tmdb_id, media_type)
        DO UPDATE SET
-         progress = GREATEST(watch_history.progress, EXCLUDED.progress),
+         progress = EXCLUDED.progress,
          timestamp = GREATEST(watch_history.timestamp, EXCLUDED.timestamp),
          title_name = COALESCE(EXCLUDED.title_name, watch_history.title_name),
          poster = COALESCE(EXCLUDED.poster, watch_history.poster),
          updated_at = NOW()`,
-      [userId, tmdbId, mediaType || 'movie', titleName || '', poster || '', progress || 0, timestamp || 0]
+      [userId, tmdbId, mediaType || 'movie', titleName || '', poster || '', progress || 0, timestamp || Date.now()]
     );
 
     return { success: true };

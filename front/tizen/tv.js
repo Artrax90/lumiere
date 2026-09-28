@@ -321,6 +321,9 @@
     if (typeof renderContinueWatching === 'function') {
       renderContinueWatching();
     }
+    if (typeof syncWithServer === 'function') {
+      try { syncWithServer(); } catch(e) {}
+    }
     if (typeof renderHistoryRecommendations === 'function') {
       renderHistoryRecommendations();
     }
@@ -1877,6 +1880,14 @@
   function renderContinueWatching() {
     var container = document.getElementById('continue-items');
     if (!container) return;
+
+    var now = Date.now();
+    if (!renderContinueWatching._lastSync || (now - renderContinueWatching._lastSync > 15000)) {
+      renderContinueWatching._lastSync = now;
+      if (typeof syncWithServer === 'function') {
+        setTimeout(function() { try { syncWithServer(); } catch(e) {} }, 150);
+      }
+    }
 
     var positions = {};
     try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
@@ -3953,14 +3964,27 @@
 
     var mType = d.type === 'tv' ? 'tv' : 'movies';
     apiFetch('/api/' + mType + '/' + d.id + '/trailer?lang=ru', function(err, res) {
-      if (err || !res || !res.trailer || !res.trailer.url) {
+      if (err || !res || !res.trailer || (!res.trailer.streamUrl && !res.trailer.url)) {
         if (typeof showToast === 'function') {
           showToast('Трейлер не найден');
         }
         return;
       }
 
-      var trailerUrl = res.trailer.url;
+      var trailer = res.trailer;
+      var trailerTitle = trailer.name || ('Трейлер — ' + (d.name || d.title || 'Видео'));
+      var poster = d.poster || (d.title && d.title.poster) || '';
+
+      // Direct HLS video stream from Rutube/balancer - plays natively with hardware AVPlay!
+      if (trailer.streamUrl) {
+        openPlayer('?url=' + encodeURIComponent(trailer.streamUrl) +
+          '&title=' + encodeURIComponent(trailerTitle) +
+          '&poster=' + encodeURIComponent(poster) +
+          '&id=0&type=trailer');
+        return;
+      }
+
+      var trailerUrl = trailer.embedUrl || trailer.url;
       var existing = document.getElementById('trailer-modal');
       if (existing) existing.remove();
 
@@ -5948,9 +5972,10 @@
         } else {
           titleName = pos.title || '';
         }
+        var mType = (pos.title && pos.title.type) || 'movie';
         history.push({
           tmdbId: Number(id),
-          mediaType: 'movie',
+          mediaType: mType,
           titleName: titleName,
           poster: poster,
           progress: Math.round(pos.time),

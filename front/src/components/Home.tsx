@@ -11,6 +11,7 @@ import CollectionBanner from './CollectionBanner';
 import Top10Row from './Top10Row';
 import { useTopRated, useNowPlaying, useGenreCatalog } from '@/hooks/useCatalog';
 import { getHomeShelves, syncHomeShelvesFromServer, type HomeShelfConfig } from '@/utils/homeShelves';
+import { syncClient } from '@/api/sync';
 
 // Get playback positions from localStorage with timestamps and title info
 function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
@@ -47,6 +48,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
   const [active, setActive] = useState(0);
   const [imgLoaded, setImgLoaded] = useState(false);
   const [shelves, setShelves] = useState<HomeShelfConfig[]>(getHomeShelves);
+  const [positionsVersion, setPositionsVersion] = useState(0);
 
   useEffect(() => {
     syncHomeShelvesFromServer();
@@ -54,7 +56,21 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
       setShelves(getHomeShelves());
     };
     window.addEventListener('home-shelves-changed', onShelvesChanged);
-    return () => window.removeEventListener('home-shelves-changed', onShelvesChanged);
+
+    const onPositionsSynced = () => {
+      setPositionsVersion((v) => v + 1);
+    };
+    window.addEventListener('playback-positions-synced', onPositionsSynced);
+    window.addEventListener('storage', onPositionsSynced);
+
+    // Initial pull & merge on Home mount
+    syncClient.mergeWithServer().catch(() => {});
+
+    return () => {
+      window.removeEventListener('home-shelves-changed', onShelvesChanged);
+      window.removeEventListener('playback-positions-synced', onPositionsSynced);
+      window.removeEventListener('storage', onPositionsSynced);
+    };
   }, []);
 
   const { data: trendingMovies } = useTrending('movie');
@@ -158,7 +174,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onMoodChange, mood 
     }
 
     return watched;
-  }, [trendingMovies, popularMovies]);
+  }, [trendingMovies, popularMovies, positionsVersion]);
 
   const becauseYouWatched = trendingMovies;
   const tonightForYou = popularMovies;

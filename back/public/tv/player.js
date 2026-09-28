@@ -994,22 +994,20 @@
       };
       localStorage.setItem('playback_positions', JSON.stringify(pos));
 
-      // Also persist to server history
-      var token = localStorage.getItem(TOKEN_KEY);
-      if (token && movieId) {
-        var hXhr = new XMLHttpRequest();
-        hXhr.open('POST', API + '/api/user/history', true);
-        hXhr.setRequestHeader('Content-Type', 'application/json');
-        hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
-        hXhr.send(JSON.stringify({
-          tmdbId: movieId,
-          mediaType: mediaType,
-          titleName: movieTitle,
-          poster: savePoster,
-          progress: Math.round(currentTime),
-          timestamp: Date.now()
-        }));
-      }
+      // Also persist to server history via /api/sync/progress
+      var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
+      var hXhr = new XMLHttpRequest();
+      hXhr.open('POST', (API || '') + '/api/sync/progress', true);
+      hXhr.setRequestHeader('Content-Type', 'application/json');
+      if (token) hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
+      hXhr.send(JSON.stringify({
+        tmdbId: saveId,
+        mediaType: mediaType || 'movie',
+        titleName: movieTitle || ('Медиа #' + saveId),
+        poster: savePoster,
+        progress: Math.round(currentTime),
+        timestamp: Date.now()
+      }));
     } catch(e) {}
   }
 

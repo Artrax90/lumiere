@@ -186,6 +186,24 @@ class SyncClient {
     }
 
     localStorage.setItem('lumiere_watch_history', JSON.stringify(positions));
+
+    // Also ensure playback_positions has this entry
+    try {
+      const pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      pos[item.tmdbId] = {
+        time: item.progress || 0,
+        timestamp: item.timestamp || Date.now(),
+        title: {
+          id: item.tmdbId,
+          name: item.titleName || '',
+          poster: item.poster || '',
+          type: item.mediaType || 'movie',
+        },
+      };
+      localStorage.setItem('playback_positions', JSON.stringify(pos));
+      window.dispatchEvent(new CustomEvent('playback-positions-synced'));
+    } catch {}
+
     this.pendingChanges.watchHistory.push(item);
   }
 
@@ -207,12 +225,53 @@ class SyncClient {
   }
 
   getLocalWatchHistory(): WatchHistoryItem[] {
+    const list: WatchHistoryItem[] = [];
+    const seen = new Set<string>();
+
     try {
       const data = localStorage.getItem('lumiere_watch_history');
-      return data ? JSON.parse(data) : [];
-    } catch {
-      return [];
-    }
+      if (data) {
+        const parsed = JSON.parse(data);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            if (item && item.tmdbId) {
+              const k = `${item.tmdbId}-${item.mediaType || 'movie'}`;
+              seen.add(k);
+              list.push(item);
+            }
+          }
+        }
+      }
+    } catch {}
+
+    try {
+      const posRaw = localStorage.getItem('playback_positions');
+      if (posRaw) {
+        const pos = JSON.parse(posRaw);
+        for (const [idStr, val] of Object.entries(pos)) {
+          const id = Number(idStr);
+          if (!id || isNaN(id) || id <= 0) continue;
+          const time = typeof val === 'object' ? (val as any).time : (val as number);
+          if (!time || time < 2) continue;
+          const titleObj = typeof val === 'object' ? (val as any).title : null;
+          const mediaType = (titleObj && titleObj.type) || 'movie';
+          const k = `${id}-${mediaType}`;
+          if (!seen.has(k)) {
+            seen.add(k);
+            list.push({
+              tmdbId: id,
+              mediaType: mediaType,
+              titleName: (titleObj && titleObj.name) || '',
+              poster: (titleObj && titleObj.poster) || '',
+              progress: Math.floor(time),
+              timestamp: (typeof val === 'object' && (val as any).timestamp) || Date.now(),
+            });
+          }
+        }
+      }
+    } catch {}
+
+    return list;
   }
 
   getLocalFavorites(): FavoriteItem[] {
@@ -257,12 +316,44 @@ class SyncClient {
     for (const item of serverData.watchHistory || []) {
       const key = `${item.tmdbId}-${item.mediaType}`;
       const existing = mergedHistory.get(key);
-      if (!existing || (item.progress || 0) > (existing.progress || 0)) {
+      if (!existing || (item.progress || 0) > (existing.progress || 0) || (item.timestamp || 0) > (existing.timestamp || 0)) {
         mergedHistory.set(key, item);
       }
     }
     if (mergedHistory.size > 0) {
       localStorage.setItem('lumiere_watch_history', JSON.stringify(Array.from(mergedHistory.values())));
+    }
+
+    // Crucial: Also merge server watch history into playback_positions for Home & UI components
+    try {
+      const rawPositions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      let changed = false;
+      for (const item of serverData.watchHistory || []) {
+        const id = item.tmdbId;
+        if (!id) continue;
+        const serverTime = item.timestamp || new Date((item as any).updatedAt || 0).getTime() || Date.now();
+        const local = rawPositions[id];
+        const localTime = typeof local === 'object' ? (local.timestamp || 0) : 0;
+        if (!local || serverTime >= localTime) {
+          rawPositions[id] = {
+            time: item.progress || 0,
+            timestamp: serverTime,
+            title: {
+              id: id,
+              name: item.titleName || (typeof local === 'object' && local.title?.name) || '',
+              poster: item.poster || (typeof local === 'object' && local.title?.poster) || '',
+              type: item.mediaType || 'movie',
+            },
+          };
+          changed = true;
+        }
+      }
+      if (changed) {
+        localStorage.setItem('playback_positions', JSON.stringify(rawPositions));
+        window.dispatchEvent(new CustomEvent('playback-positions-synced'));
+      }
+    } catch (e) {
+      console.error('[Sync] Error merging into playback_positions:', e);
     }
 
     // Merge favorites

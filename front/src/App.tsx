@@ -31,6 +31,21 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
     }
     positions[titleId] = entry;
     localStorage.setItem('playback_positions', JSON.stringify(positions));
+    window.dispatchEvent(new CustomEvent('playback-positions-synced'));
+
+    // Also push progress to server immediately
+    serverFetch('/api/sync/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        tmdbId: titleId,
+        mediaType: title?.type || 'movie',
+        titleName: title?.name || '',
+        poster: title?.poster || '',
+        progress: Math.floor(time),
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
   } catch {}
 }
 
