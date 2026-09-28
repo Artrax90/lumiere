@@ -105,6 +105,13 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return provider.details(parseInt(id), 'tv', lang);
   });
 
+  app.get('/api/tv/:id/recommendations', async (req) => {
+    const { id } = req.params as { id: string };
+    const { lang } = req.query as { lang?: Lang };
+    const results = await provider.recommendations(parseInt(id), 'tv', lang);
+    return { results };
+  });
+
   app.get('/api/tv/:id/similar', async (req) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };

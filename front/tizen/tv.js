@@ -1932,6 +1932,20 @@
 
         // Immediate cleanup if name is a raw filename but torrent has Russian title
         var name = rawName;
+        // Self-heal Forrest Gump (ID 13) if corrupted to Japanese show
+        if (Number(item.id) === 13 || /水曜どうでしょう/i.test(name)) {
+          name = 'Форрест Гамп';
+          rawName = 'Форрест Гамп';
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = 'Форрест Гамп';
+            item.title.type = 'movie';
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = 'Форрест Гамп';
+            positions[item.id].title.type = 'movie';
+            try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+          }
+        }
         if ((!/[\u0400-\u04FF]/.test(name) || /\.(mkv|mp4|avi)$/i.test(name)) && torrent && torrent.title && /[\u0400-\u04FF]/.test(torrent.title)) {
           name = cleanMovieTitle(torrent.title);
         } else if (/\.(mkv|mp4|avi)$/i.test(name)) {
@@ -1942,13 +1956,20 @@
 
         // Fetch official Russian metadata & poster from API
         if (item.id && !isNaN(Number(item.id))) {
-          var itemMediaType = (item.title && item.title.type) || (torrent && torrent.type) || (/ · S[0-9]+/i.test(rawName) ? 'tv' : 'movie');
+          var itemMediaType = (Number(item.id) === 13) ? 'movie' : ((item.title && item.title.type) || (torrent && torrent.type) || (/ · S[0-9]+/i.test(rawName) ? 'tv' : 'movie'));
           var apiEndpoint = (itemMediaType === 'tv') ? '/api/tv/' : '/api/movies/';
 
           var applyApiData = function(data, type) {
             if (!data) return;
             var ruName = data.name || data.title;
             if (ruName) {
+              // Guard: If we already have Russian/Cyrillic name, never overwrite with untranslated Asian characters
+              var hasCyrillicCur = /[\u0400-\u04FF]/.test(name);
+              var hasCyrillicOrLatinNew = /[\u0400-\u04FFa-zA-Z]/.test(ruName);
+              if (hasCyrillicCur && !hasCyrillicOrLatinNew) {
+                return;
+              }
+
               var displayName = ruName;
               if (type === 'tv') {
                 var sMatch = rawName.match(/ · S\d+.*$/i) || rawName.match(/S\d+E\d+/i);
@@ -2000,7 +2021,7 @@
           };
 
           apiFetch(apiEndpoint + item.id + '?lang=ru', function(err, data) {
-            if ((err || !data) && itemMediaType !== 'tv') {
+            if ((err || !data) && itemMediaType !== 'tv' && (/ · S[0-9]+/i.test(rawName) || /S\d+E\d+/i.test(rawName))) {
               apiFetch('/api/tv/' + item.id + '?lang=ru', function(err2, data2) {
                 if (data2) applyApiData(data2, 'tv');
               });
@@ -2119,20 +2140,37 @@
         watchedIds.push(numId);
         var pos = positions[id];
         var ts = (typeof pos === 'object') ? (pos.timestamp || 0) : 0;
-        watchedItems.push({ id: numId, timestamp: ts });
+        var mediaType = (pos && pos.title && pos.title.type) || 'movie';
+        var name = (pos && pos.title && pos.title.name) || '';
+        if (/ · S\d+/i.test(name) || /S\d+E\d+/i.test(name)) {
+          mediaType = 'tv';
+        }
+        if (numId === 13 || /Форрест Гамп/i.test(name) || /Forrest Gump/i.test(name)) {
+          mediaType = 'movie';
+          name = 'Форрест Гамп';
+        }
+        watchedItems.push({ id: numId, timestamp: ts, type: mediaType, name: name });
       }
     }
     watchedItems.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+
+    var renderList = function(list) {
+      if (!list || list.length === 0) {
+        row.style.display = 'none';
+        return;
+      }
+      row.style.display = 'block';
+      container.innerHTML = '';
+      list.slice(0, 20).forEach(function(rec) {
+        container.appendChild(createCard(rec));
+      });
+    };
 
     // If no history yet, populate with top popular movies
     if (watchedItems.length === 0) {
       apiFetch('/api/movies/popular', function(err, data) {
         if (data && data.results && data.results.length > 0) {
-          row.style.display = 'block';
-          container.innerHTML = '';
-          data.results.slice(0, 15).forEach(function(item) {
-            container.appendChild(createCard(item));
-          });
+          renderList(data.results);
         } else {
           row.style.display = 'none';
         }
@@ -2140,50 +2178,57 @@
       return;
     }
 
-    // Pick top 3 most recently watched movie IDs
-    var sampleIds = watchedItems.slice(0, 3).map(function(item) { return item.id; });
-    var collected = [];
-    var seenMap = {};
-    watchedIds.forEach(function(wid) { seenMap[wid] = true; });
+    // Modern server-side personalized recommendation engine
+    apiPost('/api/recommendations/personal?lang=ru', { items: watchedItems }, function(err, res) {
+      if (!err && res && res.results && Array.isArray(res.results) && res.results.length >= 4) {
+        renderList(res.results);
+        return;
+      }
 
-    var pending = sampleIds.length;
-    sampleIds.forEach(function(wid) {
-      apiFetch('/api/movies/' + wid + '/similar', function(err, data) {
-        pending--;
-        if (data && data.results && Array.isArray(data.results)) {
-          data.results.forEach(function(m) {
-            if (m && m.id && !seenMap[m.id]) {
-              seenMap[m.id] = true;
-              collected.push(m);
-            }
-          });
-        }
-        if (pending === 0) {
-          if (collected.length > 0) {
-            collected.sort(function(a, b) {
-              var sa = a.score || a.vote_average || 0;
-              var sb = b.score || b.vote_average || 0;
-              return sb - sa;
-            });
-            row.style.display = 'block';
-            container.innerHTML = '';
-            collected.slice(0, 18).forEach(function(rec) {
-              container.appendChild(createCard(rec));
-            });
-          } else {
-            apiFetch('/api/movies/top_rated', function(err2, topData) {
-              if (topData && topData.results && topData.results.length > 0) {
-                row.style.display = 'block';
-                container.innerHTML = '';
-                topData.results.filter(function(m) { return !seenMap[m.id]; }).slice(0, 15).forEach(function(rec) {
-                  container.appendChild(createCard(rec));
-                });
-              } else {
-                row.style.display = 'none';
+      // Client-side fallback if server route is temporarily unreachable
+      var sampleItems = watchedItems.slice(0, 5);
+      var collected = [];
+      var seenMap = {};
+      watchedIds.forEach(function(wid) { seenMap[wid] = true; });
+
+      var pending = sampleItems.length;
+      sampleItems.forEach(function(wItem) {
+        var mType = wItem.type === 'tv' ? 'tv' : 'movie';
+        var recUrl = '/api/' + mType + '/' + wItem.id + '/recommendations?lang=ru';
+        apiFetch(recUrl, function(err, data) {
+          pending--;
+          if (data && data.results && Array.isArray(data.results)) {
+            data.results.forEach(function(m) {
+              if (m && m.id && !seenMap[m.id] && m.poster && !m.poster.includes('null')) {
+                // Filter out non-translated obscure Asian titles
+                var mName = m.title || m.name || '';
+                if (/^[\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff\s.,:;!?'-]+$/.test(mName)) return;
+
+                seenMap[m.id] = true;
+                collected.push(m);
               }
             });
           }
-        }
+          if (pending === 0) {
+            if (collected.length > 0) {
+              // Quality-weighted sorting (penalize 0-vote noise, favor popular acclaimed works)
+              collected.sort(function(a, b) {
+                var scoreA = (a.score || a.vote_average || 7) + (Math.min(10, Math.log10((a.vote_count || 50) + 1) * 2));
+                var scoreB = (b.score || b.vote_average || 7) + (Math.min(10, Math.log10((b.vote_count || 50) + 1) * 2));
+                return scoreB - scoreA;
+              });
+              renderList(collected);
+            } else {
+              apiFetch('/api/movies/popular', function(err2, popData) {
+                if (popData && popData.results) {
+                  renderList(popData.results.filter(function(m) { return !seenMap[m.id]; }));
+                } else {
+                  row.style.display = 'none';
+                }
+              });
+            }
+          }
+        });
       });
     });
   }

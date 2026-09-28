@@ -144,11 +144,40 @@ export class TmdbProvider implements MetadataProvider {
     return this.mapDetails(details, credits, similar, mediaType);
   }
 
+  async recommendations(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<Title[]> {
+    try {
+      const data = await this.client.get(`/${mediaType}/${id}/recommendations`, {
+        language: this.client.lang(lang),
+      });
+      if (data && data.results && data.results.length > 0) {
+        const filtered = data.results.filter((t: any) => t.poster_path && (t.vote_count === undefined || t.vote_count >= 15));
+        if (filtered.length > 0) {
+          return filtered.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
+        }
+      }
+    } catch {}
+    return this.similar(id, mediaType, lang);
+  }
+
   async similar(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<Title[]> {
+    try {
+      const recData = await this.client.get(`/${mediaType}/${id}/recommendations`, {
+        language: this.client.lang(lang),
+      });
+      if (recData && recData.results && recData.results.length >= 4) {
+        const filtered = recData.results.filter((t: any) => t.poster_path && (t.vote_count === undefined || t.vote_count >= 15));
+        if (filtered.length >= 4) {
+          return filtered.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
+        }
+      }
+    } catch {}
+
     const data = await this.client.get(`/${mediaType}/${id}/similar`, {
       language: this.client.lang(lang),
     });
-    return data.results.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
+    const valid = (data.results || []).filter((t: any) => t.poster_path && (t.vote_count === undefined || t.vote_count >= 20));
+    valid.sort((a: any, b: any) => (b.popularity || 0) - (a.popularity || 0));
+    return valid.map((t: TmdbTitle) => this.mapTitle(t, mediaType));
   }
 
   async seasonDetails(tvId: number, seasonNumber: number, lang?: Lang): Promise<Episode[]> {
