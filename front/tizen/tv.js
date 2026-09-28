@@ -6063,9 +6063,10 @@
       }
       if (url.indexOf('/') === 0) url = API + url;
 
-      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
+      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8090 for native RFC 7233 byte-range seeking
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
-        var torrHost = API ? API.replace(/:\d+$/, ':8590') : 'http://192.168.1.196:8590';
+        var torrPort = '8090';
+        var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
         var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
         if (proxyMatch) {
           var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
@@ -6112,12 +6113,21 @@
     movieId = movieId || (state.detail && state.detail.id) || 0;
     var poster = customPoster || (state.detail && state.detail.poster) || '';
 
-    // Check for saved resume position
+    // Check for saved resume position (for series, ensure position is for THIS episode, not the whole series!)
     var startParam = '';
     if (movieId) {
       try {
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-        var saved = positions[movieId];
+        var epMatch = (titleStr || name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+        var saved = null;
+        if (epMatch) {
+          var sNum = parseInt(epMatch[1], 10);
+          var eNum = parseInt(epMatch[2], 10);
+          var epKey = movieId + '_s' + sNum + '_e' + eNum;
+          saved = positions[epKey];
+        } else if (!isTv) {
+          saved = positions[movieId];
+        }
         if (saved && typeof saved === 'object' && saved.time > 30) {
           startParam = '&start=' + Math.floor(saved.time);
         }

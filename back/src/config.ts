@@ -23,7 +23,7 @@ export const config = {
     refreshExpiry: process.env.JWT_REFRESH_EXPIRY || '7d',
   },
   torrserver: {
-    url: process.env.TORRSERVER_URL || 'http://localhost:8590',
+    url: process.env.TORRSERVER_URL || 'http://localhost:8090',
   },
   jacred: {
     url: process.env.JACRED_URL || process.env.jacredUrl || 'http://ns3bg91xvuqfvq9h.cfhttp.top',

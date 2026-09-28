@@ -7,6 +7,29 @@ import { execSync, spawn } from 'child_process';
 import { config } from '../config.js';
 
 let jacredUrl = config.jacred.url;
+let _cachedTorrUrl = config.torrserver.url;
+let _lastTorrCheck = 0;
+
+async function getActiveTorrServerUrl(): Promise<string> {
+  const now = Date.now();
+  if (_cachedTorrUrl && now - _lastTorrCheck < 15000) {
+    return _cachedTorrUrl;
+  }
+  const candidates = [config.torrserver.url, 'http://localhost:8090', 'http://localhost:8590', 'http://127.0.0.1:8090', 'http://127.0.0.1:8590'];
+  const unique = Array.from(new Set(candidates));
+  for (const url of unique) {
+    try {
+      const res = await fetch(`${url}/echo`, { signal: AbortSignal.timeout(500) });
+      if (res.ok) {
+        _cachedTorrUrl = url;
+        _lastTorrCheck = now;
+        return url;
+      }
+    } catch {}
+  }
+  return config.torrserver.url;
+}
+
 const TORRSERVER_URL = config.torrserver.url;
 
 function isFfmpegAvailable(): boolean {
@@ -149,7 +172,8 @@ async function fetchFromJacRed(targetUrl: string, query: string, category?: stri
 
 async function ensureTorrServerOptimized() {
   try {
-    const res = await fetch(`${TORRSERVER_URL}/settings`, {
+    const torrUrl = await getActiveTorrServerUrl();
+    const res = await fetch(`${torrUrl}/settings`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'get' }),
@@ -158,7 +182,7 @@ async function ensureTorrServerOptimized() {
     if (res.ok) {
       const sets = (await res.json()) as any;
       if (!sets.CacheSize || sets.CacheSize < 536870912 || (sets.ConnectionsLimit && sets.ConnectionsLimit < 100)) {
-        await fetch(`${TORRSERVER_URL}/settings`, {
+        await fetch(`${torrUrl}/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -441,7 +465,8 @@ export function torrentRoutes(app: FastifyInstance) {
       }
 
       // Step 1: Add torrent to TorrServer (ephemeral, not saved to DB)
-      const addRes = await fetch(`${TORRSERVER_URL}/torrents`, {
+      const torrUrl = await getActiveTorrServerUrl();
+      const addRes = await fetch(`${torrUrl}/torrents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -477,7 +502,7 @@ export function torrentRoutes(app: FastifyInstance) {
       const maxAttempts = 10;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
-          const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${hash}&index=-1&stat`, {
+          const statRes = await fetch(`${torrUrl}/stream?link=${hash}&index=-1&stat`, {
             signal: AbortSignal.timeout(8000),
           });
           if (statRes.ok) {
@@ -877,7 +902,15 @@ export function torrentRoutes(app: FastifyInstance) {
     if (sess.paused && process.platform !== 'win32') {
       try { process.kill(sess.pid, 'SIGCONT'); } catch {}
     }
-    try { process.kill(sess.pid, 'SIGKILL'); } catch {}
+    try {
+      if (process.platform === 'win32') {
+        try { execSync(`taskkill /F /T /PID ${sess.pid}`, { stdio: 'ignore' }); } catch {
+          try { process.kill(sess.pid); } catch {}
+        }
+      } else {
+        process.kill(sess.pid, 'SIGKILL');
+      }
+    } catch {}
     activeSessions.delete(sessionId);
     // Graceful delayed directory removal:
     // Keep directory on disk for 25 seconds so any in-flight segment or playlist requests
@@ -910,10 +943,12 @@ export function torrentRoutes(app: FastifyInstance) {
     const isAviRequested = paramFilename.endsWith('.avi');
     let isVideoTranscode = vcodec === 'h264' || isAviRequested;
 
+    const torrUrl = await getActiveTorrServerUrl();
+
     // If transcode not explicitly requested, check if target file is .avi to prevent browser decode error
     if (!isVideoTranscode && link) {
       try {
-        const statRes = await fetch(`${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=-1&stat`, {
+        const statRes = await fetch(`${torrUrl}/stream?link=${encodeURIComponent(link)}&index=-1&stat`, {
           signal: AbortSignal.timeout(1000),
         });
         if (statRes.ok) {
@@ -926,7 +961,7 @@ export function torrentRoutes(app: FastifyInstance) {
       } catch {}
     }
 
-    const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+    const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
     const { createHash } = await import('crypto');
     // Include audio index, seek time, and vcodec in session ID for isolation
     const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}-v${isVideoTranscode ? 'h264' : 'copy'}`).digest('hex').slice(0, 32);
@@ -1374,19 +1409,26 @@ export function torrentRoutes(app: FastifyInstance) {
       checkThrottle(sess);
     }
 
-    const stat = statSync(segPath);
-    reply.header('Content-Type', 'video/mp2t');
-    reply.header('Access-Control-Allow-Origin', '*');
-    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-    reply.header('Access-Control-Allow-Headers', '*');
-    reply.header('Content-Length', stat.size);
+    try {
+      if (!existsSync(segPath)) {
+        return reply.code(404).send({ error: 'Segment not found' });
+      }
+      const stat = statSync(segPath);
+      reply.header('Content-Type', 'video/mp2t');
+      reply.header('Access-Control-Allow-Origin', '*');
+      reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+      reply.header('Access-Control-Allow-Headers', '*');
+      reply.header('Content-Length', stat.size);
 
-    if (req.method === 'HEAD') {
-      return reply.send();
+      if (req.method === 'HEAD') {
+        return reply.send();
+      }
+
+      const data = readFileSync(segPath);
+      return reply.send(data);
+    } catch {
+      return reply.code(404).send({ error: 'Segment not found' });
     }
-
-    const data = readFileSync(segPath);
-    return reply.send(data);
   };
 
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls-seg', handler: handleHlsSeg });
@@ -1394,21 +1436,24 @@ export function torrentRoutes(app: FastifyInstance) {
   // Get TorrServer status
   app.get('/api/torrents/torrserver/status', async () => {
     try {
-      const res = await fetch(`${TORRSERVER_URL}/echo`);
+      const torrUrl = await getActiveTorrServerUrl();
+      const res = await fetch(`${torrUrl}/echo`, { signal: AbortSignal.timeout(2000) });
       const version = await res.text();
-      return { online: true, version, url: TORRSERVER_URL };
+      return { online: true, version, url: torrUrl };
     } catch {
-      return { online: false, url: TORRSERVER_URL };
+      return { online: false, url: config.torrserver.url };
     }
   });
 
   // Proxy TorrServer /torrents API (for buffer polling from TV/browser)
   app.post('/api/torrents/torrserver/list', async () => {
     try {
-      const res = await fetch(`${TORRSERVER_URL}/torrents`, {
+      const torrUrl = await getActiveTorrServerUrl();
+      const res = await fetch(`${torrUrl}/torrents`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'list' }),
+        signal: AbortSignal.timeout(3000),
       });
       return await res.json();
     } catch {

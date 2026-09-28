@@ -262,7 +262,16 @@
     } else if (movieId) {
       try {
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-        var saved = positions[movieId];
+        var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+        var saved = null;
+        if (epMatch) {
+          var sNum = parseInt(epMatch[1], 10);
+          var eNum = parseInt(epMatch[2], 10);
+          var epKey = movieId + '_s' + sNum + '_e' + eNum;
+          saved = positions[epKey];
+        } else if (mediaType !== 'tv') {
+          saved = positions[movieId];
+        }
         if (saved && typeof saved === 'object' && saved.time > 10) {
           resumeTarget = Math.floor(saved.time);
         } else if (typeof saved === 'number' && saved > 10) {
@@ -430,13 +439,20 @@
     pendingSeekTarget = target;
     isSeeking = true;
     updateTimelineUI(target);
+    var seekDoneTimer = setTimeout(function() {
+      isSeeking = false;
+      accumulatedDelta = 0;
+      seekBaseTime = 0;
+    }, 4000);
     player.seekTo(target, function() {
+      clearTimeout(seekDoneTimer);
       setTimeout(function() {
         isSeeking = false;
         accumulatedDelta = 0;
         seekBaseTime = 0;
       }, 300);
     }, function() {
+      clearTimeout(seekDoneTimer);
       setTimeout(function() {
         isSeeking = false;
         accumulatedDelta = 0;
@@ -986,6 +1002,18 @@
       var pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
+      var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+      if (epMatch) {
+        var sNum = parseInt(epMatch[1], 10);
+        var eNum = parseInt(epMatch[2], 10);
+        var epKey = saveId + '_s' + sNum + '_e' + eNum;
+        pos[epKey] = {
+          time: Math.round(currentTime),
+          duration: Math.round(duration || 0),
+          timestamp: Date.now(),
+          title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType }
+        };
+      }
       pos[saveId] = {
         time: Math.round(currentTime),
         duration: Math.round(duration || 0),

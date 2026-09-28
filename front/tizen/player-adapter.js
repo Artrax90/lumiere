@@ -621,7 +621,7 @@
 
     var cleanUrl = (self._currentUrl || '').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
     var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
-    var newSeekUrl = cleanUrl + joinChar + 'start=' + safeTargetSec;
+    var newSeekUrl = (safeTargetSec > 1) ? (cleanUrl + joinChar + 'start=' + Math.floor(safeTargetSec)) : cleanUrl;
     self._currentUrl = newSeekUrl;
 
     console.log('[AVPlay] HLS seek #' + thisSeq + ' to', safeTargetSec, 's, reloading URL:', newSeekUrl);

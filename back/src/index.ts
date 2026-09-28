@@ -49,6 +49,18 @@ if (process.platform === 'win32') {
   }
 }
 
+// Global safety crash guards: protect backend against socket aborts, client cancels, and stream interrupts
+process.on('uncaughtException', (err: any) => {
+  if (err?.code === 'EPIPE' || err?.code === 'ECONNRESET' || err?.code === 'ERR_STREAM_PREMATURE_CLOSE') {
+    return;
+  }
+  console.error('[Process] Uncaught exception (prevented server crash):', err);
+});
+
+process.on('unhandledRejection', (reason: any) => {
+  console.error('[Process] Unhandled rejection (prevented server crash):', reason);
+});
+
 async function runMigrations() {
   const candidates = [
     join(__dirname, 'db', 'migrations.sql'),
