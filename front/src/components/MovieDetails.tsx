@@ -546,8 +546,22 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                               tmdbId: displayTitle.id,
                               title: displayTitle.name,
                               poster: displayTitle.poster,
-                              lastSeason: (details as any)?.seasons?.length || 1,
-                              lastEpisode: 1
+                              lastSeason: (() => {
+                                const seasons = (details as any)?.seasons;
+                                if (Array.isArray(seasons) && seasons.length > 0) {
+                                  return Math.max(...seasons.map((s: any) => s.season_number || 0));
+                                }
+                                return 0;
+                              })(),
+                              lastEpisode: (() => {
+                                const seasons = (details as any)?.seasons;
+                                if (Array.isArray(seasons) && seasons.length > 0) {
+                                  const maxS = Math.max(...seasons.map((s: any) => s.season_number || 0));
+                                  const sObj = seasons.find((s: any) => s.season_number === maxS);
+                                  return sObj?.episode_count || 0;
+                                }
+                                return 0;
+                              })()
                             })
                           });
                           setIsSubscribed(true);

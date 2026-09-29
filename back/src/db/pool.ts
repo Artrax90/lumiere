@@ -437,10 +437,23 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
     const count = db.notifications.filter((n) => n.user_id === Number(params[0]) && !n.is_read).length;
     return { rows: [{ count }] };
   }
-  if (/SELECT .* FROM notifications WHERE user_id = \$1/i.test(cleanSql)) {
-    const notifs = db.notifications
-      .filter((n) => n.user_id === Number(params[0]))
-      .sort((a, b) => b.id - a.id);
+  if (/SELECT id FROM notifications WHERE/i.test(cleanSql)) {
+    const userId = Number(params[0]);
+    const mediaId = Number(params[1]);
+    const msg = String(params[2]);
+    const found = db.notifications.filter(
+      (n) => n.user_id === userId && n.media_id === mediaId && n.message === msg && !n.is_read
+    );
+    return { rows: found.map((n) => ({ id: n.id })) };
+  }
+  if (/SELECT .* FROM notifications/i.test(cleanSql)) {
+    let notifs = [...db.notifications];
+    const uMatch = cleanSql.match(/user_id\s*=\s*(\$1|\d+)/i);
+    if (uMatch) {
+      const uVal = uMatch[1] === '$1' ? Number(params[0]) : Number(uMatch[1]);
+      notifs = notifs.filter((n) => n.user_id === uVal);
+    }
+    notifs.sort((a, b) => b.id - a.id);
     return { rows: notifs };
   }
   if (/INSERT INTO notifications/i.test(cleanSql)) {
@@ -475,17 +488,47 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
     saveFallbackDb(db);
     return { rows: [] };
   }
+  if (/DELETE FROM notifications WHERE/i.test(cleanSql)) {
+    const uId = params[0] !== undefined ? Number(params[0]) : null;
+    const mId = params[1] !== undefined ? Number(params[1]) : null;
+    db.notifications = db.notifications.filter((n) => {
+      if (uId !== null && mId !== null) {
+        return !(n.user_id === uId && n.media_id === mId);
+      }
+      if (uId !== null) {
+        return n.user_id !== uId;
+      }
+      return false;
+    });
+    saveFallbackDb(db);
+    return { rows: [] };
+  }
 
   // 16. Series Subscriptions
   if (/SELECT .* FROM series_subscriptions WHERE user_id = \$1 AND tmdb_id = \$2/i.test(cleanSql)) {
     const sub = db.series_subscriptions.find((s) => s.user_id === Number(params[0]) && s.tmdb_id === Number(params[1]));
     return { rows: sub ? [sub] : [] };
   }
-  if (/SELECT .* FROM series_subscriptions WHERE user_id = \$1/i.test(cleanSql)) {
-    const subs = db.series_subscriptions
-      .filter((s) => s.user_id === Number(params[0]))
-      .sort((a, b) => b.id - a.id);
+  if (/SELECT .* FROM series_subscriptions/i.test(cleanSql)) {
+    let subs = [...db.series_subscriptions];
+    if (params.length > 0 && params[0] !== undefined) {
+      subs = subs.filter((s) => s.user_id === Number(params[0]));
+    }
+    subs.sort((a, b) => (b.id || 0) - (a.id || 0));
     return { rows: subs };
+  }
+  if (/UPDATE series_subscriptions SET last_season = \$1, last_episode = \$2 WHERE user_id = \$3 AND tmdb_id = \$4/i.test(cleanSql)) {
+    const season = Number(params[0]);
+    const episode = Number(params[1]);
+    const uId = Number(params[2]);
+    const tId = Number(params[3]);
+    const sub = db.series_subscriptions.find((s) => s.user_id === uId && s.tmdb_id === tId);
+    if (sub) {
+      sub.last_season = season;
+      sub.last_episode = episode;
+      saveFallbackDb(db);
+    }
+    return { rows: sub ? [sub] : [] };
   }
   if (/INSERT INTO series_subscriptions/i.test(cleanSql)) {
     const existingIdx = db.series_subscriptions.findIndex((s) => s.user_id === Number(params[0]) && s.tmdb_id === Number(params[1]));

@@ -22,7 +22,7 @@ import { syncRoutes } from './routes/sync.js';
 import { iptvRoutes } from './routes/iptv.js';
 import { adminRoutes } from './routes/admin.js';
 import { settingsRoutes } from './routes/settings.js';
-import { notificationRoutes } from './routes/notifications.js';
+import { notificationRoutes, startNotificationScheduler } from './routes/notifications.js';
 import { sessionRoutes } from './routes/sessions.js';
 import pool from './db/pool.js';
 import { hashPassword, generateAccessToken, generateRefreshToken, saveRefreshToken } from './services/auth.js';
@@ -121,6 +121,7 @@ app.register(iptvRoutes);
 app.register(adminRoutes, pool);
 settingsRoutes(app, tmdbClient, pool);
 notificationRoutes(app, provider);
+startNotificationScheduler(provider);
 sessionRoutes(app);
 
 // Register content providers

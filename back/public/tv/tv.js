@@ -4774,10 +4774,23 @@
             }
           });
         } else {
+          var curSeason = 0;
+          var curEpisode = 0;
+          if (d.seasons && Array.isArray(d.seasons)) {
+            for (var si = 0; si < d.seasons.length; si++) {
+              var sObj = d.seasons[si];
+              if (sObj && sObj.season_number > curSeason) {
+                curSeason = sObj.season_number;
+                curEpisode = sObj.episode_count || 1;
+              }
+            }
+          }
           apiPost('/api/notifications/subscribe', {
             tmdbId: d.id,
             title: d.logoText || d.name,
-            poster: d.poster
+            poster: d.poster,
+            lastSeason: curSeason,
+            lastEpisode: curEpisode
           }, function(err) {
             if (!err) {
               trackBtn.innerHTML = '🔕';
@@ -7371,7 +7384,17 @@
     var mediaId = item.mediaId || (item.actionData && item.actionData.seriesId);
     var mediaType = item.mediaType || 'tv';
     if (mediaId) {
-      showDetail(mediaId, mediaType);
+      var titleObj = {
+        id: mediaId,
+        type: mediaType,
+        name: item.title || (item.actionData && item.actionData.title) || 'Сериал',
+        poster: item.poster || ''
+      };
+      if (item.actionData && item.actionData.season) {
+        state.detailSeason = String(item.actionData.season);
+      }
+      state.detailTab = 'episodes';
+      showDetail(titleObj);
     }
   }
 
