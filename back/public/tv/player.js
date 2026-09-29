@@ -317,7 +317,7 @@
           if (player.engineType === 'avplay') {
             try {
               var avSt = (typeof webapis !== 'undefined' && webapis.avplay) ? webapis.avplay.getState() : '';
-              if (avSt === 'PLAYING' || avSt === 'PAUSED' || avSt === 'READY') canSeek = true;
+              if (avSt === 'PLAYING') canSeek = true;
             } catch(e) {}
           } else {
             canSeek = !!player._isPlaying;
@@ -326,17 +326,22 @@
         if (canSeek) {
           hasResumed = true;
           if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
-          console.log('[Player] Resuming playback at target:', resumeTarget);
-          seekTo(resumeTarget);
+          console.log('[Player] Safe resume playback at target:', resumeTarget);
+          showFlash('⏳', 'Переход к ' + fmtTime(resumeTarget) + '...');
+          setTimeout(function() {
+            seekTo(resumeTarget);
+          }, 300);
         }
       };
 
       if (player) {
         player.on('playing', function() {
-          setTimeout(executeResume, 300);
+          if (!hasResumed) {
+            setTimeout(executeResume, 800);
+          }
         });
         player.on('timeUpdate', function(data) {
-          if (!hasResumed && data && data.currentTime >= 0) {
+          if (!hasResumed && data && data.currentTime > 0.5) {
             executeResume();
           }
         });
@@ -350,7 +355,7 @@
           return;
         }
         executeResume();
-      }, 400);
+      }, 500);
     }
 
     // Show initial OSD for 4 seconds

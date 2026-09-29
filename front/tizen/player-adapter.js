@@ -163,6 +163,13 @@
             self._currentTime = self._duration;
           }
           self._emit('timeUpdate', { currentTime: self._currentTime });
+
+          if (self._pendingSeek && self._currentTime > 0.5) {
+            var pSeek = self._pendingSeek;
+            self._pendingSeek = null;
+            console.log('[AVPlay] Executing deferred seek to', pSeek.time, 's once playback is active');
+            self.seekTo(pSeek.time, pSeek.successCb, pSeek.errorCb);
+          }
         }
       } catch(e) {}
       try {
@@ -804,10 +811,9 @@
       var ms = Math.round(safeTargetSec * 1000);
       console.log('[AVPlay] Seeking to', ms, 'ms (' + safeTargetSec.toFixed(1) + 's), state:', avState);
 
-      if (avState === 'NONE' || avState === 'IDLE') {
-        console.warn('[AVPlay] Cannot seek in state:', avState);
-        self._isSeeking = false;
-        if (errorCb) errorCb(new Error('Cannot seek in state ' + avState));
+      if (avState !== 'PLAYING' && avState !== 'PAUSED') {
+        console.warn('[AVPlay] AVPlay state is ' + avState + ', queuing seek target:', safeTargetSec, 's');
+        self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
         return;
       }
 
@@ -818,14 +824,10 @@
       }
 
       self._isSeeking = true;
-      var wasPlaying = (avState === 'PLAYING');
 
       // Safety timeout: release lock after 5 seconds if callbacks don't fire
       var seekTimeout = setTimeout(function() {
         console.warn('[AVPlay] Seek safety timeout triggered');
-        if (wasPlaying) {
-          try { webapis.avplay.play(); } catch(pe) {}
-        }
         onSeekDone();
         if (errorCb) errorCb(new Error('Seek timeout'));
       }, 5000);
@@ -841,82 +843,24 @@
       };
 
       try {
-        // Samsung Tizen Best Practice: pause before seekTo to avoid decoder buffer conflicts
-        if (wasPlaying) {
-          try { webapis.avplay.pause(); } catch(pErr) {}
-        }
-
+        // Direct seek without pause() to avoid state transition race conditions
         webapis.avplay.seekTo(ms, function() {
           console.log('[AVPlay] seekTo success at', ms, 'ms');
           self._currentTime = safeTargetSec;
-          if (wasPlaying) {
-            try { webapis.avplay.play(); } catch(plErr) {}
-          }
+          self._emit('timeUpdate', { currentTime: safeTargetSec });
           setTimeout(onSeekDone, 150);
           if (successCb) successCb();
         }, function(err) {
           console.warn('[AVPlay] seekTo error callback:', err);
           if (typeof window.sendTvLog === 'function') {
-            window.sendTvLog('warn', 'seek', 'AVPlay seekTo failed, attempting jump fallback', { targetSec: safeTargetSec, err: err });
+            window.sendTvLog('warn', 'seek', 'AVPlay seekTo failed, maintaining playback', { targetSec: safeTargetSec, err: err });
           }
-          var curMs = 0;
-          try { curMs = webapis.avplay.getCurrentTime() || 0; } catch(ce) {}
-          var deltaMs = ms - curMs;
-          var absDeltaMs = Math.abs(deltaMs);
-          var absDeltaSec = Math.max(1, Math.round(absDeltaMs / 1000));
-
-          // Fallback 1: jumpForward / jumpBackward if seekTo returned error
-          if (absDeltaSec >= 1 && (typeof webapis.avplay.jumpForward === 'function' || typeof webapis.avplay.jumpBackward === 'function')) {
-            var jumpFn = deltaMs > 0 ? webapis.avplay.jumpForward : webapis.avplay.jumpBackward;
-            try {
-              jumpFn.call(webapis.avplay, absDeltaSec, function() {
-                console.log('[AVPlay] jump succeeded with', absDeltaSec, 's');
-                self._currentTime = safeTargetSec;
-                if (wasPlaying) {
-                  try { webapis.avplay.play(); } catch(plErr) {}
-                }
-                setTimeout(onSeekDone, 150);
-                if (successCb) successCb();
-              }, function(jerr) {
-                console.warn('[AVPlay] jump failed:', jerr);
-                if (typeof window.sendTvLog === 'function') {
-                  window.sendTvLog('warn', 'seek', 'AVPlay jump failed, reloading at time', { targetSec: safeTargetSec, jerr: jerr });
-                }
-                // Fallback 2: reload at time
-                self._reloadAtTime(safeTargetSec, wasPlaying, function() {
-                  setTimeout(onSeekDone, 150);
-                  if (successCb) successCb();
-                }, function(rErr) {
-                  if (wasPlaying) {
-                    try { webapis.avplay.play(); } catch(plErr) {}
-                  }
-                  setTimeout(onSeekDone, 150);
-                  if (errorCb) errorCb(rErr);
-                });
-              });
-              return;
-            } catch(je) {
-              console.warn('[AVPlay] jump exception:', je);
-            }
-          }
-
-          // Fallback 2: reload at time
-          self._reloadAtTime(safeTargetSec, wasPlaying, function() {
-            setTimeout(onSeekDone, 150);
-            if (successCb) successCb();
-          }, function(rErr) {
-            if (wasPlaying) {
-              try { webapis.avplay.play(); } catch(plErr) {}
-            }
-            setTimeout(onSeekDone, 150);
-            if (errorCb) errorCb(rErr);
-          });
+          // Do NOT call _reloadAtTime or stop()/close() - that causes TV deadlocks/hangs!
+          setTimeout(onSeekDone, 150);
+          if (errorCb) errorCb(err);
         });
       } catch(e) {
         console.warn('[AVPlay] seekTo exception:', e);
-        if (wasPlaying) {
-          try { webapis.avplay.play(); } catch(plErr) {}
-        }
         setTimeout(onSeekDone, 150);
         if (errorCb) errorCb(e);
       }
