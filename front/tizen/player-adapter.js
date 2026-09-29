@@ -37,6 +37,7 @@
     this._currentTime = 0;
     this._isPlaying = false;
     this._isSeeking = false;
+    this._isBuffering = false;
     this._seekOffset = 0;
     this._hasExternalDuration = false;
     this._avplayObj = null;
@@ -91,13 +92,24 @@
         }
       },
       onbufferingstart: function() {
+        self._isBuffering = true;
         self._emit('bufferingStart');
       },
       onbufferingprogress: function(percent) {
         self._emit('bufferingProgress', { percent: percent });
       },
       onbufferingcomplete: function() {
+        self._isBuffering = false;
         self._emit('bufferingEnd');
+
+        // If a seek was requested while buffering, execute it now safely
+        if (self._pendingSeek && !self._isSeeking && !self._isAvplayPreparing) {
+          var pSeek = self._pendingSeek;
+          self._pendingSeek = null;
+          console.log('[AVPlay] Executing deferred seek after buffering complete to', pSeek.time, 's');
+          self.seekTo(pSeek.time, pSeek.successCb, pSeek.errorCb);
+        }
+
         try {
           var info = webapis.avplay.getStreamingProperty('DURATION_INFO');
           if (info) {
@@ -594,9 +606,61 @@
     }
   };
 
-  PlayerAdapter.prototype.seek = function(seconds) {
-    var target = Math.max(0, this._currentTime + seconds);
-    this.seekTo(target);
+  PlayerAdapter.prototype.seek = function(seconds, successCb, errorCb) {
+    var self = this;
+    if (self.engineType === 'avplay' && typeof webapis !== 'undefined' && webapis.avplay && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(e) {}
+      if (avState === 'PLAYING' || avState === 'PAUSED') {
+        var offsetMs = Math.round(Math.abs(seconds) * 1000);
+        if (self._isBuffering) {
+          var target = Math.max(1.5, self._currentTime + seconds);
+          self._pendingSeek = { time: target, successCb: successCb, errorCb: errorCb };
+          return;
+        }
+        if (seconds < 0 && typeof webapis.avplay.jumpBackward === 'function' && self._currentTime > 2) {
+          self._isSeeking = true;
+          try {
+            webapis.avplay.jumpBackward(offsetMs, function() {
+              self._currentTime = Math.max(1.5, self._currentTime + seconds);
+              self._isSeeking = false;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+              if (successCb) successCb();
+            }, function(err) {
+              console.warn('[AVPlay] jumpBackward failed, falling back to seekTo:', err);
+              self._isSeeking = false;
+              var target = Math.max(1.5, self._currentTime + seconds);
+              self.seekTo(target, successCb, errorCb);
+            });
+            return;
+          } catch(e) {
+            console.warn('[AVPlay] jumpBackward exception:', e);
+            self._isSeeking = false;
+          }
+        } else if (seconds > 0 && typeof webapis.avplay.jumpForward === 'function') {
+          self._isSeeking = true;
+          try {
+            webapis.avplay.jumpForward(offsetMs, function() {
+              self._currentTime = self._currentTime + seconds;
+              self._isSeeking = false;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+              if (successCb) successCb();
+            }, function(err) {
+              console.warn('[AVPlay] jumpForward failed, falling back to seekTo:', err);
+              self._isSeeking = false;
+              var target = Math.max(1.5, self._currentTime + seconds);
+              self.seekTo(target, successCb, errorCb);
+            });
+            return;
+          } catch(e) {
+            console.warn('[AVPlay] jumpForward exception:', e);
+            self._isSeeking = false;
+          }
+        }
+      }
+    }
+    var target = Math.max(1.5, this._currentTime + seconds);
+    this.seekTo(target, successCb, errorCb);
   };
 
   PlayerAdapter.prototype._seekHlsAvplay = function(targetSec, successCb, errorCb) {
@@ -804,15 +868,21 @@
       var avState = '';
       try { avState = webapis.avplay.getState(); } catch(se) {}
 
-      var safeTargetSec = Math.max(0.5, targetSec);
+      var safeTargetSec = Math.max(1.5, targetSec);
       if (self._duration > 2 && safeTargetSec > self._duration - 2) {
-        safeTargetSec = Math.max(0.5, self._duration - 2);
+        safeTargetSec = Math.max(1.5, self._duration - 2);
       }
       var ms = Math.round(safeTargetSec * 1000);
       console.log('[AVPlay] Seeking to', ms, 'ms (' + safeTargetSec.toFixed(1) + 's), state:', avState);
 
       if (avState !== 'PLAYING' && avState !== 'PAUSED') {
         console.warn('[AVPlay] AVPlay state is ' + avState + ', queuing seek target:', safeTargetSec, 's');
+        self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+        return;
+      }
+
+      if (self._isBuffering) {
+        console.warn('[AVPlay] AVPlay is currently buffering, queuing seek target:', safeTargetSec, 's');
         self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
         return;
       }

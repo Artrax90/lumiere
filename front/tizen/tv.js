@@ -162,22 +162,35 @@
     }
     if (cleanPlayerTitle === '[object Object]') cleanPlayerTitle = '';
 
+    var effectiveId = parseInt(p.id) || (state.detail && state.detail.id) || 0;
+    var effectiveType = p.type || (state.detail && state.detail.type) || ((cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie');
+    var effectivePoster = p.poster || (state.detail && state.detail.poster) || '';
+
+    // Self-heal House M.D. (ID 1408)
+    if (Number(effectiveId) === 1408) {
+      effectiveType = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(cleanPlayerTitle) || !cleanPlayerTitle) {
+        cleanPlayerTitle = 'Доктор Хаус';
+      }
+    }
+
     var playerParams = {
       url: p.url || '',
       title: cleanPlayerTitle || 'Видео',
-      id: parseInt(p.id) || 0,
-      type: p.type || 'movie',
-      poster: p.poster || '',
+      id: effectiveId,
+      type: effectiveType,
+      poster: effectivePoster,
       start: parseInt(p.start) || 0
     };
 
-    var effectiveId = playerParams.id || (state.detail && state.detail.id) || 0;
-    var effectiveType = playerParams.type || (state.detail && state.detail.type) || ((cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie');
-    var effectivePoster = playerParams.poster || (state.detail && state.detail.poster) || '';
+    var baseMediaTitle = cleanPlayerTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(effectiveId) === 1408 && (/^(1408|Комната 1408)$/i.test(baseMediaTitle) || !baseMediaTitle)) {
+      baseMediaTitle = 'Доктор Хаус';
+    }
 
     state.activePlayerMedia = {
       id: effectiveId,
-      name: cleanPlayerTitle || 'Видео',
+      name: (effectiveType === 'tv' && baseMediaTitle) ? baseMediaTitle : (cleanPlayerTitle || 'Видео'),
       type: effectiveType,
       poster: effectivePoster,
       backdrop: (state.detail && state.detail.backdrop) || playerParams.backdrop || ''
@@ -1922,7 +1935,23 @@
     var lastTorrents = {};
     try { lastTorrents = JSON.parse(localStorage.getItem('last_torrents') || '{}'); } catch(e) {}
     var tObj = lastTorrents[item.id];
-    var curType = (tObj && tObj.type) || (item.title && item.title.type) || ((rawName && / · S[0-9]+/i.test(rawName)) ? 'tv' : 'movie');
+    var isTvShow = (Number(item.id) === 1408) ||
+                   (tObj && (tObj.type === 'tv' || tObj.season)) ||
+                   (item.title && (item.title.type === 'tv' || item.title.season)) ||
+                   (rawName && /·\s*S\d+/i.test(rawName)) ||
+                   !!localStorage.getItem('last_season_' + item.id);
+    if (!isTvShow && Number(item.id) !== 13) {
+      for (var lk in localStorage) {
+        if (lk.indexOf('season_torrent_' + item.id + '_') === 0) {
+          isTvShow = true;
+          break;
+        }
+      }
+    }
+    var curType = (Number(item.id) === 13) ? 'movie' : (isTvShow ? 'tv' : ((tObj && tObj.type) || (item.title && item.title.type) || 'movie'));
+    if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(rawName) || !rawName)) {
+      rawName = 'Доктор Хаус';
+    }
 
     state.fromContinueWatching = true;
     state.playerOpenedFrom = 'app';
@@ -1978,10 +2007,16 @@
     };
 
     var poster = cPoster || (item.title && typeof item.title === 'object' && item.title.poster) || '';
+    var baseSeriesName = rawName.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(baseSeriesName) || !baseSeriesName)) {
+      baseSeriesName = 'Доктор Хаус';
+    }
+    var effectiveDetailName = (curType === 'tv' && baseSeriesName) ? baseSeriesName : rawName;
 
     // Direct resume via last_torrents if it has a magnet
     if (tObj && tObj.magnet) {
-      state.detail = { id: item.id, name: rawName, type: curType, poster: poster };
+      state.detail = { id: item.id, name: effectiveDetailName, type: curType, poster: poster };
+      state.activePlayerMedia = { id: item.id, name: effectiveDetailName, type: curType, poster: poster };
       openTorrent(tObj.magnet, tObj.title || rawName);
       return;
     }
@@ -2005,13 +2040,14 @@
     }
 
     if (seasonTorrent && seasonTorrent.magnet) {
-      state.detail = { id: item.id, name: rawName, type: 'tv', poster: poster, backdrop: item.backdrop || '' };
+      state.detail = { id: item.id, name: effectiveDetailName, type: 'tv', poster: poster, backdrop: item.backdrop || '' };
+      state.activePlayerMedia = { id: item.id, name: effectiveDetailName, type: 'tv', poster: poster };
       openTorrent(seasonTorrent.magnet, seasonTorrent.title || rawName);
       return;
     }
 
     // Fallback: show details
-    var titleObj = { id: item.id, name: rawName, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
+    var titleObj = { id: item.id, name: effectiveDetailName, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
     showDetail(titleObj);
   }
 
@@ -2095,6 +2131,30 @@
             try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
           }
         }
+
+        // Self-heal House M.D. (ID 1408) if collided with movie "1408"
+        if (Number(item.id) === 1408 || /^(1408|Комната 1408)$/i.test(name)) {
+          name = 'Доктор Хаус';
+          rawName = 'Доктор Хаус';
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = 'Доктор Хаус';
+            item.title.type = 'tv';
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = 'Доктор Хаус';
+            positions[item.id].title.type = 'tv';
+          }
+          if (lastTorrents[item.id]) {
+            lastTorrents[item.id].type = 'tv';
+            if (/^(1408|Комната 1408)$/i.test(lastTorrents[item.id].title)) {
+              lastTorrents[item.id].title = 'Доктор Хаус';
+            }
+          }
+          try {
+            localStorage.setItem('playback_positions', JSON.stringify(positions));
+            localStorage.setItem('last_torrents', JSON.stringify(lastTorrents));
+          } catch(e) {}
+        }
         if ((!/[\u0400-\u04FF]/.test(name) || /\.(mkv|mp4|avi)$/i.test(name)) && torrent && torrent.title && /[\u0400-\u04FF]/.test(torrent.title)) {
           name = cleanMovieTitle(torrent.title);
         } else if (/\.(mkv|mp4|avi)$/i.test(name)) {
@@ -2105,7 +2165,20 @@
 
         // Fetch official Russian metadata & poster from API
         if (item.id && !isNaN(Number(item.id))) {
-          var itemMediaType = (Number(item.id) === 13) ? 'movie' : ((item.title && item.title.type) || (torrent && torrent.type) || (/ · S[0-9]+/i.test(rawName) ? 'tv' : 'movie'));
+          var isTvShow = (Number(item.id) === 1408) ||
+                         ((item.title && item.title.type === 'tv') || (item.title && item.title.season)) ||
+                         ((torrent && torrent.type === 'tv') || (torrent && torrent.season)) ||
+                         (/ · S[0-9]+/i.test(rawName)) ||
+                         !!localStorage.getItem('last_season_' + item.id);
+          if (!isTvShow && Number(item.id) !== 13) {
+            for (var lk in localStorage) {
+              if (lk.indexOf('season_torrent_' + item.id + '_') === 0) {
+                isTvShow = true;
+                break;
+              }
+            }
+          }
+          var itemMediaType = (Number(item.id) === 13) ? 'movie' : (isTvShow ? 'tv' : 'movie');
           var apiEndpoint = (itemMediaType === 'tv') ? '/api/tv/' : '/api/movies/';
 
           var applyApiData = function(data, type) {
@@ -2122,7 +2195,21 @@
               var displayName = ruName;
               if (type === 'tv') {
                 var sMatch = rawName.match(/ · S\d+.*$/i) || rawName.match(/S\d+E\d+/i);
-                if (sMatch) displayName = ruName + (sMatch[0].indexOf(' · ') === 0 ? sMatch[0] : ' · ' + sMatch[0]);
+                if (sMatch) {
+                  displayName = ruName + (sMatch[0].indexOf(' · ') === 0 ? sMatch[0] : ' · ' + sMatch[0]);
+                } else {
+                  var epS = (torrent && torrent.season) || (item.title && item.title.season);
+                  var epE = (torrent && torrent.episode) || (item.title && item.title.episode);
+                  if (!epS) {
+                    try {
+                      var lsV = localStorage.getItem('last_season_' + item.id);
+                      if (lsV) epS = parseInt(lsV, 10);
+                    } catch(e) {}
+                  }
+                  if (epS && epE) {
+                    displayName = ruName + ' · S' + (epS < 10 ? '0' + epS : epS) + 'E' + (epE < 10 ? '0' + epE : epE);
+                  }
+                }
               }
               var titleEl = card.querySelector('.card-title');
               if (titleEl) {
@@ -3842,6 +3929,14 @@
       title.name = (typeof title.title === 'object') ? (title.title.name || title.title.title || '') : title.title;
     }
     if (title.name === '[object Object]') title.name = '';
+
+    // Self-heal House M.D. (ID 1408) if opened or passed as movie 1408
+    if (Number(title.id) === 1408 || /^(1408|Комната 1408)$/i.test(title.name)) {
+      title.type = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(title.name) || !title.name) {
+        title.name = 'Доктор Хаус';
+      }
+    }
 
     if (/ · S[0-9]+/i.test(title.name)) {
       title.type = 'tv';
@@ -5813,6 +5908,17 @@
     var movieName = detailName || titleStr || '';
     var mediaType = (state.detail && state.detail.type) || ((movieName && / · S[0-9]+/i.test(movieName)) ? 'tv' : 'movie');
 
+    if (Number(movieId) === 1408 || /^(1408|Комната 1408)$/i.test(movieName)) {
+      mediaType = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(movieName) || !movieName) {
+        movieName = 'Доктор Хаус';
+      }
+      if (state.detail) {
+        state.detail.type = 'tv';
+        state.detail.name = 'Доктор Хаус';
+      }
+    }
+
     // Save torrent info for resume
     if (movieId) {
       try {
@@ -6300,11 +6406,45 @@
     if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
     else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
 
-    var isTv = (state.detail && state.detail.type === 'tv') || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
-    var mediaType = isTv ? 'tv' : ((state.detail && state.detail.type) || 'movie');
-    var name = '';
+    movieId = movieId || (state.detail && state.detail.id) || 0;
+    var poster = customPoster || (state.detail && state.detail.poster) || '';
 
-    if (titleStr && (titleStr.indexOf(' · S') !== -1 || !detailName)) {
+    // Extract season and episode clues before constructing title
+    var sNum = null;
+    var eNum = null;
+    var epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
+                  (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
+                  ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
+                  ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i);
+    if (epMatch) {
+      sNum = parseInt(epMatch[1], 10);
+      eNum = parseInt(epMatch[2], 10);
+    }
+    if (!sNum && movieId) {
+      try {
+        var ltObj = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+        if (ltObj && ltObj.season) { sNum = parseInt(ltObj.season, 10); eNum = parseInt(ltObj.episode, 10); }
+      } catch(ex) {}
+      if (!sNum) {
+        try {
+          var lsVal = localStorage.getItem('last_season_' + movieId);
+          if (lsVal) sNum = parseInt(lsVal, 10);
+        } catch(ex) {}
+      }
+    }
+
+    var isTv = (Number(movieId) === 1408) || (state.detail && state.detail.type === 'tv') || (sNum != null) || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
+    var mediaType = (Number(movieId) === 13) ? 'movie' : (isTv ? 'tv' : ((state.detail && state.detail.type) || 'movie'));
+
+    var baseSeriesName = (detailName || titleStr || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(movieId) === 1408 && (/^(1408|Комната 1408)$/i.test(baseSeriesName) || !baseSeriesName)) {
+      baseSeriesName = 'Доктор Хаус';
+    }
+
+    var name = '';
+    if (isTv && sNum && eNum) {
+      name = (baseSeriesName || 'Сериал') + ' · S' + (sNum < 10 ? '0' + sNum : sNum) + 'E' + (eNum < 10 ? '0' + eNum : eNum);
+    } else if (titleStr && (titleStr.indexOf(' · S') !== -1 || !detailName)) {
       name = titleStr;
     } else if (detailName) {
       if (isTv && file && file.name && file.name !== detailName) {
@@ -6319,21 +6459,13 @@
       name = (file && file.name) || 'Видео';
     }
 
-    movieId = movieId || (state.detail && state.detail.id) || 0;
-    var poster = customPoster || (state.detail && state.detail.poster) || '';
-
     // Check for saved resume position (for series, ensure position is for THIS episode, not the whole series!)
     var startParam = '';
-    var sNum = null;
-    var eNum = null;
     if (movieId) {
       try {
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-        var epMatch = (titleStr || name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
         var saved = null;
-        if (epMatch) {
-          sNum = parseInt(epMatch[1], 10);
-          eNum = parseInt(epMatch[2], 10);
+        if (epMatch || (sNum && eNum)) {
           var epKey = movieId + '_s' + sNum + '_e' + eNum;
           saved = positions[epKey];
           if (!saved && positions[movieId]) {
@@ -6416,10 +6548,17 @@
             if (existingName && /[\u0400-\u04FF]/.test(existingName) && !/[\u0400-\u04FF]/.test(serverTitle)) {
               chosenName = existingName;
             }
+            var itemType = item.mediaType || (localItem && localItem.title && localItem.title.type) || 'movie';
+            if (Number(id) === 1408) {
+              itemType = 'tv';
+              if (/^(1408|Комната 1408)$/i.test(chosenName) || !chosenName) {
+                chosenName = 'Доктор Хаус';
+              }
+            }
             local[id] = {
               time: item.progress || 0,
               timestamp: serverTime,
-              title: { name: chosenName, poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '', id: id, type: item.mediaType || 'movie' }
+              title: { name: chosenName, poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '', id: id, type: itemType }
             };
           }
         });
@@ -6462,6 +6601,10 @@
           titleName = pos.title || '';
         }
         var mType = (pos.title && pos.title.type) || 'movie';
+        if (Number(id) === 1408) {
+          mType = 'tv';
+          if (/^(1408|Комната 1408)$/i.test(titleName)) titleName = 'Доктор Хаус';
+        }
         history.push({
           tmdbId: Number(id),
           mediaType: mType,

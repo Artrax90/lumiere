@@ -405,13 +405,13 @@
 
     accumulatedDelta += delta;
     var target = seekBaseTime + accumulatedDelta;
-    if (target < 0) {
-      target = 0;
-      accumulatedDelta = -seekBaseTime;
+    if (target < 1.5) {
+      target = 1.5;
+      accumulatedDelta = Math.round(1.5 - seekBaseTime);
     }
     if (duration > 0 && target > duration - 2) {
-      target = Math.max(0, duration - 2);
-      accumulatedDelta = target - seekBaseTime;
+      target = Math.max(1.5, duration - 2);
+      accumulatedDelta = Math.round(target - seekBaseTime);
     }
     pendingSeekTarget = target;
     currentTime = target;
@@ -426,29 +426,40 @@
     if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
     seekDebounceTimer = setTimeout(function() {
       var executeTarget = pendingSeekTarget;
-      console.log('[Player] Executing debounced seek to', executeTarget, 's, accumulated delta:', accumulatedDelta);
-      player.seekTo(executeTarget, function() {
-        console.log('[Player] Debounced seek completed at', executeTarget, 's');
+      var curDelta = accumulatedDelta;
+      console.log('[Player] Executing debounced seek to', executeTarget, 's, accumulated delta:', curDelta);
+
+      var seekDoneTimer = setTimeout(function() {
+        console.warn('[Player] Debounced seek safety timeout triggered, clearing isSeeking');
+        isSeeking = false;
+        accumulatedDelta = 0;
+        seekBaseTime = 0;
+      }, 4000);
+
+      var onSeekFinished = function() {
+        clearTimeout(seekDoneTimer);
         setTimeout(function() {
           isSeeking = false;
           accumulatedDelta = 0;
           seekBaseTime = 0;
         }, 300);
-      }, function(err) {
-        console.warn('[Player] Debounced seek error:', err);
-        setTimeout(function() {
-          isSeeking = false;
-          accumulatedDelta = 0;
-          seekBaseTime = 0;
-        }, 300);
-      });
-    }, 400);
+      };
+
+      if (typeof player.seek === 'function' && curDelta !== 0 && (typeof player._currentUrl !== 'string' || player._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+        player.seek(curDelta, onSeekFinished, function(err) {
+          console.warn('[Player] player.seek error, falling back to seekTo:', err);
+          player.seekTo(executeTarget, onSeekFinished, onSeekFinished);
+        });
+      } else {
+        player.seekTo(executeTarget, onSeekFinished, onSeekFinished);
+      }
+    }, 500);
   }
 
   function seekTo(target) {
     if (!player) return;
-    if (target < 0) target = 0;
-    if (duration > 0 && target > duration - 2) target = Math.max(0, duration - 2);
+    if (target < 1.5) target = 1.5;
+    if (duration > 0 && target > duration - 2) target = Math.max(1.5, duration - 2);
     currentTime = target;
     pendingSeekTarget = target;
     isSeeking = true;
