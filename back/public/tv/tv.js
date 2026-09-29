@@ -390,8 +390,8 @@
     try {
       var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
       // If legacy port 3000 was saved in previous versions, or old PC IP, or broken domain
-      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.196') !== -1 || savedServer.indexOf('lumiere.artrax.net') !== -1)) {
-        savedServer = 'http://192.168.1.77:3500';
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1 || savedServer.indexOf('lumiere.artrax.net') !== -1)) {
+        savedServer = 'http://192.168.1.196:3500';
         try {
           localStorage.setItem(SERVER_KEY, savedServer);
           localStorage.setItem('lumiere_server_url', savedServer);
@@ -406,7 +406,7 @@
           server = window.location.origin;
         } else {
           // Pre-populate default local server candidate if in native app container
-          server = 'http://192.168.1.77:3500';
+          server = 'http://192.168.1.196:3500';
         }
       }
       if (server) {
@@ -934,7 +934,7 @@
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
-      var sUrl = serverUrl || API || 'http://192.168.1.77:3500';
+      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
           '<span>✓</span><span>Сервер найден и подключен!</span>' +
@@ -972,7 +972,7 @@
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
-      var sUrl = serverUrl || API || 'http://192.168.1.77:3500';
+      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
           '<span>✓</span><span>Сервер подключен</span>' +
@@ -6066,7 +6066,7 @@
       // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8090 for native RFC 7233 byte-range seeking
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
         var torrPort = '8090';
-        var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.77') + ':' + torrPort);
+        var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
         var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
         if (proxyMatch) {
           var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
