@@ -1932,6 +1932,17 @@
     }
     if (rawName === '[object Object]') rawName = '';
 
+    if (item && item.id) {
+      try {
+        localStorage.setItem('last_watched_id', String(item.id));
+        var posMap = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        if (posMap[item.id]) {
+          posMap[item.id].timestamp = Date.now();
+          localStorage.setItem('playback_positions', JSON.stringify(posMap));
+        }
+      } catch(e) {}
+    }
+
     var lastTorrents = {};
     try { lastTorrents = JSON.parse(localStorage.getItem('last_torrents') || '{}'); } catch(e) {}
     var tObj = lastTorrents[item.id];
@@ -2063,6 +2074,8 @@
       }
     }
 
+    var lastWatchedId = Number(localStorage.getItem('last_watched_id')) || 0;
+
     var positions = {};
     try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
 
@@ -2071,21 +2084,62 @@
 
     var changed = false;
     var items = [];
+    var seenIds = {};
+
     for (var id in positions) {
+      var numId = Number(id);
+      if (isNaN(numId) || numId <= 0) continue;
       var pos = positions[id];
-      var isIptv = isNaN(Number(id)) || Number(id) <= 0 ||
-                   (pos && pos.title && pos.title.type === 'iptv') ||
-                   (pos && pos.duration === 0);
+
+      var isIptv = (pos && pos.title && pos.title.type === 'iptv') || 
+                   (lastTorrents[id] && lastTorrents[id].type === 'iptv');
       if (isIptv) {
         delete positions[id];
         changed = true;
         continue;
       }
-      if (typeof pos === 'object' && (pos.time >= 1 || pos.progress >= 1)) {
-        var pTitle = pos.title || (lastTorrents[id] ? lastTorrents[id].title : null) || 'Видео';
-        items.push({ id: Number(id), time: pos.time || pos.progress || 0, duration: pos.duration || 0, timestamp: pos.timestamp || 0, title: pTitle });
-      } else if (typeof pos === 'number' && pos >= 1) {
-        items.push({ id: Number(id), time: pos, duration: 0, timestamp: 0, title: (lastTorrents[id] && lastTorrents[id].title) || 'Продолжить просмотр' });
+
+      var posTime = (typeof pos === 'object') ? (pos.time || pos.progress || 0) : (typeof pos === 'number' ? pos : 0);
+      var posDuration = (typeof pos === 'object') ? (pos.duration || 0) : 0;
+      var posTs = (typeof pos === 'object' && pos.timestamp) ? Number(pos.timestamp) : 0;
+      if (isNaN(posTs)) posTs = 0;
+      var ltTs = (lastTorrents[id] && lastTorrents[id].timestamp) ? Number(lastTorrents[id].timestamp) : 0;
+      if (isNaN(ltTs)) ltTs = 0;
+      var effectiveTs = Math.max(posTs, ltTs);
+
+      if (numId === lastWatchedId) {
+        effectiveTs = Math.max(effectiveTs, now);
+      }
+
+      if (posTime >= 1 || numId === lastWatchedId) {
+        var pTitle = (pos && pos.title) || (lastTorrents[id] ? lastTorrents[id].title : null) || 'Видео';
+        items.push({
+          id: numId,
+          time: posTime,
+          duration: posDuration,
+          timestamp: effectiveTs,
+          title: pTitle
+        });
+        seenIds[numId] = true;
+      }
+    }
+
+    // Also check lastTorrents for any newly played items
+    for (var ltId in lastTorrents) {
+      var numLtId = Number(ltId);
+      if (isNaN(numLtId) || numLtId <= 0 || seenIds[numLtId]) continue;
+      var ltItem = lastTorrents[ltId];
+      if (ltItem && (ltItem.magnet || ltItem.title) && ltItem.type !== 'iptv') {
+        var itemTs = Number(ltItem.timestamp) || 0;
+        if (numLtId === lastWatchedId) itemTs = Math.max(itemTs, now);
+        items.push({
+          id: numLtId,
+          time: 5,
+          duration: 0,
+          timestamp: itemTs,
+          title: ltItem.title || 'Видео'
+        });
+        seenIds[numLtId] = true;
       }
     }
 
@@ -2093,7 +2147,16 @@
       try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
     }
 
-    items.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+    // Sort: most recently watched first (leftmost)
+    items.sort(function(a, b) {
+      if (lastWatchedId) {
+        if (a.id === lastWatchedId && b.id !== lastWatchedId) return -1;
+        if (b.id === lastWatchedId && a.id !== lastWatchedId) return 1;
+      }
+      var timeA = Number(a.timestamp) || 0;
+      var timeB = Number(b.timestamp) || 0;
+      return timeB - timeA;
+    });
 
     if (items.length === 0) {
       var row = document.getElementById('row-continue');
@@ -5922,6 +5985,8 @@
     // Save torrent info for resume
     if (movieId) {
       try {
+        var now = Date.now();
+        localStorage.setItem('last_watched_id', String(movieId));
         var last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
         var prev = last[movieId] || {};
         last[movieId] = {
@@ -5931,7 +5996,8 @@
           fileIndex: prev.fileIndex,
           fileName: prev.fileName,
           season: prev.season,
-          episode: prev.episode
+          episode: prev.episode,
+          timestamp: now
         };
         localStorage.setItem('last_torrents', JSON.stringify(last));
       } catch(e) {}
@@ -6488,8 +6554,24 @@
       } catch(e) {}
 
       try {
+        var now = Date.now();
+        localStorage.setItem('last_watched_id', String(movieId));
+
+        var posMap = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        if (!posMap[movieId]) posMap[movieId] = {};
+        posMap[movieId].timestamp = now;
+        if (!posMap[movieId].title) {
+          posMap[movieId].title = { name: name, poster: poster, id: movieId, type: mediaType };
+        } else if (typeof posMap[movieId].title === 'object') {
+          posMap[movieId].title.name = name;
+          posMap[movieId].title.type = mediaType;
+          if (poster && !posMap[movieId].title.poster) posMap[movieId].title.poster = poster;
+        }
+        localStorage.setItem('playback_positions', JSON.stringify(posMap));
+
         var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
         if (!lastT[movieId]) lastT[movieId] = {};
+        lastT[movieId].timestamp = now;
         if (file && file.id !== undefined) lastT[movieId].fileIndex = file.id;
         if (file && file.name) lastT[movieId].fileName = file.name;
         if (isTv) {

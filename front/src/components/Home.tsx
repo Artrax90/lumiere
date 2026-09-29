@@ -136,9 +136,16 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
     const entries = Object.entries(positions);
     if (entries.length === 0) return [];
 
-    // Sort by timestamp (most recent first)
+    const lastWatchedId = Number(localStorage.getItem('last_watched_id')) || 0;
+    // Sort by timestamp (most recent first, with last_watched_id first)
     const sortedEntries = entries
-      .sort(([, a], [, b]) => (b.timestamp || 0) - (a.timestamp || 0));
+      .sort(([idA, a], [idB, b]) => {
+        if (lastWatchedId) {
+          if (Number(idA) === lastWatchedId && Number(idB) !== lastWatchedId) return -1;
+          if (Number(idB) === lastWatchedId && Number(idA) !== lastWatchedId) return 1;
+        }
+        return (b.timestamp || 0) - (a.timestamp || 0);
+      });
 
     // Find titles that have been watched
     const allTitles = [...trendingMovies, ...popularMovies];

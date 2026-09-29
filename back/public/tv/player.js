@@ -170,10 +170,18 @@
     if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
     if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
 
+    if (movieId) {
+      try { localStorage.setItem('last_watched_id', String(movieId)); } catch(e) {}
+      saveProgress();
+    }
+
     currentSessionId = 'tv-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
     if (sessionHeartbeatTimer) { clearInterval(sessionHeartbeatTimer); }
     sendSessionHeartbeat();
-    sessionHeartbeatTimer = setInterval(sendSessionHeartbeat, 10000);
+    sessionHeartbeatTimer = setInterval(function() {
+      sendSessionHeartbeat();
+      if (isPlaying) saveProgress();
+    }, 10000);
 
     if ($osdTitle) $osdTitle.textContent = movieTitle;
 
@@ -185,6 +193,7 @@
         console.log('[Player] Stream loaded');
         isPlaying = true;
         showFlash('▶', 'Воспроизведение');
+        saveProgress();
       });
 
       player.on('playing', function() {
@@ -193,6 +202,7 @@
 
       player.on('paused', function() {
         isPlaying = false;
+        saveProgress();
       });
 
       player.on('ended', function() {
@@ -1020,62 +1030,68 @@
   }
 
   function saveProgress() {
-    if (mediaType === 'iptv' || !movieId || isNaN(Number(movieId)) || Number(movieId) <= 0 || !duration || duration <= 0) return;
+    if (mediaType === 'iptv' || !movieId || isNaN(Number(movieId)) || Number(movieId) <= 0) return;
     var saveId = Number(movieId);
-    if (!saveId || currentTime < 2) return;
+    if (!saveId) return;
+    var now = Date.now();
     try {
+      localStorage.setItem('last_watched_id', String(saveId));
       var pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
       var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
       var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
       var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
+      var saveTime = Math.round(currentTime || 0);
+      var prevTime = (pos[saveId] && (pos[saveId].time || pos[saveId].progress)) || 0;
+      var effectiveTime = (saveTime >= 1) ? saveTime : prevTime;
+
       if (epMatch) {
         var epKey = saveId + '_s' + sNum + '_e' + eNum;
         pos[epKey] = {
-          time: Math.round(currentTime),
-          duration: Math.round(duration || 0),
-          timestamp: Date.now(),
+          time: effectiveTime,
+          duration: Math.round(duration || (pos[epKey] && pos[epKey].duration) || 0),
+          timestamp: now,
           title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
         };
       }
       pos[saveId] = {
-        time: Math.round(currentTime),
-        duration: Math.round(duration || 0),
-        timestamp: Date.now(),
+        time: effectiveTime,
+        duration: Math.round(duration || (pos[saveId] && pos[saveId].duration) || 0),
+        timestamp: now,
         title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
       };
       localStorage.setItem('playback_positions', JSON.stringify(pos));
 
-      // Also persist season and episode to last_torrents so continue watching knows exact episode
-      if (mediaType === 'tv' || sNum) {
-        try {
-          var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
-          if (lastT[saveId]) {
-            if (sNum) lastT[saveId].season = sNum;
-            if (eNum) lastT[saveId].episode = eNum;
-            localStorage.setItem('last_torrents', JSON.stringify(lastT));
-          }
-          if (sNum) {
-            localStorage.setItem('last_season_' + saveId, String(sNum));
-          }
-        } catch(ltErr) {}
-      }
+      // Also persist season and episode and timestamp to last_torrents
+      try {
+        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        if (!lastT[saveId]) lastT[saveId] = {};
+        lastT[saveId].timestamp = now;
+        if (sNum) lastT[saveId].season = sNum;
+        if (eNum) lastT[saveId].episode = eNum;
+        localStorage.setItem('last_torrents', JSON.stringify(lastT));
+        if (sNum) {
+          localStorage.setItem('last_season_' + saveId, String(sNum));
+        }
+      } catch(ltErr) {}
 
-      // Also persist to server history via /api/sync/progress
-      var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
-      var hXhr = new XMLHttpRequest();
-      hXhr.open('POST', (API || '') + '/api/sync/progress', true);
-      hXhr.setRequestHeader('Content-Type', 'application/json');
-      if (token) hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
-      hXhr.send(JSON.stringify({
-        tmdbId: saveId,
-        mediaType: mediaType || 'movie',
-        titleName: movieTitle || ('Медиа #' + saveId),
-        poster: savePoster,
-        progress: Math.round(currentTime),
-        timestamp: Date.now()
-      }));
+      // Also persist to server history via /api/sync/progress if progress > 2
+      if (effectiveTime > 2) {
+        var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
+        var hXhr = new XMLHttpRequest();
+        hXhr.open('POST', (API || '') + '/api/sync/progress', true);
+        hXhr.setRequestHeader('Content-Type', 'application/json');
+        if (token) hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
+        hXhr.send(JSON.stringify({
+          tmdbId: saveId,
+          mediaType: mediaType || 'movie',
+          titleName: movieTitle || ('Медиа #' + saveId),
+          poster: savePoster,
+          progress: effectiveTime,
+          timestamp: now
+        }));
+      }
     } catch(e) {}
   }
 
