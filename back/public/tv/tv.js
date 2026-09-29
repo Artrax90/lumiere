@@ -398,11 +398,12 @@
           localStorage.setItem('lumiere_tv_server', savedServer);
         } catch(e) {}
       }
-      var server = savedServer;
+      var isHttpOrigin = window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      var server = isHttpOrigin ? window.location.origin : savedServer;
       if (!server) {
         if (window.__DEFAULT_SERVER_URL__ && !window.__DEFAULT_SERVER_URL__.startsWith('file') && !window.__DEFAULT_SERVER_URL__.includes('localhost')) {
           server = window.__DEFAULT_SERVER_URL__;
-        } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        } else if (isHttpOrigin) {
           server = window.location.origin;
         } else {
           // Pre-populate default local server candidate if in native app container
@@ -6063,9 +6064,9 @@
       }
       if (url.indexOf('/') === 0) url = API + url;
 
-      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8090 for native RFC 7233 byte-range seeking
+      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
-        var torrPort = '8090';
+        var torrPort = '8590';
         var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
         var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
         if (proxyMatch) {

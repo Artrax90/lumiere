@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search, Sparkles } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search, Sparkles, AlertCircle } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
 import TorrentBadges from './TorrentBadges';
@@ -481,6 +481,13 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {streamError && (
+        <div className="flex items-center gap-2 rounded-xl bg-red-500/10 border border-red-500/20 px-4 py-2.5 text-[13px] text-red-400">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          <span>{streamError}</span>
         </div>
       )}
 

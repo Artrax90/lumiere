@@ -1,10 +1,33 @@
 const SERVER_URL_KEY = 'lumiere_server_url';
 export const DEFAULT_SERVER_URL = '';
 
+// Auto-sanitize legacy or dead addresses from localStorage on load
+if (typeof window !== 'undefined') {
+  try {
+    ['lumiere_server_url', 'lumiere_server', 'lumiere_tv_server'].forEach(key => {
+      const v = localStorage.getItem(key);
+      if (v && (v.indexOf('192.168.1.77') !== -1 || v.indexOf('lumiere.artrax.net') !== -1 || /:3000\/?$/.test(v))) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch(e) {}
+}
+
 export function getServerUrl(): string {
+  // If loaded in a web browser over HTTP(S), always use current origin so web requests never fail due to stale localStorage IP
+  if (typeof window !== 'undefined' && window.location.protocol.startsWith('http') && window.location.origin && window.location.origin !== 'null') {
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin;
+    }
+  }
+
   const stored = localStorage.getItem(SERVER_URL_KEY);
   if (stored && stored !== 'null' && stored !== 'undefined' && !stored.startsWith('file:') && !stored.startsWith('wgt-')) {
-    return stored.replace(/\/+$/, '');
+    if (stored.indexOf('192.168.1.77') !== -1) {
+      try { localStorage.removeItem(SERVER_URL_KEY); } catch(e) {}
+    } else {
+      return stored.replace(/\/+$/, '');
+    }
   }
   // Web fallback: use current origin if loaded over HTTP(S) and not a local file
   if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
