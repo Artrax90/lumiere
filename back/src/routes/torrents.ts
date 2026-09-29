@@ -101,6 +101,7 @@ interface TorrentItem {
   link: string;
   details: string;
   date: string;
+  hash?: string;
 }
 
 interface TorrentFile {
@@ -382,6 +383,10 @@ export function torrentRoutes(app: FastifyInstance) {
         if (seen.has(key)) continue;
         seen.add(key);
 
+        const magLink = r.MagnetUri || r.Link || '';
+        const hashMatch = magLink.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+        const torrentHash = hashMatch ? hashMatch[1].toLowerCase() : '';
+
         results.push({
           id: r.Guid || key,
           title: r.Title,
@@ -391,10 +396,11 @@ export function torrentRoutes(app: FastifyInstance) {
           sizeFormatted: formatSize(r.Size),
           seeders: r.Seeders || 0,
           peers: r.Peers || 0,
-          magnet: r.MagnetUri || r.Link || '',
+          magnet: magLink,
           link: r.Link || '',
           details: r.Details || '',
           date: r.PublishDate,
+          hash: torrentHash,
         });
       }
 
@@ -426,7 +432,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
       results.sort((a, b) => scoreTorrentItem(b) - scoreTorrentItem(a));
 
-      return { results };
+      return { results, torrents: results };
     } catch (err: any) {
       console.error('JacRed search error:', err.message);
       return reply.code(500).send({ error: err.message });

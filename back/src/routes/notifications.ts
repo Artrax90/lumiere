@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import pool from '../db/pool.js';
-import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import type { TmdbProvider } from '../services/metadata/tmdb.js';
 import { config } from '../config.js';
 import { notifyNewEpisode } from '../services/telegram.js';
@@ -257,8 +257,9 @@ export function startNotificationScheduler(tmdbProvider?: TmdbProvider) {
 
 export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProvider) {
   // 1. Get notifications
-  app.get('/api/notifications', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/notifications', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
 
     // Trigger an asynchronous background check if user has not been checked in the last 10 minutes
     const lastCheck = userLastCheckMap.get(userId) || 0;
@@ -326,8 +327,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   });
 
   // 4. Get series subscriptions
-  app.get('/api/notifications/subscriptions', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/notifications/subscriptions', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
     try {
       const result = await pool.query(
         'SELECT id, tmdb_id, title, poster, last_season, last_episode, created_at FROM series_subscriptions WHERE user_id = $1 ORDER BY id DESC',
@@ -350,8 +352,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   });
 
   // 5. Check if user is subscribed to a series
-  app.get('/api/notifications/is-subscribed/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/notifications/is-subscribed/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
     const { tmdbId } = request.params as { tmdbId: string };
     try {
       const result = await pool.query(
@@ -368,8 +371,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   });
 
   // 6. Subscribe to a series
-  app.post('/api/notifications/subscribe', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/notifications/subscribe', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const bodyUserId = (request.body as any)?.userId;
+    const userId = request.user?.userId || (bodyUserId ? parseInt(bodyUserId, 10) : 1);
     const { tmdbId, title, poster, lastSeason, lastEpisode } = request.body as {
       tmdbId: number;
       title: string;
@@ -407,8 +411,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   });
 
   // 7. Unsubscribe from a series
-  app.delete('/api/notifications/subscribe/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.delete('/api/notifications/subscribe/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
     const { tmdbId } = request.params as { tmdbId: string };
     try {
       await pool.query(
@@ -422,8 +427,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   });
 
   // 8. Check for new episodes across subscribed series (manual or direct trigger)
-  app.post('/api/notifications/check', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.post('/api/notifications/check', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
     try {
       const newCount = await checkNewEpisodes(userId, tmdbProvider);
       return { success: true, newEpisodesFound: newCount };

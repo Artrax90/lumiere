@@ -253,11 +253,16 @@ export function sessionRoutes(app: FastifyInstance) {
 
         // Pop any queued commands for this session
         const commands = pendingCommands.get(body.sessionId) || [];
+        const bCmds = (deviceType === 'tv') ? (pendingCommands.get('tv_broadcast') || []) : [];
+        const allCommands = [...commands, ...bCmds];
         if (commands.length > 0) {
           pendingCommands.delete(body.sessionId);
         }
+        if (bCmds.length > 0) {
+          pendingCommands.delete('tv_broadcast');
+        }
 
-        return { success: true, terminate, commands };
+        return { success: true, terminate, commands: allCommands };
       } catch (err: any) {
         return reply.code(500).send({ error: err.message });
       }

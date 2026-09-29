@@ -348,8 +348,26 @@ try {
     let botProc: any = null;
     let restartTimer: any = null;
 
+    const killBot = () => {
+      if (botProc && botProc.pid) {
+        try {
+          if (process.platform === 'win32') {
+            const { execSync } = require('child_process');
+            execSync(`taskkill /pid ${botProc.pid} /T /F`, { stdio: 'ignore' });
+          } else {
+            botProc.kill('SIGTERM');
+          }
+        } catch {}
+      }
+    };
+
+    process.on('exit', killBot);
+    process.on('SIGINT', () => { killBot(); process.exit(0); });
+    process.on('SIGTERM', () => { killBot(); process.exit(0); });
+
     const startBotSupervisor = async () => {
       try {
+        killBot();
         const { spawn } = await import('child_process');
         botProc = spawn(pyExe, ['-u', botPy], {
           stdio: 'inherit',
@@ -366,6 +384,7 @@ try {
         });
 
         botProc.on('exit', (code: number, sig: string) => {
+          killBot();
           console.warn(`[BotService] Telegram Bot process stopped (code=${code}, sig=${sig}). Restarting in 5s...`);
           if (restartTimer) clearTimeout(restartTimer);
           restartTimer = setTimeout(startBotSupervisor, 5000);

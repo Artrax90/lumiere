@@ -207,7 +207,48 @@
       }
       if (currArrIdx >= 0 && currArrIdx + 1 < torrentFiles.length) {
         nextFile = torrentFiles[currArrIdx + 1];
-        console.log('[Player] Next episode identified for binge watching:', nextFile.name);
+        console.log('[Player] Next episode identified for binge watching from torrent files:', nextFile.name);
+      }
+    }
+
+    // Dynamic resolution if nextFile not found by index yet
+    if (!nextFile) {
+      var pTitle = params.title || '';
+      var sMatch = pTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || pTitle.match(/\bS([0-9]+)E([0-9]+)\b/i);
+      if (sMatch) {
+        var curS = parseInt(sMatch[1], 10);
+        var curE = parseInt(sMatch[2], 10);
+        var nextE = curE + 1;
+        var nextSStr = (curS < 10 ? '0' + curS : String(curS));
+        var nextEStr = (nextE < 10 ? '0' + nextE : String(nextE));
+        var baseTitle = pTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+
+        // Check torrentFiles by episode number
+        if (torrentFiles && torrentFiles.length > 0) {
+          for (var tfi = 0; tfi < torrentFiles.length; tfi++) {
+            var tfName = torrentFiles[tfi].name || '';
+            var tfMatch = tfName.match(/\bS([0-9]+)E([0-9]+)\b/i) || tfName.match(/\[([0-9]+)x([0-9]+)\]/i) || tfName.match(/([0-9]+)\s*(?:серия|выпуск)/i);
+            if (tfMatch) {
+              var epNum = parseInt(tfMatch[2] || tfMatch[1], 10);
+              if (epNum === nextE) {
+                nextFile = torrentFiles[tfi];
+                console.log('[Player] Next episode matched by episode number from files:', nextFile.name);
+                break;
+              }
+            }
+          }
+        }
+
+        if (!nextFile) {
+          nextFile = {
+            id: (torrentFileIndex >= 0 ? (torrentFileIndex + 1) : 1),
+            name: baseTitle + ' · S' + nextSStr + 'E' + nextEStr,
+            season: curS,
+            episode: nextE,
+            isDynamic: true
+          };
+          console.log('[Player] Next episode dynamically identified:', nextFile.name);
+        }
       }
     }
 
@@ -594,14 +635,70 @@
   }
 
   function showNextEpOverlay() {
-    if (nextEpOverlayVisible || nextEpDismissed || !nextFile) return;
+    if (nextEpOverlayVisible || nextEpDismissed) return;
+    if (!nextFile) {
+      // If nextFile was not set yet, attempt dynamic resolution right now from title / state
+      var pTitle = (typeof movieTitle === 'string') ? movieTitle : '';
+      var sMatch = pTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || pTitle.match(/\bS([0-9]+)E([0-9]+)\b/i) || pTitle.match(/\b([0-9]+)x([0-9]+)\b/i);
+      var curS = sMatch ? parseInt(sMatch[1], 10) : 1;
+      var curE = sMatch ? parseInt(sMatch[2], 10) : 1;
+      if (!sMatch && movieId) {
+        try {
+          var ltObj = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+          if (ltObj && ltObj.episode) {
+            curS = parseInt(ltObj.season || 1, 10);
+            curE = parseInt(ltObj.episode, 10);
+            sMatch = true;
+          }
+        } catch(ex) {}
+      }
+      if (sMatch || mediaType === 'tv') {
+        var nextE = curE + 1;
+        var nextSStr = (curS < 10 ? '0' + curS : String(curS));
+        var nextEStr = (nextE < 10 ? '0' + nextE : String(nextE));
+        var baseTitle = pTitle.replace(/\s*·\s*S\d+.*$/i, '').trim() || 'Сериал';
+        nextFile = {
+          id: (torrentFileIndex >= 0 ? (torrentFileIndex + 1) : 1),
+          name: baseTitle + ' · S' + nextSStr + 'E' + nextEStr,
+          season: curS,
+          episode: nextE,
+          isDynamic: true
+        };
+        console.log('[Player] Next episode dynamically resolved on-the-fly for overlay:', nextFile.name);
+      }
+    }
+    if (!nextFile) return;
+
     nextEpOverlayVisible = true;
     nextEpBtnIndex = 0;
     var $overlay = document.getElementById('next-ep-overlay');
+    if (!$overlay) {
+      var ovHtml = document.createElement('div');
+      ovHtml.id = 'next-ep-overlay';
+      ovHtml.className = 'next-ep-overlay';
+      ovHtml.innerHTML = 
+        '<div class="next-ep-card">' +
+          '<div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>' +
+          '<div id="next-ep-countdown" class="next-ep-timer">30</div>' +
+          '<div id="next-ep-title" class="next-ep-name">' + (nextFile.name || 'Следующая серия') + '</div>' +
+          '<div class="next-ep-actions">' +
+            '<button id="btn-next-now" class="next-ep-btn primary" tabindex="0">\u25b6 Включить сейчас (OK)</button>' +
+            '<button id="btn-next-cancel" class="next-ep-btn secondary" tabindex="0">\u2715 Отмена</button>' +
+          '</div>' +
+        '</div>';
+      var pl = document.getElementById('player') || document.body;
+      pl.appendChild(ovHtml);
+      $overlay = ovHtml;
+    }
+
     var $name = document.getElementById('next-ep-title');
     var $timer = document.getElementById('next-ep-countdown');
     if ($name) $name.textContent = nextFile.name || 'Следующая серия';
-    if ($overlay) $overlay.classList.remove('hidden');
+    if ($overlay) {
+      $overlay.classList.remove('hidden');
+      $overlay.style.display = 'flex';
+      $overlay.style.zIndex = '9999';
+    }
 
     var remaining = Math.max(1, Math.min(30, Math.round(duration - currentTime)));
     if ($timer) $timer.textContent = String(remaining);
@@ -628,7 +725,10 @@
       nextEpInterval = null;
     }
     var $overlay = document.getElementById('next-ep-overlay');
-    if ($overlay) $overlay.classList.add('hidden');
+    if ($overlay) {
+      $overlay.classList.add('hidden');
+      $overlay.style.display = 'none';
+    }
   }
 
   function updateNextEpButtons() {
@@ -645,6 +745,13 @@
     console.log('[Player] Playing next episode:', nextFile);
     hideNextEpOverlay(true);
     showFlash('▶', 'Следующая серия...');
+
+    if (nextFile.isDynamic && typeof window.playSeasonEpisode === 'function' && movieId && nextFile.season && nextFile.episode) {
+      destroyPlayer();
+      window.playSeasonEpisode(movieId, nextFile.season, nextFile.episode, posterUrl);
+      return;
+    }
+
     var nextUrl = API + '/api/torrents/torrserver/stream?link=' + encodeURIComponent(torrentLink) + '&index=' + nextFile.id + '&play=1';
     destroyPlayer();
     window.initPlayer({
@@ -1294,14 +1401,19 @@
                 if (player && typeof player.play === 'function') player.play();
                 else if (!isPlaying) togglePlay();
                 showFlash('▶', 'Пуск (Telegram)');
-              } else if (cmd === 'toggle') {
+              } else if (cmd === 'toggle' || cmd === 'toggle_play') {
                 togglePlay();
+                showFlash(isPlaying ? '⏸' : '▶', (isPlaying ? 'Пауза' : 'Пуск') + ' (Telegram)');
               } else if (cmd === 'forward') {
                 seekBy(30);
                 showFlash('⏩', '+30 сек (Telegram)');
               } else if (cmd === 'rewind') {
                 seekBy(-30);
                 showFlash('⏪', '-30 сек (Telegram)');
+              } else if (cmd === 'seek') {
+                var sVal = (typeof rawCmd === 'object' && rawCmd.value !== undefined) ? Number(rawCmd.value) : 30;
+                seekBy(sVal);
+                showFlash(sVal > 0 ? '⏩' : '⏪', (sVal > 0 ? ('+' + sVal) : sVal) + ' сек (Telegram)');
               } else if (cmd === 'stop') {
                 goBack();
               }

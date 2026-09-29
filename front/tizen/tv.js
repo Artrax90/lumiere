@@ -5606,6 +5606,9 @@
           }
 
           var files = data.files;
+          state.activeTorrentFiles = files;
+          state.torrentFiles = files;
+          state._lastMagnet = candidate.magnet;
           var matchedFile = null;
           for (var f = 0; f < files.length; f++) {
             var fileEp = extractEpisodeNumber(files[f].name, f, seasonNum);
@@ -5649,7 +5652,7 @@
               localStorage.setItem('last_torrents', JSON.stringify(lastTorrentsMap));
             } catch(se) {}
 
-            playFile(matchedFile, epTitleStr, showId, epPoster);
+            playFile(matchedFile, epTitleStr, showId, epPoster, files);
           } else {
             if (idx + 1 < Math.min(sorted.length, 4)) {
               tryCandidate(idx + 1);
@@ -6669,7 +6672,7 @@
     document.addEventListener('keydown', confirmKeyHandler, true);
   }
 
-  function playFile(file, title, movieId, customPoster) {
+  function playFile(file, title, movieId, customPoster, optFiles) {
     var isAvplay = (typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined) || (typeof tizen !== 'undefined');
     var isAvi = file && file.name && /\.avi$/i.test(file.name);
     var url = '';
@@ -6838,10 +6841,27 @@
 
     state.activeFile = file;
     var fileIdx = (file && file.id !== undefined) ? file.id : -1;
-    var fileParam = (fileIdx >= 0) ? ('&fileIndex=' + fileIdx) : '';
-    var linkParam = state._lastMagnet ? ('&link=' + encodeURIComponent(state._lastMagnet)) : '';
+    var startSec = 0;
+    if (startParam) {
+      var sm = startParam.match(/start=(\d+)/);
+      if (sm) startSec = parseInt(sm[1], 10);
+    }
+    var effectiveFiles = optFiles || state.activeTorrentFiles || (state.torrentFiles || []);
+    if (effectiveFiles.length > 0) {
+      state.activeTorrentFiles = effectiveFiles;
+    }
 
-    openPlayer('?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&type=' + encodeURIComponent(mediaType) + '&poster=' + encodeURIComponent(poster) + startParam + fileParam + linkParam);
+    openPlayer({
+      url: url,
+      title: name,
+      id: movieId,
+      type: mediaType,
+      poster: poster,
+      start: startSec,
+      fileIndex: fileIdx,
+      link: state._lastMagnet || (state.activeTorrent && state.activeTorrent.magnet) || '',
+      files: effectiveFiles
+    });
   }
 
   // ========== Sync ==========
@@ -10622,9 +10642,46 @@
   window.focusNotificationElement = focusNotificationElement;
   window.loadEpgReminders = loadEpgReminders;
   window.toggleEpgReminder = toggleEpgReminder;
-  window.hasEpgReminder = hasEpgReminder;
-  window.checkEpgReminders = checkEpgReminders;
-  window.executeEpgToastSwitch = executeEpgToastSwitch;
-  window.dismissEpgToast = dismissEpgToast;
+  window.playSeasonEpisode = playSeasonEpisode;
+  window.playFile = playFile;
+
+  // Background Remote Command Polling for TV when player is closed
+  function pollTvBroadcastCommands() {
+    var pContainer = document.getElementById('player-container');
+    var isPlayerActive = pContainer && pContainer.style.display !== 'none' && !pContainer.classList.contains('hidden');
+    if (isPlayerActive) return;
+
+    apiFetch('/api/sessions/tv_broadcast/commands', function(err, res) {
+      if (err || !res || !res.commands || res.commands.length === 0) return;
+      for (var i = 0; i < res.commands.length; i++) {
+        var cmd = res.commands[i];
+        var action = (typeof cmd === 'object' && cmd.action) ? cmd.action : cmd;
+        var val = (typeof cmd === 'object') ? cmd.value : null;
+        console.log('[TV] Received broadcast command:', action, val);
+        if (action === 'play_media' && val) {
+          if (val.streamUrl) {
+            openPlayer({
+              url: val.streamUrl.indexOf('/') === 0 ? (API + val.streamUrl) : val.streamUrl,
+              title: val.title || 'Скачанное видео',
+              id: val.downloadId || 0,
+              type: 'movie',
+              poster: val.poster || '',
+              start: 0,
+              link: '',
+              files: []
+            });
+          } else if (val.mediaId) {
+            showDetail({
+              id: val.mediaId,
+              name: val.title || '',
+              type: val.mediaType || 'movie',
+              poster: val.poster || ''
+            });
+          }
+        }
+      }
+    });
+  }
+  setInterval(pollTvBroadcastCommands, 3000);
 })();
 
