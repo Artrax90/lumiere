@@ -103,6 +103,24 @@
       <div id="popup-list"></div>
     </div>
 
+    <!-- Intro Skip Button -->
+    <button id="btn-skip-intro" class="hidden osd-skip-btn" tabindex="0">
+      ⏭ Пропустить заставку (+85с)
+    </button>
+
+    <!-- Next Episode Autoplay Countdown (30s) -->
+    <div id="next-ep-overlay" class="hidden">
+      <div class="next-ep-card">
+        <div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>
+        <div id="next-ep-countdown" class="next-ep-timer">30</div>
+        <div id="next-ep-title" class="next-ep-name">Следующая серия</div>
+        <div class="next-ep-actions">
+          <button id="btn-next-now" class="next-ep-btn primary" tabindex="0">▶ Включить сейчас (OK)</button>
+          <button id="btn-next-cancel" class="next-ep-btn secondary" tabindex="0">✕ Отмена</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Subtitle Overlay -->
     <div id="subtitle-overlay"></div>
   </div>

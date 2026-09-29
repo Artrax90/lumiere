@@ -17,6 +17,20 @@ interface HeartbeatBody {
   isPaused?: boolean;
 }
 
+export interface SessionCommand {
+  id: string;
+  action: string;
+  value?: any;
+}
+
+const pendingCommands = new Map<string, SessionCommand[]>();
+
+export function queueSessionCommand(sessionId: string, action: string, value?: any) {
+  const list = pendingCommands.get(sessionId) || [];
+  list.push({ id: `cmd_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`, action, value });
+  pendingCommands.set(sessionId, list);
+}
+
 let sessionTablesReady = false;
 async function ensureSessionTables() {
   if (sessionTablesReady) return;
@@ -237,7 +251,13 @@ export function sessionRoutes(app: FastifyInstance) {
           }
         }
 
-        return { success: true, terminate };
+        // Pop any queued commands for this session
+        const commands = pendingCommands.get(body.sessionId) || [];
+        if (commands.length > 0) {
+          pendingCommands.delete(body.sessionId);
+        }
+
+        return { success: true, terminate, commands };
       } catch (err: any) {
         return reply.code(500).send({ error: err.message });
       }
@@ -356,6 +376,81 @@ export function sessionRoutes(app: FastifyInstance) {
       }
     }
   );
+
+  // 4b. Send remote control command to an active session or TV
+  app.post(
+    '/api/sessions/remote-command',
+    { preHandler: [optionalAuth] },
+    async (req: AuthenticatedRequest, reply) => {
+      const body = req.body as {
+        action: string; // 'play' | 'pause' | 'toggle_play' | 'seek' | 'stop' | 'play_media'
+        value?: any; // e.g. seconds (+30, -30) or media info object
+        sessionId?: string;
+        deviceType?: string; // 'tv' or 'web'
+        userId?: number;
+      };
+
+      if (!body.action) {
+        return reply.code(400).send({ error: 'action is required' });
+      }
+
+      await ensureSessionTables();
+      let targetSessionId = body.sessionId;
+
+      if (!targetSessionId) {
+        // Find most recently active matching session
+        let query = `SELECT id, device_type FROM playback_sessions WHERE last_heartbeat >= NOW() - INTERVAL '5 minutes'`;
+        const params: any[] = [];
+        let pIdx = 1;
+
+        if (body.deviceType) {
+          query += ` AND device_type = $${pIdx++}`;
+          params.push(body.deviceType);
+        }
+        if (body.userId) {
+          query += ` AND user_id = $${pIdx++}`;
+          params.push(body.userId);
+        }
+
+        query += ` ORDER BY last_heartbeat DESC LIMIT 1`;
+        const found = await pool.query(query, params);
+
+        if (found.rows.length > 0) {
+          targetSessionId = found.rows[0].id;
+        } else {
+          // If no active session found for action play_media, queue for general tv broadcast
+          if (body.action === 'play_media') {
+            targetSessionId = 'tv_broadcast';
+          } else {
+            return reply.code(404).send({ error: 'No active player session found to control' });
+          }
+        }
+      }
+
+      queueSessionCommand(targetSessionId!, body.action, body.value);
+      console.log(`[Sessions] Remote command queued: session=${targetSessionId}, action=${body.action}, value=`, body.value);
+
+      return {
+        success: true,
+        sessionId: targetSessionId,
+        message: `Command "${body.action}" sent`,
+      };
+    }
+  );
+
+  // 4c. Poll commands for a session (for players polling separately from heartbeat)
+  app.get('/api/sessions/:id/commands', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const cmds = pendingCommands.get(id) || [];
+    // Also include broadcast commands if any
+    const bCmds = pendingCommands.get('tv_broadcast') || [];
+    const all = [...cmds, ...bCmds];
+
+    if (cmds.length > 0) pendingCommands.delete(id);
+    if (bCmds.length > 0) pendingCommands.delete('tv_broadcast');
+
+    return { commands: all };
+  });
 
   // 5. Get playback history across users
   app.get(

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, Key, LayoutList, ArrowUp, ArrowDown, RotateCcw } from 'lucide-react';
+import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, Key, LayoutList, ArrowUp, ArrowDown, RotateCcw, Send, Star, Check } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
 import ActiveSessionsView from './ActiveSessionsView';
 import { apiPost, apiDelete } from '@/api/client';
@@ -150,6 +150,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const categories = [
     { id: 'appearance', label: t('settings.appearance'), desc: t('settings.appearanceDesc'), icon: Monitor },
     { id: 'playback', label: t('settings.playback'), desc: t('settings.playbackDesc'), icon: Play },
+    { id: 'telegram', label: 'Telegram Бот', desc: 'Уведомления о сериях, пульт и голосовой поиск', icon: Send },
     { id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key },
     { id: 'home_layout', label: 'Главная страница', desc: 'Порядок и видимость полок рекомендаций', icon: LayoutList },
     { id: 'audio', label: t('settings.audio'), desc: t('settings.audioDesc'), icon: Volume2 },
@@ -327,7 +328,15 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                     ))}
                   </div>
                 </div>
+
+                {/* Preferred Voiceover Studio (Killer Feature 3) */}
+                <PreferredVoiceoverSetting />
               </div>
+            )}
+
+            {/* Telegram Companion Bot (Killer Feature 1) */}
+            {active === 'telegram' && (
+              <TelegramBotConfig />
             )}
 
             {/* TMDB Catalog */}
@@ -908,6 +917,303 @@ function JacRedConfig() {
           Текущий: {customUrl || selectedUrl}
         </div>
       </div>
+    </div>
+  );
+}
+
+function PreferredVoiceoverSetting() {
+  const [preferred, setPreferred] = useState('');
+  const [saved, setSaved] = useState(false);
+  const commonStudios = [
+    'Дубляж', 'LostFilm', 'Red Head Sound', 'HDRezka', 'Кубик в Кубе', 'TVShows', 'NewStudio'
+  ];
+
+  useEffect(() => {
+    serverFetch('/api/user/voiceover')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.preferredVoiceover) setPreferred(d.preferredVoiceover);
+      })
+      .catch(() => {});
+  }, []);
+
+  const saveVoiceover = async (val: string) => {
+    setPreferred(val);
+    try {
+      await serverFetch('/api/user/voiceover', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preferredVoiceover: val }),
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {}
+  };
+
+  return (
+    <div className="mt-6 border-t border-white/[0.06] pt-6">
+      <div className="flex items-center justify-between mb-2">
+        <label className="text-[14px] font-medium text-white/85 flex items-center gap-2">
+          <Star className="h-4 w-4 text-amber-300 fill-amber-300" />
+          Любимая студия озвучки (Приоритет в торрентах)
+        </label>
+        {saved && <span className="text-[11px] text-emerald-400 font-medium">Сохранено</span>}
+      </div>
+      <p className="text-[12px] text-white/45 mb-3 leading-relaxed">
+        Раздачи с этой озвучкой будут отмечены золотой звездочкой ⭐ и подняты на первое место в результатах поиска.
+      </p>
+      <div className="flex flex-wrap gap-2 mb-3">
+        {commonStudios.map((st) => (
+          <button
+            key={st}
+            type="button"
+            onClick={() => saveVoiceover(preferred === st ? '' : st)}
+            className={`rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-cinematic ${
+              preferred === st
+                ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40 shadow-sm shadow-amber-400/20'
+                : 'bg-white/[0.04] text-white/60 border border-white/[0.06] hover:bg-white/[0.08] hover:text-white'
+            }`}
+          >
+            {preferred === st && '⭐ '}
+            {st}
+          </button>
+        ))}
+      </div>
+      <input
+        type="text"
+        value={preferred}
+        onChange={(e) => saveVoiceover(e.target.value)}
+        placeholder="Или введите свою студию (например: Пифагор, Сыендук)..."
+        className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-[13px] text-white placeholder:text-white/25 focus:border-amber-300/40 focus:outline-none"
+      />
+    </div>
+  );
+}
+
+function TelegramBotConfig() {
+  const [token, setToken] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [maskedToken, setMaskedToken] = useState('');
+  const [configured, setConfigured] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const fetchConfig = async () => {
+    setLoading(true);
+    try {
+      const res = await serverFetch('/api/user/telegram');
+      const data = await res.json();
+      setConfigured(data.configured);
+      setMaskedToken(data.botTokenMasked || '');
+      setChatId(data.chatId || '');
+    } catch {
+      // ignore
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchConfig();
+  }, []);
+
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToast({ type, text });
+    setTimeout(() => setToast(null), 5000);
+  };
+
+  const handleSave = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setSaving(true);
+    try {
+      const res = await serverFetch('/api/user/telegram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: token.trim() || undefined,
+          chatId: chatId.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ошибка сохранения');
+      setConfigured(data.configured);
+      if (token.trim()) {
+        setMaskedToken(token.trim().length > 10 ? `${token.trim().slice(0, 4)}••••••••${token.trim().slice(-4)}` : '••••••••');
+      }
+      setToken('');
+      showToast('success', data.message || 'Настройки Telegram успешно сохранены');
+    } catch (err: any) {
+      showToast('error', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTest = async () => {
+    setTesting(true);
+    try {
+      const res = await serverFetch('/api/user/telegram/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: token.trim() || undefined,
+          chatId: chatId.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      showToast(data.ok ? 'success' : 'error', data.message || 'Проверка завершена');
+    } catch (err: any) {
+      showToast('error', err.message || 'Ошибка соединения с сервером');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="mt-8 space-y-6">
+      {/* Toast Alert */}
+      {toast && (
+        <div
+          className={`flex items-center gap-3 rounded-[12px] p-4 text-[13px] animate-fade-in border ${
+            toast.type === 'success'
+              ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              : 'bg-rose-500/10 border-rose-500/30 text-rose-300'
+          }`}
+        >
+          {toast.type === 'success' ? (
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-400" />
+          ) : (
+            <AlertCircle className="h-4 w-4 shrink-0 text-rose-400" />
+          )}
+          <span>{toast.text}</span>
+        </div>
+      )}
+
+      {/* Status Card */}
+      <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5 backdrop-blur-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-[12px] bg-sky-400/10 text-sky-300">
+              <Send className="h-5 w-5" strokeWidth={1.75} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-[15px] font-medium text-white/90">Lumière Companion (Telegram)</span>
+                {loading ? (
+                  <span className="text-[11px] text-white/40">Загрузка...</span>
+                ) : configured ? (
+                  <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[11px] font-medium text-emerald-400">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Подключен
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-300">
+                    Не настроен
+                  </span>
+                )}
+              </div>
+              <div className="mt-0.5 text-[12px] text-white/45">
+                {configured ? 'Уведомления о сериях и удаленное управление активны' : 'У каждого пользователя свой независимый бот'}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleTest}
+            disabled={testing || (!configured && (!token || !chatId))}
+            className="flex items-center gap-1.5 rounded-full bg-white/[0.05] border border-white/[0.08] px-3.5 py-1.5 text-[12px] font-medium text-white/75 transition-cinematic hover:bg-white/[0.1] hover:text-white disabled:opacity-40"
+          >
+            {testing ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+            <span>Проверить связь</span>
+          </button>
+        </div>
+      </div>
+
+      <form onSubmit={handleSave} className="space-y-5">
+        {/* Token Input */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-[14px] font-medium text-white/85">Токен Telegram-бота</label>
+            <span className="text-[11px] text-white/40">Получите у @BotFather</span>
+          </div>
+          {maskedToken && (
+            <div className="mb-2.5 flex items-center gap-2 text-[12px] text-emerald-400/80">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              <span>Текущий токен: <code className="font-mono text-white/70">{maskedToken}</code></span>
+            </div>
+          )}
+          <div className="relative">
+            <input
+              type={showToken ? 'text' : 'password'}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder={maskedToken ? 'Введите новый токен для замены...' : '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ...'}
+              className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 pr-10 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken(!showToken)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/40 hover:text-white/80 transition-colors"
+            >
+              {showToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Chat ID Input */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-[14px] font-medium text-white/85">Ваш Telegram Chat ID</label>
+            <span className="text-[11px] text-white/40">Узнайте у @userinfobot</span>
+          </div>
+          <input
+            type="text"
+            value={chatId}
+            onChange={(e) => setChatId(e.target.value)}
+            placeholder="Например: 123456789"
+            className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+          />
+        </div>
+
+        {/* Instructions */}
+        <div className="rounded-[16px] border border-white/[0.06] bg-white/[0.015] p-5">
+          <div className="text-[13px] font-medium text-white/80 mb-2">Как подключить бота:</div>
+          <ol className="list-decimal list-inside space-y-1.5 text-[12px] text-white/50 leading-relaxed">
+            <li>Откройте <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-amber-300/80 hover:underline">@BotFather</a> в Telegram и отправьте команду <code>/newbot</code>.</li>
+            <li>Придумайте название и юзернейм (например, <i>MyLumiereBot</i>).</li>
+            <li>Скопируйте выданный токен в поле выше.</li>
+            <li>Напишите боту <a href="https://t.me/userinfobot" target="_blank" rel="noreferrer" className="text-amber-300/80 hover:underline">@userinfobot</a> команду <code>/start</code> и скопируйте свой <b>Id</b> в поле Chat ID.</li>
+            <li>Нажмите <b>«Сохранить»</b>, а затем отправьте вашему новому боту команду <code>/start</code> в Telegram!</li>
+          </ol>
+        </div>
+
+        {/* Save Bar */}
+        <div className="flex items-center justify-between border-t border-white/[0.06] pt-5">
+          <div className="text-[12px] text-white/40">
+            Бот подключается через SOCKS5/HTTPS прокси, настроенный для TMDB.
+          </div>
+          <button
+            type="submit"
+            disabled={saving}
+            className="flex items-center gap-2.5 rounded-full bg-amber-300/90 px-6 py-2.5 text-[13px] font-semibold text-black/85 shadow-lg shadow-amber-300/10 transition-cinematic hover:bg-amber-200 hover:scale-[1.02] active:scale-95 disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+                <span>Сохранение...</span>
+              </>
+            ) : (
+              <>
+                <CheckCircle2 className="h-4 w-4" />
+                <span>Сохранить настройки</span>
+              </>
+            )}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

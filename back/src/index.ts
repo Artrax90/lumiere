@@ -325,6 +325,30 @@ if (existsSync(publicDir)) {
 try {
   await app.listen({ port: config.port, host: '0.0.0.0' });
   console.log(`Lumiere backend listening on http://localhost:${config.port}`);
+
+  // Launch Telegram Bot Companion runner if available
+  const botDir = join(process.cwd(), '..', 'bot');
+  const botPyCandidates = [
+    join(process.cwd(), '..', 'bot', 'main.py'),
+    join(process.cwd(), 'bot', 'main.py'),
+    join(__dirname, '..', '..', 'bot', 'main.py'),
+  ];
+  const botPy = botPyCandidates.find((p) => existsSync(p));
+  if (botPy) {
+    const pyVenv = join(dirname(botPy), 'venv', 'Scripts', 'python.exe');
+    const pyExe = existsSync(pyVenv) ? pyVenv : 'python';
+    try {
+      const { spawn } = await import('child_process');
+      const botProc = spawn(pyExe, [botPy], {
+        stdio: 'inherit',
+        env: { ...process.env, BACKEND_URL: `http://127.0.0.1:${config.port}`, PYTHONIOENCODING: 'utf-8' },
+      });
+      botProc.on('error', (err) => console.warn('[BotService] Runner error:', err.message));
+      console.log('[BotService] Telegram Bot Companion supervisor launched');
+    } catch (bErr: any) {
+      console.warn('[BotService] Could not launch Telegram Bot runner:', bErr.message);
+    }
+  }
 } catch (err) {
   app.log.error(err);
   process.exit(1);

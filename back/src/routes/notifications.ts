@@ -3,6 +3,7 @@ import pool from '../db/pool.js';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import type { TmdbProvider } from '../services/metadata/tmdb.js';
 import { config } from '../config.js';
+import { notifyNewEpisode } from '../services/telegram.js';
 
 const JACRED_MIRRORS = [
   config.jacred.url,
@@ -198,6 +199,16 @@ export async function checkNewEpisodes(targetUserId?: number, tmdbProvider?: Tmd
               ]
             );
             newCount++;
+
+            // Trigger Telegram Push Notification if user configured Telegram Bot
+            notifyNewEpisode(
+              sub.user_id,
+              sub.title,
+              latestSeasonNum,
+              latestEpisodeNum,
+              sub.poster || '',
+              { seriesId: sub.tmdb_id }
+            ).catch((tErr) => console.warn(`[Notifications] Telegram notify error:`, tErr.message));
           }
 
           // Update subscription baseline

@@ -38,6 +38,16 @@ out.txt
 .tempmediaStorage/
 .user_uploaded/
 
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+bot/venv/
+bot/__pycache__/
+
 # OS metadata
 .DS_Store
 Thumbs.db
+

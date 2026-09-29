@@ -49,6 +49,19 @@
   var iptvStatsTimer = null;
   var resumeTimer = null;
 
+  // Binge-Watching & Autoplay state
+  var torrentLink = '';
+  var torrentFileIndex = -1;
+  var torrentFiles = [];
+  var nextFile = null;
+  var precacheSent = false;
+  var nextEpOverlayVisible = false;
+  var nextEpDismissed = false;
+  var nextEpInterval = null;
+  var nextEpBtnIndex = 0; // 0 = now, 1 = cancel
+  var $btnSkipIntro = null;
+  var introSkipped = false;
+
   // DOM element references
   var $osd = null;
   var $osdTitle = null;
@@ -175,13 +188,50 @@
       saveProgress();
     }
 
+    torrentLink = params.link || '';
+    torrentFileIndex = (params.fileIndex !== undefined) ? parseInt(params.fileIndex) : -1;
+    torrentFiles = params.files || [];
+    precacheSent = false;
+    nextEpOverlayVisible = false;
+    nextEpDismissed = false;
+    introSkipped = false;
+    nextFile = null;
+
+    if (torrentFiles && torrentFiles.length > 1 && torrentFileIndex >= 0) {
+      var currArrIdx = -1;
+      for (var fi = 0; fi < torrentFiles.length; fi++) {
+        if (torrentFiles[fi].id === torrentFileIndex || fi === torrentFileIndex) {
+          currArrIdx = fi;
+          break;
+        }
+      }
+      if (currArrIdx >= 0 && currArrIdx + 1 < torrentFiles.length) {
+        nextFile = torrentFiles[currArrIdx + 1];
+        console.log('[Player] Next episode identified for binge watching:', nextFile.name);
+      }
+    }
+
+    var btnNextNow = document.getElementById('btn-next-now');
+    var btnNextCancel = document.getElementById('btn-next-cancel');
+    $btnSkipIntro = document.getElementById('btn-skip-intro');
+
+    if (btnNextNow) {
+      btnNextNow.onclick = function() { playNextEpisode(); };
+    }
+    if (btnNextCancel) {
+      btnNextCancel.onclick = function() { hideNextEpOverlay(true); };
+    }
+    if ($btnSkipIntro) {
+      $btnSkipIntro.onclick = function() { skipIntro(); };
+    }
+
     currentSessionId = 'tv-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
     if (sessionHeartbeatTimer) { clearInterval(sessionHeartbeatTimer); }
     sendSessionHeartbeat();
     sessionHeartbeatTimer = setInterval(function() {
       sendSessionHeartbeat();
       if (isPlaying) saveProgress();
-    }, 10000);
+    }, 3000);
 
     if ($osdTitle) $osdTitle.textContent = movieTitle;
 
@@ -208,6 +258,9 @@
       player.on('ended', function() {
         isPlaying = false;
         saveProgress();
+        if (nextFile) {
+          playNextEpisode();
+        }
       });
 
       player.on('timeUpdate', function(data) {
@@ -216,6 +269,25 @@
           currentTime = data.currentTime;
           updateTimelineUI();
           updateSubtitleDisplay();
+
+          // Skip intro button (between 30s and 120s of video)
+          if ($btnSkipIntro && !introSkipped && duration > 180) {
+            if (currentTime >= 30 && currentTime <= 120) {
+              $btnSkipIntro.classList.remove('hidden');
+            } else {
+              $btnSkipIntro.classList.add('hidden');
+            }
+          }
+
+          // Pre-caching next episode at duration - 90s
+          if (duration > 180 && (duration - currentTime <= 90)) {
+            triggerPrecacheNext();
+          }
+
+          // 30-second countdown for binge watching next episode
+          if (duration > 180 && (duration - currentTime <= 30)) {
+            showNextEpOverlay();
+          }
         }
       });
 
@@ -495,6 +567,96 @@
       }, 300);
     });
     showOsd(true);
+  }
+
+  // ========== Binge-Watching & Intro Skip ==========
+  function skipIntro() {
+    if (introSkipped) return;
+    introSkipped = true;
+    if ($btnSkipIntro) $btnSkipIntro.classList.add('hidden');
+    seekBy(85);
+    showFlash('⏭', 'Заставка (+85с)');
+  }
+
+  function triggerPrecacheNext() {
+    if (precacheSent || !nextFile || !torrentLink) return;
+    precacheSent = true;
+    console.log('[Player] Triggering server pre-cache for next episode index:', nextFile.id);
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', API + '/api/downloads/server/precache-next', true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('lumiere_access');
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.send(JSON.stringify({
+      link: torrentLink,
+      fileIndex: nextFile.id
+    }));
+  }
+
+  function showNextEpOverlay() {
+    if (nextEpOverlayVisible || nextEpDismissed || !nextFile) return;
+    nextEpOverlayVisible = true;
+    nextEpBtnIndex = 0;
+    var $overlay = document.getElementById('next-ep-overlay');
+    var $name = document.getElementById('next-ep-title');
+    var $timer = document.getElementById('next-ep-countdown');
+    if ($name) $name.textContent = nextFile.name || 'Следующая серия';
+    if ($overlay) $overlay.classList.remove('hidden');
+
+    var remaining = Math.max(1, Math.min(30, Math.round(duration - currentTime)));
+    if ($timer) $timer.textContent = String(remaining);
+
+    if (nextEpInterval) clearInterval(nextEpInterval);
+    nextEpInterval = setInterval(function() {
+      remaining--;
+      if ($timer) $timer.textContent = String(Math.max(0, remaining));
+      if (remaining <= 0) {
+        clearInterval(nextEpInterval);
+        nextEpInterval = null;
+        playNextEpisode();
+      }
+    }, 1000);
+
+    updateNextEpButtons();
+  }
+
+  function hideNextEpOverlay(permanent) {
+    nextEpOverlayVisible = false;
+    if (permanent) nextEpDismissed = true;
+    if (nextEpInterval) {
+      clearInterval(nextEpInterval);
+      nextEpInterval = null;
+    }
+    var $overlay = document.getElementById('next-ep-overlay');
+    if ($overlay) $overlay.classList.add('hidden');
+  }
+
+  function updateNextEpButtons() {
+    var btnNextNow = document.getElementById('btn-next-now');
+    var btnNextCancel = document.getElementById('btn-next-cancel');
+    if (btnNextNow) btnNextNow.classList.remove('focused');
+    if (btnNextCancel) btnNextCancel.classList.remove('focused');
+    if (nextEpBtnIndex === 0 && btnNextNow) btnNextNow.classList.add('focused');
+    if (nextEpBtnIndex === 1 && btnNextCancel) btnNextCancel.classList.add('focused');
+  }
+
+  function playNextEpisode() {
+    if (!nextFile) return;
+    console.log('[Player] Playing next episode:', nextFile);
+    hideNextEpOverlay(true);
+    showFlash('▶', 'Следующая серия...');
+    var nextUrl = API + '/api/torrents/torrserver/stream?link=' + encodeURIComponent(torrentLink) + '&index=' + nextFile.id + '&play=1';
+    destroyPlayer();
+    window.initPlayer({
+      url: nextUrl,
+      title: nextFile.name || 'Следующая серия',
+      id: movieId,
+      type: mediaType,
+      poster: posterUrl,
+      link: torrentLink,
+      fileIndex: nextFile.id,
+      files: torrentFiles
+    });
   }
 
   function updateTimelineUI(overrideTime) {
@@ -1119,6 +1281,32 @@
               window.showTvToast('Воспроизведение остановлено администратором', 3500);
             }
           }
+          if (res && res.commands && res.commands.length > 0) {
+            for (var ci = 0; ci < res.commands.length; ci++) {
+              var rawCmd = res.commands[ci];
+              var cmd = (typeof rawCmd === 'object' && rawCmd.action) ? rawCmd.action : rawCmd;
+              console.log('[Player] Executing remote command from backend/telegram:', cmd);
+              if (cmd === 'pause') {
+                if (player && typeof player.pause === 'function') player.pause();
+                else if (isPlaying) togglePlay();
+                showFlash('⏸', 'Пауза (Telegram)');
+              } else if (cmd === 'play') {
+                if (player && typeof player.play === 'function') player.play();
+                else if (!isPlaying) togglePlay();
+                showFlash('▶', 'Пуск (Telegram)');
+              } else if (cmd === 'toggle') {
+                togglePlay();
+              } else if (cmd === 'forward') {
+                seekBy(30);
+                showFlash('⏩', '+30 сек (Telegram)');
+              } else if (cmd === 'rewind') {
+                seekBy(-30);
+                showFlash('⏪', '-30 сек (Telegram)');
+              } else if (cmd === 'stop') {
+                goBack();
+              }
+            }
+          }
         } catch(e) {}
       } else {
         console.warn('[Player] Heartbeat non-200 status:', xhr.status);
@@ -1175,6 +1363,13 @@
     if (osdTimer) { clearTimeout(osdTimer); osdTimer = null; }
     if (centerFlashTimer) { clearTimeout(centerFlashTimer); centerFlashTimer = null; }
     if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
+    if (nextEpInterval) { clearInterval(nextEpInterval); nextEpInterval = null; }
+    nextEpOverlayVisible = false;
+    nextEpDismissed = false;
+    introSkipped = false;
+    var $nextOv = document.getElementById('next-ep-overlay');
+    if ($nextOv) $nextOv.classList.add('hidden');
+    if ($btnSkipIntro) $btnSkipIntro.classList.add('hidden');
     isSeeking = false;
     pendingSeekTarget = 0;
     accumulatedDelta = 0;
@@ -1206,6 +1401,33 @@
   // ========== Single Master Key Handler (Delegated from tv.js) ==========
   window.handlePlayerKey = function(code, key, e) {
     try {
+      // 0. Next Episode Autoplay Overlay navigation
+      if (nextEpOverlayVisible) {
+        if (code === 37 || key === 'ArrowLeft' || code === 38 || key === 'ArrowUp') {
+          nextEpBtnIndex = 0;
+          updateNextEpButtons();
+          return;
+        }
+        if (code === 39 || key === 'ArrowRight' || code === 40 || key === 'ArrowDown') {
+          nextEpBtnIndex = 1;
+          updateNextEpButtons();
+          return;
+        }
+        if (code === 13 || code === 29443 || code === 65385 || code === 65376 ||
+            key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK') {
+          if (nextEpBtnIndex === 0) {
+            playNextEpisode();
+          } else {
+            hideNextEpOverlay(true);
+          }
+          return;
+        }
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          hideNextEpOverlay(true);
+          return;
+        }
+      }
+
       // 1. Back / Return / Escape Key
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
         if (popupOpen) {

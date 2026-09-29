@@ -1,6 +1,17 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
+  <script>
+  window.__DEFAULT_SERVER_URL__ = 'http://192.168.1.196:3500';
+  try {
+    var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
+    if (!cur || /:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1 || cur.indexOf('lumiere.artrax.net') !== -1) {
+      localStorage.setItem('lumiere_server_url', 'http://192.168.1.196:3500');
+      localStorage.setItem('lumiere_tv_server', 'http://192.168.1.196:3500');
+      localStorage.setItem('lumiere_server', 'http://192.168.1.196:3500');
+    }
+  } catch(e) {}
+</script>
   <script type="text/javascript" src="$WEBAPIS/webapis/webapis.js"></script>
   <script>
   if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
@@ -64,8 +75,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="/tv/tv.css?v=584">
-  <link rel="stylesheet" href="/tv/player.css?v=584">
+  <link rel="stylesheet" href="./tv.css?v=584">
+  <link rel="stylesheet" href="./player.css?v=584">
 </head>
 <body>
   <!-- Loading -->
@@ -220,6 +231,10 @@
         <div class="row" id="row-continue">
           <h2 class="row-title">Продолжить просмотр</h2>
           <div class="row-items" id="continue-items"></div>
+        </div>
+        <div class="row hidden" id="row-server-downloads">
+          <h2 class="row-title">📥 Скачано на сервер (Офлайн / Zero-Lag)</h2>
+          <div class="row-items" id="server-downloads-items"></div>
         </div>
         <div class="row" id="row-top10-movies">
           <h2 class="row-title">🏆 Топ-10 фильмов сегодня</h2>
@@ -524,10 +539,10 @@
     </div>
   </div>
 
-  <script src="/tv/hls.min.js?v=585" charset="UTF-8"></script>
-  <script src="/tv/player-adapter.js?v=585" charset="UTF-8"></script>
-  <script src="/tv/player.js?v=585" charset="UTF-8"></script>
-  <script src="/tv/tv.js?v=585" charset="UTF-8"></script>
+  <script src="./hls.min.js?v=585" charset="UTF-8"></script>
+  <script src="./player-adapter.js?v=585" charset="UTF-8"></script>
+  <script src="./player.js?v=585" charset="UTF-8"></script>
+  <script src="./tv.js?v=585" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {
@@ -563,5 +578,40 @@
       if (loading) loading.style.display = 'none';
     };
   </script>
+
+  <!-- TV IPTV 50/50 Multi-View Modal -->
+  <div id="tv-iptv-multiview" class="tv-modal hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9500;background:rgba(0,0,0,0.96);flex-direction:column;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 48px;border-bottom:1px solid rgba(255,255,255,0.1);background:#07090e;">
+      <div style="display:flex;align-items:center;gap:16px;">
+        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;"></span>
+        <h2 style="font-size:26px;font-weight:700;color:#ffffff;margin:0;">Мультискрин 50/50</h2>
+        <span style="font-size:16px;color:rgba(255,255,255,0.6);margin-left:12px;">Пульт: ◄ / ► переключение фокуса звука • Назад (Выход)</span>
+      </div>
+      <div id="tv-multiview-audio-indicator" style="font-size:18px;font-weight:700;color:#e8c170;background:rgba(232,193,112,0.15);border:1px solid rgba(232,193,112,0.3);padding:8px 20px;border-radius:20px;">
+        🔊 Звук: Экран 1 (Слева)
+      </div>
+    </div>
+    <div style="display:flex;gap:24px;padding:24px 48px;flex:1;min-height:0;box-sizing:border-box;">
+      <!-- Left 50% Screen -->
+      <div id="tv-multi-left" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid #e8c170;position:relative;display:flex;flex-direction:column;box-shadow:0 0 30px rgba(232,193,112,0.3);">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:#e8c170;color:#000;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 1</span>
+          <span id="tv-multi-title-left" style="color:#fff;font-size:18px;font-weight:700;">Канал 1</span>
+          <span id="tv-multi-audio-badge-left" style="color:#6ee7b7;font-weight:700;font-size:15px;">🔊 Звук активен</span>
+        </div>
+        <video id="tv-multi-video-left" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline></video>
+      </div>
+
+      <!-- Right 50% Screen -->
+      <div id="tv-multi-right" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid rgba(255,255,255,0.15);position:relative;display:flex;flex-direction:column;">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 2</span>
+          <span id="tv-multi-title-right" style="color:#fff;font-size:18px;font-weight:700;">Канал 2</span>
+          <span id="tv-multi-audio-badge-right" style="color:rgba(255,255,255,0.4);font-weight:700;font-size:15px;">🔇 Без звука</span>
+        </div>
+        <video id="tv-multi-video-right" style="width:100%;height:100%;object-fit:contain;background:#000;" muted playsinline></video>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

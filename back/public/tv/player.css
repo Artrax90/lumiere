@@ -360,3 +360,101 @@ body {
   line-height: 1.4;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95);
 }
+
+/* Next Episode Autoplay Countdown (30s) */
+#next-ep-overlay {
+  position: absolute;
+  bottom: 80px;
+  right: 80px;
+  z-index: 25;
+  background: rgba(15, 20, 30, 0.96);
+  border: 2px solid rgba(232, 193, 112, 0.6);
+  border-radius: 20px;
+  padding: 30px 40px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.9), 0 0 30px rgba(232, 193, 112, 0.25);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 440px;
+}
+.next-ep-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+.next-ep-badge {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: 1.5px;
+  color: #e8c170;
+  text-transform: uppercase;
+}
+.next-ep-timer {
+  font-size: 56px;
+  font-weight: 900;
+  color: #ffffff;
+  line-height: 1;
+  text-shadow: 0 0 20px rgba(232, 193, 112, 0.8);
+}
+.next-ep-name {
+  font-size: 22px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.9);
+  max-width: 380px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.next-ep-actions {
+  display: flex;
+  gap: 16px;
+  margin-top: 14px;
+}
+.next-ep-btn {
+  padding: 12px 24px;
+  border-radius: 12px;
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  border: none;
+  outline: none;
+  transition: all 0.15s ease;
+}
+.next-ep-btn.primary {
+  background: #e8c170;
+  color: #000000;
+}
+.next-ep-btn.secondary {
+  background: rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+}
+.next-ep-btn.focused {
+  outline: 3px solid #ffffff !important;
+  transform: scale(1.05);
+}
+
+/* Skip Intro button */
+.osd-skip-btn {
+  position: absolute;
+  bottom: 120px;
+  right: 80px;
+  z-index: 20;
+  background: rgba(20, 24, 35, 0.9);
+  border: 2px solid rgba(255, 255, 255, 0.4);
+  border-radius: 14px;
+  padding: 16px 28px;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.8);
+}
+.osd-skip-btn.focused {
+  background: #e8c170;
+  color: #000000;
+  border-color: #e8c170;
+  outline: 3px solid #ffffff;
+  transform: scale(1.05);
+}

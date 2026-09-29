@@ -1,6 +1,7 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
 import pool from '../db/pool.js';
 import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
+import { testTelegramConnection } from '../services/telegram.js';
 
 export function userRoutes(app: FastifyInstance) {
   // Get profile
@@ -112,6 +113,180 @@ export function userRoutes(app: FastifyInstance) {
     } catch (err: any) {
       console.error('Error saving preferences:', err.message);
       return { error: 'Failed to save preferences' };
+    }
+  });
+
+  // Get user Telegram Bot settings
+  app.get('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    try {
+      const result = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const prefs = result.rows[0]?.preferences || {};
+      const token = prefs.telegram_bot_token || '';
+      const chatId = prefs.telegram_chat_id || '';
+      let botTokenMasked = '';
+      if (token) {
+        botTokenMasked = token.length > 10 ? `${token.slice(0, 4)}••••••••${token.slice(-4)}` : '••••••••';
+      }
+      return {
+        configured: !!(token && chatId),
+        botTokenMasked,
+        chatId,
+      };
+    } catch (err: any) {
+      return { configured: false, botTokenMasked: '', chatId: '' };
+    }
+  });
+
+  // Save user Telegram Bot settings
+  app.post('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    const userId = request.user!.userId;
+    const { botToken, chatId } = request.body as { botToken?: string; chatId?: string };
+
+    try {
+      const currentRes = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const prefs = currentRes.rows[0]?.preferences || {};
+
+      if (botToken !== undefined) {
+        if (botToken.trim()) prefs.telegram_bot_token = botToken.trim();
+        else delete prefs.telegram_bot_token;
+      }
+      if (chatId !== undefined) {
+        if (chatId.trim()) prefs.telegram_chat_id = chatId.trim();
+        else delete prefs.telegram_chat_id;
+      }
+
+      await pool.query(
+        `INSERT INTO user_preferences (user_id, preferences, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
+        [userId, JSON.stringify(prefs)]
+      );
+
+      return {
+        success: true,
+        configured: !!(prefs.telegram_bot_token && prefs.telegram_chat_id),
+        message: 'Настройки Telegram успешно сохранены',
+      };
+    } catch (err: any) {
+      console.error('Error saving telegram settings:', err.message);
+      return reply.code(500).send({ error: 'Failed to save Telegram settings' });
+    }
+  });
+
+  // Test user Telegram Bot connection
+  app.post('/api/user/telegram/test', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    const userId = request.user!.userId;
+    const body = (request.body as { botToken?: string; chatId?: string }) || {};
+
+    let botToken = body.botToken?.trim();
+    let chatId = body.chatId?.trim();
+
+    if (!botToken || !chatId) {
+      // Load from stored preferences if not provided in body
+      const res = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const prefs = res.rows[0]?.preferences || {};
+      botToken = botToken || prefs.telegram_bot_token;
+      chatId = chatId || prefs.telegram_chat_id;
+    }
+
+    if (!botToken || !chatId) {
+      return reply.code(400).send({ ok: false, message: 'Укажите токен бота и Chat ID' });
+    }
+
+    const testRes = await testTelegramConnection(botToken, chatId);
+    return testRes;
+  });
+
+  // Internal endpoint for Python bot runner to discover active user bot tokens & proxy
+  app.get('/api/internal/telegram-bots', async () => {
+    try {
+      const proxyRes = await pool.query("SELECT value FROM app_settings WHERE key = 'tmdb_proxy_url'");
+      const proxyUrl = (proxyRes.rows[0]?.value || process.env.TMDB_PROXY_URL || '').trim();
+
+      const usersRes = await pool.query(
+        `SELECT u.id, u.name, u.email, p.preferences 
+         FROM users u
+         JOIN user_preferences p ON p.user_id = u.id`
+      );
+
+      let rows = usersRes.rows || [];
+      if (rows.length === 0) {
+        try {
+          const prefsRes = await pool.query('SELECT user_id, preferences FROM user_preferences');
+          const usersList = await pool.query('SELECT id, name, email FROM users');
+          rows = (prefsRes.rows || []).map((p: any) => {
+            const u = (usersList.rows || []).find((usr: any) => Number(usr.id) === Number(p.user_id));
+            return {
+              id: p.user_id,
+              name: u?.name || 'Пользователь',
+              email: u?.email || '',
+              preferences: p.preferences,
+            };
+          });
+        } catch {}
+      }
+
+      const bots = rows
+        .map((r: any) => {
+          let prefs = r.preferences || {};
+          if (typeof prefs === 'string') {
+            try { prefs = JSON.parse(prefs); } catch {}
+          }
+          const token = (prefs.telegram_bot_token || '').trim();
+          const chatId = (prefs.telegram_chat_id || '').trim();
+          if (!token || !chatId) return null;
+          return {
+            userId: r.id,
+            userName: r.name,
+            token,
+            chatId,
+          };
+        })
+        .filter(Boolean);
+
+      return { proxyUrl, bots };
+    } catch (err: any) {
+      return { proxyUrl: '', bots: [] };
+    }
+  });
+
+  // Get preferred voiceover
+  app.get('/api/user/voiceover', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+    const userId = request.user!.userId;
+    try {
+      const res = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const prefs = res.rows[0]?.preferences || {};
+      const vo = prefs.preferred_voiceover || '';
+      return { preferredVoiceover: vo, voiceover: vo };
+    } catch {
+      return { preferredVoiceover: '', voiceover: '' };
+    }
+  });
+
+  // Save preferred voiceover
+  app.post('/api/user/voiceover', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    const userId = request.user!.userId;
+    const body = (request.body as any) || {};
+    const preferredVoiceover = body.preferredVoiceover || body.voiceover || '';
+
+    try {
+      const res = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const prefs = res.rows[0]?.preferences || {};
+      prefs.preferred_voiceover = (preferredVoiceover || '').trim();
+
+      await pool.query(
+        `INSERT INTO user_preferences (user_id, preferences, updated_at)
+         VALUES ($1, $2, NOW())
+         ON CONFLICT (user_id)
+         DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
+        [userId, JSON.stringify(prefs)]
+      );
+
+      return { success: true, preferredVoiceover: prefs.preferred_voiceover };
+    } catch (err: any) {
+      return reply.code(500).send({ error: err.message });
     }
   });
 

@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Pencil, X } from 'lucide-react';
+import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Pencil, X, Columns2, Volume2, VolumeX } from 'lucide-react';
+import Hls from 'hls.js';
 import { Capacitor } from '@capacitor/core';
 import type { Title } from '@/api/client';
 import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
@@ -196,6 +197,274 @@ function getChannelColor(name: string): string {
   return colors[sum % colors.length];
 }
 
+function StreamPlayer({ channel, isMuted }: { channel: IPTVChannel | null; isMuted: boolean }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const hlsRef = useRef<Hls | null>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !channel) return;
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    const isNative = Capacitor.isNativePlatform();
+    const isExternalUrl = channel.url.startsWith('http://') || channel.url.startsWith('https://');
+    const streamUrl = !isNative && isExternalUrl
+      ? serverUrl('/api/iptv/stream?url=' + encodeURIComponent(channel.url))
+      : channel.url;
+
+    if (Hls.isSupported() && (streamUrl.includes('.m3u8') || !video.canPlayType('application/vnd.apple.mpegurl'))) {
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: true,
+      });
+      hlsRef.current = hls;
+      hls.loadSource(streamUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.play().catch(() => {});
+      });
+    } else {
+      video.src = streamUrl;
+      video.play().catch(() => {});
+    }
+
+    return () => {
+      if (hlsRef.current) {
+        hlsRef.current.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [channel]);
+
+  useEffect(() => {
+    if (videoRef.current) {
+      videoRef.current.muted = isMuted;
+    }
+  }, [isMuted]);
+
+  return (
+    <video
+      ref={videoRef}
+      className="w-full h-full object-contain bg-black"
+      playsInline
+      autoPlay
+    />
+  );
+}
+
+interface MultiViewModalProps {
+  channels: IPTVChannel[];
+  leftChannel: IPTVChannel | null;
+  rightChannel: IPTVChannel | null;
+  onSelectLeft: (ch: IPTVChannel) => void;
+  onSelectRight: (ch: IPTVChannel) => void;
+  audioFocus: 'left' | 'right';
+  onToggleAudio: (focus: 'left' | 'right') => void;
+  onClose: () => void;
+}
+
+function MultiViewModal({
+  channels,
+  leftChannel,
+  rightChannel,
+  onSelectLeft,
+  onSelectRight,
+  audioFocus,
+  onToggleAudio,
+  onClose,
+}: MultiViewModalProps) {
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+      if (e.key === '1' || e.key === 'ArrowLeft') onToggleAudio('left');
+      if (e.key === '2' || e.key === 'ArrowRight') onToggleAudio('right');
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, onToggleAudio]);
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/95 backdrop-blur-md flex flex-col p-4 md:p-6 animate-fade-in">
+      {/* Top Header */}
+      <div className="flex items-center justify-between pb-4 border-b border-white/10 shrink-0">
+        <div className="flex items-center gap-3">
+          <div className="flex h-3 w-3 items-center justify-center">
+            <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse-soft" />
+          </div>
+          <h2 className="text-[18px] md:text-[20px] font-semibold text-white flex items-center gap-2">
+            <Columns2 className="h-5 w-5 text-amber-300" />
+            Мультискрин 50/50
+          </h2>
+          <span className="text-[12px] px-2.5 py-0.5 rounded-full bg-white/10 text-white/60 hidden sm:inline-block">
+            Кликните по экрану или [1]/[2] для смены звука
+          </span>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {/* Audio focus quick toggle buttons */}
+          <div className="flex items-center bg-white/5 rounded-full p-1 border border-white/10 text-[12px]">
+            <button
+              onClick={() => onToggleAudio('left')}
+              className={`px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
+                audioFocus === 'left' ? 'bg-amber-400 text-black shadow-md' : 'text-white/60 hover:text-white'
+              }`}
+            >
+              {audioFocus === 'left' ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              Левый [1]
+            </button>
+            <button
+              onClick={() => onToggleAudio('right')}
+              className={`px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 ${
+                audioFocus === 'right' ? 'bg-amber-400 text-black shadow-md' : 'text-white/60 hover:text-white'
+              }`}
+            >
+              {audioFocus === 'right' ? <Volume2 className="h-3.5 w-3.5" /> : <VolumeX className="h-3.5 w-3.5" />}
+              Правый [2]
+            </button>
+          </div>
+
+          <button
+            onClick={onClose}
+            className="rounded-full bg-white/10 hover:bg-white/20 p-2 text-white/70 hover:text-white transition-colors"
+            title="Закрыть (Esc)"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+      </div>
+
+      {/* 50/50 Split View */}
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-2 gap-4 pt-4 min-h-0">
+        {/* Left Screen */}
+        <div
+          onClick={() => onToggleAudio('left')}
+          className={`relative rounded-2xl overflow-hidden bg-neutral-950 flex flex-col border transition-all cursor-pointer ${
+            audioFocus === 'left'
+              ? 'border-amber-400/80 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-2 ring-amber-400/40'
+              : 'border-white/10 hover:border-white/25 opacity-90'
+          }`}
+        >
+          {/* Header Bar */}
+          <div className="absolute top-0 inset-x-0 z-10 p-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between pointer-events-auto">
+            <div className="flex items-center gap-2 max-w-[60%]">
+              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                audioFocus === 'left' ? 'bg-amber-400 text-black' : 'bg-white/20 text-white/70'
+              }`}>
+                ЭКРАН 1
+              </span>
+              <select
+                value={leftChannel?.url || ''}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  const ch = channels.find((c) => c.url === e.target.value);
+                  if (ch) onSelectLeft(ch);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-black/70 text-white text-[12px] font-medium border border-white/20 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-300 max-w-[200px] truncate"
+              >
+                {channels.map((c) => (
+                  <option key={c.url} value={c.url}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] font-semibold flex items-center gap-1 px-2.5 py-1 rounded-full ${
+                audioFocus === 'left' ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40' : 'bg-black/60 text-white/40'
+              }`}>
+                {audioFocus === 'left' ? (
+                  <>
+                    <Volume2 className="h-3 w-3 animate-pulse" /> Звук активен
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="h-3 w-3" /> Без звука
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full h-full flex items-center justify-center">
+            {leftChannel ? (
+              <StreamPlayer channel={leftChannel} isMuted={audioFocus !== 'left'} />
+            ) : (
+              <div className="text-white/40 text-[13px]">Выберите канал слева</div>
+            )}
+          </div>
+        </div>
+
+        {/* Right Screen */}
+        <div
+          onClick={() => onToggleAudio('right')}
+          className={`relative rounded-2xl overflow-hidden bg-neutral-950 flex flex-col border transition-all cursor-pointer ${
+            audioFocus === 'right'
+              ? 'border-amber-400/80 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-2 ring-amber-400/40'
+              : 'border-white/10 hover:border-white/25 opacity-90'
+          }`}
+        >
+          {/* Header Bar */}
+          <div className="absolute top-0 inset-x-0 z-10 p-3 bg-gradient-to-b from-black/80 via-black/40 to-transparent flex items-center justify-between pointer-events-auto">
+            <div className="flex items-center gap-2 max-w-[60%]">
+              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                audioFocus === 'right' ? 'bg-amber-400 text-black' : 'bg-white/20 text-white/70'
+              }`}>
+                ЭКРАН 2
+              </span>
+              <select
+                value={rightChannel?.url || ''}
+                onChange={(e) => {
+                  e.stopPropagation();
+                  const ch = channels.find((c) => c.url === e.target.value);
+                  if (ch) onSelectRight(ch);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-black/70 text-white text-[12px] font-medium border border-white/20 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-300 max-w-[200px] truncate"
+              >
+                {channels.map((c) => (
+                  <option key={c.url} value={c.url}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className={`text-[11px] font-semibold flex items-center gap-1 px-2.5 py-1 rounded-full ${
+                audioFocus === 'right' ? 'bg-amber-400/20 text-amber-300 border border-amber-400/40' : 'bg-black/60 text-white/40'
+              }`}>
+                {audioFocus === 'right' ? (
+                  <>
+                    <Volume2 className="h-3 w-3 animate-pulse" /> Звук активен
+                  </>
+                ) : (
+                  <>
+                    <VolumeX className="h-3 w-3" /> Без звука
+                  </>
+                )}
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full h-full flex items-center justify-center">
+            {rightChannel ? (
+              <StreamPlayer channel={rightChannel} isMuted={audioFocus !== 'right'} />
+            ) : (
+              <div className="text-white/40 text-[13px]">Выберите канал справа</div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function IPTVView({ onPlay }: IPTVViewProps) {
   const { t } = useTranslation();
   const initialPlaylists = getSavedPlaylists();
@@ -248,6 +517,10 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   const [favorites, setFavorites] = useState<Set<string>>(getSavedFavorites);
   const [showFavorites, setShowFavorites] = useState(false);
   const [visibleCount, setVisibleCount] = useState(40);
+  const [showMultiView, setShowMultiView] = useState(false);
+  const [multiChannelLeft, setMultiChannelLeft] = useState<IPTVChannel | null>(null);
+  const [multiChannelRight, setMultiChannelRight] = useState<IPTVChannel | null>(null);
+  const [audioFocus, setAudioFocus] = useState<'left' | 'right'>('left');
   const observerTargetRef = useRef<HTMLDivElement>(null);
 
   // Time slots for EPG grid — start from current hour, then next 8 hours
@@ -715,16 +988,32 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
       <div className="mx-auto max-w-[1500px]">
         {/* Header */}
-        <div className="mb-8 animate-row-reveal">
-          <div className="flex items-center gap-3">
-            <div className="flex h-2.5 w-2.5 items-center justify-center">
-              <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse-soft" />
+        <div className="mb-8 flex flex-wrap items-center justify-between gap-4 animate-row-reveal">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="flex h-2.5 w-2.5 items-center justify-center">
+                <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse-soft" />
+              </div>
+              <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">
+                IPTV
+              </h1>
             </div>
-            <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">
-              IPTV
-            </h1>
+            <p className="mt-2 text-[15px] text-white/50">{t('iptv.subtitle')}</p>
           </div>
-          <p className="mt-2 text-[15px] text-white/50">{t('iptv.subtitle')}</p>
+
+          {channels.length >= 2 && (
+            <button
+              onClick={() => {
+                if (!multiChannelLeft && channels.length > 0) setMultiChannelLeft(channels[0]);
+                if (!multiChannelRight && channels.length > 1) setMultiChannelRight(channels[1]);
+                setShowMultiView(true);
+              }}
+              className="shrink-0 rounded-full px-5 py-2.5 text-[13px] font-semibold text-amber-300 bg-amber-400/15 border border-amber-300/35 hover:bg-amber-400/25 transition-all flex items-center gap-2.5 shadow-lg shadow-amber-950/30 hover:scale-[1.02] active:scale-[0.98]"
+            >
+              <Columns2 className="h-4 w-4" />
+              Мультискрин 50/50
+            </button>
+          )}
         </div>
 
         {/* Playlist selector */}
@@ -1197,6 +1486,19 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 : `${filteredChannels.length} ${t('common.search')} ${channels.length} ${t('iptv.channels')}`}
             </div>
           </>
+        )}
+
+        {showMultiView && (
+          <MultiViewModal
+            channels={channels}
+            leftChannel={multiChannelLeft || channels[0] || null}
+            rightChannel={multiChannelRight || channels[1] || channels[0] || null}
+            onSelectLeft={setMultiChannelLeft}
+            onSelectRight={setMultiChannelRight}
+            audioFocus={audioFocus}
+            onToggleAudio={setAudioFocus}
+            onClose={() => setShowMultiView(false)}
+          />
         )}
       </div>
     </div>

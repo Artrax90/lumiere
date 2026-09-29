@@ -116,6 +116,18 @@
         '<div id="popup-header"></div>' +
         '<div id="popup-list"></div>' +
       '</div>' +
+      '<button id="btn-skip-intro" class="hidden osd-skip-btn" tabindex="0">\u23ed Пропустить заставку (+85с)</button>' +
+      '<div id="next-ep-overlay" class="hidden">' +
+        '<div class="next-ep-card">' +
+          '<div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>' +
+          '<div id="next-ep-countdown" class="next-ep-timer">30</div>' +
+          '<div id="next-ep-title" class="next-ep-name">Следующая серия</div>' +
+          '<div class="next-ep-actions">' +
+            '<button id="btn-next-now" class="next-ep-btn primary" tabindex="0">\u25b6 Включить сейчас (OK)</button>' +
+            '<button id="btn-next-cancel" class="next-ep-btn secondary" tabindex="0">\u2715 Отмена</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
       '<div id="subtitle-overlay"></div>' +
     '</div>';
 
@@ -180,7 +192,10 @@
       id: effectiveId,
       type: effectiveType,
       poster: effectivePoster,
-      start: parseInt(p.start) || 0
+      start: parseInt(p.start) || 0,
+      link: p.link || (state.activeTorrent && state.activeTorrent.magnet) || (state._lastMagnet || ''),
+      fileIndex: (p.fileIndex !== undefined) ? parseInt(p.fileIndex) : ((state.activeFile && state.activeFile.id !== undefined) ? state.activeFile.id : -1),
+      files: p.files || state.activeTorrentFiles || (state.torrentFiles || [])
     };
 
     var baseMediaTitle = cleanPlayerTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
@@ -1905,6 +1920,7 @@
 
     // Continue watching from localStorage & server
     renderContinueWatching();
+    renderServerDownloads();
 
     loadIptv();
     loadAndApplyHomeShelves();
@@ -2395,6 +2411,157 @@
       }
     });
   }
+
+  // ========== Server Downloads Shelf (Offline / Zero-Lag Playback) ==========
+  function renderServerDownloads() {
+    var container = document.getElementById('server-downloads-items');
+    var row = document.getElementById('row-server-downloads');
+    if (!container || !row) return;
+
+    apiFetch('/api/downloads/server/list', function(err, res) {
+      if (err || !res || !res.downloads || res.downloads.length === 0) {
+        row.classList.add('hidden');
+        return;
+      }
+
+      var completed = res.downloads.filter(function(d) {
+        return d.status === 'completed';
+      });
+
+      if (completed.length === 0) {
+        row.classList.add('hidden');
+        return;
+      }
+
+      row.classList.remove('hidden');
+      container.innerHTML = '';
+
+      completed.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.tabIndex = 0;
+        card.setAttribute('data-id', item.tmdbId || item.id);
+        card.setAttribute('data-title', item.title);
+
+        var pUrl = item.poster ? imgUrl(item.poster) : './icon.png';
+        var sizeMb = item.totalBytes ? Math.round(item.totalBytes / (1024 * 1024)) : 0;
+        var sizeText = sizeMb > 1024 ? (sizeMb / 1024).toFixed(1) + ' ГБ' : (sizeMb + ' МБ');
+
+        card.innerHTML = 
+          '<div class="card-poster-wrap">' +
+            '<img class="card-poster" src="' + esc(pUrl) + '" alt="' + esc(item.title) + '" onerror="this.src=\'./icon.png\';">' +
+            '<div class="card-badge" style="background:#10b981;color:#000;font-weight:800;font-size:12px;padding:3px 8px;border-radius:6px;position:absolute;top:8px;left:8px;">СКАЧАНО</div>' +
+            '<div style="background:rgba(0,0,0,0.75);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;position:absolute;bottom:8px;right:8px;">' + sizeText + '</div>' +
+          '</div>' +
+          '<div class="card-title">' + esc(item.title) + '</div>';
+
+        card.addEventListener('click', function() {
+          var streamUrl = API + '/api/downloads/server/stream/' + item.id;
+          openPlayer({
+            url: streamUrl,
+            title: item.title,
+            id: item.tmdbId || 0,
+            type: item.mediaType || 'movie',
+            poster: item.poster || ''
+          });
+        });
+
+        container.appendChild(card);
+      });
+    });
+  }
+  window.renderServerDownloads = renderServerDownloads;
+
+  // ========== IPTV 50/50 Multi-View (Side-by-Side Dual Player) ==========
+  var tvMultiViewActive = false;
+  var tvMultiViewFocus = 'left';
+
+  function openTvMultiView(channelA, channelB) {
+    var modal = document.getElementById('tv-iptv-multiview');
+    if (!modal) return;
+    if (typeof stopPreview === 'function') stopPreview();
+
+    tvMultiViewActive = true;
+    tvMultiViewFocus = 'left';
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+    var titleLeft = document.getElementById('tv-multi-title-left');
+    var titleRight = document.getElementById('tv-multi-title-right');
+
+    if (titleLeft && channelA) titleLeft.textContent = channelA.name || 'Канал 1';
+    if (titleRight && channelB) titleRight.textContent = channelB.name || 'Канал 2';
+
+    if (videoLeft && channelA && channelA.url) {
+      videoLeft.src = channelA.url;
+      videoLeft.muted = false;
+      videoLeft.play().catch(function() {});
+    }
+    if (videoRight && channelB && channelB.url) {
+      videoRight.src = channelB.url;
+      videoRight.muted = true;
+      videoRight.play().catch(function() {});
+    }
+
+    updateTvMultiViewFocusUI();
+  }
+
+  function updateTvMultiViewFocusUI() {
+    var paneLeft = document.getElementById('tv-multi-left');
+    var paneRight = document.getElementById('tv-multi-right');
+    var badgeLeft = document.getElementById('tv-multi-audio-badge-left');
+    var badgeRight = document.getElementById('tv-multi-audio-badge-right');
+    var indicator = document.getElementById('tv-multiview-audio-indicator');
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+
+    if (tvMultiViewFocus === 'left') {
+      if (paneLeft) {
+        paneLeft.style.borderColor = '#e8c170';
+        paneLeft.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+      }
+      if (paneRight) {
+        paneRight.style.borderColor = 'rgba(255,255,255,0.15)';
+        paneRight.style.boxShadow = 'none';
+      }
+      if (badgeLeft) { badgeLeft.textContent = '🔊 Звук активен'; badgeLeft.style.color = '#6ee7b7'; }
+      if (badgeRight) { badgeRight.textContent = '🔇 Без звука'; badgeRight.style.color = 'rgba(255,255,255,0.4)'; }
+      if (indicator) indicator.textContent = '🔊 Звук: Экран 1 (Слева)';
+      if (videoLeft) videoLeft.muted = false;
+      if (videoRight) videoRight.muted = true;
+    } else {
+      if (paneRight) {
+        paneRight.style.borderColor = '#e8c170';
+        paneRight.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+      }
+      if (paneLeft) {
+        paneLeft.style.borderColor = 'rgba(255,255,255,0.15)';
+        paneLeft.style.boxShadow = 'none';
+      }
+      if (badgeRight) { badgeRight.textContent = '🔊 Звук активен'; badgeRight.style.color = '#6ee7b7'; }
+      if (badgeLeft) { badgeLeft.textContent = '🔇 Без звука'; badgeLeft.style.color = 'rgba(255,255,255,0.4)'; }
+      if (indicator) indicator.textContent = '🔊 Звук: Экран 2 (Справа)';
+      if (videoLeft) videoLeft.muted = true;
+      if (videoRight) videoRight.muted = false;
+    }
+  }
+
+  function closeTvMultiView() {
+    var modal = document.getElementById('tv-iptv-multiview');
+    if (!modal) return;
+    tvMultiViewActive = false;
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+    if (videoLeft) { videoLeft.pause(); videoLeft.src = ''; }
+    if (videoRight) { videoRight.pause(); videoRight.src = ''; }
+  }
+  window.openTvMultiView = openTvMultiView;
+  window.closeTvMultiView = closeTvMultiView;
 
   // ========== Personalized History-based Recommendations ==========
   function renderHistoryRecommendations() {
@@ -5823,9 +5990,16 @@
       }
 
       if (!state._torrentSort) state._torrentSort = 'score';
+      var favVoice = localStorage.getItem('preferred_voiceover') || '';
 
-      // Sort according to user preference: seeds, date, size, or smart score
+      // Sort according to user preference: favorite voiceover priority first, then seeds, date, size, or smart score
       var sorted = filtered.slice().sort(function(a, b) {
+        if (favVoice) {
+          var aFav = (a.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1;
+          var bFav = (b.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1;
+          if (aFav && !bFav) return -1;
+          if (!aFav && bFav) return 1;
+        }
         if (state._torrentSort === 'seeds') {
           return (b.seeders || 0) - (a.seeders || 0);
         } else if (state._torrentSort === 'date') {
@@ -5863,6 +6037,9 @@
         html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
         html += '<div class="detail-torrent-title">' + esc(torrent.title || '') + '</div>';
         html += '<div class="detail-torrent-badges">';
+        if (favVoice && (torrent.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1) {
+          html += '<span class="t-badge" style="background:rgba(232,193,112,0.25);color:#e8c170;border:1px solid #e8c170;font-weight:bold;">\u2b50 ' + esc(favVoice) + '</span>';
+        }
         html += renderMetaBadges(torrent.title);
         if (torrent.sizeFormatted) {
           html += '<span class="t-badge t-badge-size">💾 ' + esc(torrent.sizeFormatted) + '</span>';
@@ -5968,6 +6145,7 @@
   }
 
   function openTorrent(magnet, title) {
+    state._lastMagnet = magnet;
     var titleStr = '';
     if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
     else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
@@ -6599,7 +6777,12 @@
       } catch(le) {}
     }
 
-    openPlayer('?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&type=' + encodeURIComponent(mediaType) + '&poster=' + encodeURIComponent(poster) + startParam);
+    state.activeFile = file;
+    var fileIdx = (file && file.id !== undefined) ? file.id : -1;
+    var fileParam = (fileIdx >= 0) ? ('&fileIndex=' + fileIdx) : '';
+    var linkParam = state._lastMagnet ? ('&link=' + encodeURIComponent(state._lastMagnet)) : '';
+
+    openPlayer('?url=' + encodeURIComponent(url) + '&title=' + encodeURIComponent(name) + '&id=' + movieId + '&type=' + encodeURIComponent(mediaType) + '&poster=' + encodeURIComponent(poster) + startParam + fileParam + linkParam);
   }
 
   // ========== Sync ==========
@@ -6608,6 +6791,13 @@
     apiFetch('/api/sync', function(err, data) {
       console.log('[Sync] callback err:', err ? err.message : null, 'data:', data ? Object.keys(data) : null);
       if (err || !data) { if (callback) callback(); return; }
+
+      // Sync user preferred voiceover
+      apiFetch('/api/user/voiceover', function(vErr, vData) {
+        if (!vErr && vData && vData.voiceover) {
+          localStorage.setItem('preferred_voiceover', vData.voiceover);
+        }
+      });
 
       try {
       console.log('[Sync] data keys:', Object.keys(data));
@@ -8618,6 +8808,27 @@
               }, 650);
             }
           }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // TV IPTV Multi-view handler
+      if (tvMultiViewActive) {
+        if (code === 37 || key === 'ArrowLeft' || key === 'Left' || code === 49) {
+          tvMultiViewFocus = 'left';
+          updateTvMultiViewFocusUI();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (code === 39 || key === 'ArrowRight' || key === 'Right' || code === 50) {
+          tvMultiViewFocus = 'right';
+          updateTvMultiViewFocusUI();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          closeTvMultiView();
           if (e && e.preventDefault) e.preventDefault();
           return;
         }

@@ -27,6 +27,7 @@ interface LocalDb {
   epg_reminders: any[];
   playback_sessions: any[];
   playback_history: any[];
+  server_downloads: any[];
 }
 
 function loadFallbackDb(): LocalDb {
@@ -47,6 +48,7 @@ function loadFallbackDb(): LocalDb {
         epg_reminders: data.epg_reminders || [],
         playback_sessions: data.playback_sessions || [],
         playback_history: data.playback_history || [],
+        server_downloads: data.server_downloads || [],
       };
     }
   } catch {}
@@ -63,7 +65,8 @@ function loadFallbackDb(): LocalDb {
     series_subscriptions: [],
     epg_reminders: [],
     playback_sessions: [],
-    playback_history: []
+    playback_history: [],
+    server_downloads: []
   };
 }
 
@@ -125,8 +128,25 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
     };
   }
 
+  // 4b. Users JOIN user_preferences
+  if (/FROM users .*JOIN user_preferences/i.test(cleanSql) || /FROM user_preferences .*JOIN users/i.test(cleanSql)) {
+    const list: any[] = [];
+    for (const pref of (db.user_preferences || [])) {
+      const u = (db.users || []).find((user) => Number(user.id) === Number(pref.user_id));
+      if (u) {
+        list.push({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          preferences: pref.preferences
+        });
+      }
+    }
+    return { rows: list };
+  }
+
   // 5. Select All Users / Profiles
-  if (/SELECT .* FROM users/i.test(cleanSql)) {
+  if (/^SELECT .* FROM users(\s*$|\s+ORDER)/i.test(cleanSql)) {
     const sorted = [...db.users].sort((a, b) => {
       if (a.role === 'admin' && b.role !== 'admin') return -1;
       if (a.role !== 'admin' && b.role === 'admin') return 1;
@@ -392,12 +412,30 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
   }
 
   // 13. User Preferences
-  if (/SELECT preferences FROM user_preferences WHERE user_id = \$1/i.test(cleanSql)) {
-    const pref = db.user_preferences.find((p) => p.user_id === Number(params[0]));
-    return { rows: pref ? [{ preferences: pref.preferences }] : [] };
+  if (/FROM users .*JOIN user_preferences/i.test(cleanSql) || /FROM user_preferences .*JOIN users/i.test(cleanSql)) {
+    const list: any[] = [];
+    for (const pref of (db.user_preferences || [])) {
+      const u = (db.users || []).find((user) => Number(user.id) === Number(pref.user_id));
+      if (u) {
+        list.push({
+          id: u.id,
+          name: u.name,
+          email: u.email,
+          preferences: pref.preferences
+        });
+      }
+    }
+    return { rows: list };
+  }
+  if (/SELECT .* FROM user_preferences/i.test(cleanSql) || /SELECT preferences FROM user_preferences/i.test(cleanSql)) {
+    if (/WHERE user_id = \$1/i.test(cleanSql)) {
+      const pref = db.user_preferences.find((p) => Number(p.user_id) === Number(params[0]));
+      return { rows: pref ? [{ preferences: pref.preferences, user_id: pref.user_id }] : [] };
+    }
+    return { rows: (db.user_preferences || []).map((p) => ({ user_id: p.user_id, preferences: p.preferences })) };
   }
   if (/INSERT INTO user_preferences/i.test(cleanSql)) {
-    const existingIdx = db.user_preferences.findIndex((p) => p.user_id === Number(params[0]));
+    const existingIdx = db.user_preferences.findIndex((p) => Number(p.user_id) === Number(params[0]));
     const prefObj = typeof params[1] === 'string' ? JSON.parse(params[1]) : params[1];
     if (existingIdx >= 0) {
       db.user_preferences[existingIdx].preferences = prefObj;
@@ -867,6 +905,80 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
   }
   if (/DELETE FROM favorites WHERE user_id = \$1/i.test(cleanSql)) {
     db.favorites = db.favorites.filter((f) => f.user_id !== Number(params[0]));
+    saveFallbackDb(db);
+    return { rows: [] };
+  }
+
+  // 24. Server Downloads
+  if (db.server_downloads === undefined) db.server_downloads = [];
+  if (/SELECT .* FROM server_downloads WHERE id = \$1/i.test(cleanSql)) {
+    const item = db.server_downloads.find((d) => String(d.id) === String(params[0]));
+    return { rows: item ? [item] : [] };
+  }
+  if (/SELECT .* FROM server_downloads/i.test(cleanSql)) {
+    let list = [...(db.server_downloads || [])];
+    if (/WHERE user_id = \$1/i.test(cleanSql)) {
+      list = list.filter((d) => Number(d.user_id) === Number(params[0]));
+    }
+    list.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+    return { rows: list };
+  }
+  if (/INSERT INTO server_downloads/i.test(cleanSql)) {
+    const id = String(params[0]);
+    const existingIdx = db.server_downloads.findIndex((d) => String(d.id) === id);
+    const item = {
+      id,
+      user_id: params[1] ? Number(params[1]) : 1,
+      title: params[2] || '',
+      media_type: params[3] || 'movie',
+      media_id: Number(params[4] || 0),
+      season: Number(params[5] || 0),
+      episode: Number(params[6] || 0),
+      file_path: params[7] || '',
+      file_name: params[8] || '',
+      file_size: Number(params[9] || 0),
+      downloaded_bytes: 0,
+      status: 'downloading',
+      error_message: '',
+      poster: params[10] || '',
+      torrent_hash: params[11] || '',
+      torrent_index: Number(params[12] || 0),
+      created_at: new Date().toISOString(),
+      completed_at: null,
+    };
+    if (existingIdx >= 0) {
+      db.server_downloads[existingIdx] = { ...db.server_downloads[existingIdx], ...item };
+    } else {
+      db.server_downloads.push(item);
+    }
+    saveFallbackDb(db);
+    return { rows: [item] };
+  }
+  if (/UPDATE server_downloads SET/i.test(cleanSql)) {
+    const id = String(params[params.length - 1]);
+    const item = db.server_downloads.find((d) => String(d.id) === id);
+    if (item) {
+      if (/status = 'completed'/i.test(cleanSql)) {
+        item.status = 'completed';
+        item.file_size = Math.max(item.file_size, Number(params[0] || 0));
+        item.downloaded_bytes = Number(params[0] || 0);
+        item.completed_at = new Date().toISOString();
+      } else if (/status = 'cancelled'/i.test(cleanSql)) {
+        item.status = 'cancelled';
+        item.error_message = 'Отменено пользователем';
+      } else if (/status = 'error'/i.test(cleanSql)) {
+        item.status = 'error';
+        item.error_message = String(params[0] || 'Error');
+      } else if (/downloaded_bytes = \$1/i.test(cleanSql)) {
+        item.downloaded_bytes = Number(params[0] || 0);
+      }
+      saveFallbackDb(db);
+      return { rows: [item] };
+    }
+    return { rows: [] };
+  }
+  if (/DELETE FROM server_downloads WHERE id = \$1/i.test(cleanSql)) {
+    db.server_downloads = db.server_downloads.filter((d) => String(d.id) !== String(params[0]));
     saveFallbackDb(db);
     return { rows: [] };
   }
