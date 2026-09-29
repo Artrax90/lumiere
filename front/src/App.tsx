@@ -20,6 +20,9 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
     const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
     const entry: any = { time, timestamp: Date.now() };
     if (title) {
+      const epMatch = (title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+      const sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
+      const eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
       entry.title = {
         id: title.id,
         name: title.name,
@@ -27,7 +30,12 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
         backdrop: title.backdrop,
         year: title.year,
         type: title.type,
+        season: sNum,
+        episode: eNum,
       };
+      if (sNum && eNum) {
+        positions[`${titleId}_s${sNum}_e${eNum}`] = { ...entry };
+      }
     }
     positions[titleId] = entry;
     localStorage.setItem('playback_positions', JSON.stringify(positions));
@@ -226,13 +234,16 @@ export default function App() {
   const handleSelect = useCallback((title: Title) => {
     if (title.type === 'tv' || title.type === 'show') {
       let initSeason = 1;
+      let initEpisodeId: string | null = null;
       try {
         const saved = localStorage.getItem(`last_season_${title.id}`);
         if (saved) initSeason = parseInt(saved, 10) || 1;
+        const savedEp = localStorage.getItem(`last_episode_${title.id}`);
+        if (savedEp) initEpisodeId = savedEp;
       } catch {}
       setSelectedShow(title);
       setSelectedSeason(initSeason);
-      setActiveEpisodeId(null);
+      setActiveEpisodeId(initEpisodeId);
       setSelectedEpisode(null);
       setSelectedTitle(null);
       setSection('shows');

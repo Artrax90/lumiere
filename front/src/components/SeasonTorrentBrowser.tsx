@@ -334,10 +334,11 @@ export default function SeasonTorrentBrowser({
       if (matchedFile && matchedTorrent) {
         setLoadingStatus('Запуск...');
 
-        // Remember preferred torrent for this season
+        // Remember preferred torrent for this season and last watched episode
         try {
           localStorage.setItem(savedKey, JSON.stringify({ magnet: matchedTorrent.magnet, title: matchedTorrent.title }));
           localStorage.setItem(`last_season_${show.id}`, String(activeSeason));
+          localStorage.setItem(`last_episode_${show.id}`, String(ep.id || ep.episode));
         } catch {}
 
         const baseName = show.name;

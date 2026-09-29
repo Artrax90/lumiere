@@ -269,12 +269,21 @@
           var eNum = parseInt(epMatch[2], 10);
           var epKey = movieId + '_s' + sNum + '_e' + eNum;
           saved = positions[epKey];
+          if (!saved && positions[movieId]) {
+            var posTitle = (positions[movieId].title && positions[movieId].title.name) || '';
+            var posEpMatch = posTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || posTitle.match(/\bS([0-9]+)E([0-9]+)\b/i);
+            if (posEpMatch && parseInt(posEpMatch[1], 10) === sNum && parseInt(posEpMatch[2], 10) === eNum) {
+              saved = positions[movieId];
+            } else if (positions[movieId].title && positions[movieId].title.season === sNum && positions[movieId].title.episode === eNum) {
+              saved = positions[movieId];
+            }
+          }
         } else if (mediaType !== 'tv') {
           saved = positions[movieId];
         }
-        if (saved && typeof saved === 'object' && saved.time > 10) {
-          resumeTarget = Math.floor(saved.time);
-        } else if (typeof saved === 'number' && saved > 10) {
+        if (saved && typeof saved === 'object' && ((saved.time || 0) > 5 || (saved.progress || 0) > 5)) {
+          resumeTarget = Math.floor(saved.time || saved.progress);
+        } else if (typeof saved === 'number' && saved > 5) {
           resumeTarget = Math.floor(saved);
         }
       } catch(ex) {}
@@ -1003,24 +1012,39 @@
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
       var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+      var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
+      var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
       if (epMatch) {
-        var sNum = parseInt(epMatch[1], 10);
-        var eNum = parseInt(epMatch[2], 10);
         var epKey = saveId + '_s' + sNum + '_e' + eNum;
         pos[epKey] = {
           time: Math.round(currentTime),
           duration: Math.round(duration || 0),
           timestamp: Date.now(),
-          title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType }
+          title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
         };
       }
       pos[saveId] = {
         time: Math.round(currentTime),
         duration: Math.round(duration || 0),
         timestamp: Date.now(),
-        title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType }
+        title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
       };
       localStorage.setItem('playback_positions', JSON.stringify(pos));
+
+      // Also persist season and episode to last_torrents so continue watching knows exact episode
+      if (mediaType === 'tv' || sNum) {
+        try {
+          var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+          if (lastT[saveId]) {
+            if (sNum) lastT[saveId].season = sNum;
+            if (eNum) lastT[saveId].episode = eNum;
+            localStorage.setItem('last_torrents', JSON.stringify(lastT));
+          }
+          if (sNum) {
+            localStorage.setItem('last_season_' + saveId, String(sNum));
+          }
+        } catch(ltErr) {}
+      }
 
       // Also persist to server history via /api/sync/progress
       var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
