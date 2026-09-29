@@ -20,6 +20,7 @@ const navItems = [
   { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles, path: '/anime' },
   { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Tv, path: '/iptv' },
   { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark, path: '/my' },
+  { id: 'downloads' as NavSection, labelKey: 'nav.downloads', icon: Download, path: '/downloads' },
   { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3, path: '/collections' },
 ];
 
@@ -28,6 +29,7 @@ const mobileNavItems = [
   { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film, path: '/film' },
   { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv, path: '/series' },
   { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Radio, path: '/iptv' },
+  { id: 'downloads' as NavSection, labelKey: 'nav.downloads', icon: Download, path: '/downloads' },
   { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark, path: '/my' },
   { id: 'search' as NavSection, labelKey: 'nav.search', icon: Search, path: '/search' },
 ];
@@ -160,23 +162,6 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
 
         {/* Right cluster — refined icon sizes and responsive visibility */}
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
-          {activeSession && (
-            <a
-              href="/settings"
-              onClick={(e) => handleNavClick(e, 'settings')}
-              className="hidden 2xl:flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[12px] font-medium hover:bg-emerald-500/20 transition-all shadow-lg mr-2"
-              title="Сейчас воспроизводится. Нажмите для перехода в мониторинг сессий"
-            >
-              <span className="relative flex h-2 w-2">
-                <span className={`absolute inline-flex h-full w-full rounded-full ${activeSession.isPaused ? 'bg-amber-400' : 'bg-emerald-400 animate-ping'} opacity-75`} />
-                <span className={`relative inline-flex rounded-full h-2 w-2 ${activeSession.isPaused ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-              </span>
-              <span className="text-white/60 text-[11px]">{activeSession.deviceName}:</span>
-              <span className="max-w-[130px] truncate text-white/95 font-medium">{activeSession.title}</span>
-              {activeSession.isPaused && <span className="text-[10px] text-amber-300/80 font-mono">[пауза]</span>}
-            </a>
-          )}
-
           <a
             href="/search"
             onClick={(e) => handleNavClick(e, 'search')}

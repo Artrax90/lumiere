@@ -3868,6 +3868,76 @@
     loadCollectionTitles(col);
   }
 
+  function renderDownloadsSection() {
+    var grid = document.getElementById('tv-downloads-grid');
+    var badge = document.getElementById('tv-downloads-disk-badge');
+    var empty = document.getElementById('tv-downloads-empty');
+    if (!grid) return;
+    grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Загрузка скачанных файлов...</div>';
+    if (empty) empty.classList.add('hidden');
+
+    apiFetch('/api/downloads/server/list', function(err, res) {
+      if (err || !res) {
+        grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Не удалось получить список загрузок с сервера</div>';
+        return;
+      }
+      var dls = res.downloads || [];
+      var disk = res.disk || {};
+      if (badge && disk.free) {
+        badge.textContent = '💾 Свободно на сервере: ' + disk.free + (disk.total ? (' / ' + disk.total) : '');
+      }
+
+      if (dls.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+      }
+
+      if (empty) empty.classList.add('hidden');
+      grid.innerHTML = '';
+
+      dls.forEach(function(item, idx) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('data-id', item.id || '');
+        card._downloadItem = item;
+
+        var posterUrl = item.poster || '';
+        if (posterUrl && !posterUrl.startsWith('http')) {
+          posterUrl = imgUrl(posterUrl);
+        }
+
+        var isDone = item.status === 'completed';
+        var statusBadge = isDone
+          ? '<span style="position:absolute;top:10px;left:10px;background:#22c55e;color:#000;font-size:13px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:2;">ГОТОВО</span>'
+          : '<span style="position:absolute;top:10px;left:10px;background:#eab308;color:#000;font-size:13px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:2;">СКАЧИВАНИЕ ' + (item.progress || 0) + '%</span>';
+
+        card.innerHTML =
+          statusBadge +
+          (posterUrl ? '<img src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.style.display=\'none\';" />' : '<div style="width:100%;height:100%;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:48px;">🎬</div>') +
+          '<div class="card-overlay">' +
+            '<div class="card-title">' + esc(item.title) + '</div>' +
+            '<div class="card-meta">' + esc(item.fileSizeFormatted || '') + '</div>' +
+          '</div>';
+
+        card.addEventListener('click', function() {
+          if (isDone && item.streamUrl) {
+            playMedia({
+              title: item.title,
+              streamUrl: item.streamUrl.startsWith('http') ? item.streamUrl : (API + item.streamUrl),
+              type: 'local_file'
+            });
+          } else if (item.mediaType && item.mediaId) {
+            showDetail({ id: item.mediaId, mediaType: item.mediaType });
+          }
+        });
+
+        grid.appendChild(card);
+      });
+    });
+  }
+
   function renderCollectionsSection() {
     var grid = document.getElementById('collections-grid');
     if (!grid) return;
@@ -3910,17 +3980,6 @@
 
       grid.appendChild(card);
     });
-
-    setTimeout(function() {
-      var firstCard = grid.querySelector('.card');
-      if (firstCard) {
-        clearCardFocus();
-        clearNavFocus();
-        state.focusedCard = 0;
-        firstCard.classList.add('focused');
-        firstCard.focus();
-      }
-    }, 50);
   }
 
   function loadCollectionTitles(col) {
@@ -8085,6 +8144,12 @@
 
     $content.scrollTop = 0;
 
+    if (section === 'downloads') {
+      if (typeof renderDownloadsSection === 'function') {
+        renderDownloadsSection();
+      }
+    }
+
     if (section === 'collections') {
       if (!state.inCollectionDetail && typeof renderCollectionsSection === 'function') {
         renderCollectionsSection();
@@ -8962,14 +9027,6 @@
       if (state.section === 'notifications') {
         focusNotificationElement('topBtn', 0);
         return;
-      }
-      if (state.section === 'profile') {
-        var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
-        if (prBtns.length > 0) {
-          prBtns[0].classList.add('focused');
-          prBtns[0].focus();
-          return;
-        }
       }
       console.log('[Lumiere] Recovering focus to nav button');
       focusNav(state.focusedNav || 0);
@@ -10390,6 +10447,10 @@
         return;
       }
       if (target._continueItem) {
+        target.click();
+        return;
+      }
+      if (target._downloadItem) {
         target.click();
         return;
       }

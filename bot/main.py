@@ -436,13 +436,13 @@ def build_dispatcher(user_id: int) -> Dispatcher:
     return dp
 
 async def run_bot_instance(token: str, user_id: int, proxy_url: str):
-    print(f"[Bot] Initializing bot for user {user_id}, proxy: {proxy_url or 'None'}")
+    clean_proxy = proxy_url.replace("socks5h://", "socks5://") if proxy_url else None
+    print(f"[Bot] Initializing bot for user {user_id}, proxy: {clean_proxy or 'None'}")
     session = None
-    if proxy_url:
+    if clean_proxy:
         try:
-            connector = ProxyConnector.from_url(proxy_url)
-            session = AiohttpSession(connector=connector)
-            print(f"[Bot] Successfully configured SOCKS/HTTP proxy for user {user_id}")
+            session = AiohttpSession(proxy=clean_proxy)
+            print(f"[Bot] Successfully configured proxy for user {user_id}: {clean_proxy}")
         except Exception as pe:
             print(f"[Bot] Failed to set proxy, falling back to direct connection: {pe}")
 
@@ -451,8 +451,13 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
 
     try:
         me = await bot.get_me()
-        print(f"[Bot] Bot @{me.username} ({me.first_name}) started polling for user {user_id}!")
-        await dp.start_polling(bot)
+        print(f"[Bot] Bot @{me.username} ({me.first_name}) connected successfully for user {user_id}!")
+        wh = await bot.get_webhook_info()
+        if wh.url:
+            print(f"[Bot] Clearing active webhook for @{me.username}...")
+            await bot.delete_webhook(drop_pending_updates=False)
+        print(f"[Bot] Polling started for @{me.username} (user {user_id})")
+        await dp.start_polling(bot, handle_signals=False)
     except Exception as e:
         print(f"[Bot] Polling error for user {user_id}: {e}")
     finally:
@@ -467,18 +472,35 @@ async def main():
 
     while True:
         try:
+            # Clean up finished/failed tasks
+            finished = [tok for tok, t in running_tasks.items() if t.done()]
+            for tok in finished:
+                print(f"[BotManager] Cleaning up finished bot task: {tok[:10]}...")
+                del running_tasks[tok]
+
             bots_data = await fetch_api("/api/internal/telegram-bots")
             if bots_data:
                 proxy_url = bots_data.get("proxyUrl", "")
                 bots = bots_data.get("bots", [])
+                active_tokens = set()
 
                 for b in bots:
                     token = b.get("token")
                     u_id = b.get("userId")
-                    if token and token not in running_tasks:
+                    if not token:
+                        continue
+                    active_tokens.add(token)
+                    if token not in running_tasks:
                         print(f"[BotManager] Launching companion bot for user {u_id} ({b.get('userName')})")
                         task = asyncio.create_task(run_bot_instance(token, u_id, proxy_url))
                         running_tasks[token] = task
+
+                # Cancel bots that were removed from settings
+                removed = [tok for tok in running_tasks.keys() if tok not in active_tokens]
+                for tok in removed:
+                    print(f"[BotManager] Cancelling removed bot token: {tok[:10]}...")
+                    running_tasks[tok].cancel()
+                    del running_tasks[tok]
             else:
                 print("[BotManager] Waiting for backend at " + BACKEND_URL)
         except Exception as e:

@@ -327,27 +327,57 @@ try {
   console.log(`Lumiere backend listening on http://localhost:${config.port}`);
 
   // Launch Telegram Bot Companion runner if available
-  const botDir = join(process.cwd(), '..', 'bot');
   const botPyCandidates = [
     join(process.cwd(), '..', 'bot', 'main.py'),
     join(process.cwd(), 'bot', 'main.py'),
     join(__dirname, '..', '..', 'bot', 'main.py'),
+    join(__dirname, '..', 'bot', 'main.py'),
+    '/app/bot/main.py',
   ];
   const botPy = botPyCandidates.find((p) => existsSync(p));
   if (botPy) {
-    const pyVenv = join(dirname(botPy), 'venv', 'Scripts', 'python.exe');
-    const pyExe = existsSync(pyVenv) ? pyVenv : 'python';
-    try {
-      const { spawn } = await import('child_process');
-      const botProc = spawn(pyExe, [botPy], {
-        stdio: 'inherit',
-        env: { ...process.env, BACKEND_URL: `http://127.0.0.1:${config.port}`, PYTHONIOENCODING: 'utf-8' },
-      });
-      botProc.on('error', (err) => console.warn('[BotService] Runner error:', err.message));
-      console.log('[BotService] Telegram Bot Companion supervisor launched');
-    } catch (bErr: any) {
-      console.warn('[BotService] Could not launch Telegram Bot runner:', bErr.message);
-    }
+    const venvCandidates = [
+      join(dirname(botPy), 'venv', 'Scripts', 'python.exe'),
+      join(dirname(botPy), 'venv', 'bin', 'python'),
+      join(dirname(botPy), '.venv', 'bin', 'python'),
+      '/app/bot/venv/bin/python',
+    ];
+    const foundVenv = venvCandidates.find((p) => existsSync(p));
+    const pyExe = foundVenv || (process.platform === 'win32' ? 'python' : 'python3');
+
+    let botProc: any = null;
+    let restartTimer: any = null;
+
+    const startBotSupervisor = async () => {
+      try {
+        const { spawn } = await import('child_process');
+        botProc = spawn(pyExe, ['-u', botPy], {
+          stdio: 'inherit',
+          env: {
+            ...process.env,
+            BACKEND_URL: `http://127.0.0.1:${config.port}`,
+            PYTHONIOENCODING: 'utf-8',
+            PYTHONUNBUFFERED: '1',
+          },
+        });
+
+        botProc.on('error', (err: any) => {
+          console.warn('[BotService] Runner error:', err.message);
+        });
+
+        botProc.on('exit', (code: number, sig: string) => {
+          console.warn(`[BotService] Telegram Bot process stopped (code=${code}, sig=${sig}). Restarting in 5s...`);
+          if (restartTimer) clearTimeout(restartTimer);
+          restartTimer = setTimeout(startBotSupervisor, 5000);
+        });
+
+        console.log(`[BotService] Telegram Bot Companion supervisor launched (${pyExe})`);
+      } catch (bErr: any) {
+        console.warn('[BotService] Could not launch Telegram Bot runner:', bErr.message);
+      }
+    };
+
+    startBotSupervisor();
   }
 } catch (err) {
   app.log.error(err);

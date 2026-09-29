@@ -33,6 +33,9 @@ RUN (sed -i 's|deb.debian.org|mirror.yandex.ru|g' /etc/apt/sources.list.d/debian
     apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     curl \
+    python3 \
+    python3-pip \
+    python3-venv \
     intel-media-va-driver \
     mesa-va-drivers \
     vainfo \
@@ -57,6 +60,11 @@ COPY back/src/assets ./src/assets
 
 # Copy compiled web frontend into public root
 COPY --from=front-builder /app/front/dist/ ./public/
+
+# Copy Telegram Companion Bot and set up python venv
+COPY bot/ ./bot/
+RUN python3 -m venv /app/bot/venv && \
+    /app/bot/venv/bin/pip install --no-cache-dir -r /app/bot/requirements.txt
 
 EXPOSE 3500
 

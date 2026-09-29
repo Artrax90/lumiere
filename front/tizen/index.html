@@ -86,14 +86,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="./tv.css?v=584">
-  <link rel="stylesheet" href="./player.css?v=584">
+  <link rel="stylesheet" href="./tv.css?v=590">
+  <link rel="stylesheet" href="./player.css?v=590">
 </head>
 <body>
   <!-- Loading -->
   <div id="loading" class="screen">
     <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
-    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v585</div>
+    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v590</div>
     <div class="spinner"></div>
   </div>
 
@@ -224,6 +224,7 @@
         <button class="nav-btn" data-section="tv">Сериалы</button>
         <button class="nav-btn" data-section="iptv">IPTV</button>
         <button class="nav-btn" data-section="my">Моё</button>
+        <button class="nav-btn" data-section="downloads">Скачанное</button>
         <button class="nav-btn" data-section="collections">Подборки</button>
         <button class="nav-btn" data-section="notifications" id="nav-notifications" title="Уведомления">🔔<span id="tv-notif-badge" class="tv-notif-badge hidden">0</span></button>
         <button class="nav-btn" data-section="settings">Настройки</button>
@@ -326,6 +327,25 @@
       <section id="sec-tv" class="section">
         <h1 class="page-title">Сериалы</h1>
         <div class="grid" id="tv-grid"></div>
+      </section>
+
+      <!-- Downloads (Скачанное) -->
+      <section id="sec-downloads" class="section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;">
+          <div>
+            <h1 class="page-title" style="margin:0 0 6px 0;">Скачанное на сервер</h1>
+            <p class="page-subtitle" style="color:var(--text-dim);font-size:20px;margin:0;">Офлайн просмотр без задержек и ожидания пиров</p>
+          </div>
+          <div id="tv-downloads-disk-badge" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);padding:10px 22px;border-radius:14px;color:#e8c170;font-size:18px;font-weight:600;">
+            💾 Диск: Загрузка...
+          </div>
+        </div>
+        <div id="tv-downloads-empty" class="hidden" style="text-align:center;padding:100px 40px;color:rgba(255,255,255,0.4);">
+          <div style="font-size:64px;margin-bottom:20px;">📥</div>
+          <div style="font-size:26px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:10px;">Нет скачанных фильмов</div>
+          <div style="font-size:18px;max-width:560px;margin:0 auto;line-height:1.5;">Вы можете заранее скачать любой фильм или серию в карточке контента через кнопку «📥 Скачать на сервер» или через Telegram-бота.</div>
+        </div>
+        <div class="row-items" id="tv-downloads-grid" style="display:flex;flex-wrap:wrap;gap:24px;padding:10px 0 60px 0;"></div>
       </section>
 
       <!-- Collections (Подборки) -->

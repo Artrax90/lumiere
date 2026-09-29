@@ -19,11 +19,22 @@ if [ ! -f "$DIR/back/.env" ] && [ -f "$DIR/.env" ]; then
   cp "$DIR/.env" "$DIR/back/.env"
 fi
 
-echo "[1/2] Проверка сборки бэкенда..."
+echo "[1/3] Проверка сборки бэкенда..."
 cd "$DIR/back"
 npm run build
 
-echo "[2/2] Запуск сервера Lumiere..."
+echo "[2/3] Проверка Telegram Companion Bot..."
+if command -v python3 >/dev/null 2>&1; then
+  if [ ! -d "$DIR/bot/venv" ]; then
+    echo "  Создание Python окружения для бота..."
+    python3 -m venv "$DIR/bot/venv" || true
+  fi
+  if [ -f "$DIR/bot/venv/bin/pip" ] && [ -f "$DIR/bot/requirements.txt" ]; then
+    "$DIR/bot/venv/bin/pip" install -q --no-cache-dir -r "$DIR/bot/requirements.txt" || true
+  fi
+fi
+
+echo "[3/3] Запуск сервера Lumiere..."
 echo "  Backend & Web: http://localhost:3500"
 echo "  Smart TV:      http://localhost:3500/tv/"
 echo ""
