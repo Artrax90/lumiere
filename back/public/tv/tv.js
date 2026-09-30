@@ -103,6 +103,13 @@
             '</div>' +
             '<span id="time-total">0:00</span>' +
           '</div>' +
+          '<div id="osd-controls" class="osd-controls-row">' +
+            '<button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>' +
+            '<button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>' +
+            '<button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>' +
+            '<button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>' +
+            '<button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>' +
+          '</div>' +
           '<div class="osd-hint-row">' +
             '<div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Пуск</div>' +
             '<div class="osd-hint-item"><span class="osd-hint-key">\u25c4 / \u25ba</span> Перемотка 10с</div>' +
@@ -140,7 +147,8 @@
     }
     var detailContent = detail ? detail.querySelector('#detail-content') : null;
     var hasDetailContent = detailContent && detailContent.children.length > 0;
-    state.playerOpenedFrom = (detail && !detail.classList.contains('hidden') && detail.style.display !== 'none' && hasDetailContent) ? 'detail' : 'app';
+    var isDetailOpen = (detail && !detail.classList.contains('hidden') && detail.style.display !== 'none' && hasDetailContent) || (state.detail && state.detail.id);
+    state.playerOpenedFrom = isDetailOpen ? 'detail' : 'app';
     if (app) app.classList.add('hidden');
     if (detail) detail.classList.add('hidden');
     playerContainer.innerHTML = playerHtml;
@@ -263,19 +271,19 @@
       debugInfo.parentNode.removeChild(debugInfo);
     }
 
-    if (app) {
-      app.classList.remove('hidden');
-      app.style.display = 'block';
-    }
-
     // Timestamp guard: prevent immediate double-processing of Back key on Samsung Tizen
     lastBackTimestamp = Date.now();
+    state._justClosedPlayer = Date.now();
 
     // If closing player from IPTV, remain in IPTV and keep current channel and group focused!
     if (state.section === 'iptv') {
       if (detail) {
         detail.classList.add('hidden');
         detail.style.display = 'none';
+      }
+      if (app) {
+        app.classList.remove('hidden');
+        app.style.display = 'block';
       }
       iptvState.focusedCol = 1;
       renderIptv();
@@ -284,15 +292,18 @@
       return;
     }
 
-    // Return to detail card of the EXACT media that was playing
+    // Return to detail card of the media that was playing
     var detailContent = detail ? detail.querySelector('#detail-content') : null;
     var hasDetailContent = detailContent && detailContent.children.length > 0;
 
     var targetDetail = state.activePlayerMedia || (state.detail && state.detail.id ? state.detail : null);
+    if (!targetDetail && movieId) {
+      targetDetail = { id: movieId, type: mediaType || 'movie' };
+    }
     state.activePlayerMedia = null;
 
-    if (state.playerOpenedFrom === 'detail' && detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
-      var isSameDetailLoaded = hasDetailContent && state.detailLoadedId === targetDetail.id;
+    if (detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
+      var isSameDetailLoaded = hasDetailContent && (Number(state.detailLoadedId) === Number(targetDetail.id));
       if (isSameDetailLoaded) {
         if (app) {
           app.classList.add('hidden');
@@ -362,6 +373,17 @@
         app.classList.remove('hidden');
         app.style.display = 'block';
       }
+      if (state.section === 'downloads') {
+        renderDownloadsSection();
+      } else {
+        var c = document.querySelector('.card.focused');
+        if (c) {
+          try { c.focus(); } catch(e) {}
+        } else {
+          focusNav(state.focusedNav || 0);
+        }
+      }
+    }
       if (state.section === 'downloads') {
         renderDownloadsSection();
       } else {
@@ -8830,7 +8852,7 @@
   function handleBackKey(e) {
     if (e && e.preventDefault) e.preventDefault();
     var now = Date.now();
-    if (now - lastBackTimestamp < 700 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 700)) {
+    if (now - lastBackTimestamp < 700 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 700) || (state._justClosedPlayer && now - state._justClosedPlayer < 700)) {
       console.log('[Lumiere] Ignoring rapid duplicate back key (within cooldown)');
       return;
     }
@@ -9182,8 +9204,14 @@
         return;
       }
 
-      // Cooldown after closing person modal: absorb any trailing Back key duplicates from TV remote!
+      // Cooldown after closing person modal or player: absorb any trailing Back key duplicates from TV remote!
       if (state.modalCloseTimestamp && (Date.now() - state.modalCloseTimestamp < 700)) {
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+      if (state._justClosedPlayer && (Date.now() - state._justClosedPlayer < 700)) {
         if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
           if (e && e.preventDefault) e.preventDefault();
           return;

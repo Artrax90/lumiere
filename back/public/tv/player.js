@@ -1873,7 +1873,8 @@
       if (isLeft || isRight) {
         var now = Date.now();
         var dir = isLeft ? -1 : 1;
-        if (lastSeekDirection === dir && (now - lastSeekKeyTime) < 550) {
+        // Key repeat interval on Samsung TV is ~120-180ms. If user released key for > 420ms, reset acceleration!
+        if (lastSeekDirection === dir && (now - lastSeekKeyTime) < 420) {
           seekHoldCount++;
         } else {
           seekHoldCount = 1;
@@ -1883,15 +1884,21 @@
 
         var step = 10;
         var speedStr = '';
-        if (seekHoldCount >= 10) {
+        if (seekHoldCount >= 28) {
           step = 120;
           speedStr = 'x12';
-        } else if (seekHoldCount >= 6) {
+        } else if (seekHoldCount >= 18) {
           step = 60;
           speedStr = 'x6';
-        } else if (seekHoldCount >= 3) {
+        } else if (seekHoldCount >= 10) {
           step = 30;
           speedStr = 'x3';
+        } else if (seekHoldCount >= 5) {
+          step = 15;
+          speedStr = 'x1.5';
+        } else {
+          step = 10;
+          speedStr = '';
         }
 
         seekBy(dir * step, speedStr);
