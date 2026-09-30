@@ -32,6 +32,8 @@ from aiogram.types import (
     FSInputFile,
     WebAppInfo,
     MenuButtonWebApp,
+    BotCommand,
+    MenuButtonCommands,
 )
 from aiogram.client.session.aiohttp import AiohttpSession
 
@@ -79,6 +81,20 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
     elif WEB_URL:
         buttons.append([InlineKeyboardButton(text="✨ Открыть Lumière Web", url=WEB_URL)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
+    """Persistent docked reply keyboard at the bottom of the chat for instant navigation."""
+    keyboard = [
+        [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="🎲 Кино-рулетка")],
+        [KeyboardButton(text="📺 Сейчас на ТВ"), KeyboardButton(text="📥 Скачанное")],
+        [KeyboardButton(text="✨ Главное меню"), KeyboardButton(text="⚙️ Статус")]
+    ]
+    return ReplyKeyboardMarkup(
+        keyboard=keyboard,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Название фильма или выберите пункт меню..."
+    )
 
 async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None) -> Optional[Any]:
     url = f"{BACKEND_URL}{path}"
@@ -228,12 +244,6 @@ def build_dispatcher(user_id: int) -> Dispatcher:
 
     @dp.message(CommandStart())
     async def cmd_start(message: types.Message):
-        # Clear any old clunky wooden reply keyboards from user screen
-        try:
-            await message.answer("🍿 <i>Загружаем Lumière Companion...</i>", reply_markup=types.ReplyKeyboardRemove(), parse_mode="HTML")
-        except Exception:
-            pass
-
         welcome_text = (
             "✨ <b>Lumière Companion</b>\n\n"
             "Ваш персональный кино-ассистент и умный пульт управления:\n\n"
@@ -242,11 +252,16 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             "🎲 <b>Кино-рулетка</b>: случайные фильмы с описанием и актёрами\n"
             "📥 <b>Серверные загрузки</b>: скачивание торрентов на диск сервера\n"
             "🔔 <b>Подписки</b>: уведомления о выходе новых серий\n\n"
-            "<i>Выберите действие в меню:</i>"
+            "<i>Выберите действие в меню ниже или воспользуйтесь кнопками быстрого доступа:</i>"
         )
+        try:
+            await message.answer("🍿 Клавиатура быстрого доступа активирована ⬇️", reply_markup=get_main_reply_keyboard())
+        except Exception:
+            pass
         await message.answer(welcome_text, reply_markup=get_main_menu_inline_keyboard(), parse_mode="HTML")
 
     @dp.message(Command("menu"))
+    @dp.message(F.text == "✨ Главное меню")
     async def cmd_menu(message: types.Message):
         await message.answer("🍿 <b>Главное меню Lumière:</b>", reply_markup=get_main_menu_inline_keyboard(), parse_mode="HTML")
 
@@ -287,6 +302,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         await call.answer()
         await show_server_status(call.message)
 
+    @dp.message(Command("search"))
     @dp.message(F.text == "🔍 Поиск")
     async def btn_search(message: types.Message):
         await message.answer(
@@ -294,9 +310,25 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             parse_mode="HTML"
         )
 
+    @dp.message(Command("roulette"))
+    @dp.message(F.text.in_(["🎲 Рулетка", "🎲 Кино-рулетка"]))
+    async def btn_roulette(message: types.Message):
+        await trigger_roulette(message, is_callback=False)
+
+    @dp.message(Command("tv"))
     @dp.message(F.text == "📺 Сейчас на ТВ")
     async def btn_tv_status(message: types.Message):
         await show_tv_status(message)
+
+    @dp.message(Command("downloads"))
+    @dp.message(F.text == "📥 Скачанное")
+    async def btn_downloads(message: types.Message):
+        await show_downloads(message)
+
+    @dp.message(Command("status"))
+    @dp.message(F.text.in_(["⚙️ Статус", "📊 Статус"]))
+    async def btn_status(message: types.Message):
+        await show_server_status(message)
 
     async def trigger_roulette(user_reply_target, is_callback: bool = False):
         target_msg = user_reply_target.message if is_callback and hasattr(user_reply_target, "message") else user_reply_target
@@ -1117,11 +1149,23 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
     try:
         me = await bot.get_me()
         print(f"[Bot] Bot @{me.username} ({me.first_name}) connected successfully for user {user_id}!")
-        if WEB_URL.startswith("https://"):
-            try:
+        try:
+            bot_cmds = [
+                BotCommand(command="start", description="✨ Главное меню"),
+                BotCommand(command="search", description="🔍 Поиск фильмов и сериалов"),
+                BotCommand(command="roulette", description="🎲 Случайный фильм (Рулетка)"),
+                BotCommand(command="tv", description="📺 Пульт и просмотр на ТВ"),
+                BotCommand(command="downloads", description="📥 Скачанное на сервер"),
+                BotCommand(command="status", description="⚙️ Статус сервера"),
+            ]
+            await bot.set_my_commands(bot_cmds)
+            if WEB_URL.startswith("https://"):
                 await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Lumière", web_app=WebAppInfo(url=WEB_URL)))
-            except Exception as mbe:
-                print(f"[Bot] MenuButton note: {mbe}")
+            else:
+                await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+            print(f"[Bot] Commands and menu button successfully set for @{me.username}")
+        except Exception as mbe:
+            print(f"[Bot] Commands/MenuButton setup note: {mbe}")
         print(f"[Bot] Resetting update stream for @{me.username}...")
         try:
             await bot.delete_webhook(drop_pending_updates=True)

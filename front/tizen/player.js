@@ -1550,15 +1550,15 @@
       accumulatedDelta = 0;
       seekBaseTime = 0;
 
-    if (player) {
-      try { player.stop(); } catch(e) {}
-      player = null;
-    }
+      if (player) {
+        try { player.stop(); } catch(e) {}
+        player = null;
+      }
 
-    if (typeof webapis !== 'undefined' && webapis.avplay) {
-      try { webapis.avplay.stop(); } catch(e) {}
-      try { webapis.avplay.close(); } catch(e) {}
-    }
+      if (typeof webapis !== 'undefined' && webapis.avplay) {
+        try { webapis.avplay.stop(); } catch(e) {}
+        try { webapis.avplay.close(); } catch(e) {}
+      }
 
       isPlaying = false;
       topMenuFocused = false;

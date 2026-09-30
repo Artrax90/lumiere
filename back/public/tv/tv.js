@@ -1923,7 +1923,6 @@
 
     // Continue watching from localStorage & server
     renderContinueWatching();
-    renderServerDownloads();
 
     loadIptv();
     loadAndApplyHomeShelves();
@@ -3909,10 +3908,8 @@
         card.setAttribute('data-id', item.id || '');
         card._downloadItem = item;
 
-        var posterUrl = item.poster || '';
-        if (posterUrl && !posterUrl.startsWith('http')) {
-          posterUrl = imgUrl(posterUrl);
-        }
+        var rawPoster = item.poster || item.poster_path || item.cover || '';
+        var posterUrl = rawPoster ? imgUrl(rawPoster) : '';
 
         var isDone = item.status === 'completed';
         var statusBadge = isDone
@@ -3924,7 +3921,7 @@
           : '';
 
         var imgHtml = posterUrl
-          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'assets/placeholder.png\';" />'
+          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';" />'
           : '<div class="card-img" style="display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--surface-2);">🎬</div>';
 
         card.innerHTML =
@@ -4199,10 +4196,11 @@
     card.setAttribute('tabindex', '0');
     card._titleData = title;
 
-    var imgSrc = imgUrl(title.poster);
+    var rawPoster = title.poster || title.poster_path || title.cover || (title.title && typeof title.title === 'object' ? (title.title.poster || title.title.poster_path) : '');
+    var imgSrc = imgUrl(rawPoster);
     var scoreHtml = title.score ? '<div class="card-score">' + title.score + '</div>' : '';
 
-    card.innerHTML = '<div class="card-img-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(title.name) + '" loading="lazy">' + scoreHtml + '</div>' +
+    card.innerHTML = '<div class="card-img-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(title.name) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';">' + scoreHtml + '</div>' +
       '<div class="card-title"><span class="card-title-text">' + esc(title.name) + '</span></div>';
 
     card.addEventListener('focus', function() {
@@ -4679,16 +4677,33 @@
   }
 
   function imgUrl(path) {
-    if (!path) return '';
-    if (path.indexOf('/t/p/') === 0) {
-      return API + '/api/image?url=' + encodeURIComponent('https://image.tmdb.org' + path);
+    if (!path) return './icon.png';
+    path = String(path).trim();
+    if (!path || path === 'undefined' || path === 'null') return './icon.png';
+
+    // Already a proxy URL -> do not double-wrap
+    if (path.indexOf('/api/image') !== -1) {
+      if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) return path;
+      return API + (path.indexOf('/') === 0 ? path : '/' + path);
     }
+
+    // Direct TMDB relative path: "/t/p/..." or "/<hash>.jpg"
+    if (path.indexOf('/') === 0 && !path.startsWith('/tv') && !path.startsWith('/assets') && !path.startsWith('/public')) {
+      var tmdbPath = path;
+      if (tmdbPath.indexOf('/t/p/') !== 0) {
+        tmdbPath = '/t/p/w500' + tmdbPath;
+      }
+      return API + '/api/image?url=' + encodeURIComponent('https://image.tmdb.org' + tmdbPath);
+    }
+
+    // Full URL
     if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
-      if (path.indexOf('image.tmdb.org') !== -1 || path.indexOf('kinopoisk') !== -1 || path.indexOf('yandex.net') !== -1) {
+      if (path.indexOf('image.tmdb.org') !== -1 || path.indexOf('themoviedb.org') !== -1 || path.indexOf('kinopoisk') !== -1 || path.indexOf('yandex.net') !== -1) {
         return API + '/api/image?url=' + encodeURIComponent(path);
       }
       return path;
     }
+
     if (path.indexOf('/') === 0) return API + path;
     return path;
   }

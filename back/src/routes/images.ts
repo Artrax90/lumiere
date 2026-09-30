@@ -24,13 +24,36 @@ export function imageRoutes(
       return reply.code(400).send({ error: 'Missing url parameter' });
     }
 
+    let targetUrl = url;
+    // Unwrap if mistakenly double-wrapped (/api/image?url=https%3A%2F%2F...)
+    while (targetUrl.includes('/api/image?url=')) {
+      try {
+        const u = new URL(targetUrl.startsWith('http') ? targetUrl : `http://localhost${targetUrl}`);
+        const inner = u.searchParams.get('url');
+        if (inner && inner !== targetUrl) {
+          targetUrl = inner;
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+
     try {
-      const parsed = new URL(url);
+      const parsed = new URL(targetUrl);
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
         return reply.code(400).send({ error: 'Invalid protocol' });
       }
       const host = parsed.hostname.toLowerCase();
-      if (!host.endsWith('tmdb.org') && !host.endsWith('themoviedb.org')) {
+      const isAllowed =
+        host.endsWith('tmdb.org') ||
+        host.endsWith('themoviedb.org') ||
+        host.endsWith('yandex.net') ||
+        host.endsWith('kinopoisk.ru') ||
+        host.endsWith('kinopoiskapiunofficial.tech') ||
+        host.endsWith('kpcdn.net');
+      if (!isAllowed) {
         return reply.code(403).send({ error: 'Host not allowed' });
       }
     } catch {
@@ -38,7 +61,7 @@ export function imageRoutes(
     }
 
     // Check memory cache
-    const cached = imageCache.get(url);
+    const cached = imageCache.get(targetUrl);
     if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
       reply.header('Content-Type', cached.contentType);
       reply.header('Cache-Control', 'public, max-age=604800, immutable');
@@ -50,12 +73,12 @@ export function imageRoutes(
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 12000);
 
-      const res = await fetch(url, {
+      const res = await fetch(targetUrl, {
         agent: agent as any,
         signal: controller.signal as any,
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+          'Accept': 'image/jpeg,image/png,image/*;q=0.8',
         },
       });
       clearTimeout(timeout);
@@ -72,6 +95,9 @@ export function imageRoutes(
         if (oldestKey) imageCache.delete(oldestKey);
       }
       imageCache.set(url, { buffer, contentType, timestamp: Date.now() });
+      if (targetUrl !== url) {
+        imageCache.set(targetUrl, { buffer, contentType, timestamp: Date.now() });
+      }
 
       reply.header('Content-Type', contentType);
       reply.header('Cache-Control', 'public, max-age=604800, immutable');
