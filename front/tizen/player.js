@@ -199,7 +199,6 @@
     precacheSent = false;
     nextEpOverlayVisible = false;
     nextEpDismissed = false;
-    introSkipped = false;
     nextFile = null;
 
     if (torrentFiles && torrentFiles.length > 1 && torrentFileIndex >= 0) {

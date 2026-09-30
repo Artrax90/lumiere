@@ -58,13 +58,27 @@ def clean_poster_url(raw_poster: str) -> str:
         return f"https://image.tmdb.org/t/p/w500{raw_poster}"
     return raw_poster
 
-def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
-    kb = [
-        [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="📺 Сейчас на ТВ")],
-        [KeyboardButton(text="🎲 Рулетка"), KeyboardButton(text="📥 Скачанное")],
-        [KeyboardButton(text="🔔 Подписки"), KeyboardButton(text="⚙️ Статус сервера")],
+def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
+    """Modern translucent frosted-glass inline keyboard with Bot API 9.4 styles."""
+    buttons = [
+        [
+            InlineKeyboardButton(text="🔍 Поиск фильмов", callback_data="menu:search", style="primary"),
+            InlineKeyboardButton(text="🎲 Кино-рулетка", callback_data="menu:roulette", style="success"),
+        ],
+        [
+            InlineKeyboardButton(text="📺 Сейчас на ТВ", callback_data="menu:tv"),
+            InlineKeyboardButton(text="📥 Скачанное", callback_data="menu:downloads"),
+        ],
+        [
+            InlineKeyboardButton(text="🔔 Подписки", callback_data="menu:subs"),
+            InlineKeyboardButton(text="⚙️ Статус сервера", callback_data="menu:status"),
+        ]
     ]
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, is_persistent=True)
+    if WEB_URL.startswith("https://"):
+        buttons.append([InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL), style="primary")])
+    elif WEB_URL:
+        buttons.append([InlineKeyboardButton(text="✨ Открыть Lumière Web", url=WEB_URL)])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None) -> Optional[Any]:
     url = f"{BACKEND_URL}{path}"
@@ -156,43 +170,20 @@ def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str
 def build_dispatcher(user_id: int) -> Dispatcher:
     dp = Dispatcher()
 
-    @dp.message(CommandStart())
-    async def cmd_start(message: types.Message):
-        welcome_text = (
-            "✨ <b>Добро пожаловать в Lumière Companion!</b>\n\n"
-            "Ваш персональный кино-ассистент готов к работе:\n\n"
-            "🎙 <b>Голосовой поиск</b>: отправьте голосовое сообщение с названием фильма или сериала!\n"
-            "🔎 <b>Текстовый поиск</b>: отправьте название в чат.\n"
-            "📺 <b>Пульт для ТВ</b>: управляйте воспроизведением на Smart TV.\n"
-            "📥 <b>Серверные загрузки</b>: скачивайте релизы на сервер для мгновенного просмотра офлайн.\n"
-            "🔔 <b>Уведомления</b>: бот сообщит, когда выйдет новая серия в подписках."
-        )
-        if WEB_URL.startswith("https://"):
-            app_btn = InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL))
-        else:
-            app_btn = InlineKeyboardButton(text="✨ Открыть Lumière Web", url=WEB_URL)
-        welcome_kb = InlineKeyboardMarkup(inline_keyboard=[[app_btn]])
-        await message.answer(welcome_text, reply_markup=welcome_kb, parse_mode="HTML")
-        await message.answer("👇 Быстрое меню управления:", reply_markup=get_main_menu_keyboard())
-
-    @dp.message(F.text == "🔍 Поиск")
-    async def btn_search(message: types.Message):
-        await message.answer(
-            "🔎 Напишите название фильма или сериала, либо запишите <b>голосовое сообщение</b> 🎤:",
-            parse_mode="HTML"
-        )
-
-    @dp.message(F.text == "📺 Сейчас на ТВ")
-    async def btn_tv_status(message: types.Message):
+    async def show_tv_status(user_reply_target):
         sessions_data = await fetch_api("/api/sessions/active")
         active_list = (sessions_data or {}).get("sessions", [])
 
         if not active_list:
-            await message.answer(
+            msg = (
                 "📺 <b>Сейчас на ТВ ничего не воспроизводится</b>.\n\n"
-                "Вы можете найти фильм и нажать «▶ Включить на ТВ» прямо из этого чата!",
-                parse_mode="HTML"
+                "Вы можете найти фильм и нажать «▶ Включить на ТВ» прямо из этого чата!"
             )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Найти фильм", callback_data="menu:search", style="primary")],
+                [InlineKeyboardButton(text="🎲 Кино-рулетка", callback_data="menu:roulette", style="success")]
+            ])
+            await user_reply_target.answer(msg, reply_markup=kb, parse_mode="HTML")
             return
 
         sess = active_list[0]
@@ -210,17 +201,17 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             f"🎬 <b>{html.escape(str(title))}</b>\n"
             f"⏱ Время: <code>{curr_fmt} / {dur_fmt}</code>\n"
             f"Состояние: {'⏸ Пауза' if paused else '▶ Воспроизводится'}\n\n"
-            f"<i>Используйте кнопки ниже для управления:</i>"
+            f"<i>Управление воспроизведением:</i>"
         )
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="⏪ 30с", callback_data="tv_cmd:seek:-30"),
-                InlineKeyboardButton(text="⏯ Пауза/Старт", callback_data="tv_cmd:toggle_play"),
+                InlineKeyboardButton(text="⏯ Пауза/Старт", callback_data="tv_cmd:toggle_play", style="primary"),
                 InlineKeyboardButton(text="⏩ 30с", callback_data="tv_cmd:seek:30"),
             ],
             [
-                InlineKeyboardButton(text="⏹ Остановить", callback_data="tv_cmd:stop"),
+                InlineKeyboardButton(text="⏹ Остановить", callback_data="tv_cmd:stop", style="danger"),
                 InlineKeyboardButton(text="🔄 Обновить", callback_data="tv_cmd:refresh"),
             ]
         ])
@@ -229,11 +220,83 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         poster_url = clean_poster_url(raw_poster)
         if poster_url:
             try:
-                await message.answer_photo(photo=poster_url, caption=text, reply_markup=kb, parse_mode="HTML")
+                await user_reply_target.answer_photo(photo=poster_url, caption=text, reply_markup=kb, parse_mode="HTML")
                 return
             except Exception:
                 pass
-        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        await user_reply_target.answer(text, reply_markup=kb, parse_mode="HTML")
+
+    @dp.message(CommandStart())
+    async def cmd_start(message: types.Message):
+        # Clear any old clunky wooden reply keyboards from user screen
+        try:
+            await message.answer("🍿 <i>Загружаем Lumière Companion...</i>", reply_markup=types.ReplyKeyboardRemove(), parse_mode="HTML")
+        except Exception:
+            pass
+
+        welcome_text = (
+            "✨ <b>Lumière Companion</b>\n\n"
+            "Ваш персональный кино-ассистент и умный пульт управления:\n\n"
+            "🎙 <b>Голос / Текст</b>: отправьте голосовое или название фильма в чат\n"
+            "📺 <b>Пульт Smart TV</b>: управление воспроизведением на ТВ\n"
+            "🎲 <b>Кино-рулетка</b>: случайные фильмы с описанием и актёрами\n"
+            "📥 <b>Серверные загрузки</b>: скачивание торрентов на диск сервера\n"
+            "🔔 <b>Подписки</b>: уведомления о выходе новых серий\n\n"
+            "<i>Выберите действие в меню:</i>"
+        )
+        await message.answer(welcome_text, reply_markup=get_main_menu_inline_keyboard(), parse_mode="HTML")
+
+    @dp.message(Command("menu"))
+    async def cmd_menu(message: types.Message):
+        await message.answer("🍿 <b>Главное меню Lumière:</b>", reply_markup=get_main_menu_inline_keyboard(), parse_mode="HTML")
+
+    @dp.callback_query(F.data == "menu:search")
+    async def cb_menu_search(call: types.CallbackQuery):
+        await call.answer()
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎲 Или крутите рулетку", callback_data="menu:roulette", style="success")]
+        ])
+        await call.message.answer(
+            "🔎 Напишите название фильма или сериала, либо запишите <b>голосовое сообщение</b> 🎤:",
+            reply_markup=kb,
+            parse_mode="HTML"
+        )
+
+    @dp.callback_query(F.data == "menu:roulette")
+    async def cb_menu_roulette(call: types.CallbackQuery):
+        await call.answer("🎲 Крутим рулетку...")
+        await trigger_roulette(call, is_callback=True)
+
+    @dp.callback_query(F.data == "menu:tv")
+    async def cb_menu_tv(call: types.CallbackQuery):
+        await call.answer()
+        await show_tv_status(call.message)
+
+    @dp.callback_query(F.data == "menu:downloads")
+    async def cb_menu_downloads(call: types.CallbackQuery):
+        await call.answer()
+        await show_downloads(call.message)
+
+    @dp.callback_query(F.data == "menu:subs")
+    async def cb_menu_subs(call: types.CallbackQuery):
+        await call.answer()
+        await show_subscriptions(call.message)
+
+    @dp.callback_query(F.data == "menu:status")
+    async def cb_menu_status(call: types.CallbackQuery):
+        await call.answer()
+        await show_server_status(call.message)
+
+    @dp.message(F.text == "🔍 Поиск")
+    async def btn_search(message: types.Message):
+        await message.answer(
+            "🔎 Напишите название фильма или сериала, либо запишите <b>голосовое сообщение</b> 🎤:",
+            parse_mode="HTML"
+        )
+
+    @dp.message(F.text == "📺 Сейчас на ТВ")
+    async def btn_tv_status(message: types.Message):
+        await show_tv_status(message)
 
     async def trigger_roulette(user_reply_target, is_callback: bool = False):
         if hasattr(user_reply_target, "answer_dice"):
@@ -316,11 +379,11 @@ def build_dispatcher(user_id: int) -> Dispatcher:
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{media_type}:{media_id}"),
-                InlineKeyboardButton(text="📥 На сервер", callback_data=f"dl_start:{media_type}:{media_id}"),
+                InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{media_type}:{media_id}", style="primary"),
+                InlineKeyboardButton(text="📥 На сервер", callback_data=f"dl_start:{media_type}:{media_id}", style="success"),
             ],
             [
-                InlineKeyboardButton(text="🎲 Крутить ещё раз", callback_data="roulette:spin"),
+                InlineKeyboardButton(text="🎲 Крутить ещё раз", callback_data="roulette:spin", style="success"),
             ]
         ])
 
@@ -344,11 +407,10 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         await call.answer("🎲 Крутим рулетку...")
         await trigger_roulette(call, is_callback=True)
 
-    @dp.message(F.text == "📥 Скачанное")
-    async def btn_downloads(message: types.Message):
+    async def show_downloads(target):
         data = await fetch_api("/api/downloads/server/list")
         if not data:
-            await message.answer("Не удалось загрузить список загрузок с сервера.")
+            await target.answer("Не удалось загрузить список загрузок с сервера.")
             return
 
         downloads = data.get("downloads", [])
@@ -356,10 +418,14 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         free_space = disk.get("free", "Неизвестно")
 
         if not downloads:
-            await message.answer(
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Найти фильмы", callback_data="menu:search", style="primary")]
+            ])
+            await target.answer(
                 f"📥 <b>Скачанных файлов на сервере нет</b>.\n\n"
                 f"📊 Свободно на диске: <b>{free_space}</b>\n"
                 f"Вы можете поставить фильм на загрузку заранее, нажав «📥 На сервер» в результатах поиска.",
+                reply_markup=kb,
                 parse_mode="HTML"
             )
             return
@@ -372,7 +438,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             item_title = html.escape(str(item.get('title') or 'Видео'))
             text += f"{idx}. {status_emoji} <b>{item_title}</b> — {item.get('fileSizeFormatted', '')}\n"
 
-        await message.answer(text, parse_mode="HTML")
+        await target.answer(text, parse_mode="HTML")
 
         # Send cards for recent downloaded items
         for item in downloads[:3]:
@@ -384,26 +450,28 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             )
             ikb = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play_local:{item.get('id')}"),
-                    InlineKeyboardButton(text="🗑 Удалить с диска", callback_data=f"dl_delete:{item.get('id')}"),
+                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play_local:{item.get('id')}", style="primary"),
+                    InlineKeyboardButton(text="🗑 Удалить с диска", callback_data=f"dl_delete:{item.get('id')}", style="danger"),
                 ]
             ])
             raw_poster = item.get("poster", "")
             poster_url = clean_poster_url(raw_poster)
             if poster_url:
                 try:
-                    await message.answer_photo(photo=poster_url, caption=card_text, reply_markup=ikb, parse_mode="HTML")
+                    await target.answer_photo(photo=poster_url, caption=card_text, reply_markup=ikb, parse_mode="HTML")
                     continue
                 except Exception:
                     pass
-            await message.answer(card_text, reply_markup=ikb, parse_mode="HTML")
+            await target.answer(card_text, reply_markup=ikb, parse_mode="HTML")
 
-    @dp.message(F.text == "🔔 Подписки")
-    async def btn_subscriptions(message: types.Message):
+    @dp.message(F.text == "📥 Скачанное")
+    async def btn_downloads(message: types.Message):
+        await show_downloads(message)
+
+    async def show_subscriptions(target):
         sub_data = await fetch_api(f"/api/notifications/subscriptions?userId={user_id}")
         subs = (sub_data or {}).get("subscriptions", [])
         notif_data = await fetch_api(f"/api/notifications?userId={user_id}")
-        notifs = (notif_data or {}).get("notifications", [])
         unread = (notif_data or {}).get("unreadCount", 0)
 
         text = (
@@ -432,10 +500,13 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 InlineKeyboardButton(text="🔄 Проверить новые серии", callback_data="sub_check"),
             ]
         ])
-        await message.answer(text, reply_markup=kb, parse_mode="HTML")
+        await target.answer(text, reply_markup=kb, parse_mode="HTML")
 
-    @dp.message(F.text == "⚙️ Статус сервера")
-    async def btn_server_status(message: types.Message):
+    @dp.message(F.text == "🔔 Подписки")
+    async def btn_subscriptions(message: types.Message):
+        await show_subscriptions(message)
+
+    async def show_server_status(target):
         dl_data = await fetch_api("/api/downloads/server/list")
         tmdb_data = await fetch_api("/api/settings/tmdb")
 
@@ -455,7 +526,11 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             f"🛡 <b>Прокси</b>: {proxy_info}\n"
             f"⚡ <b>TorrServer</b>: Активен (кэш 512 MB, пиры настроены)"
         )
-        await message.answer(text, parse_mode="HTML")
+        await target.answer(text, parse_mode="HTML")
+
+    @dp.message(F.text == "⚙️ Статус сервера")
+    async def btn_server_status(message: types.Message):
+        await show_server_status(message)
 
     @dp.message(F.voice)
     async def handle_voice(message: types.Message, bot: Bot):
@@ -544,11 +619,13 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 action_buttons = [
                     InlineKeyboardButton(
                         text="▶ Включить на ТВ",
-                        callback_data=f"tv_play:{media_type}:{media_id}"
+                        callback_data=f"tv_play:{media_type}:{media_id}",
+                        style="primary"
                     ),
                     InlineKeyboardButton(
                         text="📥 На сервер",
-                        callback_data=f"dl_start:{media_type}:{media_id}"
+                        callback_data=f"dl_start:{media_type}:{media_id}",
+                        style="success"
                     ),
                 ]
 
@@ -557,7 +634,8 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                     keyboard_rows.append([
                         InlineKeyboardButton(
                             text="🔔 Отслеживать серии",
-                            callback_data=f"sub_add:{media_id}"
+                            callback_data=f"sub_add:{media_id}",
+                            style="primary"
                         )
                     ])
 
@@ -889,14 +967,14 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             quality_tag = badge.split(" • ")[0]
             size_tag = t.get("sizeFormatted", "").replace(" ", "")
             btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}" if size_tag else f"{emoji_prefix} {quality_tag}"
-            builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}")
+            builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}", style="success")
 
             clean_t_title = html.escape(raw_t_title.strip())
             if len(clean_t_title) > 180:
                 clean_t_title = clean_t_title[:177] + "..."
             releases_summary.append(f"{emoji_prefix} <code>{clean_t_title}</code>\n   👉 <b>{badge}</b>")
 
-        builder.button(text="❌ Отмена", callback_data="dl_cancel")
+        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
         builder.adjust(2, 2, 2)
 
         pick_text = (
@@ -938,8 +1016,8 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             )
             ikb = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="📂 Открыть «Скачанное»", callback_data="nav_downloads"),
-                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{cached['media_type']}:{cached['media_id']}"),
+                    InlineKeyboardButton(text="📂 Открыть «Скачанное»", callback_data="nav_downloads", style="primary"),
+                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{cached['media_type']}:{cached['media_id']}", style="primary"),
                 ]
             ])
             try:

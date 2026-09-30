@@ -689,11 +689,12 @@ export function downloadRoutes(app: FastifyInstance) {
     }
   }, 15000);
 
-  // 4c. HLS Manifest with On-the-Fly Audio Transcoding to AAC (0% CPU video copy, perfect audio in Chrome)
+  // 4c. HLS Manifest with On-the-Fly Audio Transcoding to AAC & Instant Seeking
   app.get('/api/downloads/server/hls/:id/stream.m3u8', async (req, reply) => {
     const { id } = req.params as { id: string };
-    const { audio } = req.query as { audio?: string };
+    const { audio, start } = req.query as { audio?: string; start?: string };
     const audioIdx = parseInt(audio || '0', 10) || 0;
+    const seekTime = Math.max(0, Math.floor(parseFloat(start || '0') || 0));
 
     const itemRes = await pool.query('SELECT * FROM server_downloads WHERE id = $1', [id]);
     if (itemRes.rows.length === 0) {
@@ -705,12 +706,25 @@ export function downloadRoutes(app: FastifyInstance) {
       return reply.code(404).send({ error: 'Downloaded file does not exist on disk' });
     }
 
-    const sessKey = `${id}-a${audioIdx}`;
+    const sessKey = `${id}-a${audioIdx}-s${seekTime}`;
     const hlsDir = join(DOWNLOADS_DIR, '.hls', sessKey);
     const playlistPath = join(hlsDir, 'stream.m3u8');
 
     if (!existsSync(hlsDir)) {
       mkdirSync(hlsDir, { recursive: true });
+    }
+
+    // Clean up older active sessions for the same downloaded file id to preserve CPU/RAM
+    for (const [key, activeSess] of activeHlsSessions.entries()) {
+      if (key.startsWith(`${id}-`) && key !== sessKey) {
+        if (activeSess?.pid) {
+          try { process.kill(activeSess.pid, 'SIGKILL'); } catch {}
+        }
+        try {
+          if (existsSync(activeSess.hlsDir)) rmSync(activeSess.hlsDir, { recursive: true, force: true });
+        } catch {}
+        activeHlsSessions.delete(key);
+      }
     }
 
     let sess = activeHlsSessions.get(sessKey);
@@ -719,8 +733,11 @@ export function downloadRoutes(app: FastifyInstance) {
         try { process.kill(sess.pid, 'SIGKILL'); } catch {}
       }
 
-      const ffmpegArgs = [
-        '-threads', '2',
+      const ffmpegArgs = ['-threads', '2'];
+      if (seekTime > 0) {
+        ffmpegArgs.push('-accurate_seek', '-ss', String(seekTime));
+      }
+      ffmpegArgs.push(
         '-i', filePath,
         '-map', '0:v:0',
         '-map', `0:a:${audioIdx}?`,
@@ -734,7 +751,7 @@ export function downloadRoutes(app: FastifyInstance) {
         '-hls_segment_type', 'mpegts',
         '-hls_segment_filename', join(hlsDir, 'seg-%04d.ts'),
         playlistPath,
-      ];
+      );
 
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
       sess = {
@@ -775,7 +792,7 @@ export function downloadRoutes(app: FastifyInstance) {
     }
 
     let manifest = readFileSync(playlistPath, 'utf-8');
-    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/downloads/server/hls/${id}/seg-$1.ts?a=${audioIdx}`);
+    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/downloads/server/hls/${id}/seg-$1.ts?a=${audioIdx}&s=${seekTime}`);
 
     return reply
       .header('Content-Type', 'application/vnd.apple.mpegurl')
@@ -787,9 +804,10 @@ export function downloadRoutes(app: FastifyInstance) {
   // 4d. Serve HLS segments for downloaded file
   app.get('/api/downloads/server/hls/:id/:filename', async (req, reply) => {
     const { id, filename } = req.params as { id: string; filename: string };
-    const { a } = req.query as { a?: string };
+    const { a, s } = req.query as { a?: string; s?: string };
     const audioIdx = parseInt(a || '0', 10) || 0;
-    const sessKey = `${id}-a${audioIdx}`;
+    const seekTime = Math.max(0, Math.floor(parseFloat(s || '0') || 0));
+    const sessKey = `${id}-a${audioIdx}-s${seekTime}`;
     const hlsDir = join(DOWNLOADS_DIR, '.hls', sessKey);
     const segPath = join(hlsDir, filename);
 

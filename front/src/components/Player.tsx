@@ -237,6 +237,28 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   // Fetch duration, audio tracks, and subtitles from backend for torrent streams
   useEffect(() => {
     const rawUrl = title.hlsUrl || title.videoUrl || title.directUrl || '';
+    if (rawUrl.includes('/api/downloads/server/')) {
+      const match = rawUrl.match(/\/api\/downloads\/server\/(?:hls|stream)\/([^\/\?]+)/);
+      if (match) {
+        const dlId = match[1];
+        serverFetch(`/api/downloads/server/info/${encodeURIComponent(dlId)}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data) => {
+            if (data?.duration && data.duration > 0) {
+              setDuration(data.duration);
+              realDurationRef.current = data.duration;
+            }
+            if (data?.audioTracks && data.audioTracks.length > 0) {
+              setAudioTracks(data.audioTracks);
+            }
+            if (data?.subtitleTracks && data.subtitleTracks.length > 0) {
+              setSubtitleTracks(data.subtitleTracks);
+            }
+          })
+          .catch(() => {});
+      }
+      return;
+    }
     if (!rawUrl.includes('/api/torrents/')) return;
 
     let link: string | null = null;
