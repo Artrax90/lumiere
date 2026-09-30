@@ -18,16 +18,18 @@ export function parseTorrentReleaseInfo(title: string): { season: number; episod
 
   const t = title.replace(/[._]/g, ' ');
 
-  // 1. Explicit SxxExx (e.g. S06E11, S06 E11)
-  const sExMatch = t.match(/\bS(\d+)\s*E(\d+)\b/i);
+  // 1. Explicit SxxExx or SxxE01-13 (e.g. S06E11, S22E01-13, S06 E11)
+  const sExMatch = t.match(/\bS(\d+)\s*E(\d+)(?:[-–—](\d+))?\b/i);
   if (sExMatch) {
     season = parseInt(sExMatch[1], 10);
-    episode = parseInt(sExMatch[2], 10);
+    episode = parseInt(sExMatch[3] || sExMatch[2], 10);
   }
 
-  // 1b. Bracketed [SSxEE] or [SSxEE-EE] (e.g. [04x01-08], [01x08])
+  // 1b. Bracketed [SSxEE] or (SSxEE) or SSхEE (supporting Cyrillic х/Х as well as Latin x)
   if (!season) {
-    const bracketMatch = t.match(/\[(\d+)x(\d+)(?:[-–—](\d+))?\]/i);
+    const bracketMatch =
+      t.match(/[\[\(](\d+)[xх](\d+)(?:[-–—](\d+))?[\]\)]/i) ||
+      t.match(/\b(\d+)[xх](\d+)(?:[-–—](\d+))?\b/i);
     if (bracketMatch) {
       season = parseInt(bracketMatch[1], 10);
       episode = parseInt(bracketMatch[3] || bracketMatch[2], 10);
@@ -45,14 +47,14 @@ export function parseTorrentReleaseInfo(title: string): { season: number; episod
 
   // 3. Episode / Issue / Series matcher if not found yet
   if (!episode) {
-    // Ranges like '1-14 выпуски', 'серии 1-11', 'выпуски 26, 27', 'серии 1-11 из 22'
+    // Ranges like '1-14 выпуски', 'серии 1-13', 'выпуски 26, 27', '1-13 выпуски из 27'
     const rangeMatch =
       t.match(/(?:выпуск[иа]?|сери[ия]|серии|episodes?|ep)[:\s]*(\d+)\s*[-–—,]\s*(\d+)/i) ||
       t.match(/(\d+)\s*[-–—]\s*(\d+)\s*(?:выпуск|сери)/i);
     if (rangeMatch) {
       episode = Math.max(parseInt(rangeMatch[1], 10), parseInt(rangeMatch[2], 10));
     } else {
-      // Single episode: '10 выпуск', 'выпуск 10', '11 серия', 'серия 11'
+      // Single episode: '13 выпуск', 'выпуск 13', '13 серия', 'серия 13'
       const epMatch =
         t.match(/(?:выпуск[а]?|сери[яи]|episodes?|ep)[:\s]+(\d+)/i) ||
         t.match(/(\d+)\s*(?:выпуск[а]?|сери[яи])/i);
@@ -94,17 +96,30 @@ async function detectLatestRelease(title: string, tmdbId: number, tmdbProvider?:
   let latestSeason = 0;
   let latestEpisode = 0;
 
-  // 1. Check JacRed torrents
-  try {
-    const torrents = await fetchJacRedReleases(title);
-    for (const item of torrents) {
-      const parsed = parseTorrentReleaseInfo(item.title);
-      if (parsed.season > latestSeason || (parsed.season === latestSeason && parsed.episode > latestEpisode)) {
-        latestSeason = parsed.season;
-        latestEpisode = parsed.episode;
+  // Build expanded queries for Russian franchise titles (e.g. Comedy Club <-> Новый Comedy Club)
+  const queriesToSearch = [title];
+  if (/comedy\s*club|камеди\s*клаб/i.test(title)) {
+    queriesToSearch.unshift('Новый Comedy Club');
+    queriesToSearch.push('Камеди Клаб', 'Comedy Club 22');
+  }
+  const cleanTitle = title.replace(/\s*\(\d{4}\)$/, '').trim();
+  if (cleanTitle !== title && !queriesToSearch.includes(cleanTitle)) {
+    queriesToSearch.push(cleanTitle);
+  }
+
+  // 1. Check JacRed torrents across queries
+  for (const q of queriesToSearch) {
+    try {
+      const torrents = await fetchJacRedReleases(q);
+      for (const item of torrents) {
+        const parsed = parseTorrentReleaseInfo(item.title);
+        if (parsed.season > latestSeason || (parsed.season === latestSeason && parsed.episode > latestEpisode)) {
+          latestSeason = parsed.season;
+          latestEpisode = parsed.episode;
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   // 2. Check TMDB details
   if (tmdbProvider && tmdbId) {

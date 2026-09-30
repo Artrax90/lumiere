@@ -80,6 +80,8 @@ async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None)
         print(f"[Bot] API error {method} {url}: {e}")
     return None
 
+ITEM_CACHE: Dict[str, dict] = {}
+
 def build_dispatcher(user_id: int) -> Dispatcher:
     dp = Dispatcher()
 
@@ -339,15 +341,24 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 f"{safe_overview}"
             )
 
-            encoded_title = urllib.parse.quote(title[:25])
+            # Store item metadata in memory cache to stay safely within Telegram's 64-byte callback_data limit
+            cache_key = f"{media_type}:{media_id}"
+            ITEM_CACHE[cache_key] = {
+                "title": title,
+                "type": media_type,
+                "id": media_id,
+                "poster": poster_url,
+                "year": year_val
+            }
+
             action_buttons = [
                 InlineKeyboardButton(
                     text="▶ Включить на ТВ",
-                    callback_data=f"tv_play:{media_type}:{media_id}:{encoded_title}"
+                    callback_data=f"tv_play:{media_type}:{media_id}"
                 ),
                 InlineKeyboardButton(
                     text="📥 На сервер",
-                    callback_data=f"dl_start:{media_type}:{media_id}:{encoded_title}"
+                    callback_data=f"dl_start:{media_type}:{media_id}"
                 ),
             ]
 
@@ -356,7 +367,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 keyboard_rows.append([
                     InlineKeyboardButton(
                         text="🔔 Отслеживать серии",
-                        callback_data=f"sub_add:{media_id}:{encoded_title}"
+                        callback_data=f"sub_add:{media_id}"
                     )
                 ])
 
@@ -384,22 +395,47 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         parts = call.data.split(":")
         media_type = parts[1] if len(parts) > 1 else "movie"
         media_id = parts[2] if len(parts) > 2 else ""
-        raw_title = urllib.parse.unquote(parts[3]) if len(parts) > 3 else "Медиа"
+        season = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+        episode = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else None
+
+        cached = ITEM_CACHE.get(f"{media_type}:{media_id}", {})
+        raw_title = cached.get("title")
+        if not raw_title:
+            if len(parts) > 3 and not parts[3].isdigit():
+                raw_title = urllib.parse.unquote(parts[3])
+            else:
+                raw_title = "Медиа"
+
+        if raw_title == "Медиа" and media_id:
+            try:
+                ep_url = f"/api/tv/{media_id}" if media_type == "tv" else f"/api/movie/{media_id}"
+                det = await fetch_api(ep_url)
+                if det and (det.get("name") or det.get("title")):
+                    raw_title = det.get("name") or det.get("title")
+            except Exception:
+                pass
+
+        val_dict = {
+            "mediaType": media_type,
+            "mediaId": media_id,
+            "title": raw_title,
+        }
+        if season is not None:
+            val_dict["season"] = season
+        if episode is not None:
+            val_dict["episode"] = episode
 
         res = await fetch_api("/api/sessions/remote-command", method="POST", data={
             "action": "play_media",
             "deviceType": "tv",
             "userId": user_id,
-            "value": {
-                "mediaType": media_type,
-                "mediaId": media_id,
-                "title": raw_title,
-            }
+            "value": val_dict
         })
 
         if res and res.get("success"):
             await call.answer("▶ Команда отправлена на ТВ!", show_alert=True)
-            await call.message.reply(f"🚀 Запускаем <b>«{html.escape(raw_title)}»</b> на вашем ТВ...", parse_mode="HTML")
+            ep_extra = f" (S{season:02d}E{episode:02d})" if (season and episode) else ""
+            await call.message.reply(f"🚀 Запускаем <b>«{html.escape(raw_title)}»{ep_extra}</b> на вашем ТВ...", parse_mode="HTML")
         else:
             await call.answer("⚠️ Не удалось отправить на ТВ. Убедитесь, что приложение на ТВ включено.", show_alert=True)
 
@@ -556,7 +592,22 @@ def build_dispatcher(user_id: int) -> Dispatcher:
     async def on_sub_add(call: types.CallbackQuery):
         parts = call.data.split(":")
         tmdb_id = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 0
-        raw_title = urllib.parse.unquote(parts[2]) if len(parts) > 2 else "Сериал"
+
+        cached = ITEM_CACHE.get(f"tv:{tmdb_id}", {})
+        raw_title = cached.get("title")
+        if not raw_title:
+            if len(parts) > 2:
+                raw_title = urllib.parse.unquote(parts[2])
+            else:
+                raw_title = "Сериал"
+
+        if raw_title == "Сериал" and tmdb_id:
+            try:
+                det = await fetch_api(f"/api/tv/{tmdb_id}")
+                if det and (det.get("name") or det.get("title")):
+                    raw_title = det.get("name") or det.get("title")
+            except Exception:
+                pass
 
         res = await fetch_api("/api/notifications/subscribe", method="POST", data={
             "userId": user_id,
@@ -573,16 +624,42 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         else:
             await call.answer("Не удалось подписаться", show_alert=True)
 
-    @dp.callback_query(F.data.startswith("dl_start:"))
+    @dp.callback_query(F.data.startswith("dl_start:") | F.data.startswith("dl_server:"))
     async def on_dl_start(call: types.CallbackQuery):
         parts = call.data.split(":")
         media_type = parts[1] if len(parts) > 1 else "movie"
         media_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
-        raw_title = urllib.parse.unquote(parts[3]) if len(parts) > 3 else "Медиа"
+        season = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None
+        episode = int(parts[4]) if len(parts) > 4 and parts[4].isdigit() else None
+
+        cached = ITEM_CACHE.get(f"{media_type}:{media_id}", {})
+        raw_title = cached.get("title")
+        if not raw_title:
+            if len(parts) > 3 and not parts[3].isdigit():
+                raw_title = urllib.parse.unquote(parts[3])
+            else:
+                raw_title = "Медиа"
+
+        if raw_title == "Медиа" and media_id:
+            try:
+                ep_url = f"/api/tv/{media_id}" if media_type == "tv" else f"/api/movie/{media_id}"
+                det = await fetch_api(ep_url)
+                if det and (det.get("name") or det.get("title")):
+                    raw_title = det.get("name") or det.get("title")
+            except Exception:
+                pass
 
         await call.answer("🔍 Ищем лучший релиз для загрузки...")
-        torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(raw_title)}&tmdbId={media_id}&type={media_type}")
+        search_query = raw_title
+        if season is not None and episode is not None:
+            search_query += f" S{season:02d}E{episode:02d}"
+
+        torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(search_query)}&tmdbId={media_id}&type={media_type}")
         torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
+
+        if not torrents and search_query != raw_title:
+            torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(raw_title)}&tmdbId={media_id}&type={media_type}")
+            torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
 
         if not torrents:
             await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}».")

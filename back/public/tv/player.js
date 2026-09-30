@@ -746,24 +746,53 @@
     hideNextEpOverlay(true);
     showFlash('▶', 'Следующая серия...');
 
-    if (nextFile.isDynamic && typeof window.playSeasonEpisode === 'function' && movieId && nextFile.season && nextFile.episode) {
+    var nextSeason = nextFile.season || 1;
+    var nextEpisode = nextFile.episode || 1;
+    var cleanBase = (movieTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+
+    // 1. If current torrent already has the next file, play it immediately via openPlayer
+    if (!nextFile.isDynamic && torrentLink && nextFile.id !== undefined) {
+      var nextUrl = API + '/api/torrents/torrserver/stream?link=' + encodeURIComponent(torrentLink) + '&index=' + nextFile.id + '&play=1';
       destroyPlayer();
-      window.playSeasonEpisode(movieId, nextFile.season, nextFile.episode, posterUrl);
+      var epName = nextFile.name || (cleanBase ? (cleanBase + ' · S' + (nextSeason < 10 ? '0' + nextSeason : nextSeason) + ' E' + (nextEpisode < 10 ? '0' + nextEpisode : nextEpisode)) : 'Следующая серия');
+      if (typeof window.openPlayer === 'function') {
+        window.openPlayer({
+          url: nextUrl,
+          title: epName,
+          id: movieId,
+          type: mediaType || 'tv',
+          poster: posterUrl,
+          link: torrentLink,
+          fileIndex: nextFile.id,
+          files: torrentFiles
+        });
+      } else if (typeof window.initPlayer === 'function') {
+        window.initPlayer({
+          url: nextUrl,
+          title: epName,
+          id: movieId,
+          type: mediaType || 'tv',
+          poster: posterUrl,
+          link: torrentLink,
+          fileIndex: nextFile.id,
+          files: torrentFiles
+        });
+      }
       return;
     }
 
-    var nextUrl = API + '/api/torrents/torrserver/stream?link=' + encodeURIComponent(torrentLink) + '&index=' + nextFile.id + '&play=1';
-    destroyPlayer();
-    window.initPlayer({
-      url: nextUrl,
-      title: nextFile.name || 'Следующая серия',
-      id: movieId,
-      type: mediaType,
-      poster: posterUrl,
-      link: torrentLink,
-      fileIndex: nextFile.id,
-      files: torrentFiles
-    });
+    // 2. Dynamic next episode resolution across seasons or torrent releases
+    if (typeof window.playSeasonEpisode === 'function' && movieId && nextSeason && nextEpisode) {
+      destroyPlayer();
+      window.playSeasonEpisode(
+        { id: movieId, name: cleanBase, title: cleanBase, poster: posterUrl },
+        nextSeason,
+        { episode: nextEpisode, episode_number: nextEpisode, title: 'Серия ' + nextEpisode },
+        posterUrl,
+        true
+      );
+      return;
+    }
   }
 
   function updateTimelineUI(overrideTime) {

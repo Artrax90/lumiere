@@ -5521,13 +5521,21 @@
     });
   }
 
-  function playSeasonEpisode(title, seasonNum, ep) {
-    var showId = (title && title.id) || (state.detail && state.detail.id) || 0;
-    var showName = (title && (title.name || title.title)) || (state.detail && (state.detail.name || state.detail.title)) || '';
-    var epTitleStr = showName + ' · S' + seasonNum + ' E' + ep.episode + (ep.title ? ' · ' + ep.title : '');
-    var epPoster = ep.thumbnail ? imgUrl(ep.thumbnail) : ((title && title.poster) || '');
+  function playSeasonEpisode(title, seasonNum, ep, optPoster, autoPlayDirect) {
+    var showId = (typeof title === 'number') ? title : ((title && title.id) || (state.detail && state.detail.id) || 0);
+    var showName = (typeof title === 'string') ? title : ((title && (title.name || title.title)) || (state.detail && (state.detail.name || state.detail.title)) || '');
+    if (!showName && showId && state.detail && state.detail.id === showId) {
+      showName = state.detail.name || state.detail.title || '';
+    }
+    seasonNum = parseInt(seasonNum, 10) || 1;
+    var epNum = (typeof ep === 'number') ? ep : (ep && (ep.episode || ep.episode_number) ? (ep.episode || ep.episode_number) : 1);
+    var epObj = (typeof ep === 'object' && ep) ? ep : { episode: epNum, episode_number: epNum, title: 'Серия ' + epNum };
+    epObj.episode = epNum;
 
-    showTvToast('Поиск серии ' + ep.episode + ' (' + seasonNum + ' сезон)...', 4000);
+    var epTitleStr = showName + ' · S' + (seasonNum < 10 ? '0' + seasonNum : seasonNum) + ' E' + (epNum < 10 ? '0' + epNum : epNum) + (epObj.title ? ' · ' + epObj.title : '');
+    var epPoster = (epObj.thumbnail ? imgUrl(epObj.thumbnail) : '') || optPoster || ((title && title.poster) || (state.detail && state.detail.poster) || '');
+
+    showTvToast('Поиск серии ' + epNum + ' (' + seasonNum + ' сезон)...', 4000);
 
     var cacheKey = (showId ? String(showId) : '') + '_' + showName;
     var allTorrents = (state._torrentCache && state._torrentCache[cacheKey]) || null;
@@ -5545,7 +5553,6 @@
       });
       if (filtered.length === 0) filtered = torrentsList;
 
-      var epNum = ep.episode;
       var epMatches = [];
       var epFallbacks = [];
       filtered.forEach(function(item) {
@@ -5610,20 +5617,39 @@
           state.torrentFiles = files;
           state._lastMagnet = candidate.magnet;
           var matchedFile = null;
+
+          // 1. Try matching with extractEpisodeNumber
           for (var f = 0; f < files.length; f++) {
             var fileEp = extractEpisodeNumber(files[f].name, f, seasonNum);
-            if (fileEp === ep.episode) {
+            if (fileEp === epNum) {
               matchedFile = files[f];
               break;
             }
           }
 
-          // Fallback: If file name did not contain episode number, but the candidate release itself was an exact match for this episode!
+          // 2. Try matching with regex on filename
+          if (!matchedFile) {
+            for (var f2 = 0; f2 < files.length; f2++) {
+              var fn = files[f2].name || '';
+              var epM = fn.match(/\bS\d+E0*(\d+)\b/i) || fn.match(/\[\d+[xх]0*(\d+)\]/i) || fn.match(/\b0*(\d+)\s*(?:серия|выпуск)\b/i) || fn.match(/(?:серия|выпуск)\s*0*(\d+)\b/i);
+              if (epM && parseInt(epM[1], 10) === epNum) {
+                matchedFile = files[f2];
+                break;
+              }
+            }
+          }
+
+          // 3. Fallback: If file name did not contain episode number, but candidate release itself was an exact match for this episode!
           if (!matchedFile && files.length > 0) {
-            var candCheck = checkTorrentEpisode(candidate.title, seasonNum, ep.episode);
+            var candCheck = checkTorrentEpisode(candidate.title, seasonNum, epNum);
             if (candCheck && candCheck.exact) {
               matchedFile = files[0];
             }
+          }
+
+          // 4. Auto-play direct fallback: if autoPlayDirect requested and files length matches episode index
+          if (!matchedFile && autoPlayDirect && files.length >= epNum && epNum > 0) {
+            matchedFile = files[epNum - 1];
           }
 
           if (matchedFile) {
@@ -5632,7 +5658,7 @@
                 magnet: candidate.magnet,
                 title: candidate.title,
                 season: seasonNum,
-                episode: ep.episode,
+                episode: epNum,
                 fileIndex: matchedFile.id,
                 fileName: matchedFile.name
               };
@@ -5645,7 +5671,7 @@
                 title: epTitleStr,
                 type: 'tv',
                 season: seasonNum,
-                episode: ep.episode,
+                episode: epNum,
                 fileIndex: matchedFile.id,
                 fileName: matchedFile.name
               };
@@ -5657,7 +5683,11 @@
             if (idx + 1 < Math.min(sorted.length, 4)) {
               tryCandidate(idx + 1);
             } else {
-              showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
+              if (autoPlayDirect && files.length > 0) {
+                playFile(files[0], epTitleStr, showId, epPoster, files);
+              } else {
+                showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
+              }
             }
           }
         });
@@ -10671,12 +10701,22 @@
               files: []
             });
           } else if (val.mediaId) {
-            showDetail({
-              id: val.mediaId,
-              name: val.title || '',
-              type: val.mediaType || 'movie',
-              poster: val.poster || ''
-            });
+            if (val.mediaType === 'tv' && val.season && val.episode) {
+              playSeasonEpisode(
+                { id: val.mediaId, name: val.title, title: val.title, poster: val.poster },
+                val.season,
+                { episode: val.episode, episode_number: val.episode },
+                val.poster || '',
+                true
+              );
+            } else {
+              showDetail({
+                id: val.mediaId,
+                name: val.title || '',
+                type: val.mediaType || 'movie',
+                poster: val.poster || ''
+              });
+            }
           }
         }
       }
