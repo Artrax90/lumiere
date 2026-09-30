@@ -5965,14 +5965,12 @@
 
             playFile(matchedFile, epTitleStr, showId, epPoster, files, autoPlayDirect ? 0 : undefined);
           } else {
-            if (idx + 1 < Math.min(sorted.length, 4)) {
+            if (idx + 1 < Math.min(sorted.length, 6)) {
               tryCandidate(idx + 1);
             } else {
-              if (autoPlayDirect && files.length > 0) {
-                playFile(files[0], epTitleStr, showId, epPoster, files, 0);
-              } else {
-                showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
-              }
+              showTvToast('Серия ' + epNum + ' не найдена в раздачах', 3500);
+              state.detailTab = 'sources';
+              switchDetailTab('sources');
             }
           }
         });
@@ -7018,7 +7016,13 @@
       } else if (file && file.streamUrl) {
         url = file.streamUrl;
       }
-      if (url.indexOf('/') === 0) url = API + url;
+      if (!url && file && file.id !== undefined) {
+        var activeMag = state._lastMagnet || (state.activeTorrent && state.activeTorrent.magnet) || '';
+        if (activeMag) {
+          url = '/api/torrents/proxy/' + encodeURIComponent(file.name || 'video.mkv') + '?link=' + encodeURIComponent(activeMag) + '&index=' + file.id;
+        }
+      }
+      if (url && url.indexOf('/') === 0) url = API + url;
 
       // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
