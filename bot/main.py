@@ -23,18 +23,22 @@ import aiohttp
 from aiohttp_socks import ProxyConnector
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart, Command
+from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types import (
     InlineKeyboardMarkup,
     InlineKeyboardButton,
     ReplyKeyboardMarkup,
     KeyboardButton,
     FSInputFile,
+    WebAppInfo,
+    MenuButtonWebApp,
 )
 from aiogram.client.session.aiohttp import AiohttpSession
 
 from voice import recognize_voice_file
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3500")
+WEB_URL = os.getenv("WEB_URL", "http://192.168.1.196:3500")
 
 def clean_poster_url(raw_poster: str) -> str:
     """Extract a direct clean poster URL from TMDB path or Lumiere image proxy."""
@@ -60,7 +64,7 @@ def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
         [KeyboardButton(text="🎲 Рулетка"), KeyboardButton(text="📥 Скачанное")],
         [KeyboardButton(text="🔔 Подписки"), KeyboardButton(text="⚙️ Статус сервера")],
     ]
-    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
+    return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True, is_persistent=True)
 
 async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None) -> Optional[Any]:
     url = f"{BACKEND_URL}{path}"
@@ -163,7 +167,11 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             "📥 <b>Серверные загрузки</b>: скачивайте релизы на сервер для мгновенного просмотра офлайн.\n"
             "🔔 <b>Уведомления</b>: бот сообщит, когда выйдет новая серия в подписках."
         )
-        await message.answer(welcome_text, reply_markup=get_main_menu_keyboard(), parse_mode="HTML")
+        welcome_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL))]
+        ])
+        await message.answer(welcome_text, reply_markup=welcome_kb, parse_mode="HTML")
+        await message.answer("👇 Быстрое меню управления:", reply_markup=get_main_menu_keyboard())
 
     @dp.message(F.text == "🔍 Поиск")
     async def btn_search(message: types.Message):
@@ -854,8 +862,9 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         torrents.sort(key=lambda x: (x.get("seeders", 0) > 0, x.get("seeders", 0)), reverse=True)
 
         options = torrents[:5]
-        pick_buttons = []
+        builder = InlineKeyboardBuilder()
         releases_summary = []
+        num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
 
         for idx, t in enumerate(options, 1):
             pick_id = uuid.uuid4().hex[:8]
@@ -874,26 +883,27 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 "file_name": raw_t_title,
                 "badge": badge,
             }
-            pick_buttons.append([
-                InlineKeyboardButton(text=f"💾 {idx}. {badge}", callback_data=f"dl_pick:{pick_id}")
-            ])
+            emoji_prefix = num_emojis[idx - 1] if idx <= 5 else f"{idx}."
+            quality_tag = badge.split(" • ")[0]
+            size_tag = t.get("sizeFormatted", "").replace(" ", "")
+            btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}" if size_tag else f"{emoji_prefix} {quality_tag}"
+            builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}")
+
             clean_t_title = html.escape(raw_t_title.strip())
             if len(clean_t_title) > 180:
                 clean_t_title = clean_t_title[:177] + "..."
-            releases_summary.append(f"<b>{idx}.</b> <code>{clean_t_title}</code>\n   👉 <i>{badge}</i>")
+            releases_summary.append(f"{emoji_prefix} <code>{clean_t_title}</code>\n   👉 <b>{badge}</b>")
 
-        pick_buttons.append([
-            InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel")
-        ])
+        builder.button(text="❌ Отмена", callback_data="dl_cancel")
+        builder.adjust(2, 2, 2)
 
-        kb = InlineKeyboardMarkup(inline_keyboard=pick_buttons)
         pick_text = (
             f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
             f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
             + "\n\n".join(releases_summary)
-            + "\n\n<i>Нажмите кнопку с номером релиза для скачивания на диск сервера:</i>"
+            + "\n\n<i>Нажмите кнопку ниже для скачивания на диск сервера:</i>"
         )
-        await call.message.reply(pick_text, reply_markup=kb, parse_mode="HTML")
+        await call.message.reply(pick_text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     @dp.callback_query(F.data.startswith("dl_pick:"))
     async def on_dl_pick(call: types.CallbackQuery):
@@ -1020,6 +1030,10 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
     try:
         me = await bot.get_me()
         print(f"[Bot] Bot @{me.username} ({me.first_name}) connected successfully for user {user_id}!")
+        try:
+            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Lumière", web_app=WebAppInfo(url=WEB_URL)))
+        except Exception as mbe:
+            print(f"[Bot] MenuButton note: {mbe}")
         print(f"[Bot] Resetting update stream for @{me.username}...")
         try:
             await bot.delete_webhook(drop_pending_updates=True)

@@ -612,6 +612,11 @@
       var avState = '';
       try { avState = webapis.avplay.getState(); } catch(e) {}
       if (avState === 'PLAYING' || avState === 'PAUSED') {
+        if (self._currentUrl && self._currentUrl.indexOf('/api/downloads/server/stream') !== -1) {
+          var target = Math.max(1.5, self._currentTime + seconds);
+          self.seekTo(target, successCb, errorCb);
+          return;
+        }
         var offsetMs = Math.round(Math.abs(seconds) * 1000);
         if (self._isBuffering) {
           var target = Math.max(1.5, self._currentTime + seconds);

@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply } from 'fastify';
-import { existsSync, mkdirSync, createReadStream, createWriteStream, statSync, unlinkSync, statfsSync } from 'fs';
+import { existsSync, mkdirSync, createReadStream, createWriteStream, statSync, unlinkSync, statfsSync, readFileSync, rmSync } from 'fs';
+import { spawn } from 'child_process';
 import { join, extname } from 'path';
 import pool from '../db/pool.js';
 import { config } from '../config.js';
@@ -577,6 +578,246 @@ export function downloadRoutes(app: FastifyInstance) {
         .header('Access-Control-Allow-Origin', '*')
         .send(fileStream);
     }
+  });
+
+  // Helper: inspect local media file with ffprobe for duration, audio tracks, and subtitle tracks
+  interface MediaInfo {
+    duration: number;
+    audioTracks: Array<{ id: number; name: string; lang: string; codec: string }>;
+    subtitleTracks: Array<{ id: number; name: string; lang: string }>;
+  }
+
+  async function inspectMediaFile(filePath: string): Promise<MediaInfo> {
+    return new Promise((resolve) => {
+      const defaultInfo: MediaInfo = { duration: 0, audioTracks: [], subtitleTracks: [] };
+      try {
+        const proc = spawn('ffprobe', [
+          '-v', 'error',
+          '-show_entries', 'format=duration:stream=index,codec_name,codec_type,tags',
+          '-of', 'json',
+          filePath,
+        ]);
+        let stdout = '';
+        proc.stdout?.on('data', (d) => { stdout += d.toString(); });
+        proc.on('close', (code) => {
+          if (code !== 0 || !stdout) return resolve(defaultInfo);
+          try {
+            const json = JSON.parse(stdout);
+            const dur = parseFloat(json.format?.duration || '0') || 0;
+            const audioTracks: any[] = [];
+            const subtitleTracks: any[] = [];
+            let aIdx = 0;
+            let sIdx = 0;
+            (json.streams || []).forEach((st: any) => {
+              const tags = st.tags || {};
+              const lang = tags.language || tags.lang || 'und';
+              const title = tags.title || '';
+              if (st.codec_type === 'audio') {
+                audioTracks.push({
+                  id: aIdx++,
+                  streamIndex: st.index,
+                  name: title ? `${title} (${lang})` : `Дорожка ${audioTracks.length + 1} (${lang})`,
+                  lang,
+                  codec: st.codec_name || 'aac',
+                });
+              } else if (st.codec_type === 'subtitle') {
+                subtitleTracks.push({
+                  id: sIdx++,
+                  streamIndex: st.index,
+                  name: title ? `${title} (${lang})` : `Субтитры ${subtitleTracks.length + 1} (${lang})`,
+                  lang,
+                });
+              }
+            });
+            resolve({ duration: dur, audioTracks, subtitleTracks });
+          } catch {
+            resolve(defaultInfo);
+          }
+        });
+        proc.on('error', () => resolve(defaultInfo));
+      } catch {
+        resolve(defaultInfo);
+      }
+    });
+  }
+
+  // 4b. Downloaded File Media Info (Duration & Tracks for TV seeking / Web player)
+  app.get('/api/downloads/server/info/:id', async (req, reply) => {
+    await ensureServerDownloadsTable();
+    const { id } = req.params as { id: string };
+
+    const itemRes = await pool.query('SELECT * FROM server_downloads WHERE id = $1', [id]);
+    if (itemRes.rows.length === 0) {
+      return reply.code(404).send({ error: 'Download not found' });
+    }
+    const item = itemRes.rows[0];
+    const filePath = item.file_path;
+    if (!filePath || !existsSync(filePath)) {
+      return reply.code(404).send({ error: 'File not on disk' });
+    }
+
+    const info = await inspectMediaFile(filePath);
+    return reply.send({
+      id: item.id,
+      title: item.title,
+      fileName: item.file_name,
+      fileSize: item.file_size,
+      duration: info.duration,
+      audioTracks: info.audioTracks,
+      subtitleTracks: info.subtitleTracks,
+      streamUrl: `/api/downloads/server/stream/${item.id}`,
+      hlsUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
+    });
+  });
+
+  // Track active HLS transcode sessions for downloaded files
+  const activeHlsSessions = new Map<string, { pid: number; hlsDir: string; playlistPath: string; lastActivity: number }>();
+
+  // Periodically clean inactive HLS sessions after 60s idle
+  setInterval(() => {
+    const now = Date.now();
+    for (const [key, sess] of activeHlsSessions.entries()) {
+      if (now - sess.lastActivity > 60000) {
+        try {
+          if (sess.pid) process.kill(sess.pid, 'SIGKILL');
+        } catch {}
+        try {
+          if (existsSync(sess.hlsDir)) rmSync(sess.hlsDir, { recursive: true, force: true });
+        } catch {}
+        activeHlsSessions.delete(key);
+      }
+    }
+  }, 15000);
+
+  // 4c. HLS Manifest with On-the-Fly Audio Transcoding to AAC (0% CPU video copy, perfect audio in Chrome)
+  app.get('/api/downloads/server/hls/:id/stream.m3u8', async (req, reply) => {
+    const { id } = req.params as { id: string };
+    const { audio } = req.query as { audio?: string };
+    const audioIdx = parseInt(audio || '0', 10) || 0;
+
+    const itemRes = await pool.query('SELECT * FROM server_downloads WHERE id = $1', [id]);
+    if (itemRes.rows.length === 0) {
+      return reply.code(404).send({ error: 'File not found in downloads' });
+    }
+    const item = itemRes.rows[0];
+    const filePath = item.file_path;
+    if (!filePath || !existsSync(filePath)) {
+      return reply.code(404).send({ error: 'Downloaded file does not exist on disk' });
+    }
+
+    const sessKey = `${id}-a${audioIdx}`;
+    const hlsDir = join(DOWNLOADS_DIR, '.hls', sessKey);
+    const playlistPath = join(hlsDir, 'stream.m3u8');
+
+    if (!existsSync(hlsDir)) {
+      mkdirSync(hlsDir, { recursive: true });
+    }
+
+    let sess = activeHlsSessions.get(sessKey);
+    if (!sess || !existsSync(playlistPath)) {
+      if (sess?.pid) {
+        try { process.kill(sess.pid, 'SIGKILL'); } catch {}
+      }
+
+      const ffmpegArgs = [
+        '-threads', '2',
+        '-i', filePath,
+        '-map', '0:v:0',
+        '-map', `0:a:${audioIdx}?`,
+        '-c:v', 'copy',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        '-ac', '2',
+        '-f', 'hls',
+        '-hls_time', '4',
+        '-hls_list_size', '0',
+        '-hls_segment_type', 'mpegts',
+        '-hls_segment_filename', join(hlsDir, 'seg-%04d.ts'),
+        playlistPath,
+      ];
+
+      const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+      sess = {
+        pid: ffmpeg.pid!,
+        hlsDir,
+        playlistPath,
+        lastActivity: Date.now(),
+      };
+      activeHlsSessions.set(sessKey, sess);
+
+      ffmpeg.on('close', () => {
+        console.log(`[Downloads HLS] FFmpeg session ${sessKey} closed`);
+      });
+      ffmpeg.on('error', (err) => {
+        console.error(`[Downloads HLS] FFmpeg session ${sessKey} error:`, err.message);
+      });
+    }
+
+    sess.lastActivity = Date.now();
+
+    // Wait up to 6s for playlist to have at least one segment
+    const waitForPlaylist = () => new Promise<boolean>((resolve) => {
+      let attempts = 0;
+      const check = () => {
+        if (existsSync(playlistPath)) {
+          const content = readFileSync(playlistPath, 'utf-8');
+          if (content.includes('.ts')) return resolve(true);
+        }
+        if (attempts++ < 60) setTimeout(check, 100);
+        else resolve(false);
+      };
+      check();
+    });
+
+    const ready = await waitForPlaylist();
+    if (!ready || !existsSync(playlistPath)) {
+      return reply.code(503).send({ error: 'HLS stream generating, please retry in 1s' });
+    }
+
+    let manifest = readFileSync(playlistPath, 'utf-8');
+    manifest = manifest.replace(/seg-(\d+)\.ts/g, `/api/downloads/server/hls/${id}/seg-$1.ts?a=${audioIdx}`);
+
+    return reply
+      .header('Content-Type', 'application/vnd.apple.mpegurl')
+      .header('Cache-Control', 'no-cache, no-store, must-revalidate')
+      .header('Access-Control-Allow-Origin', '*')
+      .send(manifest);
+  });
+
+  // 4d. Serve HLS segments for downloaded file
+  app.get('/api/downloads/server/hls/:id/:filename', async (req, reply) => {
+    const { id, filename } = req.params as { id: string; filename: string };
+    const { a } = req.query as { a?: string };
+    const audioIdx = parseInt(a || '0', 10) || 0;
+    const sessKey = `${id}-a${audioIdx}`;
+    const hlsDir = join(DOWNLOADS_DIR, '.hls', sessKey);
+    const segPath = join(hlsDir, filename);
+
+    const sess = activeHlsSessions.get(sessKey);
+    if (sess) sess.lastActivity = Date.now();
+
+    const waitForSeg = () => new Promise<boolean>((resolve) => {
+      let attempts = 0;
+      const check = () => {
+        if (existsSync(segPath)) return resolve(true);
+        if (attempts++ < 40) setTimeout(check, 100);
+        else resolve(false);
+      };
+      check();
+    });
+
+    const ready = await waitForSeg();
+    if (!ready || !existsSync(segPath)) {
+      return reply.code(404).send({ error: 'Segment not found' });
+    }
+
+    const stat = statSync(segPath);
+    return reply
+      .header('Content-Type', 'video/mp2t')
+      .header('Content-Length', stat.size)
+      .header('Access-Control-Allow-Origin', '*')
+      .header('Cache-Control', 'public, max-age=86400')
+      .send(createReadStream(segPath));
   });
 
   // 5. Pre-caching Next Episode (Killer Feature 4: TorrServer Preload)

@@ -92,17 +92,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
   const isServerDownload = Boolean(
     title.videoUrl?.includes('/api/downloads/server/stream') ||
-    title.directUrl?.includes('/api/downloads/server/stream')
+    title.directUrl?.includes('/api/downloads/server/stream') ||
+    title.videoUrl?.includes('/api/downloads/server/hls') ||
+    title.hlsUrl?.includes('/api/downloads/server/hls')
   );
 
-  // Direct play is only allowed for verified web-safe containers or non-torrents with directUrl or server downloads
-  const canPlayDirect = isServerDownload || (isTorrent
+  // Direct play is only allowed for verified web-safe containers or non-torrents with directUrl or server downloads (when not using HLS)
+  const canPlayDirect = (!title.hlsUrl && !title.videoUrl?.includes('m3u8') && isServerDownload) || (isTorrent
     ? isWebSafeFormat
     : Boolean(title.directUrl || isWebSafeFormat));
 
   const hasVideo = !!(title.videoUrl || title.directUrl || title.hlsUrl);
-  const isHls = !isServerDownload && hasVideo && (
-    !canPlayDirect ||
+  const isHls = hasVideo && (
     Boolean(
       title.hlsUrl ||
       title.videoUrl?.includes('.m3u') ||
@@ -110,7 +111,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       title.videoUrl?.includes('/hls') ||
       title.videoUrl?.includes('/api/iptv/stream') ||
       title.type === 'live'
-    )
+    ) || (!canPlayDirect)
   );
 
   const resetHideTimer = useCallback(() => {

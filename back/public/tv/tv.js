@@ -116,7 +116,6 @@
         '<div id="popup-header"></div>' +
         '<div id="popup-list"></div>' +
       '</div>' +
-      '<button id="btn-skip-intro" class="hidden osd-skip-btn" tabindex="0">\u23ed Пропустить заставку (+85с)</button>' +
       '<div id="next-ep-overlay" class="hidden">' +
         '<div class="next-ep-card">' +
           '<div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>' +
@@ -4673,10 +4672,16 @@
 
   function imgUrl(path) {
     if (!path) return '';
-    if (path.indexOf('/') === 0) return API + path;
-    if (path.indexOf('https://image.tmdb.org/') === 0) {
-      return API + '/api/image?url=' + encodeURIComponent(path);
+    if (path.indexOf('/t/p/') === 0) {
+      return API + '/api/image?url=' + encodeURIComponent('https://image.tmdb.org' + path);
     }
+    if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
+      if (path.indexOf('image.tmdb.org') !== -1 || path.indexOf('kinopoisk') !== -1 || path.indexOf('yandex.net') !== -1) {
+        return API + '/api/image?url=' + encodeURIComponent(path);
+      }
+      return path;
+    }
+    if (path.indexOf('/') === 0) return API + path;
     return path;
   }
 

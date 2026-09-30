@@ -59,8 +59,6 @@
   var nextEpDismissed = false;
   var nextEpInterval = null;
   var nextEpBtnIndex = 0; // 0 = now, 1 = cancel
-  var $btnSkipIntro = null;
-  var introSkipped = false;
 
   // DOM element references
   var $osd = null;
@@ -261,16 +259,12 @@
 
     var btnNextNow = document.getElementById('btn-next-now');
     var btnNextCancel = document.getElementById('btn-next-cancel');
-    $btnSkipIntro = document.getElementById('btn-skip-intro');
 
     if (btnNextNow) {
       btnNextNow.onclick = function() { playNextEpisode(); };
     }
     if (btnNextCancel) {
       btnNextCancel.onclick = function() { hideNextEpOverlay(true); };
-    }
-    if ($btnSkipIntro) {
-      $btnSkipIntro.onclick = function() { skipIntro(); };
     }
 
     currentSessionId = 'tv-' + Date.now() + '-' + Math.floor(Math.random() * 10000);
@@ -317,15 +311,6 @@
           currentTime = data.currentTime;
           updateTimelineUI();
           updateSubtitleDisplay();
-
-          // Skip intro button (between 30s and 120s of video)
-          if ($btnSkipIntro && !introSkipped && duration > 180) {
-            if (currentTime >= 30 && currentTime <= 120) {
-              $btnSkipIntro.classList.remove('hidden');
-            } else {
-              $btnSkipIntro.classList.add('hidden');
-            }
-          }
 
           // Pre-caching next episode at duration - 90s
           if (duration > 180 && (duration - currentTime <= 90)) {
@@ -628,14 +613,7 @@
     showOsd(true);
   }
 
-  // ========== Binge-Watching & Intro Skip ==========
-  function skipIntro() {
-    if (introSkipped) return;
-    introSkipped = true;
-    if ($btnSkipIntro) $btnSkipIntro.classList.add('hidden');
-    seekBy(85);
-    showFlash('⏭', 'Заставка (+85с)');
-  }
+  // ========== Binge-Watching ==========
 
   function triggerPrecacheNext() {
     if (precacheSent || !nextFile || !torrentLink) return;
@@ -1284,6 +1262,41 @@
   }
 
   function fetchDurationFromApi(url) {
+    if (!url) return;
+
+    // Check if this is a server download stream
+    var dlMatch = url.match(/\/api\/downloads\/server\/stream\/([^\/\?]+)/);
+    if (dlMatch) {
+      var dlId = dlMatch[1];
+      var xhrDl = new XMLHttpRequest();
+      xhrDl.open('GET', API + '/api/downloads/server/info/' + encodeURIComponent(dlId), true);
+      xhrDl.timeout = 10000;
+      var tok = localStorage.getItem(TOKEN_KEY);
+      if (tok) xhrDl.setRequestHeader('Authorization', 'Bearer ' + tok);
+      xhrDl.onload = function() {
+        if (xhrDl.status === 200) {
+          try {
+            var dInfo = JSON.parse(xhrDl.responseText);
+            if (dInfo && dInfo.duration && dInfo.duration > 0) {
+              duration = dInfo.duration;
+              if (player && typeof player.setDuration === 'function') {
+                player.setDuration(duration);
+              }
+              if ($timeTotal) $timeTotal.textContent = fmtTime(duration);
+            }
+            if (dInfo && dInfo.audioTracks && dInfo.audioTracks.length > 0 && player) {
+              player.audioTracks = dInfo.audioTracks;
+            }
+            if (dInfo && dInfo.subtitleTracks && dInfo.subtitleTracks.length > 0 && player) {
+              player.subtitleTracks = dInfo.subtitleTracks;
+            }
+          } catch(e) {}
+        }
+      };
+      xhrDl.send();
+      return;
+    }
+
     var linkMatch = url.match(/link=([^&]+)/);
     var indexMatch = url.match(/index=(\d+)/);
     if (!linkMatch) return;

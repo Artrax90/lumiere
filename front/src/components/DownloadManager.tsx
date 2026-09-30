@@ -197,8 +197,9 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                             title: item.title,
                             poster: item.poster,
                             type: item.mediaType || 'movie',
-                            videoUrl: item.streamUrl,
+                            videoUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
                             directUrl: item.streamUrl,
+                            hlsUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
                           });
                         }
                       }}

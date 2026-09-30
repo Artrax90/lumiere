@@ -305,14 +305,34 @@ if (existsSync(publicDir)) {
     return reply.sendFile('tv/index.html', publicDir);
   });
 
+  // Serve root and index.html with strict no-cache to prevent stale browser bundles
+  app.get('/', async (req, reply) => {
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return reply.sendFile('index.html', publicDir);
+  });
+
+  app.get('/index.html', async (req, reply) => {
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+    reply.header('Pragma', 'no-cache');
+    reply.header('Expires', '0');
+    reply.header('Content-Type', 'text/html; charset=utf-8');
+    return reply.sendFile('index.html', publicDir);
+  });
+
   await app.register(staticFiles, {
     root: publicDir,
     prefix: '/',
   });
 
-  // SPA fallback: serve index.html for non-API routes
+  // SPA fallback: serve index.html for non-API routes with no-cache
   app.setNotFoundHandler((request, reply) => {
     if (!request.url.startsWith('/api/')) {
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+      reply.header('Pragma', 'no-cache');
+      reply.header('Expires', '0');
       reply.header('Content-Type', 'text/html; charset=utf-8');
       return reply.sendFile('index.html', publicDir);
     }
