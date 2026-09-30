@@ -87,11 +87,21 @@
           </div>
           <span id="time-total">0:00</span>
         </div>
+
+        <!-- Transport Controls Row -->
+        <div id="osd-controls" class="osd-controls-row">
+          <button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>
+          <button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>
+          <button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>
+          <button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>
+          <button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>
+        </div>
+
         <div class="osd-hint-row">
           <div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Пуск</div>
-          <div class="osd-hint-item"><span class="osd-hint-key">◄ / ►</span> Перемотка 10с</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">◄ / ►</span> Перемотка (ускоряется при удержании)</div>
           <div class="osd-hint-item"><span class="osd-hint-key">▲</span> Меню плеера</div>
-          <div class="osd-hint-item"><span class="osd-hint-key">▼</span> Скрыть меню</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">▼</span> Кнопки плеера / Скрыть</div>
           <div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Выход</div>
         </div>
       </div>

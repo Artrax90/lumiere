@@ -260,6 +260,47 @@ body {
   box-shadow: 0 2px 6px rgba(0,0,0,0.5);
 }
 
+/* Transport Controls Row */
+.osd-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 8px 0 12px;
+}
+.osd-ctrl-btn {
+  padding: 12px 26px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1.5px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 19px;
+  font-weight: 700;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.osd-ctrl-btn.osd-ctrl-primary {
+  background: rgba(232, 193, 112, 0.22);
+  border-color: rgba(232, 193, 112, 0.65);
+  color: #e8c170;
+  padding: 14px 34px;
+  font-size: 21px;
+}
+.osd-ctrl-btn.focused,
+.osd-ctrl-btn:focus {
+  outline: 3px solid #e8c170 !important;
+  outline-offset: 3px !important;
+  color: #ffffff !important;
+  background: rgba(232, 193, 112, 0.38) !important;
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.85) !important;
+  transform: scale(1.08);
+}
+
 /* Top Action Buttons */
 .osd-btn {
   padding: 12px 26px;

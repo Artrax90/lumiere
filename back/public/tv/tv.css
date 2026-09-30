@@ -2545,6 +2545,40 @@ body.player-active .section {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.85);
 }
+.ep-badge-watched {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 3px 8px;
+  background: rgba(16, 185, 129, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #ffffff;
+  letter-spacing: 0.5px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
+  z-index: 2;
+}
+.episode-card.ep-watched .ep-still-img {
+  opacity: 0.65;
+  filter: grayscale(30%);
+}
+.ep-progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 5px;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 2;
+}
+.ep-progress-fill {
+  height: 100%;
+  background: #e8c170;
+  border-radius: 0 2px 2px 0;
+  box-shadow: 0 0 6px rgba(232, 193, 112, 0.8);
+}
 .ep-content {
   flex: 1;
   min-width: 0;

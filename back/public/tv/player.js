@@ -80,6 +80,16 @@
   // Top action buttons
   var topBtns = [];
 
+  // Bottom transport action buttons
+  var bottomBtns = [];
+  var bottomControlsFocused = false;
+  var bottomBtnIndex = 2; // Default to 2 (btn-play-pause)
+
+  // Adaptive seeking state
+  var lastSeekKeyTime = 0;
+  var lastSeekDirection = 0;
+  var seekHoldCount = 0;
+
   // Player adapter instance
   var player = null;
 
@@ -143,6 +153,24 @@
     if (btnBack) topBtns.push(btnBack);
     if (btnAudio) topBtns.push(btnAudio);
     if (btnCc) topBtns.push(btnCc);
+
+    // Cache bottom transport buttons
+    bottomBtns = [];
+    var btnRestart = document.getElementById('btn-restart');
+    var btnRewind = document.getElementById('btn-rewind');
+    var btnPlayPause = document.getElementById('btn-play-pause');
+    var btnForward = document.getElementById('btn-forward');
+    var btnNext = document.getElementById('btn-next');
+    if (btnRestart) bottomBtns.push(btnRestart);
+    if (btnRewind) bottomBtns.push(btnRewind);
+    if (btnPlayPause) bottomBtns.push(btnPlayPause);
+    if (btnForward) bottomBtns.push(btnForward);
+    if (btnNext) bottomBtns.push(btnNext);
+    bottomControlsFocused = false;
+    bottomBtnIndex = 2;
+    lastSeekKeyTime = 0;
+    lastSeekDirection = 0;
+    seekHoldCount = 0;
 
     // Server & API
     var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
@@ -359,6 +387,29 @@
     bindClick('btn-audio', function() { openAudioPopup(); });
     bindClick('btn-cc', function() { openSubtitlePopup(); });
 
+    // Bind click handlers for bottom transport buttons
+    bindClick('btn-restart', function() {
+      seekTo(0);
+      showFlash('⏮', 'В начало');
+    });
+    bindClick('btn-rewind', function() {
+      seekBy(-30);
+    });
+    bindClick('btn-play-pause', function() {
+      togglePlay();
+    });
+    bindClick('btn-forward', function() {
+      seekBy(30);
+    });
+    bindClick('btn-next', function() {
+      if (nextFile) {
+        playNextEpisode();
+      } else if (duration > 0) {
+        seekTo(duration - 2);
+        showFlash('⏭', 'Конец');
+      }
+    });
+
     // Timeline click for mouse/pointer
     if ($timelineWrap) {
       $timelineWrap.addEventListener('click', function(e) {
@@ -501,6 +552,14 @@
   }
 
   // ========== Playback Controls ==========
+  function updatePlayPauseButton() {
+    var btn = document.getElementById('btn-play-pause');
+    if (btn) {
+      var activePlaying = (player && typeof player.isPlaying === 'function') ? player.isPlaying() : isPlaying;
+      btn.innerHTML = activePlaying ? '❚❚ Пауза' : '▶ Пуск';
+    }
+  }
+
   function togglePlay() {
     if (!player) return;
     var activePlaying = (typeof player.isPlaying === 'function') ? player.isPlaying() : isPlaying;
@@ -509,17 +568,19 @@
       isPlaying = false;
       showFlash('❚❚', 'Пауза');
       showOsd(false); // keep OSD visible while paused
+      updatePlayPauseButton();
       try { sendSessionHeartbeat(); } catch(he) {}
     } else {
       try { player.resume(); } catch(e) { console.error('[Player] resume error:', e); }
       isPlaying = true;
       showFlash('▶', 'Воспроизведение');
       showOsd(true); // auto-hide OSD
+      updatePlayPauseButton();
       try { sendSessionHeartbeat(); } catch(he) {}
     }
   }
 
-  function seekBy(delta) {
+  function seekBy(delta, speedSuffix) {
     if (!player) return;
 
     if (!isSeeking) {
@@ -545,7 +606,8 @@
 
     var sign = accumulatedDelta > 0 ? '+' : '';
     var arrow = delta < 0 ? '◄◄' : '►►';
-    showFlash(arrow, sign + accumulatedDelta + ' сек (' + fmtTime(pendingSeekTarget) + ')');
+    var speedText = speedSuffix ? (' (' + speedSuffix + ')') : '';
+    showFlash(arrow, sign + accumulatedDelta + ' сек' + speedText + ' (' + fmtTime(pendingSeekTarget) + ')');
     showOsd(true);
 
     if (seekDebounceTimer) clearTimeout(seekDebounceTimer);
@@ -865,6 +927,40 @@
     if (topBtnIndex >= topBtns.length) topBtnIndex = topBtns.length - 1;
 
     var btn = topBtns[topBtnIndex];
+    if (btn) {
+      btn.classList.add('focused');
+      try { btn.focus(); } catch(e) {}
+    }
+  }
+
+  // ========== Bottom Transport Controls Focus ==========
+  function focusBottomControls(idx) {
+    bottomControlsFocused = true;
+    topMenuFocused = false;
+    clearTopMenuFocus();
+    if (typeof idx === 'number') bottomBtnIndex = idx;
+    showOsd(false);
+    updateBottomControlsFocus();
+  }
+
+  function blurBottomControls() {
+    bottomControlsFocused = false;
+    clearBottomControlsFocus();
+    if (isPlaying) showOsd(true);
+  }
+
+  function clearBottomControlsFocus() {
+    for (var i = 0; i < bottomBtns.length; i++) {
+      if (bottomBtns[i]) bottomBtns[i].classList.remove('focused');
+    }
+  }
+
+  function updateBottomControlsFocus() {
+    clearBottomControlsFocus();
+    if (bottomBtnIndex < 0) bottomBtnIndex = 0;
+    if (bottomBtnIndex >= bottomBtns.length) bottomBtnIndex = bottomBtns.length - 1;
+
+    var btn = bottomBtns[bottomBtnIndex];
     if (btn) {
       btn.classList.add('focused');
       try { btn.focus(); } catch(e) {}
@@ -1396,11 +1492,29 @@
         lastT[saveId].timestamp = now;
         if (sNum) lastT[saveId].season = sNum;
         if (eNum) lastT[saveId].episode = eNum;
-        localStorage.setItem('last_torrents', JSON.stringify(lastT));
         if (sNum) {
           localStorage.setItem('last_season_' + saveId, String(sNum));
         }
+        if (eNum) {
+          localStorage.setItem('last_episode_' + saveId, String(eNum));
+        }
       } catch(ltErr) {}
+
+      // Check if episode watched (>= 85% or within 60s of end)
+      if (sNum && eNum && duration > 60) {
+        var pctWatched = (effectiveTime / duration);
+        if (pctWatched >= 0.85 || (duration - effectiveTime <= 60)) {
+          try {
+            var wKey = 'watched_episodes_' + saveId;
+            var wList = JSON.parse(localStorage.getItem(wKey) || '[]');
+            var epTag = sNum + '_' + eNum;
+            if (wList.indexOf(epTag) === -1) {
+              wList.push(epTag);
+              localStorage.setItem(wKey, JSON.stringify(wList));
+            }
+          } catch(we) {}
+        }
+      }
 
       // Also persist to server history via /api/sync/progress if progress > 2
       if (effectiveTime > 2) {
@@ -1562,6 +1676,9 @@
 
       isPlaying = false;
       topMenuFocused = false;
+      bottomControlsFocused = false;
+      clearTopMenuFocus();
+      clearBottomControlsFocus();
       popupOpen = false;
       movieTitle = '';
       movieId = 0;
@@ -1610,8 +1727,12 @@
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
         if (popupOpen) {
           closePopup();
+        } else if (bottomControlsFocused) {
+          blurBottomControls();
+          hideOsd();
         } else if (topMenuFocused) {
           blurTopMenu();
+          hideOsd();
         } else {
           goBack();
         }
@@ -1695,11 +1816,47 @@
         }
         if (isDown) {
           blurTopMenu();
+          focusBottomControls(bottomBtnIndex);
           return;
         }
         if (isEnter) {
           if (topBtns[topBtnIndex]) {
             topBtns[topBtnIndex].click();
+          }
+          return;
+        }
+        return;
+      }
+
+      // --- When Bottom Transport Controls Are Focused ---
+      if (bottomControlsFocused) {
+        if (isLeft) {
+          if (bottomBtnIndex > 0) {
+            bottomBtnIndex--;
+            updateBottomControlsFocus();
+          }
+          return;
+        }
+        if (isRight) {
+          if (bottomBtnIndex < bottomBtns.length - 1) {
+            bottomBtnIndex++;
+            updateBottomControlsFocus();
+          }
+          return;
+        }
+        if (isUp) {
+          blurBottomControls();
+          focusTopMenu();
+          return;
+        }
+        if (isDown) {
+          blurBottomControls();
+          hideOsd();
+          return;
+        }
+        if (isEnter) {
+          if (bottomBtns[bottomBtnIndex]) {
+            bottomBtns[bottomBtnIndex].click();
           }
           return;
         }
@@ -1713,15 +1870,31 @@
         return;
       }
 
-      if (isLeft) {
-        // Left immediately seeks -10s!
-        seekBy(-10);
-        return;
-      }
+      if (isLeft || isRight) {
+        var now = Date.now();
+        var dir = isLeft ? -1 : 1;
+        if (lastSeekDirection === dir && (now - lastSeekKeyTime) < 550) {
+          seekHoldCount++;
+        } else {
+          seekHoldCount = 1;
+          lastSeekDirection = dir;
+        }
+        lastSeekKeyTime = now;
 
-      if (isRight) {
-        // Right immediately seeks +10s!
-        seekBy(10);
+        var step = 10;
+        var speedStr = '';
+        if (seekHoldCount >= 10) {
+          step = 120;
+          speedStr = 'x12';
+        } else if (seekHoldCount >= 6) {
+          step = 60;
+          speedStr = 'x6';
+        } else if (seekHoldCount >= 3) {
+          step = 30;
+          speedStr = 'x3';
+        }
+
+        seekBy(dir * step, speedStr);
         return;
       }
 
@@ -1732,9 +1905,8 @@
       }
 
       if (isDown) {
-        // Down toggles OSD display on/off
-        if (osdVisible) hideOsd();
-        else showOsd(true);
+        // Down focuses bottom transport controls
+        focusBottomControls(2);
         return;
       }
 

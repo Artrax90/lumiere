@@ -86,6 +86,25 @@ export default function SeasonTorrentBrowser({
     onSelectSeason?.(s);
   };
 
+  const [watchedEpisodes, setWatchedEpisodes] = useState<Record<string, boolean>>(() => {
+    try {
+      const saved = localStorage.getItem(`watched_episodes_${show.id}`);
+      return saved ? JSON.parse(saved) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const toggleWatched = (e: React.MouseEvent, epNum: number) => {
+    e.stopPropagation();
+    const key = `s${activeSeason}e${epNum}`;
+    const next = { ...watchedEpisodes, [key]: !watchedEpisodes[key] };
+    setWatchedEpisodes(next);
+    try {
+      localStorage.setItem(`watched_episodes_${show.id}`, JSON.stringify(next));
+    } catch {}
+  };
+
   const [episodesList, setEpisodesList] = useState<Episode[]>(tmdbEpisodes || []);
   const [loadingEpisodes, setLoadingEpisodes] = useState(false);
 
@@ -542,11 +561,24 @@ export default function SeasonTorrentBrowser({
                       <div className="absolute top-2.5 left-2.5 px-2.5 py-1 rounded-md bg-[#0a0c12]/90 border border-[#e8c170]/50 text-[#e8c170] text-[12px] font-extrabold tracking-tight">
                         S{activeSeason} E{ep.episode}
                       </div>
-                      {/* Top-right Status Badge for future episode */}
-                      {isFuture && (
+                      {/* Top-right Status Badge for future or watched episode */}
+                      {isFuture ? (
                         <div className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded bg-blue-500/25 border border-blue-400/50 text-blue-300 text-[11px] font-bold">
                           Ожидается
                         </div>
+                      ) : (
+                        <button
+                          onClick={(e) => toggleWatched(e, ep.episode)}
+                          className={`absolute top-2.5 right-2.5 px-2.5 py-0.5 rounded text-[11px] font-bold flex items-center gap-1 transition-all z-10 cursor-pointer ${
+                            watchedEpisodes[`s${activeSeason}e${ep.episode}`]
+                              ? 'bg-emerald-500 text-black shadow-lg font-extrabold'
+                              : 'bg-black/60 text-white/50 hover:bg-black/85 hover:text-white border border-white/10'
+                          }`}
+                          title={watchedEpisodes[`s${activeSeason}e${ep.episode}`] ? 'Просмотрено (нажмите, чтобы снять отметку)' : 'Отметить как просмотренное'}
+                        >
+                          <Check className="w-3.5 h-3.5 stroke-[2.5]" />
+                          <span>{watchedEpisodes[`s${activeSeason}e${ep.episode}`] ? 'ПРОСМОТРЕНО' : 'Просмотрено?'}</span>
+                        </button>
                       )}
                       {/* Bottom-right Duration Badge */}
                       {duration && (

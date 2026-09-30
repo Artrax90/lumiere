@@ -544,6 +544,9 @@ export function downloadRoutes(app: FastifyInstance) {
     const fileSize = stat.size;
     const range = req.headers.range;
 
+    const { download, dl } = req.query as { download?: string; dl?: string };
+    const isAttachment = download === '1' || dl === '1';
+
     // MIME type detection
     const ext = extname(filePath).toLowerCase();
     let contentType = 'video/mp4';
@@ -551,6 +554,12 @@ export function downloadRoutes(app: FastifyInstance) {
     else if (ext === '.webm') contentType = 'video/webm';
     else if (ext === '.avi') contentType = 'video/x-msvideo';
     else if (ext === '.ts') contentType = 'video/mp2t';
+
+    const rawFileName = item.file_name || `${item.title}${ext || '.mkv'}`;
+    const safeAscii = rawFileName.replace(/[^\x20-\x7E]/g, '_');
+    const disposition = isAttachment
+      ? `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(rawFileName)}`
+      : 'inline';
 
     if (range) {
       const parts = range.replace(/bytes=/, '').split('-');
@@ -565,6 +574,7 @@ export function downloadRoutes(app: FastifyInstance) {
         .header('Accept-Ranges', 'bytes')
         .header('Content-Length', chunkSize)
         .header('Content-Type', contentType)
+        .header('Content-Disposition', disposition)
         .header('Access-Control-Allow-Origin', '*')
         .send(fileStream);
     } else {
@@ -575,9 +585,48 @@ export function downloadRoutes(app: FastifyInstance) {
         .header('Content-Length', fileSize)
         .header('Accept-Ranges', 'bytes')
         .header('Content-Type', contentType)
+        .header('Content-Disposition', disposition)
         .header('Access-Control-Allow-Origin', '*')
         .send(fileStream);
     }
+  });
+
+  // 4a. Explicit Download to Device (Local offline storage for tablet, phone, PC)
+  app.get('/api/downloads/server/download-file/:id', async (req, reply) => {
+    await ensureServerDownloadsTable();
+    const { id } = req.params as { id: string };
+
+    const itemRes = await pool.query('SELECT * FROM server_downloads WHERE id = $1', [id]);
+    if (itemRes.rows.length === 0) {
+      return reply.code(404).send({ error: 'File not found in downloads' });
+    }
+
+    const item = itemRes.rows[0];
+    const filePath = item.file_path;
+    if (!filePath || !existsSync(filePath)) {
+      return reply.code(404).send({ error: 'Downloaded file does not exist on disk' });
+    }
+
+    const stat = statSync(filePath);
+    const fileSize = stat.size;
+    const ext = extname(filePath).toLowerCase();
+    const rawFileName = item.file_name || `${item.title}${ext || '.mkv'}`;
+    const safeAscii = rawFileName.replace(/[^\x20-\x7E]/g, '_');
+
+    let contentType = 'video/mp4';
+    if (ext === '.mkv') contentType = 'video/x-matroska';
+    else if (ext === '.webm') contentType = 'video/webm';
+    else if (ext === '.avi') contentType = 'video/x-msvideo';
+    else if (ext === '.ts') contentType = 'video/mp2t';
+
+    return reply
+      .code(200)
+      .header('Content-Disposition', `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(rawFileName)}`)
+      .header('Content-Length', fileSize)
+      .header('Accept-Ranges', 'bytes')
+      .header('Content-Type', contentType)
+      .header('Access-Control-Allow-Origin', '*')
+      .send(createReadStream(filePath));
   });
 
   // Helper: inspect local media file with ffprobe for duration, audio tracks, and subtitle tracks

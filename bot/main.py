@@ -37,8 +37,6 @@ from aiogram.types import (
 )
 from aiogram.client.session.aiohttp import AiohttpSession
 
-from voice import recognize_voice_file
-
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3500")
 WEB_URL = os.getenv("WEB_URL", "http://192.168.1.196:3500")
 
@@ -247,7 +245,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         welcome_text = (
             "✨ <b>Lumière Companion</b>\n\n"
             "Ваш персональный кино-ассистент и умный пульт управления:\n\n"
-            "🎙 <b>Голос / Текст</b>: отправьте голосовое или название фильма в чат\n"
+            "🔍 <b>Поиск</b>: отправьте название фильма или сериала в чат\n"
             "📺 <b>Пульт Smart TV</b>: управление воспроизведением на ТВ\n"
             "🎲 <b>Кино-рулетка</b>: случайные фильмы с описанием и актёрами\n"
             "📥 <b>Серверные загрузки</b>: скачивание торрентов на диск сервера\n"
@@ -272,7 +270,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             [InlineKeyboardButton(text="🎲 Или крутите рулетку", callback_data="menu:roulette", style="success")]
         ])
         await call.message.answer(
-            "🔎 Напишите название фильма или сериала, либо запишите <b>голосовое сообщение</b> 🎤:",
+            "🔎 Напишите название фильма или сериала 🍿:",
             reply_markup=kb,
             parse_mode="HTML"
         )
@@ -306,7 +304,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
     @dp.message(F.text == "🔍 Поиск")
     async def btn_search(message: types.Message):
         await message.answer(
-            "🔎 Напишите название фильма или сериала, либо запишите <b>голосовое сообщение</b> 🎤:",
+            "🔎 Напишите название фильма или сериала 🍿:",
             parse_mode="HTML"
         )
 
@@ -570,34 +568,6 @@ def build_dispatcher(user_id: int) -> Dispatcher:
     @dp.message(F.text == "⚙️ Статус сервера")
     async def btn_server_status(message: types.Message):
         await show_server_status(message)
-
-    @dp.message(F.voice)
-    async def handle_voice(message: types.Message, bot: Bot):
-        status_msg = await message.answer("🎧 <i>Слушаю и распознаю голос...</i>", parse_mode="HTML")
-
-        voice_file = await bot.get_file(message.voice.file_id)
-        temp_ogg = tempfile.mktemp(suffix=".ogg")
-
-        try:
-            await bot.download_file(voice_file.file_path, destination=temp_ogg)
-            recognized_text = recognize_voice_file(temp_ogg)
-        except Exception as e:
-            print(f"[Bot] Voice download/recognize error: {e}")
-            recognized_text = ""
-        finally:
-            if os.path.exists(temp_ogg):
-                try:
-                    os.remove(temp_ogg)
-                except Exception:
-                    pass
-
-        if not recognized_text:
-            await status_msg.edit_text("😕 Не удалось разобрать слова. Попробуйте сказать громче или напишите текстом.")
-            return
-
-        safe_text = html.escape(recognized_text)
-        await status_msg.edit_text(f"🎤 Вы сказали: «<b>{safe_text}</b>»\n🔎 <i>Ищу в Lumière...</i>", parse_mode="HTML")
-        await perform_search_and_reply(message, recognized_text)
 
     @dp.message(F.text)
     async def handle_text(message: types.Message):

@@ -188,26 +188,40 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                   {isCompleted && (
-                    <button
-                      onClick={() => {
-                        if (onPlay) {
-                          onPlay({
-                            id: item.mediaId || item.id,
-                            name: item.title,
-                            title: item.title,
-                            poster: item.poster,
-                            type: item.mediaType || 'movie',
-                            videoUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
-                            directUrl: item.streamUrl,
-                            hlsUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
-                          });
-                        }
-                      }}
-                      className="flex items-center gap-2 rounded-full bg-amber-300/90 text-black px-4 py-2 text-[12px] font-semibold transition-cinematic hover:bg-amber-200 hover:scale-[1.02]"
-                    >
-                      <Play className="h-3.5 w-3.5 fill-current" />
-                      <span>Смотреть офлайн</span>
-                    </button>
+                    <>
+                      <button
+                        onClick={() => {
+                          if (onPlay) {
+                            onPlay({
+                              id: item.mediaId || item.id,
+                              name: item.title,
+                              title: item.title,
+                              poster: item.poster,
+                              type: item.mediaType || 'movie',
+                              videoUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
+                              directUrl: item.streamUrl,
+                              hlsUrl: `/api/downloads/server/hls/${item.id}/stream.m3u8`,
+                            });
+                          }
+                        }}
+                        className="flex items-center gap-2 rounded-full bg-amber-300/90 text-black px-4 py-2 text-[12px] font-semibold transition-cinematic hover:bg-amber-200 hover:scale-[1.02]"
+                      >
+                        <Play className="h-3.5 w-3.5 fill-current" />
+                        <span>Смотреть</span>
+                      </button>
+
+                      <a
+                        href={`/api/downloads/server/download-file/${item.id}`}
+                        download={item.fileName || `${item.title}.mkv`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 text-white px-3 py-2 text-[12px] font-medium transition-cinematic"
+                        title="Скачать файл в память устройства (планшет, телефон, ПК) для поездок"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        <span>На устройство</span>
+                      </a>
+                    </>
                   )}
 
                   <button

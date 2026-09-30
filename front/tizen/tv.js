@@ -301,15 +301,40 @@
         detail.classList.remove('hidden');
         detail.style.display = 'block';
         detail.style.zIndex = '900';
-        var focusTarget = detail.querySelector('#detail-play') ||
-                          detail.querySelector('.episode-card.focused') ||
-                          detail.querySelector('.episode-card') ||
-                          detail.querySelector('.torrent-item.focused') ||
-                          detail.querySelector('.torrent-item') ||
-                          detail.querySelector('.detail-actions button') ||
-                          detail.querySelector('#detail-back-btn');
+        var focusTarget = null;
+        if (targetDetail.type === 'tv') {
+          var targetEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.episode) ||
+                         parseInt(localStorage.getItem('last_episode_' + targetDetail.id), 10);
+          var targetSeason = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.season) ||
+                             parseInt(localStorage.getItem('last_season_' + targetDetail.id), 10);
+
+          if (targetEp) {
+            if (targetSeason) {
+              focusTarget = detail.querySelector('.episode-card[data-season="' + targetSeason + '"][data-episode="' + targetEp + '"]');
+            }
+            if (!focusTarget) {
+              focusTarget = detail.querySelector('.episode-card[data-episode="' + targetEp + '"]');
+            }
+          }
+          if (!focusTarget) {
+            focusTarget = detail.querySelector('.episode-card.focused') || detail.querySelector('.episode-card');
+          }
+        }
+
+        if (!focusTarget) {
+          focusTarget = detail.querySelector('.episode-card.focused') ||
+                        detail.querySelector('.episode-card') ||
+                        detail.querySelector('#detail-play') ||
+                        detail.querySelector('.torrent-item.focused') ||
+                        detail.querySelector('.torrent-item') ||
+                        detail.querySelector('.detail-actions button') ||
+                        detail.querySelector('#detail-back-btn');
+        }
         if (focusTarget) {
           setDetailFocus(focusTarget);
+          try {
+            focusTarget.scrollIntoView({ block: 'center', inline: 'nearest' });
+          } catch(se) {}
         }
       } else {
         if (app) {
@@ -4840,19 +4865,105 @@
     if (det.type === 'tv') {
       state.detailTab = 'episodes';
       switchDetailTab('episodes');
-      var lastEp = null;
-      try {
-        var lastT = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id];
-        if (lastT && lastT.episode) lastEp = lastT.episode;
-      } catch(e) {}
-      var targetEpCard = lastEp ? document.querySelector('#episodes-results .episode-card[data-episode="' + lastEp + '"]') : null;
-      var epToFocus = targetEpCard || document.querySelector('#episodes-results .episode-card');
-      if (epToFocus) {
-        setDetailFocus(epToFocus);
-        epToFocus.click();
+
+      var targetSeason = 1;
+      var targetEp = 1;
+      var foundResume = false;
+
+      // 1. Check state.lastPlayedEpisode
+      if (state.lastPlayedEpisode && state.lastPlayedEpisode.id == det.id) {
+        targetSeason = state.lastPlayedEpisode.season || 1;
+        targetEp = state.lastPlayedEpisode.episode || 1;
+        foundResume = true;
+      }
+
+      // 2. Check localStorage last_season_ / last_episode_
+      if (!foundResume) {
+        var sSaved = parseInt(localStorage.getItem('last_season_' + det.id), 10);
+        var eSaved = parseInt(localStorage.getItem('last_episode_' + det.id), 10);
+        if (sSaved && eSaved) {
+          targetSeason = sSaved;
+          targetEp = eSaved;
+          foundResume = true;
+        }
+      }
+
+      // 3. Check playback_positions
+      if (!foundResume) {
+        try {
+          var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+          var bestTime = 0;
+          for (var pk in positions) {
+            if (pk.indexOf(det.id + '_s') === 0) {
+              var m = pk.match(/_s(\d+)_e(\d+)/);
+              if (m) {
+                var pItem = positions[pk];
+                var pTime = typeof pItem === 'object' ? (pItem.updatedAt || pItem.timestamp || pItem.time || 0) : 0;
+                if (pTime > bestTime) {
+                  bestTime = pTime;
+                  targetSeason = parseInt(m[1], 10);
+                  targetEp = parseInt(m[2], 10);
+                  foundResume = true;
+                }
+              }
+            }
+          }
+          if (!foundResume && positions[det.id] && positions[det.id].title) {
+            var pt = positions[det.id].title;
+            if (pt.season && pt.episode) {
+              targetSeason = pt.season;
+              targetEp = pt.episode;
+              foundResume = true;
+            }
+          }
+        } catch(e) {}
+      }
+
+      // 4. Check last_torrents
+      if (!foundResume) {
+        try {
+          var lastT = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id];
+          if (lastT && lastT.episode) {
+            targetEp = parseInt(lastT.episode, 10);
+            if (lastT.season) targetSeason = parseInt(lastT.season, 10);
+            foundResume = true;
+          }
+        } catch(e) {}
+      }
+
+      // Try to find the card in current DOM
+      var targetEpCard = document.querySelector('#episodes-results .episode-card[data-season="' + targetSeason + '"][data-episode="' + targetEp + '"]');
+      if (!targetEpCard && !foundResume) {
+        targetEpCard = document.querySelector('#episodes-results .episode-card');
+      }
+
+      if (targetEpCard) {
+        setDetailFocus(targetEpCard);
+        try {
+          targetEpCard.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch(se) {}
+        targetEpCard.click();
       } else {
-        state._pendingPlayFirstEpisode = true;
-        showTvToast('Запуск первой серии...', 3000);
+        // Set pending resume state and trigger loading the target season
+        state._pendingResumeEpisode = {
+          season: targetSeason,
+          episode: targetEp,
+          autoPlay: true
+        };
+        showTvToast('Продолжаем S' + targetSeason + ' E' + targetEp + '...', 3500);
+
+        var curSeasonNum = parseInt(state.detailSeason, 10) || 1;
+        if (curSeasonNum !== targetSeason) {
+          state.detailSeason = String(targetSeason);
+          var seasonBtn = document.querySelector('.season-btn[data-season="' + targetSeason + '"]');
+          if (seasonBtn) {
+            seasonBtn.click();
+          } else {
+            loadSeasonEpisodes(det, targetSeason);
+          }
+        } else {
+          loadSeasonEpisodes(det, targetSeason);
+        }
       }
       return;
     }
@@ -5547,6 +5658,16 @@
         }
       }
 
+      var watchedList = [];
+      try {
+        var wRaw = localStorage.getItem('watched_episodes_' + showId);
+        if (wRaw) watchedList = JSON.parse(wRaw);
+      } catch(we) {}
+      var playbackPositions = {};
+      try {
+        playbackPositions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      } catch(pe) {}
+
       var html = '<div class="episodes-grid">';
       for (var i = 0; i < episodes.length; i++) {
         var ep = episodes[i];
@@ -5555,7 +5676,27 @@
         var epNumText = 'S' + seasonNum + ' E' + ep.episode;
         var duration = ep.runtime || '';
 
-        html += '<div class="episode-card" data-index="' + i + '" data-episode="' + ep.episode + '" data-season="' + seasonNum + '" tabindex="0">';
+        var isWatched = false;
+        var watchProgressPct = 0;
+        var epKey = seasonNum + '_' + ep.episode;
+        if (Array.isArray(watchedList) && watchedList.indexOf(epKey) !== -1) {
+          isWatched = true;
+        }
+        var posKey = showId + '_s' + seasonNum + '_e' + ep.episode;
+        var pos = playbackPositions[posKey] || (playbackPositions[showId] && playbackPositions[showId].season === seasonNum && playbackPositions[showId].episode === ep.episode ? playbackPositions[showId] : null);
+        if (pos) {
+          var cTime = typeof pos === 'object' ? (pos.time || pos.progress || 0) : pos;
+          var dur = typeof pos === 'object' ? (pos.duration || 0) : 0;
+          if (dur > 0 && cTime > 0) {
+            watchProgressPct = Math.min(100, Math.round((cTime / dur) * 100));
+            if (watchProgressPct >= 85 || (dur > 60 && cTime >= dur - 60)) {
+              isWatched = true;
+            }
+          }
+        }
+
+        var cardClass = 'episode-card' + (isWatched ? ' ep-watched' : '');
+        html += '<div class="' + cardClass + '" data-index="' + i + '" data-episode="' + ep.episode + '" data-season="' + seasonNum + '" tabindex="0">';
         html += '  <div class="ep-still-box">';
         if (epStill) {
           html += '    <img src="' + esc(epStill) + '" class="ep-still-img" onerror="this.src=\'/tv/placeholder.png\'" loading="lazy">';
@@ -5563,6 +5704,12 @@
         html += '    <div class="ep-badge-num">' + epNumText + '</div>';
         if (duration && duration !== '—') {
           html += '    <div class="ep-badge-dur">' + esc(duration) + '</div>';
+        }
+        if (isWatched) {
+          html += '    <div class="ep-badge-watched">✔ Просмотрено</div>';
+        }
+        if (watchProgressPct > 3 && !isWatched) {
+          html += '    <div class="ep-progress-bar"><div class="ep-progress-fill" style="width:' + watchProgressPct + '%;"></div></div>';
         }
         html += '  </div>';
         html += '  <div class="ep-content">';
@@ -5594,12 +5741,42 @@
         })(cards[j], episodes[j]);
       }
 
+      // Check pending resume episode (from "Продолжить" button)
+      if (state._pendingResumeEpisode && state._pendingResumeEpisode.season === seasonNum) {
+        var pEp = state._pendingResumeEpisode.episode;
+        var pAuto = state._pendingResumeEpisode.autoPlay;
+        state._pendingResumeEpisode = null;
+        state._pendingPlayFirstEpisode = false;
+        var targetCard = container.querySelector('.episode-card[data-episode="' + pEp + '"]');
+        if (targetCard) {
+          setDetailFocus(targetCard);
+          try { targetCard.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
+          if (pAuto) {
+            targetCard.click();
+          }
+          return;
+        }
+      }
+
       if (state._pendingPlayFirstEpisode) {
         state._pendingPlayFirstEpisode = false;
         var firstEpEl = container.querySelector('.episode-card');
         if (firstEpEl) {
           setDetailFocus(firstEpEl);
+          try { firstEpEl.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
           firstEpEl.click();
+        }
+        return;
+      }
+
+      // If returning from player or opening detail, keep last watched episode focused and centered!
+      var preserveEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == showId && state.lastPlayedEpisode.season === seasonNum && state.lastPlayedEpisode.episode) ||
+                       (parseInt(localStorage.getItem('last_season_' + showId), 10) === seasonNum ? parseInt(localStorage.getItem('last_episode_' + showId), 10) : null);
+      if (preserveEp) {
+        var pCard = container.querySelector('.episode-card[data-episode="' + preserveEp + '"]');
+        if (pCard && !document.querySelector('.episode-card.focused')) {
+          setDetailFocus(pCard);
+          try { pCard.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
         }
       }
     });
@@ -5615,6 +5792,19 @@
     var epNum = (typeof ep === 'number') ? ep : (ep && (ep.episode || ep.episode_number) ? (ep.episode || ep.episode_number) : 1);
     var epObj = (typeof ep === 'object' && ep) ? ep : { episode: epNum, episode_number: epNum, title: 'Серия ' + epNum };
     epObj.episode = epNum;
+
+    // Persist current played episode in memory and localStorage immediately
+    state.lastPlayedEpisode = {
+      id: showId,
+      season: seasonNum,
+      episode: epNum
+    };
+    try {
+      if (showId) {
+        localStorage.setItem('last_season_' + showId, String(seasonNum));
+        localStorage.setItem('last_episode_' + showId, String(epNum));
+      }
+    } catch(e) {}
 
     var epTitleStr = showName + ' · S' + (seasonNum < 10 ? '0' + seasonNum : seasonNum) + ' E' + (epNum < 10 ? '0' + epNum : epNum) + (epObj.title ? ' · ' + epObj.title : '');
     var epPoster = (epObj.thumbnail ? imgUrl(epObj.thumbnail) : '') || optPoster || ((title && title.poster) || (state.detail && state.detail.poster) || '');
