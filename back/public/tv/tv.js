@@ -384,17 +384,6 @@
         }
       }
     }
-      if (state.section === 'downloads') {
-        renderDownloadsSection();
-      } else {
-        var c = document.querySelector('.card.focused');
-        if (c) {
-          try { c.focus(); } catch(e) {}
-        } else {
-          focusNav(state.focusedNav || 0);
-        }
-      }
-    }
 
     if (typeof renderContinueWatching === 'function') {
       renderContinueWatching();
