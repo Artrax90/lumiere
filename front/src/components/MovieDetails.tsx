@@ -408,7 +408,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                     onClick={() => {
                       setActiveTab('torrents');
                       setTimeout(() => {
-                        const el = document.getElementById('episodes-section');
+                        const el = document.getElementById('media-watch-section') || document.getElementById('episodes-section');
                         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                       }, 50);
                     }}
@@ -719,7 +719,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
             />
           </div>
         ) : (
-          <div className="mt-6 animate-detail-rise" style={{ animationDelay: '180ms' }}>
+          <div id="media-watch-section" className="mt-6 animate-detail-rise scroll-mt-20" style={{ animationDelay: '180ms' }}>
             <div className="flex gap-1 mb-6">
               <button
                 onClick={() => setActiveTab('sources')}

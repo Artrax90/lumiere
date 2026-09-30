@@ -82,6 +82,8 @@ async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None)
         print(f"[Bot] API error {method} {url}: {e}")
     return None
 
+import re
+
 ITEM_CACHE: Dict[str, dict] = {}
 TORRENT_PICK_CACHE: Dict[str, dict] = {}
 
@@ -89,7 +91,7 @@ def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str
     """Format a concise badge for torrent releases (quality, audio, size, seeders)."""
     t_up = title.upper()
 
-    # 1. Quality
+    # 1. Quality / Rip type
     quality = "1080p"
     if "2160P" in t_up or "4K" in t_up or "UHD" in t_up:
         quality = "4K UHD"
@@ -97,35 +99,53 @@ def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str
         quality = "1080p"
     elif "720P" in t_up:
         quality = "720p"
+    elif "HDTVRIP" in t_up or "HDTV" in t_up:
+        quality = "HDTV"
     elif "BDRIP" in t_up:
         quality = "BDRip"
-    elif "WEBRIP" in t_up or "WEB-DL" in t_up:
+    elif "DVDRIP" in t_up:
+        quality = "DVDRip"
+    elif "WEBRIP" in t_up:
+        quality = "WEBRip"
+    elif "WEB-DL" in t_up:
         quality = "WEB-DL"
 
-    # 2. Audio hint
+    # 2. Audio hint / Translator detection
     audio = ""
-    if "ДУБЛЯЖ" in t_up or "DUB" in t_up:
+    ap_match = re.search(r'\bАП\s*[\(\[]?([А-Яа-яA-Za-z]+)[\)\]]?', title)
+    if ap_match and ap_match.group(1).upper() not in ["HD", "AVC", "MKV", "1080P", "720P", "RUS"]:
+        audio = f"АП {ap_match.group(1)}"
+    elif re.search(r'\b(АП|АВТОРСК)\b', t_up):
+        audio = "АП"
+    elif "ДУБЛЯЖ" in t_up or "DUB" in t_up:
         audio = "Дубляж"
+    elif "ПД" in t_up:
+        audio = "ПД"
     elif "DVO" in t_up or "ДВУХГОЛОС" in t_up:
         audio = "DVO"
     elif "MVO" in t_up or "МНОГОГОЛОС" in t_up:
         audio = "MVO"
-    elif "AVO" in t_up or "АВТОРСК" in t_up:
+    elif "AVO" in t_up:
         audio = "AVO"
     elif "LOSTFILM" in t_up:
         audio = "LostFilm"
     elif "HDREZKA" in t_up:
         audio = "HDRezka"
-    elif "КУБИК В КУБЕ" in t_up:
+    elif "КУБИК В КУБЕ" in t_up or "КУБИК" in t_up:
         audio = "Кубик"
+    elif "СУБТИТР" in t_up or "SUB" in t_up:
+        audio = "Субтитры"
 
     parts = [quality]
     if audio:
         parts.append(audio)
     if size_str:
         parts.append(size_str)
-    if seeders is not None and seeders > 0:
-        parts.append(f"⬆{seeders}")
+    if seeders is not None:
+        if seeders > 0:
+            parts.append(f"⬆{seeders}")
+        else:
+            parts.append("⚠️ 0 сидов")
 
     return " • ".join(parts)
 
@@ -236,16 +256,30 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 await user_reply_target.answer(err_text)
             return
 
-        item = random.choice(results)
+        # Prioritize items that already have descriptions
+        valid_results = [r for r in results if r.get("description") or r.get("overview")]
+        item = random.choice(valid_results) if valid_results else random.choice(results)
+
         media_id = item.get("id")
-        title = item.get("title") or item.get("name") or "Случайный фильм"
-        media_type = "tv" if "name" in item else default_media_type
-        overview = item.get("overview") or "Описание отсутствует."
-        rating = float(item.get("vote_average", 0))
-        date_str = item.get("release_date") or item.get("first_air_date") or ""
+        title = item.get("name") or item.get("title") or "Случайный фильм"
+        media_type = item.get("type") or ("tv" if "name" in item and "runtime" not in item else default_media_type)
+        overview = item.get("description") or item.get("overview") or ""
+        rating = float(item.get("score") or item.get("vote_average") or 0)
+        date_str = str(item.get("year") or item.get("release_date") or item.get("first_air_date") or "")
         year_str = date_str[:4] if date_str else ""
-        raw_poster = item.get("poster_path") or ""
+        raw_poster = item.get("poster") or item.get("poster_path") or ""
         poster_url = clean_poster_url(raw_poster)
+
+        if not overview or overview == "—":
+            try:
+                det = await fetch_api(f"/api/{'tv' if media_type == 'tv' else 'movie'}/{media_id}?lang=ru")
+                if det:
+                    overview = det.get("description") or det.get("overview") or det.get("tagline") or ""
+            except Exception:
+                pass
+
+        if not overview:
+            overview = "Описание в базе данных отсутствует."
 
         ITEM_CACHE[f"{media_type}:{media_id}"] = {
             "title": title,
@@ -809,11 +843,17 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}».")
             return
 
+        # Sort releases: positive seeders first, then seeders desc
+        torrents.sort(key=lambda x: (x.get("seeders", 0) > 0, x.get("seeders", 0)), reverse=True)
+
         options = torrents[:5]
         pick_buttons = []
-        for t in options:
+        releases_summary = []
+
+        for idx, t in enumerate(options, 1):
             pick_id = uuid.uuid4().hex[:8]
             badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
+            raw_t_title = t.get("title", "")
             TORRENT_PICK_CACHE[pick_id] = {
                 "title": raw_title,
                 "media_type": media_type,
@@ -824,12 +864,14 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 "magnet": t.get("magnet") or t.get("link", ""),
                 "hash": t.get("hash", ""),
                 "file_size": t.get("size", 0),
-                "file_name": t.get("title", ""),
+                "file_name": raw_t_title,
                 "badge": badge,
             }
             pick_buttons.append([
-                InlineKeyboardButton(text=f"💾 {badge}", callback_data=f"dl_pick:{pick_id}")
+                InlineKeyboardButton(text=f"💾 {idx}. {badge}", callback_data=f"dl_pick:{pick_id}")
             ])
+            clean_t_title = html.escape(raw_t_title[:65] + ("..." if len(raw_t_title) > 65 else ""))
+            releases_summary.append(f"<b>{idx}.</b> <code>{clean_t_title}</code>\n   👉 <i>{badge}</i>")
 
         pick_buttons.append([
             InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel")
@@ -839,7 +881,8 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         pick_text = (
             f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
             f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
-            f"<i>Выберите качество и озвучку. Фильм скачается в хранилище сервера Lumière для мгновенного просмотра:</i>"
+            + "\n\n".join(releases_summary)
+            + "\n\n<i>Нажмите кнопку с номером релиза для скачивания на диск сервера:</i>"
         )
         await call.message.reply(pick_text, reply_markup=kb, parse_mode="HTML")
 
