@@ -130,7 +130,10 @@ export async function startServerDownloadProcess(params: {
     } catch {}
   }
 
-  const localExt = extname(fileName) || '.mkv';
+  let localExt = extname(fileName || '').toLowerCase();
+  if (!['.mkv', '.mp4', '.avi', '.webm', '.ts', '.mov', '.m4v'].includes(localExt)) {
+    localExt = '.mkv';
+  }
   const localFileName = `${id}${localExt}`;
   const localFilePath = join(DOWNLOADS_DIR, localFileName);
 
@@ -555,24 +558,24 @@ export function downloadRoutes(app: FastifyInstance) {
       const chunkSize = end - start + 1;
       const fileStream = createReadStream(filePath, { start, end });
 
-      reply.raw.writeHead(206, {
-        'Content-Range': `bytes ${start}-${end}/${fileSize}`,
-        'Accept-Ranges': 'bytes',
-        'Content-Length': chunkSize,
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*',
-      });
-
-      return fileStream.pipe(reply.raw);
+      return reply
+        .code(206)
+        .header('Content-Range', `bytes ${start}-${end}/${fileSize}`)
+        .header('Accept-Ranges', 'bytes')
+        .header('Content-Length', chunkSize)
+        .header('Content-Type', contentType)
+        .header('Access-Control-Allow-Origin', '*')
+        .send(fileStream);
     } else {
-      reply.raw.writeHead(200, {
-        'Content-Length': fileSize,
-        'Accept-Ranges': 'bytes',
-        'Content-Type': contentType,
-        'Access-Control-Allow-Origin': '*',
-      });
+      const fileStream = createReadStream(filePath);
 
-      return createReadStream(filePath).pipe(reply.raw);
+      return reply
+        .code(200)
+        .header('Content-Length', fileSize)
+        .header('Accept-Ranges', 'bytes')
+        .header('Content-Type', contentType)
+        .header('Access-Control-Allow-Origin', '*')
+        .send(fileStream);
     }
   });
 

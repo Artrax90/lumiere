@@ -90,13 +90,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     title.directUrl?.endsWith('.webm')
   );
 
-  // Direct play is only allowed for verified web-safe containers or non-torrents with directUrl
-  const canPlayDirect = isTorrent
+  const isServerDownload = Boolean(
+    title.videoUrl?.includes('/api/downloads/server/stream') ||
+    title.directUrl?.includes('/api/downloads/server/stream')
+  );
+
+  // Direct play is only allowed for verified web-safe containers or non-torrents with directUrl or server downloads
+  const canPlayDirect = isServerDownload || (isTorrent
     ? isWebSafeFormat
-    : Boolean(title.directUrl || isWebSafeFormat);
+    : Boolean(title.directUrl || isWebSafeFormat));
 
   const hasVideo = !!(title.videoUrl || title.directUrl || title.hlsUrl);
-  const isHls = hasVideo && (
+  const isHls = !isServerDownload && hasVideo && (
     !canPlayDirect ||
     Boolean(
       title.hlsUrl ||

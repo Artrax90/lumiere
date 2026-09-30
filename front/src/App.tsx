@@ -517,7 +517,7 @@ export default function App() {
         ) : section === 'plugins' ? (
           <PluginStore />
         ) : section === 'downloads' ? (
-          <DownloadManager />
+          <DownloadManager onPlay={handlePlay} />
         ) : section === 'notifications' ? (
           <NotificationsView onSelect={handleSelect} titles={trendingMovies} />
         ) : (

@@ -66,6 +66,7 @@ services:
         condition: service_started
     volumes:
       - hls-temp:/tmp
+      - server-downloads:/app/data/downloads
     devices:
       - /dev/dri:/dev/dri
     networks:
@@ -77,6 +78,8 @@ volumes:
   torrserver-data:
     driver: local
   hls-temp:
+    driver: local
+  server-downloads:
     driver: local
 
 networks:

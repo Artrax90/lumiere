@@ -270,13 +270,18 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         raw_poster = item.get("poster") or item.get("poster_path") or ""
         poster_url = clean_poster_url(raw_poster)
 
-        if not overview or overview == "—":
-            try:
-                det = await fetch_api(f"/api/{'tv' if media_type == 'tv' else 'movie'}/{media_id}?lang=ru")
-                if det:
+        cast_names = []
+        try:
+            det = await fetch_api(f"/api/{'tv' if media_type == 'tv' else 'movie'}/{media_id}?lang=ru")
+            if det:
+                if not overview or overview == "—":
                     overview = det.get("description") or det.get("overview") or det.get("tagline") or ""
-            except Exception:
-                pass
+                cast_list = det.get("cast") or []
+                cast_names = [c.get("name") for c in cast_list if isinstance(c, dict) and c.get("name")][:5]
+                if not poster_url and (det.get("poster_path") or det.get("poster")):
+                    poster_url = clean_poster_url(det.get("poster_path") or det.get("poster"))
+        except Exception:
+            pass
 
         if not overview:
             overview = "Описание в базе данных отсутствует."
@@ -291,10 +296,12 @@ def build_dispatcher(user_id: int) -> Dispatcher:
 
         rating_stars = f"⭐ <b>{rating:.1f}/10</b>" if rating > 0 else ""
         year_badge = f" ({year_str})" if year_str else ""
+        cast_text = f"\n\n👥 <b>В главных ролях:</b> {html.escape(', '.join(cast_names))}" if cast_names else ""
         caption = (
             f"🎲 <b>Кино-рулетка Lumière выбрала для вас:</b>\n\n"
-            f"🎬 <b>{html.escape(title)}</b>{year_badge} {rating_stars}\n\n"
-            f"<i>{html.escape(overview[:280])}{'...' if len(overview) > 280 else ''}</i>"
+            f"🎬 <b>{html.escape(title)}</b>{year_badge} {rating_stars}"
+            f"{cast_text}\n\n"
+            f"<i>{html.escape(overview[:240])}{'...' if len(overview) > 240 else ''}</i>"
         )
 
         kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -870,7 +877,9 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             pick_buttons.append([
                 InlineKeyboardButton(text=f"💾 {idx}. {badge}", callback_data=f"dl_pick:{pick_id}")
             ])
-            clean_t_title = html.escape(raw_t_title[:65] + ("..." if len(raw_t_title) > 65 else ""))
+            clean_t_title = html.escape(raw_t_title.strip())
+            if len(clean_t_title) > 180:
+                clean_t_title = clean_t_title[:177] + "..."
             releases_summary.append(f"<b>{idx}.</b> <code>{clean_t_title}</code>\n   👉 <i>{badge}</i>")
 
         pick_buttons.append([

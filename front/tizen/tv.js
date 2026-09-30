@@ -3910,23 +3910,44 @@
 
         var isDone = item.status === 'completed';
         var statusBadge = isDone
-          ? '<span style="position:absolute;top:10px;left:10px;background:#22c55e;color:#000;font-size:13px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:2;">ГОТОВО</span>'
-          : '<span style="position:absolute;top:10px;left:10px;background:#eab308;color:#000;font-size:13px;font-weight:700;padding:3px 10px;border-radius:6px;z-index:2;">СКАЧИВАНИЕ ' + (item.progress || 0) + '%</span>';
+          ? '<div style="position:absolute;top:10px;left:10px;background:#22c55e;color:#000;font-size:14px;font-weight:700;padding:4px 10px;border-radius:6px;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,0.6);">ГОТОВО</div>'
+          : '<div style="position:absolute;top:10px;left:10px;background:#eab308;color:#000;font-size:14px;font-weight:700;padding:4px 10px;border-radius:6px;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,0.6);">СКАЧИВАНИЕ ' + (item.progress || 0) + '%</div>';
+
+        var sizeBadge = item.fileSizeFormatted
+          ? '<div style="position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.8);color:#fff;font-size:13px;font-weight:600;padding:3px 8px;border-radius:6px;z-index:3;backdrop-filter:blur(4px);">' + esc(item.fileSizeFormatted) + '</div>'
+          : '';
+
+        var imgHtml = posterUrl
+          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'assets/placeholder.png\';" />'
+          : '<div class="card-img" style="display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--surface-2);">🎬</div>';
 
         card.innerHTML =
-          statusBadge +
-          (posterUrl ? '<img src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.style.display=\'none\';" />' : '<div style="width:100%;height:100%;background:rgba(255,255,255,0.05);display:flex;align-items:center;justify-content:center;font-size:48px;">🎬</div>') +
-          '<div class="card-overlay">' +
-            '<div class="card-title">' + esc(item.title) + '</div>' +
-            '<div class="card-meta">' + esc(item.fileSizeFormatted || '') + '</div>' +
-          '</div>';
+          '<div class="card-img-wrap">' +
+            imgHtml +
+            statusBadge +
+            sizeBadge +
+          '</div>' +
+          '<div class="card-title"><span class="card-title-text">' + esc(item.title) + '</span></div>';
+
+        card.addEventListener('focus', function() { startCardTitleMarquee(card); });
+        card.addEventListener('blur', function() { stopCardTitleMarquee(card); });
+        card.addEventListener('mouseenter', function() { startCardTitleMarquee(card); });
+        card.addEventListener('mouseleave', function() {
+          if (!card.classList.contains('focused') && document.activeElement !== card) {
+            stopCardTitleMarquee(card);
+          }
+        });
 
         card.addEventListener('click', function() {
           if (isDone && item.streamUrl) {
-            playMedia({
+            var fullStreamUrl = item.streamUrl.startsWith('http') ? item.streamUrl : (API + item.streamUrl);
+            openPlayer({
+              url: fullStreamUrl,
               title: item.title,
-              streamUrl: item.streamUrl.startsWith('http') ? item.streamUrl : (API + item.streamUrl),
-              type: 'local_file'
+              id: item.mediaId || 0,
+              type: item.mediaType || 'movie',
+              poster: posterUrl || '',
+              isOffline: true
             });
           } else if (item.mediaType && item.mediaId) {
             showDetail({ id: item.mediaId, mediaType: item.mediaType });

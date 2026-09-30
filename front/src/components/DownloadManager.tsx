@@ -28,7 +28,11 @@ interface DiskInfo {
   total: string;
 }
 
-export default function DownloadManager() {
+interface DownloadManagerProps {
+  onPlay?: (title: any) => void;
+}
+
+export default function DownloadManager({ onPlay }: DownloadManagerProps) {
   const [serverDownloads, setServerDownloads] = useState<ServerDownloadItem[]>([]);
   const [disk, setDisk] = useState<DiskInfo>({ free: '...', total: '...' });
   const [loading, setLoading] = useState(true);
@@ -184,15 +188,25 @@ export default function DownloadManager() {
                 {/* Actions */}
                 <div className="flex items-center gap-2 shrink-0 self-end md:self-center">
                   {isCompleted && (
-                    <a
-                      href={item.streamUrl}
-                      target="_blank"
-                      rel="noreferrer"
+                    <button
+                      onClick={() => {
+                        if (onPlay) {
+                          onPlay({
+                            id: item.mediaId || item.id,
+                            name: item.title,
+                            title: item.title,
+                            poster: item.poster,
+                            type: item.mediaType || 'movie',
+                            videoUrl: item.streamUrl,
+                            directUrl: item.streamUrl,
+                          });
+                        }
+                      }}
                       className="flex items-center gap-2 rounded-full bg-amber-300/90 text-black px-4 py-2 text-[12px] font-semibold transition-cinematic hover:bg-amber-200 hover:scale-[1.02]"
                     >
                       <Play className="h-3.5 w-3.5 fill-current" />
                       <span>Смотреть офлайн</span>
-                    </a>
+                    </button>
                   )}
 
                   <button
