@@ -291,7 +291,7 @@
     var targetDetail = state.activePlayerMedia || (state.detail && state.detail.id ? state.detail : null);
     state.activePlayerMedia = null;
 
-    if (detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
+    if (state.playerOpenedFrom === 'detail' && detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
       var isSameDetailLoaded = hasDetailContent && state.detailLoadedId === targetDetail.id;
       if (isSameDetailLoaded) {
         if (app) {
@@ -337,11 +337,15 @@
         app.classList.remove('hidden');
         app.style.display = 'block';
       }
-      var c = document.querySelector('.card.focused');
-      if (c) {
-        try { c.focus(); } catch(e) {}
+      if (state.section === 'downloads') {
+        renderDownloadsSection();
       } else {
-        focusNav(state.focusedNav || 0);
+        var c = document.querySelector('.card.focused');
+        if (c) {
+          try { c.focus(); } catch(e) {}
+        } else {
+          focusNav(state.focusedNav || 0);
+        }
       }
     }
 
@@ -2455,13 +2459,16 @@
           '<div class="card-title">' + esc(item.title) + '</div>';
 
         card.addEventListener('click', function() {
-          var streamUrl = API + '/api/downloads/server/stream/' + item.id;
+          var streamUrl = item.hlsUrl
+            ? (item.hlsUrl.startsWith('http') ? item.hlsUrl : (API + item.hlsUrl))
+            : (API + '/api/downloads/server/hls/' + item.id + '/stream.m3u8');
           openPlayer({
             url: streamUrl,
             title: item.title,
-            id: item.tmdbId || 0,
+            id: item.tmdbId || item.id || 0,
             type: item.mediaType || 'movie',
-            poster: item.poster || ''
+            poster: item.poster || '',
+            isOffline: true
           });
         });
 
@@ -3938,12 +3945,13 @@
         });
 
         card.addEventListener('click', function() {
-          if (isDone && item.streamUrl) {
-            var fullStreamUrl = item.streamUrl.startsWith('http') ? item.streamUrl : (API + item.streamUrl);
+          if (isDone && (item.hlsUrl || item.streamUrl)) {
+            var rawUrl = item.hlsUrl || item.streamUrl;
+            var fullStreamUrl = rawUrl.startsWith('http') ? rawUrl : (API + rawUrl);
             openPlayer({
               url: fullStreamUrl,
               title: item.title,
-              id: item.mediaId || 0,
+              id: item.mediaId || item.id || 0,
               type: item.mediaType || 'movie',
               poster: posterUrl || '',
               isOffline: true
@@ -4810,47 +4818,73 @@
     }
   }
 
+  function handleWatchButtonClick(det) {
+    det = det || state.detail;
+    if (!det) return;
+
+    if (det.type === 'tv') {
+      state.detailTab = 'episodes';
+      switchDetailTab('episodes');
+      var lastEp = null;
+      try {
+        var lastT = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id];
+        if (lastT && lastT.episode) lastEp = lastT.episode;
+      } catch(e) {}
+      var targetEpCard = lastEp ? document.querySelector('#episodes-results .episode-card[data-episode="' + lastEp + '"]') : null;
+      var epToFocus = targetEpCard || document.querySelector('#episodes-results .episode-card');
+      if (epToFocus) {
+        setDetailFocus(epToFocus);
+        epToFocus.click();
+      } else {
+        state._pendingPlayFirstEpisode = true;
+        showTvToast('Запуск первой серии...', 3000);
+      }
+      return;
+    }
+
+    // Movie:
+    var savedTorrent = null;
+    var savedPosition = 0;
+    if (det.id) {
+      try { savedTorrent = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id] || null; } catch(ex) {}
+      try { savedPosition = (JSON.parse(localStorage.getItem('playback_positions') || '{}'))[det.id] || 0; } catch(ex) {}
+      if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
+    }
+    if (savedTorrent && savedTorrent.magnet && savedPosition > 30) {
+      openTorrent(savedTorrent.magnet, savedTorrent.title || det.name || det.title || '');
+      return;
+    }
+
+    // If torrents already loaded in DOM, open top torrent immediately
+    var firstTorrent = document.querySelector('#torrent-results .torrent-item');
+    if (firstTorrent) {
+      var magnet = firstTorrent.getAttribute('data-magnet');
+      var tTitle = firstTorrent.getAttribute('data-title');
+      if (magnet) {
+        openTorrent(magnet, tTitle);
+        return;
+      }
+    }
+
+    // Check if there is an online source available
+    var firstSource = document.querySelector('#sources-results .source-item');
+    if (firstSource) {
+      firstSource.click();
+      return;
+    }
+
+    // Otherwise show toast and auto-play immediately when torrents load
+    state._autoPlayWhenTorrentsLoaded = true;
+    showTvToast('Поиск лучшей раздачи и запуск видео...', 4000);
+    state.detailTab = 'torrents';
+    switchDetailTab('torrents');
+  }
+
   function bindDetailActions(d) {
     var playBtn = document.getElementById('detail-play');
     if (playBtn) {
       playBtn.addEventListener('click', function() {
-        var det = state.detail || d;
-        if (det && det.type === 'tv') {
-          state.detailTab = 'episodes';
-          switchDetailTab('episodes');
-          var lastEp = null;
-          try {
-            var lastT = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id];
-            if (lastT && lastT.episode) lastEp = lastT.episode;
-          } catch(e) {}
-          var targetEpCard = lastEp ? document.querySelector('#episodes-results .episode-card[data-episode="' + lastEp + '"]') : null;
-          var epToFocus = targetEpCard || document.querySelector('#episodes-results .episode-card');
-          if (epToFocus) {
-            setDetailFocus(epToFocus);
-          }
-          return;
-        }
-
-        var savedTorrent = null;
-        var savedPosition = 0;
-        if (det && det.id) {
-          try { savedTorrent = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id] || null; } catch(ex) {}
-          try { savedPosition = (JSON.parse(localStorage.getItem('playback_positions') || '{}'))[det.id] || 0; } catch(ex) {}
-          if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
-        }
-        if (savedTorrent && savedTorrent.magnet && savedPosition > 30) {
-          openTorrent(savedTorrent.magnet, savedTorrent.title || (det ? det.name : ''));
-          return;
-        }
-        // Switch to torrents tab and focus first item
-        state.detailTab = 'torrents';
-        switchDetailTab('torrents');
-        var first = document.querySelector('#torrent-results .torrent-item');
-        if (first) {
-          setDetailFocus(first);
-        } else {
-          state._pendingFocusTorrent = true;
-        }
+        handleWatchButtonClick(state.detail || d);
       });
     }
 
@@ -5544,6 +5578,15 @@
           });
         })(cards[j], episodes[j]);
       }
+
+      if (state._pendingPlayFirstEpisode) {
+        state._pendingPlayFirstEpisode = false;
+        var firstEpEl = container.querySelector('.episode-card');
+        if (firstEpEl) {
+          setDetailFocus(firstEpEl);
+          firstEpEl.click();
+        }
+      }
     });
   }
 
@@ -6214,6 +6257,14 @@
           if (magnet) openTorrent(magnet, torrentTitle);
         });
       });
+
+      if (state._autoPlayWhenTorrentsLoaded) {
+        state._autoPlayWhenTorrentsLoaded = false;
+        if (sorted && sorted.length > 0 && sorted[0].magnet) {
+          openTorrent(sorted[0].magnet, sorted[0].title || '');
+          return;
+        }
+      }
 
       if (state._pendingFocusTorrent) {
         state._pendingFocusTorrent = false;
@@ -10020,36 +10071,9 @@
             return;
           }
           if (focused.id === 'detail-play') {
-            var d = state.detail;
-            if (d && d.type === 'tv') {
-              state.detailTab = 'episodes';
-              switchDetailTab('episodes');
-              var firstEp = document.querySelector('#episodes-results .episode-card');
-              if (firstEp) {
-                setDetailFocus(firstEp);
-              }
-              if (e && e.preventDefault) e.preventDefault();
-              return;
-            }
-            var savedTorrent = null;
-            var savedPosition = 0;
-            if (d && d.id) {
-              try { savedTorrent = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[d.id] || null; } catch(ex) {}
-              try { savedPosition = (JSON.parse(localStorage.getItem('playback_positions') || '{}'))[d.id] || 0; } catch(ex) {}
-              if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
-            }
-            if (savedTorrent && savedTorrent.magnet && savedPosition > 30) {
-              openTorrent(savedTorrent.magnet, savedTorrent.title || (d ? d.name : ''));
-            } else {
-              state.detailTab = 'torrents';
-              switchDetailTab('torrents');
-              var firstT = document.querySelector('#torrent-results .torrent-item');
-              if (firstT) {
-                setDetailFocus(firstT);
-              } else {
-                state._pendingFocusTorrent = true;
-              }
-            }
+            handleWatchButtonClick(state.detail);
+            if (e && e.preventDefault) e.preventDefault();
+            return;
           } else if (focused.classList.contains('season-btn')) {
             focused.click();
           } else if (focused.classList.contains('episode-card')) {

@@ -37,9 +37,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [buffered, setBuffered] = useState(0);
   const [bufferedRange, setBufferedRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const [currentTime, setCurrentTime] = useState(initialTime || 0);
-  const [duration, setDuration] = useState(0);
-  const seekOffsetRef = useRef<number>(initialTime && initialTime > 30 && title.videoUrl?.includes('/api/torrents/hls') ? Math.floor(initialTime) : 0);
-  const [showControls, setShowControls] = useState(true);
+  const seekOffsetRef = useRef<number>(initialTime && initialTime > 30 && (title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || Boolean(title.hlsUrl)) ? Math.floor(initialTime) : 0);
   const showControlsRef = useRef(true);
   showControlsRef.current = showControls;
   const [muted, setMuted] = useState(false);
@@ -323,7 +321,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       // Skip if we're in the middle of an audio switch
       if (audioSwitchRef.current) return;
       if (video.readyState >= 2) { // HAVE_CURRENT_DATA
-        if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls')) || !seekOffsetRef.current) {
+        if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls') && !title.videoUrl?.includes('/api/downloads/server/hls')) || !seekOffsetRef.current) {
           video.currentTime = initialTime;
         }
       }
@@ -402,7 +400,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         setQualityLevels(levels);
         // Seek to initial time if provided
         if (initialTime && initialTime > 0) {
-          if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls')) || !seekOffsetRef.current) {
+          if (!isHls || (!title.hlsUrl && !title.videoUrl?.includes('/api/torrents/hls') && !title.videoUrl?.includes('/api/downloads/server/hls')) || !seekOffsetRef.current) {
             video.currentTime = initialTime;
           }
         }
@@ -855,7 +853,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const targetTime = Math.max(0, Math.min(fraction * duration, duration));
     setCurrentTime(targetTime);
 
-    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || isTorrent);
+    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || isTorrent);
     if (isTorrentHls) {
       const offset = seekOffsetRef.current || 0;
       const localTarget = targetTime - offset;

@@ -608,7 +608,12 @@
 
   PlayerAdapter.prototype.seek = function(seconds, successCb, errorCb) {
     var self = this;
-    if (self.engineType === 'avplay' && typeof webapis !== 'undefined' && webapis.avplay && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+    var isHls = self._currentUrl && (
+      self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+      self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+      self._currentUrl.indexOf('.m3u8') !== -1
+    );
+    if (self.engineType === 'avplay' && typeof webapis !== 'undefined' && webapis.avplay && !isHls) {
       var avState = '';
       try { avState = webapis.avplay.getState(); } catch(e) {}
       if (avState === 'PLAYING' || avState === 'PAUSED') {
@@ -786,7 +791,12 @@
 
   PlayerAdapter.prototype._reloadAtTime = function(targetSec, wasPlaying, successCb, errorCb) {
     var self = this;
-    if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+    var isHls = self._currentUrl && (
+      self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+      self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+      self._currentUrl.indexOf('.m3u8') !== -1
+    );
+    if (isHls) {
       self._seekHlsAvplay(targetSec, successCb, errorCb);
       return;
     }
@@ -865,7 +875,20 @@
     self._currentTime = targetSec;
 
     if (self.engineType === 'avplay') {
-      if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+      var isHls = self._currentUrl && (
+        self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+        self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+        self._currentUrl.indexOf('.m3u8') !== -1
+      );
+      if (isHls) {
+        self._seekHlsAvplay(targetSec, successCb, errorCb);
+        return;
+      }
+
+      if (self._currentUrl && self._currentUrl.indexOf('/api/downloads/server/stream/') !== -1) {
+        var hlsUrl = self._currentUrl.replace('/api/downloads/server/stream/', '/api/downloads/server/hls/') + '/stream.m3u8';
+        console.log('[AVPlay] Upgrading direct download stream to HLS for accurate seek:', hlsUrl);
+        self._currentUrl = hlsUrl;
         self._seekHlsAvplay(targetSec, successCb, errorCb);
         return;
       }
@@ -958,7 +981,7 @@
           self._videoEl.currentTime = localTarget;
           setTimeout(function() { self._isSeeking = false; }, 300);
           if (successCb) successCb();
-        } else if (self._hls && self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') >= 0) {
+        } else if (self._hls && self._currentUrl && (self._currentUrl.indexOf('/api/torrents/hls') >= 0 || self._currentUrl.indexOf('/api/downloads/server/hls') >= 0 || self._currentUrl.indexOf('.m3u8') >= 0)) {
           console.log('[PlayerAdapter] HLS stream seek outside buffer: reloading from', Math.floor(targetSec), 's');
           self._seekOffset = Math.floor(targetSec);
           var cleanUrl = self._currentUrl.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');

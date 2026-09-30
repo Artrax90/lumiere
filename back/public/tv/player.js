@@ -1516,55 +1516,61 @@
 
   function goBack() {
     console.log('[Player] Exiting player...');
-    saveProgress();
-    destroyPlayer();
+    try { saveProgress(); } catch(e1) {}
+    try { destroyPlayer(); } catch(e2) { console.error('[Player] destroyPlayer error:', e2); }
     if (typeof window.closePlayer === 'function') {
-      window.closePlayer();
+      try {
+        window.closePlayer();
+      } catch(e3) {
+        console.error('[Player] window.closePlayer error:', e3);
+      }
     }
   }
 
   // ========== Destroy Player Lifecycle ==========
   function destroyPlayer() {
-    stopSession();
-    if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
-    if (iptvStatsTimer) { clearInterval(iptvStatsTimer); iptvStatsTimer = null; }
-    if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
-    if (osdTimer) { clearTimeout(osdTimer); osdTimer = null; }
-    if (centerFlashTimer) { clearTimeout(centerFlashTimer); centerFlashTimer = null; }
-    if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
-    if (nextEpInterval) { clearInterval(nextEpInterval); nextEpInterval = null; }
-    nextEpOverlayVisible = false;
-    nextEpDismissed = false;
-    introSkipped = false;
-    var $nextOv = document.getElementById('next-ep-overlay');
-    if ($nextOv) {
-      $nextOv.classList.add('hidden');
-      $nextOv.style.display = 'none';
-    }
-    if ($btnSkipIntro) $btnSkipIntro.classList.add('hidden');
-    isSeeking = false;
-    pendingSeekTarget = 0;
-    accumulatedDelta = 0;
-    seekBaseTime = 0;
+    try {
+      stopSession();
+      if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
+      if (iptvStatsTimer) { clearInterval(iptvStatsTimer); iptvStatsTimer = null; }
+      if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
+      if (osdTimer) { clearTimeout(osdTimer); osdTimer = null; }
+      if (centerFlashTimer) { clearTimeout(centerFlashTimer); centerFlashTimer = null; }
+      if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
+      if (nextEpInterval) { clearInterval(nextEpInterval); nextEpInterval = null; }
+      nextEpOverlayVisible = false;
+      nextEpDismissed = false;
+      var $nextOv = document.getElementById('next-ep-overlay');
+      if ($nextOv) {
+        $nextOv.classList.add('hidden');
+        $nextOv.style.display = 'none';
+      }
+      isSeeking = false;
+      pendingSeekTarget = 0;
+      accumulatedDelta = 0;
+      seekBaseTime = 0;
 
-    if (player) {
-      try { player.stop(); } catch(e) {}
-      player = null;
-    }
+      if (player) {
+        try { player.stop(); } catch(e) {}
+        player = null;
+      }
 
-    if (typeof webapis !== 'undefined' && webapis.avplay) {
-      try { webapis.avplay.stop(); } catch(e) {}
-      try { webapis.avplay.close(); } catch(e) {}
-    }
+      if (typeof webapis !== 'undefined' && webapis.avplay) {
+        try { webapis.avplay.stop(); } catch(e) {}
+        try { webapis.avplay.close(); } catch(e) {}
+      }
 
-    isPlaying = false;
-    topMenuFocused = false;
-    popupOpen = false;
-    movieTitle = '';
-    movieId = 0;
-    streamUrl = '';
-    currentTime = 0;
-    duration = 0;
+      isPlaying = false;
+      topMenuFocused = false;
+      popupOpen = false;
+      movieTitle = '';
+      movieId = 0;
+      streamUrl = '';
+      currentTime = 0;
+      duration = 0;
+    } catch(err) {
+      console.error('[Player] destroyPlayer caught error:', err);
+    }
   }
   window.destroyPlayer = destroyPlayer;
   window.startIptvPolling = startIptvPolling;

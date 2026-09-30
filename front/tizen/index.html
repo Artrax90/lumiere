@@ -579,7 +579,11 @@
       console.error('[UNCAUGHT-ERROR]', msg, 'at', line + ':' + col, err);
       var appEl = document.getElementById('app');
       var isAppActive = appEl && !appEl.classList.contains('hidden') && appEl.style.display !== 'none';
-      if (isAppActive) {
+      var playerEl = document.getElementById('player-container');
+      var isPlayerActive = playerEl && !playerEl.classList.contains('hidden') && playerEl.style.display !== 'none';
+      var detailEl = document.getElementById('detail');
+      var isDetailActive = detailEl && !detailEl.classList.contains('hidden') && detailEl.style.display !== 'none';
+      if (isAppActive || isPlayerActive || isDetailActive) {
         console.warn('[Lumiere] Suppressed non-fatal error in active UI:', msg);
         return true;
       }

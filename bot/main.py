@@ -299,12 +299,19 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         await show_tv_status(message)
 
     async def trigger_roulette(user_reply_target, is_callback: bool = False):
-        if hasattr(user_reply_target, "answer_dice"):
+        target_msg = user_reply_target.message if is_callback and hasattr(user_reply_target, "message") else user_reply_target
+        if is_callback and hasattr(user_reply_target, "answer"):
             try:
-                await user_reply_target.answer_dice(emoji="🎲")
-                await asyncio.sleep(1.2)
+                await user_reply_target.answer()
             except Exception:
                 pass
+
+        if target_msg and hasattr(target_msg, "answer_dice"):
+            try:
+                await target_msg.answer_dice(emoji="🎲")
+                await asyncio.sleep(2.0)
+            except Exception as e:
+                print(f"[Bot] Dice animation note: {e}")
 
         category_endpoints = [
             ("/api/movies/popular", "movie"),
