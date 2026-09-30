@@ -9,6 +9,7 @@ import {
   notifyDownloadFinished,
   notifyDownloadDeleted,
 } from '../services/telegram.js';
+import { getActiveTorrServerUrl, FALLBACK_PUBLIC_TRACKERS } from './torrents.js';
 
 const DOWNLOADS_DIR = join(process.cwd(), 'data', 'downloads');
 if (!existsSync(DOWNLOADS_DIR)) {
@@ -98,7 +99,7 @@ export async function startServerDownloadProcess(params: {
 }) {
   await ensureServerDownloadsTable();
 
-  const {
+  let {
     id,
     userId,
     title,
@@ -114,6 +115,21 @@ export async function startServerDownloadProcess(params: {
     fileName = `${title.replace(/[^a-zA-Z0-9а-яА-Я._-]/g, '_')}.mkv`,
   } = params;
 
+  // Fallback poster if not provided
+  if (!poster && mediaId) {
+    try {
+      const epUrl = `http://127.0.0.1:${config.port}/api/${mediaType === 'tv' ? 'tv' : 'movie'}/${mediaId}?lang=ru`;
+      const detRes = await fetch(epUrl, { signal: AbortSignal.timeout(3000) });
+      if (detRes.ok) {
+        const detData = (await detRes.json()) as any;
+        const pPath = detData?.poster_path || detData?.poster;
+        if (pPath) {
+          poster = pPath.startsWith('http') ? pPath : `https://image.tmdb.org/t/p/w500${pPath}`;
+        }
+      }
+    } catch {}
+  }
+
   const localExt = extname(fileName) || '.mkv';
   const localFileName = `${id}${localExt}`;
   const localFilePath = join(DOWNLOADS_DIR, localFileName);
@@ -128,6 +144,7 @@ export async function startServerDownloadProcess(params: {
     ON CONFLICT (id) DO UPDATE SET
       status = 'downloading',
       error_message = '',
+      poster = COALESCE(NULLIF(EXCLUDED.poster, ''), server_downloads.poster),
       downloaded_bytes = 0`,
     [
       id,
@@ -149,11 +166,6 @@ export async function startServerDownloadProcess(params: {
   // 2. Telegram Alert: Download Started
   notifyDownloadStarted(userId, title, fileSize > 0 ? formatBytes(fileSize) : undefined).catch(() => {});
 
-  // 3. Initiate TorrServer streaming into local file
-  const torrUrl = config.torrserver.url;
-  const linkParam = magnet ? encodeURIComponent(magnet) : torrentHash;
-  const torrStreamUrl = `${torrUrl}/stream?link=${linkParam}&index=${torrentIndex}&play=1`;
-
   const abortController = new AbortController();
   activeDownloads.set(id, { abortController });
 
@@ -162,6 +174,86 @@ export async function startServerDownloadProcess(params: {
   (async () => {
     let writeStream: any = null;
     try {
+      // 3. Initiate TorrServer streaming into local file
+      const torrUrl = await getActiveTorrServerUrl();
+      let targetMagnet = magnet || '';
+      if (targetMagnet) {
+        for (const tr of FALLBACK_PUBLIC_TRACKERS) {
+          if (!targetMagnet.includes(encodeURIComponent(tr)) && !targetMagnet.includes(tr)) {
+            targetMagnet += `&tr=${encodeURIComponent(tr)}`;
+          }
+        }
+      }
+
+      let activeHash = torrentHash;
+      // Step 3a: Pre-add torrent to TorrServer with save_to_db: true so it actively resolves peers & metadata
+      try {
+        const addRes = await fetch(`${torrUrl}/torrents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'add',
+            link: targetMagnet || activeHash,
+            title: title || 'Download',
+            poster: poster || '',
+            save_to_db: true,
+          }),
+          signal: AbortSignal.timeout(12000),
+        });
+        if (addRes.ok) {
+          const addData = (await addRes.json()) as { hash?: string };
+          if (addData.hash) activeHash = addData.hash;
+        }
+      } catch (err: any) {
+        console.warn('[Downloads] TorrServer preload warning:', err.message);
+      }
+
+      // Step 3b: Wait for metadata / file_stats from TorrServer so we get the exact video file index & size
+      let resolvedIndex = torrentIndex;
+      let resolvedSize = fileSize;
+      const statLink = activeHash || encodeURIComponent(targetMagnet);
+
+      for (let attempt = 0; attempt < 8; attempt++) {
+        if (abortController.signal.aborted) break;
+        try {
+          const statRes = await fetch(`${torrUrl}/stream?link=${statLink}&index=-1&stat`, {
+            signal: AbortSignal.timeout(4000),
+          });
+          if (statRes.ok) {
+            const statData = (await statRes.json()) as any;
+            if (statData.file_stats && statData.file_stats.length > 0) {
+              const videoFiles = statData.file_stats.filter((f: any) =>
+                /\.(mkv|mp4|avi|ts|m4v|mov)$/i.test(f.path)
+              );
+              if (videoFiles.length > 0) {
+                videoFiles.sort((a: any, b: any) => b.length - a.length);
+                if (resolvedIndex === 0 || !resolvedIndex) {
+                  resolvedIndex = videoFiles[0].id;
+                }
+                const chosen = statData.file_stats.find((f: any) => f.id === resolvedIndex) || videoFiles[0];
+                resolvedIndex = chosen.id;
+                if (chosen.length > 0) {
+                  resolvedSize = chosen.length;
+                }
+              }
+              break;
+            }
+          }
+        } catch {
+          // Retry
+        }
+        await new Promise((r) => setTimeout(r, 1000));
+      }
+
+      if (resolvedSize > 0 && resolvedSize !== fileSize) {
+        await pool.query('UPDATE server_downloads SET file_size = $1 WHERE id = $2', [resolvedSize, id]).catch(() => {});
+      }
+
+      const linkParam = targetMagnet ? encodeURIComponent(targetMagnet) : activeHash;
+      const torrStreamUrl = `${torrUrl}/stream?link=${linkParam}&index=${resolvedIndex}&play=1`;
+
+      console.log(`[Downloads] Streaming from TorrServer: ${torrStreamUrl}`);
+
       const res = await fetch(torrStreamUrl, {
         signal: abortController.signal,
         headers: { 'User-Agent': 'LumiereServer/1.0' },

@@ -80,10 +80,11 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
       const res = await serverFetch(`/api/${mediaType}/${displayTitle.id}/trailer?lang=ru`);
       const data = await res.json();
       if (data && data.trailer) {
-        if (data.trailer.streamUrl) {
+        const embed = data.trailer.embedUrl || data.trailer.url;
+        if (embed) {
+          setTrailerUrl(embed);
+        } else if (data.trailer.streamUrl) {
           setTrailerStream(data.trailer.streamUrl);
-        } else if (data.trailer.embedUrl || data.trailer.url) {
-          setTrailerUrl(data.trailer.embedUrl || data.trailer.url);
         } else {
           setTrailerError('Трейлер не найден');
         }
@@ -405,12 +406,11 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                 ) : (
                   <button
                     onClick={() => {
-                      if (displayTitle.type === 'tv' || displayTitle.type === 'show') {
+                      setActiveTab('torrents');
+                      setTimeout(() => {
                         const el = document.getElementById('episodes-section');
-                        if (el) el.scrollIntoView({ behavior: 'smooth' });
-                      } else {
-                        setActiveTab('torrents');
-                      }
+                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      }, 50);
                     }}
                     className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all"
                   >

@@ -10,7 +10,7 @@ let jacredUrl = config.jacred.url;
 let _cachedTorrUrl = config.torrserver.url;
 let _lastTorrCheck = 0;
 
-async function getActiveTorrServerUrl(): Promise<string> {
+export async function getActiveTorrServerUrl(): Promise<string> {
   const now = Date.now();
   if (_cachedTorrUrl && now - _lastTorrCheck < 15000) {
     return _cachedTorrUrl;
@@ -29,6 +29,19 @@ async function getActiveTorrServerUrl(): Promise<string> {
   }
   return config.torrserver.url;
 }
+
+export const FALLBACK_PUBLIC_TRACKERS = [
+  'http://retracker.local/announce',
+  'udp://tracker.opentrackr.org:1337/announce',
+  'udp://open.stealth.si:80/announce',
+  'udp://tracker.openbittorrent.com:80/announce',
+  'udp://exodus.desync.com:6969/announce',
+  'udp://tracker.torrent.eu.org:451/announce',
+  'udp://explodie.org:6969/announce',
+  'http://tracker.t-ru.org/ann',
+  'http://bt2.t-ru.org/ann?magnet',
+  'http://tr.kinozal.tv/announce',
+];
 
 const TORRSERVER_URL = config.torrserver.url;
 
@@ -438,20 +451,6 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(500).send({ error: err.message });
     }
   });
-
-  // Public trackers fallback for bare magnet links
-  const FALLBACK_PUBLIC_TRACKERS = [
-    'http://retracker.local/announce',
-    'udp://tracker.opentrackr.org:1337/announce',
-    'udp://open.stealth.si:80/announce',
-    'udp://tracker.openbittorrent.com:80/announce',
-    'udp://exodus.desync.com:6969/announce',
-    'udp://tracker.torrent.eu.org:451/announce',
-    'udp://explodie.org:6969/announce',
-    'http://tracker.t-ru.org/ann',
-    'http://bt2.t-ru.org/ann?magnet',
-    'http://tr.kinozal.tv/announce',
-  ];
 
   // Stream torrent via TorrServer (correct flow: add → stat → play)
   app.post('/api/torrents/stream', async (req, reply) => {

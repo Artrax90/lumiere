@@ -19,8 +19,8 @@ PlmFTDcPXg==</DigestValue>
 </Reference>
 <Reference URI="index.html">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>Yz6VIIXRccDZIf2MKmZ6AT9W2mgdiLq0EOO4q5YD6RI8gFqeOuECeFlmDHeiaP7ywpzmYDlppHSo
-CPaL6Z58Ig==</DigestValue>
+<DigestValue>uAf8HdXK/6oCf4A5prEKD6KZgInjSg1ROt7n4K9p/yqyPEixBP0EDbhPcslreUMfhebXiy3NNnk4
+UGCTN+I6zA==</DigestValue>
 </Reference>
 <Reference URI="player-adapter.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -39,8 +39,8 @@ I4wONwO0Qw==</DigestValue>
 </Reference>
 <Reference URI="player.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>fj6qttFtiRIvJWaUrn+XAaJ6IyP7hxv4IOCVBZzrdpNGMqQ9LB2PPz0o/o/3GgEjq/rv8P/oYjyV
-2lSIqorgig==</DigestValue>
+<DigestValue>c/Xc38OXqWoPXy43FQcluNt0d4d02Ps7yo0k0fIXMzbyxgHDaGrY5OunSqTviT/n2EkrI94bqTsW
+PUbuolgQhw==</DigestValue>
 </Reference>
 <Reference URI="tv.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -49,8 +49,8 @@ wB3tnIFfHQ==</DigestValue>
 </Reference>
 <Reference URI="tv.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>Y9Etmw6ptL0Cwdj30c/S1n0rIEfmainSTBXvEGXrbbwwmnqkFZdVpBwbSBfFZ1QGgGAZPuy2luUo
-KKaVx555VA==</DigestValue>
+<DigestValue>fPLL0wlM9+4Rwi8LWzkh2PXUMh2qEtja9doIsH0UHDYsL8pVc1UMwuwOD3HwB//JlmbJwzAIUcoq
+a1v3x2ir+A==</DigestValue>
 </Reference>
 <Reference URI="#prop">
 <Transforms>
@@ -62,11 +62,11 @@ QY10fG1EWQ==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-UmSP/Mt0rVtcYTgH0JMYmsEraKDPjIkcyFbRKQi9HLi3yfWodyHEhTsW1x+CTNuV+zvyLtzZ+CHl
-Gcw1UNr8Jhpyk+CjnDxoe4V9UZWTqlOpr1a2VjK/R9gRPk2HENuFLSRDy0Xej/Jsq3FVMMi5Rysk
-AqkoE/LimZ/SreN5FdSDS8ABWpRVAGcszupeIbGMDpE7EY7avD0UxJasF8fNnnRsQPIOdfq5ZYTW
-zzDnQ5DUcAhoZgnOl8XxKLHi8IeKJe5FkPdpM1IJvcuEuImVM/mvmeODrdwMAR1QELbgt0WvCkjm
-XdhxeG2P4OFu/S1dMLzpwP5TSK+1ZIhduKlC6w==
+jgDC7NaEv/jMLsoGFOwZPlRXJljxeS9cV6DzfyONYZpBRtrl6mgwfsCRuxCKa6I0jCC813q4IQC/
+fBH8xSTTZM4OSQTbg8uuwpRdKXPFCDcwe/hVRAhhQMxD20zfVrzFWNrbaAvjs8WBiJrhnrEL2Hx3
+tGU1Zhy1aVkK7K0TletYgIDjC8ncmbnIiKIxWkU88hyCkGYLDzxNPK88PtF1GfOTNHUmCEhh2uL9
+EGr4A3itZM2awPkM8E98drUDzOcetiWj6spcwvy7bASOz8R0yr9lzZEjcSjRz/R7d2AglDi7GXJ3
+z+2iNrCdrGEqRAk+aMHlp8TM71nkljckn4FsyQ==
 </SignatureValue>
 <KeyInfo>
 <X509Data>

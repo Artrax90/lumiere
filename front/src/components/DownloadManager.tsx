@@ -72,7 +72,7 @@ export default function DownloadManager() {
   };
 
   return (
-    <div className="p-8 max-w-6xl mx-auto space-y-6 animate-detail-rise">
+    <div className="min-h-screen w-full px-8 pt-28 pb-20 max-w-6xl mx-auto space-y-6 animate-detail-rise">
       {/* Toast Alert */}
       {toast && (
         <div className="rounded-[12px] bg-emerald-500/15 border border-emerald-500/30 p-4 text-[13px] text-emerald-300 animate-fade-in flex items-center gap-2.5">

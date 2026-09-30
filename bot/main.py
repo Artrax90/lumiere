@@ -3,6 +3,8 @@ import sys
 import io
 import html
 import asyncio
+import random
+import uuid
 import tempfile
 import urllib.parse
 from typing import Dict, Any, Optional
@@ -55,8 +57,8 @@ def clean_poster_url(raw_poster: str) -> str:
 def get_main_menu_keyboard() -> ReplyKeyboardMarkup:
     kb = [
         [KeyboardButton(text="🔍 Поиск"), KeyboardButton(text="📺 Сейчас на ТВ")],
-        [KeyboardButton(text="📥 Скачанное"), KeyboardButton(text="🔔 Подписки")],
-        [KeyboardButton(text="⚙️ Статус сервера")],
+        [KeyboardButton(text="🎲 Рулетка"), KeyboardButton(text="📥 Скачанное")],
+        [KeyboardButton(text="🔔 Подписки"), KeyboardButton(text="⚙️ Статус сервера")],
     ]
     return ReplyKeyboardMarkup(keyboard=kb, resize_keyboard=True)
 
@@ -81,6 +83,51 @@ async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None)
     return None
 
 ITEM_CACHE: Dict[str, dict] = {}
+TORRENT_PICK_CACHE: Dict[str, dict] = {}
+
+def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str:
+    """Format a concise badge for torrent releases (quality, audio, size, seeders)."""
+    t_up = title.upper()
+
+    # 1. Quality
+    quality = "1080p"
+    if "2160P" in t_up or "4K" in t_up or "UHD" in t_up:
+        quality = "4K UHD"
+    elif "1080P" in t_up:
+        quality = "1080p"
+    elif "720P" in t_up:
+        quality = "720p"
+    elif "BDRIP" in t_up:
+        quality = "BDRip"
+    elif "WEBRIP" in t_up or "WEB-DL" in t_up:
+        quality = "WEB-DL"
+
+    # 2. Audio hint
+    audio = ""
+    if "ДУБЛЯЖ" in t_up or "DUB" in t_up:
+        audio = "Дубляж"
+    elif "DVO" in t_up or "ДВУХГОЛОС" in t_up:
+        audio = "DVO"
+    elif "MVO" in t_up or "МНОГОГОЛОС" in t_up:
+        audio = "MVO"
+    elif "AVO" in t_up or "АВТОРСК" in t_up:
+        audio = "AVO"
+    elif "LOSTFILM" in t_up:
+        audio = "LostFilm"
+    elif "HDREZKA" in t_up:
+        audio = "HDRezka"
+    elif "КУБИК В КУБЕ" in t_up:
+        audio = "Кубик"
+
+    parts = [quality]
+    if audio:
+        parts.append(audio)
+    if size_str:
+        parts.append(size_str)
+    if seeders is not None and seeders > 0:
+        parts.append(f"⬆{seeders}")
+
+    return " • ".join(parts)
 
 def build_dispatcher(user_id: int) -> Dispatcher:
     dp = Dispatcher()
@@ -157,6 +204,94 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             except Exception:
                 pass
         await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+    async def trigger_roulette(user_reply_target, is_callback: bool = False):
+        if hasattr(user_reply_target, "answer_dice"):
+            try:
+                await user_reply_target.answer_dice(emoji="🎲")
+                await asyncio.sleep(1.2)
+            except Exception:
+                pass
+
+        category_endpoints = [
+            ("/api/movies/popular", "movie"),
+            ("/api/movies/top_rated", "movie"),
+            ("/api/tv/popular", "tv"),
+            ("/api/tv/top_rated", "tv"),
+        ]
+        endpoint, default_media_type = random.choice(category_endpoints)
+        page = random.randint(1, 4)
+
+        data = await fetch_api(f"{endpoint}?page={page}&lang=ru")
+        results = (data or {}).get("results", [])
+        if not results:
+            data = await fetch_api("/api/movies/popular?page=1&lang=ru")
+            results = (data or {}).get("results", [])
+
+        if not results:
+            err_text = "⚠️ Не удалось получить список фильмов для рулетки. Попробуйте ещё раз."
+            if is_callback:
+                await user_reply_target.message.reply(err_text)
+            else:
+                await user_reply_target.answer(err_text)
+            return
+
+        item = random.choice(results)
+        media_id = item.get("id")
+        title = item.get("title") or item.get("name") or "Случайный фильм"
+        media_type = "tv" if "name" in item else default_media_type
+        overview = item.get("overview") or "Описание отсутствует."
+        rating = float(item.get("vote_average", 0))
+        date_str = item.get("release_date") or item.get("first_air_date") or ""
+        year_str = date_str[:4] if date_str else ""
+        raw_poster = item.get("poster_path") or ""
+        poster_url = clean_poster_url(raw_poster)
+
+        ITEM_CACHE[f"{media_type}:{media_id}"] = {
+            "title": title,
+            "type": media_type,
+            "id": media_id,
+            "poster": poster_url,
+            "year": year_str,
+        }
+
+        rating_stars = f"⭐ <b>{rating:.1f}/10</b>" if rating > 0 else ""
+        year_badge = f" ({year_str})" if year_str else ""
+        caption = (
+            f"🎲 <b>Кино-рулетка Lumière выбрала для вас:</b>\n\n"
+            f"🎬 <b>{html.escape(title)}</b>{year_badge} {rating_stars}\n\n"
+            f"<i>{html.escape(overview[:280])}{'...' if len(overview) > 280 else ''}</i>"
+        )
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{media_type}:{media_id}"),
+                InlineKeyboardButton(text="📥 На сервер", callback_data=f"dl_start:{media_type}:{media_id}"),
+            ],
+            [
+                InlineKeyboardButton(text="🎲 Крутить ещё раз", callback_data="roulette:spin"),
+            ]
+        ])
+
+        target_msg = user_reply_target.message if is_callback else user_reply_target
+        if poster_url:
+            try:
+                await target_msg.answer_photo(photo=poster_url, caption=caption, reply_markup=kb, parse_mode="HTML")
+                return
+            except Exception:
+                pass
+        await target_msg.answer(caption, reply_markup=kb, parse_mode="HTML")
+
+    @dp.message(F.text == "🎲 Рулетка")
+    @dp.message(Command("roulette"))
+    @dp.message(Command("random"))
+    async def btn_roulette(message: types.Message):
+        await trigger_roulette(message, is_callback=False)
+
+    @dp.callback_query(F.data == "roulette:spin")
+    async def on_roulette_spin(call: types.CallbackQuery):
+        await call.answer("🎲 Крутим рулетку...")
+        await trigger_roulette(call, is_callback=True)
 
     @dp.message(F.text == "📥 Скачанное")
     async def btn_downloads(message: types.Message):
@@ -637,22 +772,28 @@ def build_dispatcher(user_id: int) -> Dispatcher:
 
         cached = ITEM_CACHE.get(f"{media_type}:{media_id}", {})
         raw_title = cached.get("title")
-        if not raw_title:
+        poster = cached.get("poster", "")
+
+        if not raw_title or not poster:
             if len(parts) > 3 and not parts[3].isdigit():
                 raw_title = urllib.parse.unquote(parts[3])
             else:
                 raw_title = "Медиа"
 
-        if raw_title == "Медиа" and media_id:
-            try:
-                ep_url = f"/api/tv/{media_id}" if media_type == "tv" else f"/api/movie/{media_id}"
-                det = await fetch_api(ep_url)
-                if det and (det.get("name") or det.get("title")):
-                    raw_title = det.get("name") or det.get("title")
-            except Exception:
-                pass
+            if media_id:
+                try:
+                    ep_url = f"/api/tv/{media_id}" if media_type == "tv" else f"/api/movie/{media_id}"
+                    det = await fetch_api(ep_url)
+                    if det:
+                        if det.get("name") or det.get("title"):
+                            raw_title = det.get("name") or det.get("title")
+                        p_path = det.get("poster_path") or det.get("poster")
+                        if p_path and not poster:
+                            poster = clean_poster_url(p_path)
+                except Exception:
+                    pass
 
-        await call.answer("🔍 Ищем лучший релиз для загрузки...")
+        await call.answer("🔍 Ищем доступные релизы на торрентах...")
         search_query = raw_title
         if season is not None and episode is not None:
             search_query += f" S{season:02d}E{episode:02d}"
@@ -668,29 +809,119 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}».")
             return
 
-        best = torrents[0]
-        magnet = best.get("magnet", "")
-        best_hash = best.get("hash", "")
-        file_size = best.get("size", 0)
+        options = torrents[:5]
+        pick_buttons = []
+        for t in options:
+            pick_id = uuid.uuid4().hex[:8]
+            badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
+            TORRENT_PICK_CACHE[pick_id] = {
+                "title": raw_title,
+                "media_type": media_type,
+                "media_id": media_id,
+                "season": season or 0,
+                "episode": episode or 0,
+                "poster": poster or "",
+                "magnet": t.get("magnet") or t.get("link", ""),
+                "hash": t.get("hash", ""),
+                "file_size": t.get("size", 0),
+                "file_name": t.get("title", ""),
+                "badge": badge,
+            }
+            pick_buttons.append([
+                InlineKeyboardButton(text=f"💾 {badge}", callback_data=f"dl_pick:{pick_id}")
+            ])
 
+        pick_buttons.append([
+            InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel")
+        ])
+
+        kb = InlineKeyboardMarkup(inline_keyboard=pick_buttons)
+        pick_text = (
+            f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
+            f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
+            f"<i>Выберите качество и озвучку. Фильм скачается в хранилище сервера Lumière для мгновенного просмотра:</i>"
+        )
+        await call.message.reply(pick_text, reply_markup=kb, parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("dl_pick:"))
+    async def on_dl_pick(call: types.CallbackQuery):
+        pick_id = call.data.replace("dl_pick:", "")
+        cached = TORRENT_PICK_CACHE.get(pick_id)
+        if not cached:
+            await call.answer("⚠️ Данные выбора устарели. Запустите выбор заново.", show_alert=True)
+            return
+
+        await call.answer("⏳ Ставим на загрузку...")
         res = await fetch_api("/api/downloads/server/start", method="POST", data={
-            "title": raw_title,
-            "mediaType": media_type,
-            "mediaId": media_id,
-            "magnet": magnet,
-            "torrentHash": best_hash,
+            "title": cached["title"],
+            "mediaType": cached["media_type"],
+            "mediaId": cached["media_id"],
+            "season": cached.get("season", 0),
+            "episode": cached.get("episode", 0),
+            "poster": cached.get("poster", ""),
+            "magnet": cached["magnet"],
+            "torrentHash": cached["hash"],
             "torrentIndex": 0,
-            "fileSize": file_size,
+            "fileSize": cached.get("file_size", 0),
+            "fileName": cached.get("file_name", ""),
         })
 
         if res and res.get("success"):
-            await call.message.reply(
-                f"⏳ Релиз <b>«{html.escape(raw_title)}»</b> поставлен на загрузку на диск сервера.\n"
-                f"После завершения скачивания вы получите уведомление.",
-                parse_mode="HTML"
+            badge_info = f" ({cached.get('badge')})" if cached.get('badge') else ""
+            success_text = (
+                f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!\n\n"
+                f"После завершения скачивания вы получите уведомление."
             )
+            ikb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📂 Открыть «Скачанное»", callback_data="nav_downloads"),
+                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{cached['media_type']}:{cached['media_id']}"),
+                ]
+            ])
+            try:
+                await call.message.edit_text(success_text, reply_markup=ikb, parse_mode="HTML")
+            except Exception:
+                await call.message.reply(success_text, reply_markup=ikb, parse_mode="HTML")
         else:
             await call.message.reply("⚠️ Ошибка при запуске загрузки на сервер.")
+
+    @dp.callback_query(F.data == "dl_cancel")
+    async def on_dl_cancel(call: types.CallbackQuery):
+        await call.answer("Отменено")
+        try:
+            await call.message.delete()
+        except Exception:
+            pass
+
+    @dp.callback_query(F.data == "nav_downloads")
+    async def on_nav_downloads(call: types.CallbackQuery):
+        await call.answer()
+        data = await fetch_api("/api/downloads/server/list")
+        if not data:
+            await call.message.reply("Не удалось загрузить список загрузок с сервера.")
+            return
+
+        downloads = data.get("downloads", [])
+        disk = data.get("disk", {})
+        free_space = disk.get("free", "Неизвестно")
+
+        if not downloads:
+            await call.message.reply(
+                f"📥 <b>Скачанных файлов на сервере нет</b>.\n\n"
+                f"📊 Свободно на диске: <b>{free_space}</b>",
+                parse_mode="HTML"
+            )
+            return
+
+        text = f"📥 <b>Скачано на сервер ({len(downloads)}):</b>\n"
+        text += f"📊 Свободно на диске: <b>{free_space}</b>\n\n"
+
+        for idx, item in enumerate(downloads[:5], 1):
+            status_emoji = "✅" if item.get("status") == "completed" else "⏳"
+            item_title = html.escape(str(item.get('title') or 'Видео'))
+            text += f"{idx}. {status_emoji} <b>{item_title}</b> — {item.get('fileSizeFormatted', '')}\n"
+
+        await call.message.reply(text, parse_mode="HTML")
 
     @dp.callback_query(F.data.startswith("dl_delete:"))
     async def on_dl_delete(call: types.CallbackQuery):

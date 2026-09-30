@@ -254,6 +254,8 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
       if (match && (!selected || selected.id !== match.id)) {
         setSelected(match);
       }
+    } else {
+      setSelected(null);
     }
   }, [initialCollectionId]);
 
