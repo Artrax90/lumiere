@@ -167,9 +167,11 @@ def build_dispatcher(user_id: int) -> Dispatcher:
             "📥 <b>Серверные загрузки</b>: скачивайте релизы на сервер для мгновенного просмотра офлайн.\n"
             "🔔 <b>Уведомления</b>: бот сообщит, когда выйдет новая серия в подписках."
         )
-        welcome_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL))]
-        ])
+        if WEB_URL.startswith("https://"):
+            app_btn = InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL))
+        else:
+            app_btn = InlineKeyboardButton(text="✨ Открыть Lumière Web", url=WEB_URL)
+        welcome_kb = InlineKeyboardMarkup(inline_keyboard=[[app_btn]])
         await message.answer(welcome_text, reply_markup=welcome_kb, parse_mode="HTML")
         await message.answer("👇 Быстрое меню управления:", reply_markup=get_main_menu_keyboard())
 
@@ -1030,10 +1032,11 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
     try:
         me = await bot.get_me()
         print(f"[Bot] Bot @{me.username} ({me.first_name}) connected successfully for user {user_id}!")
-        try:
-            await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Lumière", web_app=WebAppInfo(url=WEB_URL)))
-        except Exception as mbe:
-            print(f"[Bot] MenuButton note: {mbe}")
+        if WEB_URL.startswith("https://"):
+            try:
+                await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Lumière", web_app=WebAppInfo(url=WEB_URL)))
+            except Exception as mbe:
+                print(f"[Bot] MenuButton note: {mbe}")
         print(f"[Bot] Resetting update stream for @{me.username}...")
         try:
             await bot.delete_webhook(drop_pending_updates=True)
