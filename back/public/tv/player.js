@@ -182,10 +182,17 @@
     seekBaseTime = 0;
     if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
     if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
+    if (nextEpInterval) { clearInterval(nextEpInterval); nextEpInterval = null; }
+    nextEpOverlayVisible = false;
+    nextEpDismissed = false;
+    var $nextOvInit = document.getElementById('next-ep-overlay');
+    if ($nextOvInit) {
+      $nextOvInit.classList.add('hidden');
+      $nextOvInit.style.display = 'none';
+    }
 
     if (movieId) {
       try { localStorage.setItem('last_watched_id', String(movieId)); } catch(e) {}
-      saveProgress();
     }
 
     torrentLink = params.link || '';
@@ -325,8 +332,8 @@
             triggerPrecacheNext();
           }
 
-          // 30-second countdown for binge watching next episode
-          if (duration > 180 && (duration - currentTime <= 30)) {
+          // 30-second countdown for binge watching next episode (strictly guarded: video must be >3 min, played for >2 min, and remaining <= 30s)
+          if (duration > 180 && currentTime > 120 && (duration - currentTime <= 30) && (duration - currentTime > 0)) {
             showNextEpOverlay();
           }
         }
@@ -380,16 +387,20 @@
 
     // Resume from saved position (either params.start or playback_positions)
     var resumeTarget = 0;
-    if (startParamSec > 10) {
+    var isNextAutoplay = Boolean(params.isNextEpisodeAutoplay || (params.start === 0 && params.start !== undefined));
+    if (isNextAutoplay) {
+      resumeTarget = 0;
+      console.log('[Player] Next episode autoplay: strictly starting from 0s');
+    } else if (startParamSec > 10) {
       resumeTarget = startParamSec;
     } else if (movieId) {
       try {
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
         var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+        var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
+        var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
         var saved = null;
-        if (epMatch) {
-          var sNum = parseInt(epMatch[1], 10);
-          var eNum = parseInt(epMatch[2], 10);
+        if (sNum && eNum) {
           var epKey = movieId + '_s' + sNum + '_e' + eNum;
           saved = positions[epKey];
           if (!saved && positions[movieId]) {
@@ -404,10 +415,17 @@
         } else if (mediaType !== 'tv') {
           saved = positions[movieId];
         }
-        if (saved && typeof saved === 'object' && ((saved.time || 0) > 5 || (saved.progress || 0) > 5)) {
-          resumeTarget = Math.floor(saved.time || saved.progress);
-        } else if (typeof saved === 'number' && saved > 5) {
-          resumeTarget = Math.floor(saved);
+        if (saved) {
+          var sTime = Math.floor((typeof saved === 'object') ? (saved.time || saved.progress || 0) : saved);
+          var sDur = Math.floor((typeof saved === 'object') ? (saved.duration || 0) : 0);
+          // If video was completed (>90% watched or within 60s of end), start from 0!
+          if (sDur > 120 && (sDur - sTime <= 60 || (sTime / sDur) > 0.90)) {
+            console.log('[Player] Saved position is near the end, resetting to beginning');
+            saved = null;
+            resumeTarget = 0;
+          } else if (sTime > 5) {
+            resumeTarget = sTime;
+          }
         }
       } catch(ex) {}
     }
@@ -636,6 +654,8 @@
 
   function showNextEpOverlay() {
     if (nextEpOverlayVisible || nextEpDismissed) return;
+    if (!duration || duration <= 180 || currentTime < 120) return;
+    if (duration - currentTime > 30 || duration - currentTime <= 0) return;
     if (!nextFile) {
       // If nextFile was not set yet, attempt dynamic resolution right now from title / state
       var pTitle = (typeof movieTitle === 'string') ? movieTitle : '';
@@ -754,29 +774,25 @@
     if (!nextFile.isDynamic && torrentLink && nextFile.id !== undefined) {
       var nextUrl = API + '/api/torrents/torrserver/stream?link=' + encodeURIComponent(torrentLink) + '&index=' + nextFile.id + '&play=1';
       destroyPlayer();
-      var epName = nextFile.name || (cleanBase ? (cleanBase + ' · S' + (nextSeason < 10 ? '0' + nextSeason : nextSeason) + ' E' + (nextEpisode < 10 ? '0' + nextEpisode : nextEpisode)) : 'Следующая серия');
+      var nextSStr = (nextSeason < 10 ? '0' + nextSeason : String(nextSeason));
+      var nextEStr = (nextEpisode < 10 ? '0' + nextEpisode : String(nextEpisode));
+      var epName = (cleanBase ? (cleanBase + ' · S' + nextSStr + 'E' + nextEStr) : '') || nextFile.name || 'Следующая серия';
+      var openOpts = {
+        url: nextUrl,
+        title: epName,
+        id: movieId,
+        type: 'tv',
+        poster: posterUrl,
+        link: torrentLink,
+        fileIndex: nextFile.id,
+        files: torrentFiles,
+        start: 0,
+        isNextEpisodeAutoplay: true
+      };
       if (typeof window.openPlayer === 'function') {
-        window.openPlayer({
-          url: nextUrl,
-          title: epName,
-          id: movieId,
-          type: mediaType || 'tv',
-          poster: posterUrl,
-          link: torrentLink,
-          fileIndex: nextFile.id,
-          files: torrentFiles
-        });
+        window.openPlayer(openOpts);
       } else if (typeof window.initPlayer === 'function') {
-        window.initPlayer({
-          url: nextUrl,
-          title: epName,
-          id: movieId,
-          type: mediaType || 'tv',
-          poster: posterUrl,
-          link: torrentLink,
-          fileIndex: nextFile.id,
-          files: torrentFiles
-        });
+        window.initPlayer(openOpts);
       }
       return;
     }
@@ -1341,8 +1357,8 @@
       var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
       var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
       var saveTime = Math.round(currentTime || 0);
-      var prevTime = (pos[saveId] && (pos[saveId].time || pos[saveId].progress)) || 0;
-      var effectiveTime = (saveTime >= 1) ? saveTime : prevTime;
+      if (saveTime < 3) return; // Do not save or overwrite progress before playback actually starts
+      var effectiveTime = saveTime;
 
       if (epMatch) {
         var epKey = saveId + '_s' + sNum + '_e' + eNum;
@@ -1509,7 +1525,10 @@
     nextEpDismissed = false;
     introSkipped = false;
     var $nextOv = document.getElementById('next-ep-overlay');
-    if ($nextOv) $nextOv.classList.add('hidden');
+    if ($nextOv) {
+      $nextOv.classList.add('hidden');
+      $nextOv.style.display = 'none';
+    }
     if ($btnSkipIntro) $btnSkipIntro.classList.add('hidden');
     isSeeking = false;
     pendingSeekTarget = 0;

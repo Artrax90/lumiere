@@ -321,73 +321,76 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         await message.answer(f"🎬 <b>Результаты поиска для «{safe_q}»:</b>", parse_mode="HTML")
 
         for item in items[:4]:
-            title = str(item.get("name") or item.get("title") or "Без названия")
-            media_type = str(item.get("type") or item.get("mediaType") or "movie")
-            media_id = item.get("id") or item.get("tmdbId")
-            score = float(item.get("score") or item.get("voteAverage") or 0)
-            year_val = str(item.get("year") or (item.get("releaseDate") or "")[:4] or "")
-            overview = str(item.get("description") or item.get("overview") or "")
-
-            rating_fmt = f"⭐ {score:.1f}" if score > 0 else ""
-            year_fmt = f"({year_val})" if year_val else ""
-            type_fmt = "Сериал" if media_type == "tv" else "Фильм"
-
-            safe_title = html.escape(title)
-            safe_overview = html.escape(overview[:180] + ("..." if len(overview) > 180 else ""))
-
-            card_caption = (
-                f"🎬 <b>{safe_title}</b> {year_fmt} {rating_fmt}\n"
-                f"Тип: {type_fmt}\n\n"
-                f"{safe_overview}"
-            )
-
-            # Store item metadata in memory cache to stay safely within Telegram's 64-byte callback_data limit
-            cache_key = f"{media_type}:{media_id}"
-            ITEM_CACHE[cache_key] = {
-                "title": title,
-                "type": media_type,
-                "id": media_id,
-                "poster": poster_url,
-                "year": year_val
-            }
-
-            action_buttons = [
-                InlineKeyboardButton(
-                    text="▶ Включить на ТВ",
-                    callback_data=f"tv_play:{media_type}:{media_id}"
-                ),
-                InlineKeyboardButton(
-                    text="📥 На сервер",
-                    callback_data=f"dl_start:{media_type}:{media_id}"
-                ),
-            ]
-
-            keyboard_rows = [action_buttons]
-            if media_type == "tv":
-                keyboard_rows.append([
-                    InlineKeyboardButton(
-                        text="🔔 Отслеживать серии",
-                        callback_data=f"sub_add:{media_id}"
-                    )
-                ])
-
-            inline_kb = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
-
-            raw_poster = item.get("poster") or item.get("posterPath") or ""
-            poster_url = clean_poster_url(raw_poster)
-
-            if poster_url:
-                try:
-                    await message.answer_photo(photo=poster_url, caption=card_caption, reply_markup=inline_kb, parse_mode="HTML")
-                    continue
-                except Exception as pe:
-                    print(f"[Bot] Failed to send photo for {title}: {pe}")
-
             try:
-                await message.answer(card_caption, reply_markup=inline_kb, parse_mode="HTML")
-            except Exception:
-                # Plain text fallback if HTML parsing fails
-                await message.answer(f"🎬 {title} {year_fmt} {rating_fmt}\n\n{overview[:180]}", reply_markup=inline_kb)
+                title = str(item.get("name") or item.get("title") or "Без названия")
+                media_type = str(item.get("type") or item.get("mediaType") or "movie")
+                media_id = item.get("id") or item.get("tmdbId")
+                score = float(item.get("score") or item.get("voteAverage") or 0)
+                year_val = str(item.get("year") or (item.get("releaseDate") or "")[:4] or "")
+                overview = str(item.get("description") or item.get("overview") or "")
+
+                raw_poster = item.get("poster") or item.get("posterPath") or ""
+                poster_url = clean_poster_url(raw_poster)
+
+                rating_fmt = f"⭐ {score:.1f}" if score > 0 else ""
+                year_fmt = f"({year_val})" if year_val else ""
+                type_fmt = "Сериал" if media_type == "tv" else "Фильм"
+
+                safe_title = html.escape(title)
+                safe_overview = html.escape(overview[:180] + ("..." if len(overview) > 180 else ""))
+
+                card_caption = (
+                    f"🎬 <b>{safe_title}</b> {year_fmt} {rating_fmt}\n"
+                    f"Тип: {type_fmt}\n\n"
+                    f"{safe_overview}"
+                )
+
+                # Store item metadata in memory cache to stay safely within Telegram's 64-byte callback_data limit
+                cache_key = f"{media_type}:{media_id}"
+                ITEM_CACHE[cache_key] = {
+                    "title": title,
+                    "type": media_type,
+                    "id": media_id,
+                    "poster": poster_url,
+                    "year": year_val
+                }
+
+                action_buttons = [
+                    InlineKeyboardButton(
+                        text="▶ Включить на ТВ",
+                        callback_data=f"tv_play:{media_type}:{media_id}"
+                    ),
+                    InlineKeyboardButton(
+                        text="📥 На сервер",
+                        callback_data=f"dl_start:{media_type}:{media_id}"
+                    ),
+                ]
+
+                keyboard_rows = [action_buttons]
+                if media_type == "tv":
+                    keyboard_rows.append([
+                        InlineKeyboardButton(
+                            text="🔔 Отслеживать серии",
+                            callback_data=f"sub_add:{media_id}"
+                        )
+                    ])
+
+                inline_kb = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
+
+                if poster_url:
+                    try:
+                        await message.answer_photo(photo=poster_url, caption=card_caption, reply_markup=inline_kb, parse_mode="HTML")
+                        continue
+                    except Exception as pe:
+                        print(f"[Bot] Failed to send photo for {title}: {pe}")
+
+                try:
+                    await message.answer(card_caption, reply_markup=inline_kb, parse_mode="HTML")
+                except Exception:
+                    # Plain text fallback if HTML parsing fails
+                    await message.answer(f"🎬 {title} {year_fmt} {rating_fmt}\n\n{overview[:180]}", reply_markup=inline_kb)
+            except Exception as item_err:
+                print(f"[Bot] Error processing search item {item}: {item_err}")
 
     # Callback Query Handlers
     @dp.callback_query(F.data.startswith("tv_play:"))

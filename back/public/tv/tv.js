@@ -5678,13 +5678,13 @@
               localStorage.setItem('last_torrents', JSON.stringify(lastTorrentsMap));
             } catch(se) {}
 
-            playFile(matchedFile, epTitleStr, showId, epPoster, files);
+            playFile(matchedFile, epTitleStr, showId, epPoster, files, autoPlayDirect ? 0 : undefined);
           } else {
             if (idx + 1 < Math.min(sorted.length, 4)) {
               tryCandidate(idx + 1);
             } else {
               if (autoPlayDirect && files.length > 0) {
-                playFile(files[0], epTitleStr, showId, epPoster, files);
+                playFile(files[0], epTitleStr, showId, epPoster, files, 0);
               } else {
                 showTorrentPrePlayModal(files, candidate.title, showId, candidate.magnet);
               }
@@ -6702,7 +6702,7 @@
     document.addEventListener('keydown', confirmKeyHandler, true);
   }
 
-  function playFile(file, title, movieId, customPoster, optFiles) {
+  function playFile(file, title, movieId, customPoster, optFiles, optStart) {
     var isAvplay = (typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined) || (typeof tizen !== 'undefined');
     var isAvi = file && file.name && /\.avi$/i.test(file.name);
     var url = '';
@@ -6810,7 +6810,9 @@
 
     // Check for saved resume position (for series, ensure position is for THIS episode, not the whole series!)
     var startParam = '';
-    if (movieId) {
+    if (optStart === 0) {
+      startParam = '&start=0';
+    } else if (movieId) {
       try {
         var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
         var saved = null;
@@ -6829,10 +6831,14 @@
         } else if (!isTv) {
           saved = positions[movieId];
         }
-        if (saved && typeof saved === 'object' && ((saved.time || 0) > 5 || (saved.progress || 0) > 5)) {
-          startParam = '&start=' + Math.floor(saved.time || saved.progress);
-        } else if (typeof saved === 'number' && saved > 5) {
-          startParam = '&start=' + Math.floor(saved);
+        if (saved) {
+          var sTime = Math.floor((typeof saved === 'object') ? (saved.time || saved.progress || 0) : saved);
+          var sDur = Math.floor((typeof saved === 'object') ? (saved.duration || 0) : 0);
+          if (sDur > 120 && (sDur - sTime <= 60 || (sTime / sDur) > 0.90)) {
+            saved = null;
+          } else if (sTime > 5) {
+            startParam = '&start=' + sTime;
+          }
         }
       } catch(e) {}
 
@@ -6872,7 +6878,9 @@
     state.activeFile = file;
     var fileIdx = (file && file.id !== undefined) ? file.id : -1;
     var startSec = 0;
-    if (startParam) {
+    if (optStart === 0) {
+      startSec = 0;
+    } else if (startParam) {
       var sm = startParam.match(/start=(\d+)/);
       if (sm) startSec = parseInt(sm[1], 10);
     }
@@ -6887,7 +6895,8 @@
       id: movieId,
       type: mediaType,
       poster: poster,
-      start: startSec,
+      start: (optStart === 0) ? 0 : startSec,
+      isNextEpisodeAutoplay: Boolean(optStart === 0),
       fileIndex: fileIdx,
       link: state._lastMagnet || (state.activeTorrent && state.activeTorrent.magnet) || '',
       files: effectiveFiles
