@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, Filter, Check, Search, Sparkles, AlertCircle } from 'lucide-react';
+import { Download, Loader2, Magnet, Users, HardDrive, Calendar, ExternalLink, Play, Folder, ArrowUpDown, ArrowUp, ArrowDown, Filter, Check, Search, Sparkles, AlertCircle } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
 import TorrentBadges from './TorrentBadges';
@@ -94,6 +94,7 @@ interface TorrentSearchProps {
 }
 
 type SortKey = 'score' | 'seeders' | 'size' | 'date';
+type SortOrder = 'desc' | 'asc';
 
 export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentSearchProps) {
   const { t } = useTranslation();
@@ -105,11 +106,21 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
   const [files, setFiles] = useState<TorrentFile[] | null>(null);
   const [streamError, setStreamError] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('score');
+  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [seasonFilter, setSeasonFilter] = useState<number | null>(initialSeason || null);
   const [qualityFilter, setQualityFilter] = useState<'all' | '4k' | '1080p' | '720p'>('all');
   const [selectedTorrent, setSelectedTorrent] = useState<TorrentItem | null>(null);
   const [searchQuery, setSearchQuery] = useState(title.name);
   const [isExpanded, setIsExpanded] = useState(false);
+
+  const handleSortToggle = (key: SortKey) => {
+    if (sortBy === key) {
+      setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+    } else {
+      setSortBy(key);
+      setSortOrder('desc');
+    }
+  };
 
   useEffect(() => {
     if (initialSeason !== undefined && initialSeason !== null) {
@@ -195,17 +206,29 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
     }
 
     const isTv = (title as any).type === 'tv' || (title as any).type === 'show';
+    const mult = sortOrder === 'desc' ? 1 : -1;
+
     // Sort by selected criteria
     filtered.sort((a, b) => {
-      if (sortBy === 'score') return scoreTorrent(b, title.year, isTv) - scoreTorrent(a, title.year, isTv);
-      if (sortBy === 'seeders') return (b.seeders || 0) - (a.seeders || 0);
-      if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
-      if (sortBy === 'date') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      return scoreTorrent(b, title.year, isTv) - scoreTorrent(a, title.year, isTv);
+      let diff = 0;
+      if (sortBy === 'score') {
+        diff = scoreTorrent(b, title.year, isTv) - scoreTorrent(a, title.year, isTv);
+      } else if (sortBy === 'seeders') {
+        diff = (b.seeders || 0) - (a.seeders || 0);
+      } else if (sortBy === 'size') {
+        diff = (b.size || 0) - (a.size || 0);
+      } else if (sortBy === 'date') {
+        diff = new Date(b.date).getTime() - new Date(a.date).getTime();
+      }
+
+      if (diff !== 0) {
+        return diff * mult;
+      }
+      return (b.seeders || 0) - (a.seeders || 0);
     });
 
     return filtered;
-  }, [results, sortBy, seasonFilter, qualityFilter]);
+  }, [results, sortBy, sortOrder, seasonFilter, qualityFilter, title.year, (title as any).type]);
 
   // Extract available seasons from results using range and standard patterns
   const availableSeasons = useMemo(() => {
@@ -407,20 +430,40 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
             {/* Sort buttons */}
             <div className="flex items-center gap-1">
               <ArrowUpDown className="h-3.5 w-3.5 text-white/40" />
-              {(['score', 'seeders', 'size', 'date'] as SortKey[]).map((key) => (
-                <button
-                  key={key}
-                  onClick={() => setSortBy(key)}
-                  className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
-                  style={{
-                    background: sortBy === key ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
-                    color: sortBy === key ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
-                    border: sortBy === key ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
-                  }}
-                >
-                  {key === 'score' ? 'По рейтингу' : key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
-                </button>
-              ))}
+              {(['score', 'seeders', 'size', 'date'] as SortKey[]).map((key) => {
+                const isActive = sortBy === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => handleSortToggle(key)}
+                    className="inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic select-none active:scale-95 cursor-pointer"
+                    style={{
+                      background: isActive ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
+                      color: isActive ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
+                      border: isActive ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
+                    }}
+                    title={
+                      isActive
+                        ? sortOrder === 'desc'
+                          ? 'По убыванию (нажмите для сортировки по возрастанию)'
+                          : 'По возрастанию (нажмите для сортировки по убыванию)'
+                        : undefined
+                    }
+                  >
+                    <span>
+                      {key === 'score' ? 'По рейтингу' : key === 'seeders' ? t('torrents.seeders') : key === 'size' ? t('torrents.size') : t('torrents.date')}
+                    </span>
+                    {isActive && (
+                      sortOrder === 'desc' ? (
+                        <ArrowDown className="h-3 w-3 shrink-0 stroke-[2.5] text-amber-300" />
+                      ) : (
+                        <ArrowUp className="h-3 w-3 shrink-0 stroke-[2.5] text-amber-300" />
+                      )
+                    )}
+                  </button>
+                );
+              })}
             </div>
 
             {/* Quality buttons */}

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { ChevronDown, Star, ArrowUpDown, Loader2 } from 'lucide-react';
+import { ChevronDown, Star, ArrowUpDown, ArrowDown, ArrowUp, Loader2 } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
@@ -20,6 +20,7 @@ const sortOptions = [
 export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('rating');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [showSort, setShowSort] = useState(false);
   const [page, setPage] = useState(1);
   const [allMovies, setAllMovies] = useState<Title[]>([]);
@@ -61,14 +62,16 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
   const filteredMovies = useMemo(() => {
     let list = allMovies.length > 0 ? allMovies : initialMovies;
     if (activeGenre) list = list.filter((t) => t.genres.includes(activeGenre));
+    const mult = sortOrder === 'desc' ? 1 : -1;
     list = [...list].sort((a, b) => {
-      if (sortBy === 'rating') return b.score - a.score;
-      if (sortBy === 'year') return b.year - a.year;
-      if (sortBy === 'title') return a.name.localeCompare(b.name);
-      return 0;
+      let diff = 0;
+      if (sortBy === 'rating') diff = b.score - a.score;
+      else if (sortBy === 'year') diff = b.year - a.year;
+      else if (sortBy === 'title') diff = a.name.localeCompare(b.name);
+      return diff * mult;
     });
     return list;
-  }, [allMovies, initialMovies, activeGenre, sortBy]);
+  }, [allMovies, initialMovies, activeGenre, sortBy, sortOrder]);
 
   const featured = filteredMovies[0];
   const rest = filteredMovies.slice(1);
@@ -134,29 +137,52 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
             ))}
           </div>
 
-          <div className="relative ml-auto">
+          <div className="flex items-center gap-1.5 ml-auto">
             <button
-              onClick={() => setShowSort(!showSort)}
-              className="flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/70 transition-cinematic hover:text-white"
+              onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center justify-center h-8 w-8 rounded-full glass text-white/70 hover:text-white transition-cinematic active:scale-95"
+              title={sortOrder === 'desc' ? 'По убыванию (нажмите для переключения)' : 'По возрастанию (нажмите для переключения)'}
             >
-              <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
-              {sortOptions.find((s) => s.id === sortBy)?.label}
-              <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+              {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5 text-amber-300" /> : <ArrowUp className="h-3.5 w-3.5 text-amber-300" />}
             </button>
-            {showSort && (
-              <div className="absolute right-0 top-full z-20 mt-2 w-40 rounded-[14px] glass-panel p-2 animate-fade-in">
-                {sortOptions.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => { setSortBy(s.id); setShowSort(false); }}
-                    className="block w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-cinematic"
-                    style={{ color: sortBy === s.id ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)', background: sortBy === s.id ? 'rgba(232,193,112,0.08)' : 'transparent' }}
-                  >
-                    {s.label}
-                  </button>
-                ))}
-              </div>
-            )}
+            <div className="relative">
+              <button
+                onClick={() => setShowSort(!showSort)}
+                className="flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/70 transition-cinematic hover:text-white"
+              >
+                <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+                {sortOptions.find((s) => s.id === sortBy)?.label}
+                <ChevronDown className="h-3.5 w-3.5" strokeWidth={1.5} />
+              </button>
+              {showSort && (
+                <div className="absolute right-0 top-full z-20 mt-2 w-44 rounded-[14px] glass-panel p-2 animate-fade-in">
+                  {sortOptions.map((s) => {
+                    const isSelected = sortBy === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        onClick={() => {
+                          if (sortBy === s.id) {
+                            setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+                          } else {
+                            setSortBy(s.id);
+                            setSortOrder('desc');
+                          }
+                          setShowSort(false);
+                        }}
+                        className="flex items-center justify-between w-full rounded-lg px-3 py-2 text-left text-[13px] font-medium transition-cinematic"
+                        style={{ color: isSelected ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)', background: isSelected ? 'rgba(232,193,112,0.08)' : 'transparent' }}
+                      >
+                        <span>{s.label}</span>
+                        {isSelected && (
+                          sortOrder === 'desc' ? <ArrowDown className="h-3 w-3 text-amber-300" /> : <ArrowUp className="h-3 w-3 text-amber-300" />
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
 

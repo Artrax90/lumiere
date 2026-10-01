@@ -11,6 +11,8 @@ import {
   Tv,
   Sparkles,
   ArrowUpDown,
+  ArrowDown,
+  ArrowUp,
   Trash2,
   SlidersHorizontal,
   Star,
@@ -67,6 +69,7 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
   const [focused, setFocused] = useState(false);
   const [typeFilter, setTypeFilter] = useState<MediaTypeFilter>('all');
   const [sortBy, setSortBy] = useState<SortOption>('relevance');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [isListening, setIsListening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -182,14 +185,15 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
     }
 
     // Sort
+    const mult = sortOrder === 'desc' ? 1 : -1;
     if (sortBy === 'rating') {
-      items.sort((a, b) => (b.score || 0) - (a.score || 0));
+      items.sort((a, b) => ((b.score || 0) - (a.score || 0)) * mult);
     } else if (sortBy === 'year') {
-      items.sort((a, b) => (b.year || 0) - (a.year || 0));
+      items.sort((a, b) => ((b.year || 0) - (a.year || 0)) * mult);
     }
 
     return items;
-  }, [searchResults, typeFilter, sortBy]);
+  }, [searchResults, typeFilter, sortBy, sortOrder]);
 
   // Counts by category
   const counts = useMemo(() => {
@@ -314,8 +318,16 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
                 >
                   <option value="relevance" className="bg-[#121216] text-white">По популярности</option>
                   <option value="rating" className="bg-[#121216] text-white">По рейтингу</option>
-                  <option value="year" className="bg-[#121216] text-white">Сначала новые</option>
+                  <option value="year" className="bg-[#121216] text-white">По году</option>
                 </select>
+                <button
+                  type="button"
+                  onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
+                  className="flex items-center justify-center h-8 w-8 rounded-lg bg-white/[0.05] border border-white/[0.08] text-amber-300 hover:text-white transition-colors cursor-pointer active:scale-95"
+                  title={sortOrder === 'desc' ? 'По убыванию (нажмите для переключения)' : 'По возрастанию (нажмите для переключения)'}
+                >
+                  {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5 stroke-[2.5]" /> : <ArrowUp className="h-3.5 w-3.5 stroke-[2.5]" />}
+                </button>
               </div>
             </div>
 
