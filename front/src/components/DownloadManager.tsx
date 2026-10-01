@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Download, Pause, Play, Trash2, Loader2, HardDrive, ArrowDown, ArrowUp, Film, CheckCircle2, AlertCircle } from 'lucide-react';
-import { serverFetch } from '@/api/server';
+import { serverFetch, serverUrl } from '@/api/server';
+import SafeImg from './SafeImg';
 
 interface ServerDownloadItem {
   id: string;
@@ -137,8 +138,8 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                 {/* Info */}
                 <div className="flex items-center gap-4 min-w-0">
                   {item.poster ? (
-                    <img
-                      src={item.poster.startsWith('http') ? item.poster : `https://image.tmdb.org/t/p/w200${item.poster}`}
+                    <SafeImg
+                      src={item.poster}
                       alt={item.title}
                       className="h-16 w-11 rounded-[8px] object-cover shrink-0 border border-white/10"
                     />
@@ -211,7 +212,7 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                       </button>
 
                       <a
-                        href={`/api/downloads/server/download-file/${item.id}`}
+                        href={serverUrl(`/api/downloads/server/download-file/${item.id}`)}
                         download={item.fileName || `${item.title}.mkv`}
                         target="_blank"
                         rel="noopener noreferrer"

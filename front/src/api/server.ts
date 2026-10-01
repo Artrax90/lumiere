@@ -137,12 +137,24 @@ export async function serverFetch(path: string, init?: RequestInit): Promise<Res
 export function serverUrl(path: string): string {
   if (!path) return '';
   const base = getServerUrl();
-  if (path.startsWith('/api/image')) {
-    return `${base}${path}`;
+
+  // Already a proxy URL
+  if (path.includes('/api/image')) {
+    if (path.startsWith('http://') || path.startsWith('https://')) return path;
+    return `${base}${path.startsWith('/') ? path : '/' + path}`;
   }
-  if (path.includes('image.tmdb.org/t/p/')) {
+
+  // TMDB or external poster domains that should be proxied through our server to bypass ISP/RKN blocking
+  if (path.includes('image.tmdb.org') || path.includes('themoviedb.org') || path.includes('kinopoisk') || path.includes('yandex.net')) {
     return `${base}/api/image?url=${encodeURIComponent(path)}`;
   }
+
+  // Direct TMDB relative path: "/t/p/..." or "/<hash>.jpg"
+  if (path.startsWith('/') && !path.startsWith('/api/') && !path.startsWith('/assets') && !path.startsWith('/icon') && !path.startsWith('/favicon')) {
+    const tmdbPath = path.startsWith('/t/p/') ? path : `/t/p/w500${path}`;
+    return `${base}/api/image?url=${encodeURIComponent(`https://image.tmdb.org${tmdbPath}`)}`;
+  }
+
   if (path.startsWith('http') || path.startsWith('data:')) return path;
   return `${base}${path}`;
 }
