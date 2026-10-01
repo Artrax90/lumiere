@@ -5833,8 +5833,9 @@
         return;
       }
 
+      var showYr = (state.activeMovie && state.activeMovie.year) ? parseInt(state.activeMovie.year, 10) : 0;
       var filtered = torrentsList.filter(function(item) {
-        return matchesTorrentSeason(item.title || '', seasonNum);
+        return matchesTorrentSeason(item.title || '', seasonNum, showYr);
       });
       if (filtered.length === 0) filtered = torrentsList;
 
@@ -6247,12 +6248,12 @@
   window.scoreTorrent = scoreTorrent;
 
   // ========== Season Matching & Torrent Search ==========
-  function matchesTorrentSeason(title, s) {
+  function matchesTorrentSeason(title, s, showYear) {
     if (!title || !s) return true;
     var t = title.toLowerCase();
     var sPadded = (s < 10 ? '0' + s : '' + s);
 
-    // Check explicit season ranges first: "сезоны 1-4", "1-5 сезон", "seasons 1-3"
+    // 1. Check explicit season ranges first: "сезоны 1-4", "1-5 сезон", "seasons 1-3"
     var rangeMatch = t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i);
     if (!rangeMatch) {
       rangeMatch = t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
@@ -6264,7 +6265,7 @@
       return false;
     }
 
-    // Standard season patterns
+    // 2. Standard single season patterns
     if (t.indexOf('сезон: ' + s) >= 0 ||
         t.indexOf('сезон:' + s) >= 0 ||
         t.indexOf('сезон ' + s) >= 0 ||
@@ -6278,8 +6279,48 @@
         t.indexOf(s + ' season') >= 0 ||
         t.indexOf('сезоны 1-') >= 0 ||
         t.indexOf('сезон 1-') >= 0 ||
-        t.indexOf('seasons 1-') >= 0) {
+        t.indexOf('seasons 1-') >= 0 ||
+        t.indexOf('все сезоны') >= 0 ||
+        t.indexOf('полный архив') >= 0 ||
+        t.indexOf('коллекция') >= 0) {
       return true;
+    }
+
+    // 3. Multi-episode mega-packs: e.g. '1-455 выпуски', '[001-455]', '1-201 выпуски', '1-50 выпуски'
+    var epPack = t.match(/\[?\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b\]?\s*(?:выпуск\w*|сери\w*)?/i);
+    if (epPack) {
+      var pStart = parseInt(epPack[1], 10);
+      var pEnd = parseInt(epPack[2], 10);
+      if (pEnd - pStart >= 25) {
+        var startSeason = pStart <= 15 ? 1 : Math.max(1, Math.floor(pStart / 30) + 1);
+        var endSeason = Math.max(startSeason, Math.ceil(pEnd / 25));
+        if (s >= startSeason && s <= endSeason) return true;
+      }
+    }
+
+    // 4. Multi-year ranges: e.g. (2005-2017), (2005-2010), (2010-2011), (2013-2015), (2025-2026)
+    var yrRange = t.match(/[\(\[\/\s\.\-](\d{4})\s*[-–—]\s*(\d{4})[\)\]\/\s\.\-]/);
+    if (yrRange) {
+      var yStart = parseInt(yrRange[1], 10);
+      var yEnd = parseInt(yrRange[2], 10);
+      if (yStart >= 1990 && yEnd <= 2035 && yEnd > yStart) {
+        var baseYear = (showYear && showYear >= 1990) ? showYear : yStart;
+        var sStart = Math.max(1, yStart - baseYear + 1);
+        var sEnd = Math.max(sStart, yEnd - baseYear + 1);
+        if (s >= sStart && s <= sEnd) return true;
+      }
+    }
+
+    // 5. Single year correlation for annual shows (e.g. Comedy Club 2005 -> Season 1)
+    if (showYear && showYear >= 1990) {
+      var singleYr = t.match(/[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]/);
+      if (singleYr) {
+        var y = parseInt(singleYr[1], 10);
+        if (y >= showYear && y <= 2035 && y !== 1080 && y !== 2160) {
+          var mappedSeason = y - showYear + 1;
+          if (mappedSeason === s) return true;
+        }
+      }
     }
 
     // Specific episode / season patterns e.g. "01х", "1x", "s01e"
@@ -6325,11 +6366,14 @@
       return { matches: false, score: -1000, range: true };
     }
 
-    // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии'
+    // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
     var ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
     if (ruRange) {
       var rStart = parseInt(ruRange[1], 10);
       var rEnd = parseInt(ruRange[2], 10);
+      if (rEnd - rStart >= 25) {
+        return { matches: true, score: 350, range: true };
+      }
       if (epNum >= rStart && epNum <= rEnd) return { matches: true, score: 500, range: true };
       return { matches: false, score: -1000, range: true };
     }
@@ -6355,8 +6399,9 @@
       var filtered = allResults;
       var isFallback = false;
       if (season) {
+        var showYr = (state.activeMovie && state.activeMovie.year) ? parseInt(state.activeMovie.year, 10) : 0;
         filtered = allResults.filter(function(item) {
-          return matchesTorrentSeason(item.title || '', season);
+          return matchesTorrentSeason(item.title || '', season, showYr);
         });
         if (filtered.length === 0) {
           filtered = allResults;

@@ -142,10 +142,10 @@ export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: nu
       const y = parseInt(match[1], 10);
       if (y >= 1920 && y <= 2035 && y !== 2160) {
         if (isTv) {
-          if (y < targetYear - 2) {
-            score -= 10000;
-          } else if (y >= targetYear) {
-            score += 600;
+          // TV seasons span multiple years (e.g. Comedy Club Season 1 in 2005 vs current 2026).
+          // Never penalize older release years for TV series!
+          if (y >= targetYear) {
+            score += 400;
           }
         } else {
           const diff = Math.abs(y - targetYear);
@@ -300,13 +300,18 @@ export function getTorrentSmartQueries(title: string | { name?: string; title?: 
 }
 
 /**
- * Extracts season information from a torrent title string.
+ * Extracts season information from a torrent title string, with support for:
+ * 1. Standard season ranges ('сезоны 1-4', '1-4 сезон', 'seasons 1-3')
+ * 2. Single season patterns ('19 сезон', 'сезон 19', 's21', '21x01')
+ * 3. Multi-episode mega-packs ('1-455 выпуски', '[001-455]', '1-201 выпуски', '1-50 выпуски')
+ * 4. Multi-year ranges ('2005-2017', '2005-2010', '2010-2011', '2013-2015')
+ * 5. Premiere year correlation for annual comedy/talk shows (2005 -> Season 1, 2026 -> Season 22)
  */
-export function getTorrentSeason(title: string): { start?: number; end?: number; single?: number } | null {
+export function getTorrentSeason(title: string, showYear?: number): { start?: number; end?: number; single?: number; isMegaPack?: boolean } | null {
   if (!title) return null;
   const t = title.toLowerCase();
 
-  // Range: 'сезоны 1-4' or '1-4 сезон' or 'seasons 1-3'
+  // 1. Explicit season range: 'сезоны 1-4' or '1-4 сезон' or 'seasons 1-3'
   const rangeMatch =
     t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i) ||
     t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
@@ -314,38 +319,88 @@ export function getTorrentSeason(title: string): { start?: number; end?: number;
     return { start: parseInt(rangeMatch[1], 10), end: parseInt(rangeMatch[2], 10) };
   }
 
-  // 1. '19 сезон' or '19-й сезон' (e.g. '19 сезон: 22 выпуск')
+  // 2. Single season patterns
+  // 2a. '19 сезон' or '19-й сезон'
   const m1 = t.match(/(\d{1,2})[-–—\s]*(?:й|-й)?\s*сезон/i);
   if (m1) return { single: parseInt(m1[1], 10) };
 
-  // 2. 'сезон 19' or 'сезон: 19' (make sure there is no preceding number)
+  // 2b. 'сезон 19' or 'сезон: 19'
   const m2 = t.match(/(?:^|[^\d])сезон\s*[:.]?\s*(\d{1,2})/i);
   if (m2) return { single: parseInt(m2[1], 10) };
 
-  // 3. 'season 4' or 'season: 4'
+  // 2c. 'season 4' or 'season: 4'
   const mSeason = t.match(/(?:^|[^\d])season\s*[:.]?\s*(\d{1,2})/i);
   if (mSeason) return { single: parseInt(mSeason[1], 10) };
 
-  // 4. 's01', 's1', 's05e02'
+  // 2d. 's01', 's1', 's05e02'
   const mS = t.match(/\bs(\d{1,2})(?:e\d+|\b)/i);
   if (mS) return { single: parseInt(mS[1], 10) };
 
-  // 5. '01x02', '1x2'
+  // 2e. '01x02', '1x2'
   const mX = t.match(/\b(\d{1,2})[xх]\d+\b/i);
   if (mX) return { single: parseInt(mX[1], 10) };
+
+  // 3. Multi-episode mega-packs: e.g. '1-455 выпуски', '[001-455]', '1-201 выпуски', '1-50 выпуски'
+  const epPack = t.match(/\[?\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b\]?\s*(?:выпуск\w*|сери\w*)?/i);
+  if (epPack) {
+    const startEp = parseInt(epPack[1], 10);
+    const endEp = parseInt(epPack[2], 10);
+    if (endEp - startEp >= 25) {
+      const startSeason = startEp <= 15 ? 1 : Math.max(1, Math.floor(startEp / 30) + 1);
+      const endSeason = Math.max(startSeason, Math.ceil(endEp / 25));
+      return { start: startSeason, end: endSeason, isMegaPack: true };
+    }
+  }
+
+  // 4. Multi-year ranges: e.g. (2005-2017), (2005-2010), (2010-2011), (2013-2015), (2025-2026)
+  const yrRange = t.match(/[\(\[\/\s\.\-](\d{4})\s*[-–—]\s*(\d{4})[\)\]\/\s\.\-]/);
+  if (yrRange) {
+    const yStart = parseInt(yrRange[1], 10);
+    const yEnd = parseInt(yrRange[2], 10);
+    if (yStart >= 1990 && yEnd <= 2035 && yEnd > yStart) {
+      const baseYear = (showYear && showYear >= 1990) ? showYear : yStart;
+      const sStart = Math.max(1, yStart - baseYear + 1);
+      const sEnd = Math.max(sStart, yEnd - baseYear + 1);
+      return { start: sStart, end: sEnd };
+    }
+  }
+
+  // 5. Single year correlation for annual Russian shows (e.g. Comedy Club premiere 2005 -> 2005 is S01)
+  if (showYear && showYear >= 1990) {
+    const singleYr = t.match(/[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]/);
+    if (singleYr) {
+      const y = parseInt(singleYr[1], 10);
+      if (y >= showYear && y <= 2035 && y !== 1080 && y !== 2160) {
+        const s = y - showYear + 1;
+        if (s >= 1 && s <= 40) {
+          return { single: s };
+        }
+      }
+    }
+  }
 
   return null;
 }
 
 /**
- * Checks if a torrent title matches a specific season number, supporting season ranges (e.g. "Сезоны 1-4").
+ * Checks if a torrent title matches a specific season number, supporting season ranges,
+ * multi-episode mega-packs, year ranges, and archival collections.
  */
-export function matchesTorrentSeason(title: string, s: number): boolean {
+export function matchesTorrentSeason(title: string, s: number, showYear?: number): boolean {
   if (!title || !s) return true;
-  const parsed = getTorrentSeason(title);
+  const parsed = getTorrentSeason(title, showYear);
   if (!parsed) {
     const t = title.toLowerCase();
-    if (t.includes('сезоны 1-') || t.includes('сезон 1-') || t.includes('seasons 1-')) return true;
+    if (
+      t.includes('сезоны 1-') ||
+      t.includes('сезон 1-') ||
+      t.includes('seasons 1-') ||
+      t.includes('все сезоны') ||
+      t.includes('полный архив') ||
+      t.includes('коллекция')
+    ) {
+      return true;
+    }
     return false;
   }
   if (parsed.start !== undefined && parsed.end !== undefined) {
@@ -365,7 +420,8 @@ export interface EpisodeCheckResult {
 
 /**
  * Evaluates whether a torrent release matches a specific episode of a given season.
- * Gives massive bonuses for exact single-episode releases (e.g. 22x13 for ep 13).
+ * Gives massive bonuses for exact single-episode releases (e.g. 22x13 for ep 13)
+ * and properly supports multi-episode mega-packs.
  */
 export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epNum: number): EpisodeCheckResult {
   if (!torrentTitle || !epNum) return { matches: true, score: 0 };
@@ -401,11 +457,15 @@ export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epN
     return { matches: false, score: -1000, range: true };
   }
 
-  // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии'
+  // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
   const ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
   if (ruRange) {
     const rStart = parseInt(ruRange[1], 10);
     const rEnd = parseInt(ruRange[2], 10);
+    // If it's a mega-pack (spans across many seasons)
+    if (rEnd - rStart >= 25) {
+      return { matches: true, score: 350, range: true };
+    }
     if (epNum >= rStart && epNum <= rEnd) return { matches: true, score: 500, range: true };
     return { matches: false, score: -1000, range: true };
   }
@@ -445,12 +505,12 @@ export function extractEpisodeNumber(fileName: string, fallbackIndex = 0, season
     if (m) return parseInt(m[1], 10);
   }
 
-  // Leading number in file name: e.g. "05 - Winter is coming.mkv" or "01. Comedy Club..."
-  // Avoid 4-digit years like 2026!
+  // Leading number in file name: e.g. "05 - Winter is coming.mkv" or "01. Comedy Club..." or "450. Comedy Club..."
+  // Avoid 720p/1080p and calendar years (>= 700)
   m = s.match(/^(?:\[[^\]]*\]\s*)?(\d{1,3})[\s._\-]/);
   if (m) {
     const val = parseInt(m[1], 10);
-    if (val < 200) return val;
+    if (val < 700) return val;
   }
 
   // Number before extension e.g. "Show.05.mkv"

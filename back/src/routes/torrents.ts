@@ -428,11 +428,8 @@ export function torrentRoutes(app: FastifyInstance) {
         const torrentYear = extractTorrentYear(r.Title);
         if (targetYear > 0 && torrentYear !== null) {
           if (type === 'tv') {
-            // For TV series: seasons continue for years after premiere.
-            // Only discard if the torrent claims a year before the series ever existed!
-            if (torrentYear < targetYear - 2) {
-              continue;
-            }
+            // TV series span multiple years, have reboots, multi-year packs (e.g. 2005-2017)
+            // and TMDB dates may not match release tracking. Never discard TV series by year.
           } else {
             // For movies: if the torrent specifies an explicit year that is > 1 year away (e.g. 1993 vs 2026),
             // it is guaranteed to be a different movie. Exclude it!
@@ -474,10 +471,10 @@ export function torrentRoutes(app: FastifyInstance) {
           const torrentYear = extractTorrentYear(t.title);
           if (torrentYear !== null) {
             if (type === 'tv') {
-              if (torrentYear < targetYear - 2) {
-                score -= 10000;
-              } else if (torrentYear >= targetYear) {
-                score += 500;
+              // TV series have older seasons from earlier years (e.g. Comedy Club Season 1 in 2005 vs 2026).
+              // Never penalize older years for TV.
+              if (torrentYear >= targetYear) {
+                score += 300;
               }
             } else {
               const diff = Math.abs(torrentYear - targetYear);

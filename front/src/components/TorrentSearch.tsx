@@ -9,6 +9,7 @@ import {
   scoreTorrent,
   getTorrentSmartQueries,
   matchesTorrentSeason,
+  getTorrentSeason,
 } from '@/utils/torrentMeta';
 
 // Simple hash for magnet link
@@ -194,7 +195,7 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
 
     // Filter by season if selected using robust season matcher
     if (seasonFilter !== null) {
-      const seasonFiltered = filtered.filter((r) => matchesTorrentSeason(r.title, seasonFilter));
+      const seasonFiltered = filtered.filter((r) => matchesTorrentSeason(r.title, seasonFilter, title.year));
       if (seasonFiltered.length > 0) {
         filtered = seasonFiltered;
       } else if (filtered.length > 0) {
@@ -240,36 +241,23 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
     return { sortedResults: filtered, isSeasonFallback: isFallback };
   }, [results, sortBy, sortOrder, seasonFilter, qualityFilter, title.year, (title as any).type]);
 
-  // Extract available seasons from results using range and standard patterns
+  // Extract available seasons from results using range, mega-packs, and standard patterns
   const availableSeasons = useMemo(() => {
     const seasons = new Set<number>();
     for (const r of results) {
-      const t = r.title.toLowerCase();
-      // Match explicit season ranges: "сезоны 1-4"
-      const rangeMatch =
-        t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i) ||
-        t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
-      if (rangeMatch) {
-        const startS = parseInt(rangeMatch[1], 10);
-        const endS = parseInt(rangeMatch[2], 10);
-        for (let s = startS; s <= Math.min(endS, startS + 20); s++) {
-          seasons.add(s);
-        }
-      }
-      // Single seasons
-      const matches = t.match(/s(\d{1,2})|сезон\s*(\d{1,2})|season\s*(\d{1,2})|(\d{1,2})\s*сезон/gi);
-      if (matches) {
-        for (const m of matches) {
-          const num = m.match(/\d+/);
-          if (num) {
-            const s = parseInt(num[0], 10);
-            if (s > 0 && s < 60) seasons.add(s);
+      const parsed = getTorrentSeason(r.title, title.year);
+      if (parsed) {
+        if (parsed.start !== undefined && parsed.end !== undefined) {
+          for (let s = parsed.start; s <= Math.min(parsed.end, 40); s++) {
+            seasons.add(s);
           }
+        } else if (parsed.single && parsed.single > 0 && parsed.single < 50) {
+          seasons.add(parsed.single);
         }
       }
     }
     return Array.from(seasons).sort((a, b) => a - b);
-  }, [results]);
+  }, [results, title.year]);
 
   const streamTorrent = async (item: TorrentItem) => {
     setStreamingId(item.id);
@@ -507,11 +495,14 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
 
           {/* Season filter */}
           {availableSeasons.length > 0 && (
-            <div className="flex items-center gap-1">
-              <Filter className="h-3.5 w-3.5 text-white/40" />
+            <div className="flex flex-wrap items-center gap-1.5 w-full pt-1">
+              <span className="flex items-center gap-1 text-[11px] text-white/40 mr-1">
+                <Filter className="h-3.5 w-3.5 text-white/40" />
+                Сезон:
+              </span>
               <button
                 onClick={() => setSeasonFilter(null)}
-                className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic cursor-pointer active:scale-95 select-none"
                 style={{
                   background: seasonFilter === null ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                   color: seasonFilter === null ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
@@ -523,13 +514,14 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
               {availableSeasons.map((s) => (
                 <button
                   key={s}
-                  onClick={() => setSeasonFilter(s)}
-                  className="rounded-full px-3 py-1 text-[11px] font-medium transition-cinematic"
+                  onClick={() => setSeasonFilter((prev) => (prev === s ? null : s))}
+                  className="rounded-full px-2.5 py-1 text-[11px] font-medium transition-cinematic cursor-pointer active:scale-95 select-none"
                   style={{
                     background: seasonFilter === s ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                     color: seasonFilter === s ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.5)',
                     border: seasonFilter === s ? '1px solid rgba(232,193,112,0.25)' : '1px solid rgba(255,255,255,0.06)',
                   }}
+                  title={seasonFilter === s ? 'Нажмите для сброса фильтра' : `Показать только сезон ${s}`}
                 >
                   S{s}
                 </button>

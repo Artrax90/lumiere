@@ -278,7 +278,7 @@ export default function SeasonTorrentBrowser({
       }
 
       // Filter by season
-      let filtered = torrents.filter((item) => matchesTorrentSeason(item.title, activeSeason));
+      let filtered = torrents.filter((item) => matchesTorrentSeason(item.title, activeSeason, show.year));
       if (filtered.length === 0) filtered = torrents;
 
       // Score torrents by episode match
