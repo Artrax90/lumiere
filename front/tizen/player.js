@@ -25,6 +25,10 @@
   var centerFlashTimer = null;
   var topMenuFocused = false;
   var topBtnIndex = 0; // 0 = back, 1 = audio, 2 = cc
+  var timelineFocused = false;
+  var bottomControlsFocused = false;
+  var bottomBtnIndex = 2; // 0 = restart, 1 = rewind, 2 = play/pause, 3 = forward, 4 = next
+  var $timelineRow = null;
 
   // Popup state (audio / subtitles)
   var popupOpen = false;
@@ -159,6 +163,7 @@
     $osdTitle = document.getElementById('osd-title');
     $timeCurrent = document.getElementById('time-current');
     $timeTotal = document.getElementById('time-total');
+    $timelineRow = document.getElementById('timeline-row');
     $timelineWrap = document.getElementById('timeline-wrap');
     $fill = document.getElementById('timeline-fill');
     $bufferFill = document.getElementById('timeline-buffer');
@@ -227,6 +232,10 @@
     isPlaying = false;
     topMenuFocused = false;
     topBtnIndex = 0;
+    timelineFocused = false;
+    bottomControlsFocused = false;
+    bottomBtnIndex = 2;
+    blurTimeline();
     popupOpen = false;
     isSeeking = false;
     pendingSeekTarget = 0;
@@ -960,30 +969,58 @@
       osdTimer = null;
     }
 
-    if (autoHide && isPlaying && !popupOpen && !topMenuFocused) {
+    if (autoHide && isPlaying && !popupOpen) {
+      var timeoutMs = (timelineFocused || bottomControlsFocused || topMenuFocused) ? 7000 : 4000;
       osdTimer = setTimeout(function() {
-        hideOsd();
-      }, 4000);
+        if (!popupOpen) {
+          clearAllFocus();
+          hideOsd();
+        }
+      }, timeoutMs);
     }
   }
 
   function hideOsd() {
-    if (popupOpen || topMenuFocused || !isPlaying) return;
+    if (popupOpen || topMenuFocused || timelineFocused || bottomControlsFocused || !isPlaying) return;
     osdVisible = false;
+    clearAllFocus();
     if ($osd) $osd.classList.add('hide');
   }
 
+  function forceHideOsd() {
+    clearAllFocus();
+    osdVisible = false;
+    if (osdTimer) {
+      clearTimeout(osdTimer);
+      osdTimer = null;
+    }
+    if ($osd) $osd.classList.add('hide');
+  }
+
+  function clearAllFocus() {
+    topMenuFocused = false;
+    timelineFocused = false;
+    bottomControlsFocused = false;
+    clearTopMenuFocus();
+    clearBottomControlsFocus();
+    blurTimeline();
+  }
+
   // ========== Top Action Buttons Focus ==========
-  function focusTopMenu() {
+  function focusTopMenu(idx) {
     topMenuFocused = true;
-    showOsd(false);
+    timelineFocused = false;
+    bottomControlsFocused = false;
+    blurTimeline();
+    clearBottomControlsFocus();
+    if (typeof idx === 'number') topBtnIndex = idx;
+    showOsd(true);
     updateTopMenuFocus();
   }
 
   function blurTopMenu() {
     topMenuFocused = false;
     clearTopMenuFocus();
-    if (isPlaying) showOsd(true);
   }
 
   function clearTopMenuFocus() {
@@ -1004,20 +1041,80 @@
     }
   }
 
+  // ========== Timeline Track Focus (Ползунок дорожки) ==========
+  function focusTimeline() {
+    timelineFocused = true;
+    topMenuFocused = false;
+    bottomControlsFocused = false;
+    clearTopMenuFocus();
+    clearBottomControlsFocus();
+    showOsd(true);
+    updateTimelineFocus();
+  }
+
+  function blurTimeline() {
+    timelineFocused = false;
+    if ($timelineWrap) $timelineWrap.classList.remove('focused');
+    if ($timelineRow) $timelineRow.classList.remove('focused');
+  }
+
+  function updateTimelineFocus() {
+    if ($timelineWrap) {
+      $timelineWrap.classList.add('focused');
+      try { $timelineWrap.focus(); } catch(e) {}
+    }
+    if ($timelineRow) {
+      $timelineRow.classList.add('focused');
+    }
+  }
+
+  function handleTimelineSeek(dir) {
+    var now = Date.now();
+    if (lastSeekDirection === dir && (now - lastSeekKeyTime) < 420) {
+      seekHoldCount++;
+    } else {
+      seekHoldCount = 1;
+      lastSeekDirection = dir;
+    }
+    lastSeekKeyTime = now;
+
+    var step = 10;
+    var speedStr = '';
+    if (seekHoldCount >= 28) {
+      step = 120;
+      speedStr = 'x12';
+    } else if (seekHoldCount >= 18) {
+      step = 60;
+      speedStr = 'x6';
+    } else if (seekHoldCount >= 10) {
+      step = 30;
+      speedStr = 'x3';
+    } else if (seekHoldCount >= 5) {
+      step = 15;
+      speedStr = 'x1.5';
+    } else {
+      step = 10;
+      speedStr = '';
+    }
+
+    seekBy(dir * step, speedStr);
+  }
+
   // ========== Bottom Transport Controls Focus ==========
   function focusBottomControls(idx) {
     bottomControlsFocused = true;
+    timelineFocused = false;
     topMenuFocused = false;
+    blurTimeline();
     clearTopMenuFocus();
     if (typeof idx === 'number') bottomBtnIndex = idx;
-    showOsd(false);
+    showOsd(true);
     updateBottomControlsFocus();
   }
 
   function blurBottomControls() {
     bottomControlsFocused = false;
     clearBottomControlsFocus();
-    if (isPlaying) showOsd(true);
   }
 
   function clearBottomControlsFocus() {
@@ -1746,10 +1843,7 @@
       }
 
       isPlaying = false;
-      topMenuFocused = false;
-      bottomControlsFocused = false;
-      clearTopMenuFocus();
-      clearBottomControlsFocus();
+      clearAllFocus();
       popupOpen = false;
       movieTitle = '';
       movieId = 0;
@@ -1798,12 +1892,8 @@
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
         if (popupOpen) {
           closePopup();
-        } else if (bottomControlsFocused) {
-          blurBottomControls();
-          hideOsd();
-        } else if (topMenuFocused) {
-          blurTopMenu();
-          hideOsd();
+        } else if (timelineFocused || bottomControlsFocused || topMenuFocused) {
+          forceHideOsd();
         } else {
           goBack();
         }
@@ -1842,7 +1932,7 @@
       var isEnter = (code === 13 || code === 29443 || code === 65385 || code === 65376 ||
                      key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK');
 
-      // --- When Track Popup Is Open ---
+      // --- When Track Popup Is Open (Audio / Subtitles) ---
       if (popupOpen) {
         if (isUp) {
           if (popupIndex > 0) {
@@ -1869,8 +1959,22 @@
         return;
       }
 
-      // --- When Top Menu Buttons Are Focused ---
+      // --- When Player / OSD Is Hidden During Playback ---
+      // User request: "если во время просмотра плеер спрятан и я нажимаю любую кнопку кроме ок, то он появляется"
+      if (!osdVisible) {
+        if (isEnter) {
+          togglePlay();
+          return;
+        }
+        // Any other key wakes up and reveals the player OSD in clean neutral state!
+        showOsd(true);
+        clearAllFocus();
+        return;
+      }
+
+      // --- State A: When Top Menu Buttons Are Focused (Back / Audio / CC) ---
       if (topMenuFocused) {
+        showOsd(true);
         if (isLeft) {
           if (topBtnIndex > 0) {
             topBtnIndex--;
@@ -1886,8 +1990,12 @@
           return;
         }
         if (isDown) {
-          blurTopMenu();
-          focusBottomControls(bottomBtnIndex);
+          // Down from top menu moves focus to Timeline Track!
+          focusTimeline();
+          return;
+        }
+        if (isUp) {
+          forceHideOsd();
           return;
         }
         if (isEnter) {
@@ -1899,8 +2007,34 @@
         return;
       }
 
-      // --- When Bottom Transport Controls Are Focused ---
+      // --- State B: When Timeline Track Is Focused (Ползунок дорожки) ---
+      if (timelineFocused) {
+        showOsd(true);
+        if (isLeft || isRight) {
+          // Scrub timeline
+          handleTimelineSeek(isLeft ? -1 : 1);
+          return;
+        }
+        if (isDown) {
+          // User request: "нажимаю еще раз вниз и попадаю на кнопки управления плеера"
+          focusBottomControls(bottomBtnIndex !== undefined ? bottomBtnIndex : 2);
+          return;
+        }
+        if (isUp) {
+          // Up from timeline moves focus to Top Menu
+          focusTopMenu(topBtnIndex !== undefined ? topBtnIndex : 0);
+          return;
+        }
+        if (isEnter) {
+          togglePlay();
+          return;
+        }
+        return;
+      }
+
+      // --- State C: When Bottom Transport Controls Are Focused (Кнопки управления) ---
       if (bottomControlsFocused) {
+        showOsd(true);
         if (isLeft) {
           if (bottomBtnIndex > 0) {
             bottomBtnIndex--;
@@ -1916,13 +2050,13 @@
           return;
         }
         if (isUp) {
-          blurBottomControls();
-          focusTopMenu();
+          // Up from bottom controls moves focus back UP to Timeline Track!
+          focusTimeline();
           return;
         }
         if (isDown) {
-          blurBottomControls();
-          hideOsd();
+          // Down from bottom controls hides the OSD
+          forceHideOsd();
           return;
         }
         if (isEnter) {
@@ -1934,57 +2068,29 @@
         return;
       }
 
-      // --- Standard Playback Mode (Direct TV Remote Controls) ---
+      // --- State D: Neutral Visible OSD (OSD is shown, nothing focused yet) ---
+      showOsd(true);
+
       if (isEnter) {
-        // OK immediately toggles Play/Pause!
         togglePlay();
         return;
       }
 
-      if (isLeft || isRight) {
-        var now = Date.now();
-        var dir = isLeft ? -1 : 1;
-        // Key repeat interval on Samsung TV is ~120-180ms. If user released key for > 420ms, reset acceleration!
-        if (lastSeekDirection === dir && (now - lastSeekKeyTime) < 420) {
-          seekHoldCount++;
-        } else {
-          seekHoldCount = 1;
-          lastSeekDirection = dir;
-        }
-        lastSeekKeyTime = now;
-
-        var step = 10;
-        var speedStr = '';
-        if (seekHoldCount >= 28) {
-          step = 120;
-          speedStr = 'x12';
-        } else if (seekHoldCount >= 18) {
-          step = 60;
-          speedStr = 'x6';
-        } else if (seekHoldCount >= 10) {
-          step = 30;
-          speedStr = 'x3';
-        } else if (seekHoldCount >= 5) {
-          step = 15;
-          speedStr = 'x1.5';
-        } else {
-          step = 10;
-          speedStr = '';
-        }
-
-        seekBy(dir * step, speedStr);
+      if (isDown) {
+        // User request: "я нажимаю вниз попадаю на дорожку"
+        focusTimeline();
         return;
       }
 
       if (isUp) {
-        // Up focuses top action buttons (Back, Audio, Subtitles)
-        focusTopMenu();
+        focusTopMenu(topBtnIndex !== undefined ? topBtnIndex : 0);
         return;
       }
 
-      if (isDown) {
-        // Down focuses bottom transport controls
-        focusBottomControls(2);
+      if (isLeft || isRight) {
+        // Left/Right scrubbing also focuses the timeline track so user sees the thumb moving!
+        focusTimeline();
+        handleTimelineSeek(isLeft ? -1 : 1);
         return;
       }
 

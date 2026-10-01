@@ -114,7 +114,7 @@
             '<div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Пуск</div>' +
             '<div class="osd-hint-item"><span class="osd-hint-key">\u25c4 / \u25ba</span> Перемотка 10с</div>' +
             '<div class="osd-hint-item"><span class="osd-hint-key">\u25b2</span> Меню плеера</div>' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">\u25bc</span> Скрыть меню</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25bc</span> Дорожка / Кнопки</div>' +
             '<div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Выход</div>' +
           '</div>' +
         '</div>' +

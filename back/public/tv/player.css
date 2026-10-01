@@ -177,7 +177,15 @@ body {
 #timeline-row {
   display: flex;
   align-items: center;
-  padding: 20px 0 16px;
+  padding: 16px 20px;
+  border-radius: 20px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  border: 2px solid transparent;
+}
+#timeline-row.focused {
+  background: rgba(232, 193, 112, 0.12);
+  border-color: rgba(232, 193, 112, 0.45);
+  box-shadow: 0 0 30px rgba(232, 193, 112, 0.25);
 }
 #time-current, #time-total {
   font-size: 26px;
@@ -187,6 +195,7 @@ body {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
   text-shadow: 0 2px 8px rgba(0,0,0,0.95);
+  transition: color 0.2s ease, transform 0.2s ease, text-shadow 0.2s ease;
 }
 #time-total { text-align: right; color: rgba(255, 255, 255, 0.75); }
 #timeline-wrap {
@@ -194,6 +203,7 @@ body {
   margin: 0 24px;
   cursor: pointer;
   padding: 14px 0;
+  outline: none;
 }
 #timeline-bar {
   position: relative;
@@ -201,6 +211,7 @@ body {
   height: 10px;
   background: rgba(255, 255, 255, 0.25);
   border-radius: 5px;
+  transition: height 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
 }
 #timeline-buffer {
   position: absolute;
@@ -218,6 +229,7 @@ body {
   border-radius: 5px;
   width: 0%;
   box-shadow: 0 0 10px rgba(110, 231, 183, 0.5);
+  transition: box-shadow 0.2s ease;
 }
 #timeline-thumb {
   position: absolute;
@@ -230,6 +242,37 @@ body {
   box-shadow: 0 0 14px rgba(232, 193, 112, 0.9);
   border: 2px solid #e8c170;
   z-index: 2;
+  transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1), height 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease, border-width 0.2s ease;
+}
+
+/* Timeline FOCUSED State (Cursor on track) */
+#timeline-row.focused #timeline-bar,
+#timeline-wrap.focused #timeline-bar {
+  height: 18px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.38);
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.9), inset 0 0 10px rgba(232, 193, 112, 0.6);
+  border: 2px solid #e8c170;
+}
+#timeline-row.focused #timeline-fill,
+#timeline-wrap.focused #timeline-fill {
+  border-radius: 7px;
+  box-shadow: 0 0 18px rgba(232, 193, 112, 0.95);
+}
+#timeline-row.focused #timeline-thumb,
+#timeline-wrap.focused #timeline-thumb {
+  width: 40px;
+  height: 40px;
+  background: #ffffff;
+  border: 4px solid #e8c170;
+  box-shadow: 0 0 35px #e8c170, 0 0 70px rgba(232, 193, 112, 0.9), 0 6px 16px rgba(0, 0, 0, 0.9);
+  z-index: 5;
+}
+#timeline-row.focused #time-current {
+  color: #e8c170;
+  text-shadow: 0 0 22px rgba(232, 193, 112, 1);
+  font-size: 28px;
+  transform: scale(1.08);
 }
 
 /* Remote Helper Hint */
