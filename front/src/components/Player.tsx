@@ -37,7 +37,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [buffered, setBuffered] = useState(0);
   const [bufferedRange, setBufferedRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const [currentTime, setCurrentTime] = useState(initialTime || 0);
+  const [duration, setDuration] = useState(0);
   const seekOffsetRef = useRef<number>(initialTime && initialTime > 30 && (title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || Boolean(title.hlsUrl)) ? Math.floor(initialTime) : 0);
+  const [showControls, setShowControls] = useState(true);
   const showControlsRef = useRef(true);
   showControlsRef.current = showControls;
   const [muted, setMuted] = useState(false);

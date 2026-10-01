@@ -142,7 +142,7 @@ export default function SeasonTorrentBrowser({
     };
   }, [show.id, activeSeason, tmdbEpisodes]);
 
-  const seasonsCount = show.seasonsCount || totalSeasons || (show.seasons && show.seasons.length) || Math.max(activeSeason, 1);
+  const seasonsCount = show.seasonsCount || totalSeasons || ((show as any).seasons && (show as any).seasons.length) || Math.max(activeSeason, 1);
   const seasonList = useMemo(
     () => Array.from({ length: Math.max(1, Math.min(seasonsCount, 40)) }, (_, i) => i + 1),
     [seasonsCount]

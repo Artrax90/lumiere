@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { Title } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { usePopular } from '@/hooks/usePopular';
-import { serverUrl } from '@/api/server';
+import { serverUrl, serverFetch } from '@/api/server';
 import Hero, { moodGrade } from './Hero';
 import ContentRow from './ContentRow';
 import ShowcaseRow from './ShowcaseRow';
