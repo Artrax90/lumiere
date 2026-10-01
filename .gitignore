@@ -37,6 +37,7 @@ out.txt
 .system_generated/
 .tempmediaStorage/
 .user_uploaded/
+*.crdownload
 
 # Python
 __pycache__/

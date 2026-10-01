@@ -38,7 +38,7 @@ from aiogram.types import (
 from aiogram.client.session.aiohttp import AiohttpSession
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3500")
-WEB_URL = os.getenv("WEB_URL", "http://192.168.1.196:3500")
+WEB_URL = os.getenv("WEB_URL", "https://lumiere.artrax.net")
 
 def clean_poster_url(raw_poster: str) -> str:
     """Extract a direct clean poster URL from TMDB path or Lumiere image proxy."""
@@ -420,6 +420,7 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 InlineKeyboardButton(text="📥 На сервер", callback_data=f"dl_start:{media_type}:{media_id}", style="success"),
             ],
             [
+                InlineKeyboardButton(text="🔖 В закладки", callback_data=f"fav_toggle:{media_type}:{media_id}"),
                 InlineKeyboardButton(text="🎲 Крутить ещё раз", callback_data="roulette:spin", style="success"),
             ]
         ])
@@ -485,11 +486,16 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                 f"💾 Размер: {item.get('fileSizeFormatted', '')}\n"
                 f"Статус: {'Готово к просмотру' if item.get('status') == 'completed' else 'Скачивается...'}"
             )
+            dl_buttons = [
+                InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play_local:{item.get('id')}", style="primary"),
+            ]
+            if item.get("status") == "completed":
+                download_url = f"{WEB_URL}/api/downloads/server/download-file/{item.get('id')}"
+                dl_buttons.append(InlineKeyboardButton(text="⬇️ Скачать", url=download_url))
+
             ikb = InlineKeyboardMarkup(inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play_local:{item.get('id')}", style="primary"),
-                    InlineKeyboardButton(text="🗑 Удалить с диска", callback_data=f"dl_delete:{item.get('id')}", style="danger"),
-                ]
+                dl_buttons,
+                [InlineKeyboardButton(text="🗑 Удалить с диска", callback_data=f"dl_delete:{item.get('id')}", style="danger")]
             ])
             raw_poster = item.get("poster", "")
             poster_url = clean_poster_url(raw_poster)
@@ -638,15 +644,22 @@ def build_dispatcher(user_id: int) -> Dispatcher:
                     ),
                 ]
 
-                keyboard_rows = [action_buttons]
+                second_row = [
+                    InlineKeyboardButton(
+                        text="🔖 В закладки",
+                        callback_data=f"fav_toggle:{media_type}:{media_id}",
+                    )
+                ]
                 if media_type == "tv":
-                    keyboard_rows.append([
+                    second_row.append(
                         InlineKeyboardButton(
-                            text="🔔 Отслеживать серии",
+                            text="🔔 Новые серии",
                             callback_data=f"sub_add:{media_id}",
                             style="primary"
                         )
-                    ])
+                    )
+
+                keyboard_rows = [action_buttons, second_row]
 
                 inline_kb = InlineKeyboardMarkup(inline_keyboard=keyboard_rows)
 
@@ -900,6 +913,59 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         else:
             await call.answer("Не удалось подписаться", show_alert=True)
 
+    @dp.callback_query(F.data.startswith("fav_toggle:"))
+    async def on_fav_toggle(call: types.CallbackQuery):
+        parts = call.data.split(":")
+        if len(parts) < 3:
+            await call.answer("Ошибка параметров", show_alert=True)
+            return
+
+        media_type = parts[1]
+        try:
+            media_id = int(parts[2])
+        except ValueError:
+            await call.answer("Некорректный ID", show_alert=True)
+            return
+
+        cached = ITEM_CACHE.get(f"{media_type}:{media_id}") or {}
+        raw_title = cached.get("title") or "Медиа"
+        poster = cached.get("poster") or ""
+
+        fav_data = await fetch_api("/api/user/favorites?userId=1")
+        fav_list = (fav_data or {}).get("favorites", [])
+        is_fav = any(f.get("tmdbId") == media_id for f in fav_list)
+
+        if is_fav:
+            await fetch_api(f"/api/user/favorites/{media_id}?userId=1", method="DELETE")
+            await call.answer("❌ Удалено из закладок", show_alert=False)
+            new_btn_text = "🔖 В закладки"
+        else:
+            await fetch_api("/api/user/favorites", method="POST", data={
+                "userId": 1,
+                "tmdbId": media_id,
+                "mediaType": media_type,
+                "titleName": raw_title,
+                "poster": poster
+            })
+            await call.answer("✅ Добавлено в закладки!", show_alert=False)
+            new_btn_text = "✅ В закладках"
+
+        try:
+            if call.message and call.message.reply_markup:
+                old_rows = call.message.reply_markup.inline_keyboard
+                new_rows = []
+                for row in old_rows:
+                    new_row = []
+                    for btn in row:
+                        if btn.callback_data and btn.callback_data.startswith(f"fav_toggle:{media_type}:{media_id}"):
+                            new_row.append(InlineKeyboardButton(text=new_btn_text, callback_data=btn.callback_data))
+                        else:
+                            new_row.append(btn)
+                    new_rows.append(new_row)
+                await call.message.edit_reply_markup(reply_markup=InlineKeyboardMarkup(inline_keyboard=new_rows))
+        except Exception:
+            pass
+
     @dp.callback_query(F.data.startswith("dl_start:") | F.data.startswith("dl_server:"))
     async def on_dl_start(call: types.CallbackQuery):
         parts = call.data.split(":")
@@ -936,11 +1002,13 @@ def build_dispatcher(user_id: int) -> Dispatcher:
         if season is not None and episode is not None:
             search_query += f" S{season:02d}E{episode:02d}"
 
-        torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(search_query)}&tmdbId={media_id}&type={media_type}")
+        target_year = cached.get("year", "")
+        year_param = f"&year={target_year}" if target_year else ""
+        torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(search_query)}&tmdbId={media_id}&type={media_type}{year_param}")
         torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
 
         if not torrents and search_query != raw_title:
-            torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(raw_title)}&tmdbId={media_id}&type={media_type}")
+            torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(raw_title)}&tmdbId={media_id}&type={media_type}{year_param}")
             torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
 
         if not torrents:
@@ -1019,14 +1087,19 @@ def build_dispatcher(user_id: int) -> Dispatcher:
 
         if res and res.get("success"):
             badge_info = f" ({cached.get('badge')})" if cached.get('badge') else ""
+            dl_id = res.get("id") or cached.get("hash")
             success_text = (
                 f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!\n\n"
                 f"После завершения скачивания вы получите уведомление."
             )
+            download_url = f"{WEB_URL}/api/downloads/server/download-file/{dl_id}"
             ikb = InlineKeyboardMarkup(inline_keyboard=[
                 [
-                    InlineKeyboardButton(text="📂 Открыть «Скачанное»", callback_data="nav_downloads", style="primary"),
+                    InlineKeyboardButton(text="⬇️ Скачать на устройство", url=download_url),
                     InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play:{cached['media_type']}:{cached['media_id']}", style="primary"),
+                ],
+                [
+                    InlineKeyboardButton(text="📂 Открыть «Скачанное»", callback_data="nav_downloads", style="primary"),
                 ]
             ])
             try:

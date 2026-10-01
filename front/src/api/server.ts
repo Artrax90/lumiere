@@ -1,12 +1,12 @@
 const SERVER_URL_KEY = 'lumiere_server_url';
-export const DEFAULT_SERVER_URL = '';
+export const DEFAULT_SERVER_URL = 'https://lumiere.artrax.net';
 
-// Auto-sanitize legacy or dead addresses from localStorage on load
+// Auto-sanitize legacy dead addresses from localStorage on load
 if (typeof window !== 'undefined') {
   try {
     ['lumiere_server_url', 'lumiere_server', 'lumiere_tv_server'].forEach(key => {
       const v = localStorage.getItem(key);
-      if (v && (v.indexOf('192.168.1.77') !== -1 || v.indexOf('lumiere.artrax.net') !== -1 || /:3000\/?$/.test(v))) {
+      if (v && (v.indexOf('192.168.1.77') !== -1 || /:3000\/?$/.test(v))) {
         localStorage.removeItem(key);
       }
     });
@@ -54,7 +54,10 @@ export function clearServerUrl() {
 
 export function hasServerUrl(): boolean {
   const stored = localStorage.getItem(SERVER_URL_KEY);
-  return !!(stored && stored !== 'null' && stored !== 'undefined' && !stored.startsWith('file:') && !stored.startsWith('wgt-'));
+  if (stored && stored !== 'null' && stored !== 'undefined' && !stored.startsWith('file:') && !stored.startsWith('wgt-')) {
+    return true;
+  }
+  return Boolean(DEFAULT_SERVER_URL);
 }
 
 export async function checkServerHealth(url?: string): Promise<boolean> {

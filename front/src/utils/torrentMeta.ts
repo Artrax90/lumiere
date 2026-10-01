@@ -130,10 +130,24 @@ export function pluralSeeds(n: number): string {
  * Computes a smart ranking score for a torrent, prioritizing reliable trackers,
  * modern direct-play containers (MKV/MP4), high quality, and penalizing dead releases.
  */
-export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: number; magnet?: string }): number {
+export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: number; magnet?: string }, targetYear?: number): number {
   if (!t) return 0;
   let score = Number(t.seeders) || 0;
-  const title = String(t.title || '').toUpperCase();
+  const rawTitle = String(t.title || '');
+  const title = rawTitle.toUpperCase();
+
+  if (targetYear && targetYear > 0) {
+    const match = rawTitle.match(/[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]/) || rawTitle.match(/\b(19\d{2}|20\d{2})\b/);
+    if (match) {
+      const y = parseInt(match[1], 10);
+      if (y >= 1920 && y <= 2035 && y !== 2160) {
+        const diff = Math.abs(y - targetYear);
+        if (diff === 0) score += 2500;
+        else if (diff === 1) score += 1200;
+        else score -= 10000;
+      }
+    }
+  }
   const tracker = String(t.tracker || '').toLowerCase();
   const magnet = String(t.magnet || '');
   const hasTrackers = magnet.includes('&tr=');

@@ -132,10 +132,11 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
 
       const tmdbParam = title.id ? `&tmdbId=${title.id}` : '';
       const typeParam = `&type=${(title as any).type || 'movie'}`;
+      const yearParam = title.year ? `&year=${title.year}` : '';
 
       const fetchPromises = queries.map(async (qStr) => {
         try {
-          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}`);
+          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}`);
           const data = await res.json();
           return (data.results || []) as TorrentItem[];
         } catch {
@@ -195,11 +196,11 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
 
     // Sort by selected criteria
     filtered.sort((a, b) => {
-      if (sortBy === 'score') return scoreTorrent(b) - scoreTorrent(a);
+      if (sortBy === 'score') return scoreTorrent(b, title.year) - scoreTorrent(a, title.year);
       if (sortBy === 'seeders') return (b.seeders || 0) - (a.seeders || 0);
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       if (sortBy === 'date') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      return scoreTorrent(b) - scoreTorrent(a);
+      return scoreTorrent(b, title.year) - scoreTorrent(a, title.year);
     });
 
     return filtered;

@@ -202,6 +202,7 @@ export async function notifyDownloadFinished(
     `💾 Размер: <b>${sizeFormatted}</b>\n` +
     `📍 Сохранено на сервере. Доступно для мгновенного офлайн-просмотра без буферизации!`;
 
+  const webBaseUrl = (process.env.WEB_URL || 'https://lumiere.artrax.net').replace(/\/+$/, '');
   const replyMarkup = {
     inline_keyboard: [
       [
@@ -209,6 +210,12 @@ export async function notifyDownloadFinished(
           text: '▶ Включить на ТВ',
           callback_data: `tv_play_local:${downloadId}`,
         },
+        {
+          text: '⬇️ Скачать на устройство',
+          url: `${webBaseUrl}/api/downloads/server/download-file/${downloadId}`,
+        },
+      ],
+      [
         {
           text: '🗑 Удалить с сервера',
           callback_data: `dl_delete:${downloadId}`,

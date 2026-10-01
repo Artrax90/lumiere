@@ -291,8 +291,9 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Get favorites
-  app.get('/api/user/favorites', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.get('/api/user/favorites', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
 
     const result = await pool.query(
       'SELECT id, tmdb_id, media_type, title_name, poster, added_at FROM favorites WHERE user_id = $1 ORDER BY added_at DESC',
@@ -310,11 +311,10 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Add to favorites
-  app.post('/api/user/favorites', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
-    const { tmdbId, mediaType, titleName, poster } = request.body as {
-      tmdbId?: number; mediaType?: string; titleName?: string; poster?: string;
-    };
+  app.post('/api/user/favorites', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const body = (request.body || {}) as any;
+    const userId = request.user?.userId || (body.userId ? parseInt(body.userId, 10) : 1);
+    const { tmdbId, mediaType, titleName, poster } = body;
 
     if (!tmdbId || !mediaType || !titleName) {
       return { error: 'tmdbId, mediaType, and titleName are required' };
@@ -332,8 +332,10 @@ export function userRoutes(app: FastifyInstance) {
   });
 
   // Remove from favorites
-  app.delete('/api/user/favorites/:tmdbId', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user!.userId;
+  app.delete('/api/user/favorites/:tmdbId', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const bodyUserId = (request.body as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : (bodyUserId ? parseInt(bodyUserId, 10) : 1));
     const { tmdbId } = request.params as { tmdbId: string };
 
     await pool.query(

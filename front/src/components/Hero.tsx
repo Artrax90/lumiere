@@ -264,7 +264,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
                 textShadow: '0 2px 24px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.3)',
               }}
             >
-              {current.logoText}
+              {current.logoText || current.name}
             </h1>
 
             {/* Metadata */}
@@ -294,7 +294,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
 
             {/* Description */}
             <p
-              className="mt-3 max-w-xl text-balance text-[14px] leading-[1.65] text-white/70 animate-fade-up md:text-[15px]"
+              className="mt-3 max-w-xl text-balance text-[14px] leading-[1.65] text-white/70 animate-fade-up line-clamp-3 sm:line-clamp-4 md:line-clamp-5 md:text-[15px]"
               style={{ animationDelay: '220ms', textShadow: '0 1px 12px rgba(0,0,0,0.4)' }}
             >
               {current.description}

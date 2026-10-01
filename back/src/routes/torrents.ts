@@ -217,18 +217,40 @@ async function ensureTorrServerOptimized() {
   }
 }
 
+export function extractTorrentYear(title: string): number | null {
+  if (!title) return null;
+  // Match explicit year brackets: (2026), [2026], / 2026 /, .2026., - 2026 -
+  const match = title.match(/[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]/);
+  if (match) {
+    const y = parseInt(match[1], 10);
+    if (y >= 1920 && y <= 2035) return y;
+  }
+  // Match any 4-digit number that represents a calendar year (avoid 1080, 2160)
+  const allYears = title.match(/\b(19\d{2}|20\d{2})\b/g);
+  if (allYears && allYears.length > 0) {
+    for (const yrStr of allYears) {
+      const y = parseInt(yrStr, 10);
+      if (y >= 1920 && y <= 2035 && y !== 2160) return y;
+    }
+  }
+  return null;
+}
+
 export function torrentRoutes(app: FastifyInstance) {
   // Proactively check and optimize TorrServer cache & peer limits
   ensureTorrServerOptimized().catch(() => {});
   // Search torrents via JacRed with multi-indexer aggregation & smart fallback
   app.get('/api/torrents/search', async (req, reply) => {
-    const { q, alt, category, tmdbId, type } = req.query as {
+    const { q, alt, category, tmdbId, type, year } = req.query as {
       q?: string;
       alt?: string;
       category?: string;
       tmdbId?: string;
       type?: string;
+      year?: string;
     };
+
+    let targetYear = year ? parseInt(year, 10) : 0;
 
     if (!q) {
       return reply.code(400).send({ error: 'Query required' });
@@ -366,11 +388,18 @@ export function torrentRoutes(app: FastifyInstance) {
           .replace(/(^|[\s.,])II([\s.,]|$)/gi, '$12$2');
         if (withArabic !== q) extraQueries.push(withArabic.trim());
 
-        // Subtitle split by colon or em-dash (e.g. "Человек-паук: Новый день" -> "Человек-паук")
+        // Subtitle split by colon or em-dash (e.g. "Человек-паук: Новый день")
         if (q.includes(':') || q.includes(' — ') || q.includes(' - ')) {
-          const mainTitle = q.split(/\s*[:—]\s*|\s+-\s+/)[0].trim();
-          if (mainTitle.length >= 3 && mainTitle !== q) {
-            extraQueries.push(mainTitle);
+          const parts = q.split(/\s*[:—]\s*|\s+-\s+/);
+          const mainTitle = parts[0]?.trim();
+          const subTitle = parts.slice(1).join(' ').trim();
+          if (mainTitle && mainTitle.length >= 3 && mainTitle !== q) {
+            if (targetYear > 0) {
+              extraQueries.push(`${mainTitle} ${targetYear}`);
+            }
+            if (subTitle && subTitle.length >= 3) {
+              extraQueries.push(`${mainTitle} ${subTitle}`);
+            }
           }
         }
 
@@ -385,7 +414,7 @@ export function torrentRoutes(app: FastifyInstance) {
         }
       }
 
-      // Deduplicate by magnet hash or guid
+      // Deduplicate by magnet hash or guid and filter by year relevance
       const seen = new Set<string>();
       const results: TorrentItem[] = [];
 
@@ -395,6 +424,19 @@ export function torrentRoutes(app: FastifyInstance) {
         const key = link.startsWith('magnet:') ? link.split('&')[0].toLowerCase() : (r.Guid || r.Title);
         if (seen.has(key)) continue;
         seen.add(key);
+
+        const torrentYear = extractTorrentYear(r.Title);
+        if (targetYear > 0 && torrentYear !== null) {
+          const yearDiff = Math.abs(torrentYear - targetYear);
+          // For movies: if the torrent specifies an explicit year that is > 1 year away (e.g. 1993 vs 2026),
+          // it is guaranteed to be a different movie. Exclude it!
+          if (type !== 'tv' && yearDiff > 1) {
+            continue;
+          }
+          if (type === 'tv' && yearDiff > 3) {
+            continue;
+          }
+        }
 
         const magLink = r.MagnetUri || r.Link || '';
         const hashMatch = magLink.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
@@ -422,6 +464,20 @@ export function torrentRoutes(app: FastifyInstance) {
         const title = (t.title || '').toUpperCase();
         const tracker = (t.tracker || '').toLowerCase();
         const hasTrackers = Boolean(t.magnet && t.magnet.includes('&tr='));
+
+        if (targetYear > 0) {
+          const torrentYear = extractTorrentYear(t.title);
+          if (torrentYear !== null) {
+            const diff = Math.abs(torrentYear - targetYear);
+            if (diff === 0) {
+              score += 2000;
+            } else if (diff === 1) {
+              score += 1000;
+            } else {
+              score -= 10000;
+            }
+          }
+        }
 
         if (tracker.includes('rutracker')) score += 500;
         if (tracker.includes('rutor')) score += 350;

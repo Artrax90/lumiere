@@ -216,10 +216,11 @@ export default function SeasonTorrentBrowser({
 
       const tmdbParam = show.id ? `&tmdbId=${show.id}` : '';
       const typeParam = `&type=${(show as any).type || 'tv'}`;
+      const yearParam = show.year ? `&year=${show.year}` : '';
 
       const fetchPromises = queries.map(async (qStr) => {
         try {
-          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}`);
+          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}`);
           const data = await res.json();
           return (data.results || []) as TorrentItem[];
         } catch {
@@ -245,7 +246,7 @@ export default function SeasonTorrentBrowser({
     } finally {
       setLoadingTorrents(false);
     }
-  }, [show.id, show.name, show.originalTitle, show.logoText]);
+  }, [show.id, show.name, show.originalTitle, show.logoText, show.year]);
 
   useEffect(() => {
     fetchTorrentsList().then((res) => {

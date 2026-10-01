@@ -227,7 +227,7 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
 
     {/* Mobile & Tablet bottom navigation */}
     <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] bg-[#0a0a0c]/90 backdrop-blur-xl xl:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="flex items-center justify-around px-2 py-1.5">
+      <div className="flex items-center justify-between w-full max-w-lg mx-auto px-1 py-1">
         {mobileNavItems.map((item) => {
           const isActive = active === item.id;
           const Icon = item.icon;
@@ -236,11 +236,11 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
               key={item.id}
               href={item.path}
               onClick={(e) => handleNavClick(e, item.id)}
-              className="flex flex-col items-center gap-0.5 rounded-lg px-3 py-1.5 transition-colors"
+              className="flex flex-1 min-w-0 flex-col items-center justify-center py-1 px-0.5 transition-colors"
               style={{ color: isActive ? '#e8c170' : 'rgba(255,255,255,0.4)' }}
             >
-              <Icon className="h-5 w-5" strokeWidth={isActive ? 2 : 1.5} />
-              <span className="text-[10px] font-medium">{t(item.labelKey)}</span>
+              <Icon className="h-5 w-5 shrink-0" strokeWidth={isActive ? 2 : 1.5} />
+              <span className="text-[10px] leading-tight font-medium tracking-tight truncate max-w-full text-center">{t(item.labelKey)}</span>
             </a>
           );
         })}

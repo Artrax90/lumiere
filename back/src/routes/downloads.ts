@@ -548,14 +548,17 @@ export function downloadRoutes(app: FastifyInstance) {
     const isAttachment = download === '1' || dl === '1';
 
     // MIME type detection
-    const ext = extname(filePath).toLowerCase();
+    const ext = (extname(filePath) || '.mkv').toLowerCase();
     let contentType = 'video/mp4';
     if (ext === '.mkv') contentType = 'video/x-matroska';
     else if (ext === '.webm') contentType = 'video/webm';
     else if (ext === '.avi') contentType = 'video/x-msvideo';
     else if (ext === '.ts') contentType = 'video/mp2t';
 
-    const rawFileName = item.file_name || `${item.title}${ext || '.mkv'}`;
+    let rawFileName = (item.file_name || item.title || 'video').trim();
+    if (!extname(rawFileName)) {
+      rawFileName = `${rawFileName}${ext}`;
+    }
     const safeAscii = rawFileName.replace(/[^\x20-\x7E]/g, '_');
     const disposition = isAttachment
       ? `attachment; filename="${safeAscii}"; filename*=UTF-8''${encodeURIComponent(rawFileName)}`
@@ -609,8 +612,11 @@ export function downloadRoutes(app: FastifyInstance) {
 
     const stat = statSync(filePath);
     const fileSize = stat.size;
-    const ext = extname(filePath).toLowerCase();
-    const rawFileName = item.file_name || `${item.title}${ext || '.mkv'}`;
+    const ext = (extname(filePath) || '.mkv').toLowerCase();
+    let rawFileName = (item.file_name || item.title || 'video').trim();
+    if (!extname(rawFileName)) {
+      rawFileName = `${rawFileName}${ext}`;
+    }
     const safeAscii = rawFileName.replace(/[^\x20-\x7E]/g, '_');
 
     let contentType = 'video/mp4';
