@@ -35,6 +35,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   switchProfile: () => void;
+  confirmServer: (url?: string) => void;
   changeServer: () => void;
 }
 
@@ -95,6 +96,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return hasServerUrl();
   });
 
+  const confirmServer = useCallback((url?: string) => {
+    if (url) {
+      setServerUrl(url);
+    }
+    setConnectionError(null);
+    setServerReady(true);
+  }, []);
+
   const changeServer = useCallback(() => {
     clearServerUrl();
     clearTokens();
@@ -105,6 +114,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setIsLan(false);
     setConnectionError(null);
     setServerReady(false);
+  }, []);
+
+  // Listen for server URL changes without aggressive polling
+  useEffect(() => {
+    const onServerChanged = (e: any) => {
+      const url = e.detail;
+      if (url) {
+        setConnectionError(null);
+        setServerReady(true);
+      } else {
+        setServerReady(false);
+      }
+    };
+    window.addEventListener('lumiere-server-changed', onServerChanged);
+    return () => window.removeEventListener('lumiere-server-changed', onServerChanged);
   }, []);
 
   const fetchProfile = useCallback(async (token: string) => {
@@ -131,18 +155,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch {}
     return [];
   }, []);
-
-  // Poll for server URL on native
-  useEffect(() => {
-    if (serverReady) return;
-    const interval = setInterval(() => {
-      if (hasServerUrl()) {
-        setServerReady(true);
-        clearInterval(interval);
-      }
-    }, 200);
-    return () => clearInterval(interval);
-  }, [serverReady]);
 
   useEffect(() => {
     if (!serverReady) return;
@@ -303,6 +315,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         login,
         logout,
         switchProfile,
+        confirmServer,
         changeServer,
       }}
     >

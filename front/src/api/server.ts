@@ -46,18 +46,27 @@ export function setServerUrl(url: string) {
     clean = `http://${clean}`;
   }
   localStorage.setItem(SERVER_URL_KEY, clean);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('lumiere-server-changed', { detail: clean }));
+  }
 }
 
 export function clearServerUrl() {
   localStorage.removeItem(SERVER_URL_KEY);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('lumiere-server-changed', { detail: null }));
+  }
 }
 
 export function hasServerUrl(): boolean {
   const stored = localStorage.getItem(SERVER_URL_KEY);
-  if (stored && stored !== 'null' && stored !== 'undefined' && !stored.startsWith('file:') && !stored.startsWith('wgt-')) {
-    return true;
-  }
-  return Boolean(DEFAULT_SERVER_URL);
+  return Boolean(
+    stored &&
+    stored !== 'null' &&
+    stored !== 'undefined' &&
+    !stored.startsWith('file:') &&
+    !stored.startsWith('wgt-')
+  );
 }
 
 export async function checkServerHealth(url?: string): Promise<boolean> {

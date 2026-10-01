@@ -170,7 +170,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="absolute left-0 right-0 top-0 z-20 h-[68vh] min-h-[520px] max-h-[760px] w-full overflow-hidden select-none"
+      className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden select-none"
     >
 
       {/* ── Artwork layers — masked so the final 140px dissolves to
@@ -243,7 +243,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
 
       {/* ── Content — transparent, sitting on the artwork ── */}
       <div className="absolute inset-0 flex items-end">
-        <div className="w-full max-w-[1600px] px-8 pb-14 lg:px-16 lg:pb-16">
+        <div className="w-full max-w-[1600px] px-6 pb-28 sm:px-8 sm:pb-22 lg:px-16 lg:pb-18">
           <div key={current.id} className="max-w-2xl">
             {/* Type label */}
             <div className="mb-2.5 flex items-center gap-2.5 animate-fade-up" style={{ animationDelay: '0ms' }}>

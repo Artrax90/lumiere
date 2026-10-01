@@ -285,9 +285,9 @@ export default function SeasonTorrentBrowser({
       filtered.forEach((item) => {
         const check = checkTorrentEpisode(item.title, activeSeason, ep.episode);
         if (check.matches) {
-          epMatches.push({ ...item, _score: scoreTorrent(item) + (check.score || 0) });
+          epMatches.push({ ...item, _score: scoreTorrent(item, show.year, true) + (check.score || 0) });
         } else {
-          epFallbacks.push({ ...item, _score: scoreTorrent(item) - 1000 });
+          epFallbacks.push({ ...item, _score: scoreTorrent(item, show.year, true) - 1000 });
         }
       });
 

@@ -130,7 +130,7 @@ export function pluralSeeds(n: number): string {
  * Computes a smart ranking score for a torrent, prioritizing reliable trackers,
  * modern direct-play containers (MKV/MP4), high quality, and penalizing dead releases.
  */
-export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: number; magnet?: string }, targetYear?: number): number {
+export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: number; magnet?: string }, targetYear?: number, isTv?: boolean): number {
   if (!t) return 0;
   let score = Number(t.seeders) || 0;
   const rawTitle = String(t.title || '');
@@ -141,10 +141,18 @@ export function scoreTorrent(t: { title?: string; tracker?: string; seeders?: nu
     if (match) {
       const y = parseInt(match[1], 10);
       if (y >= 1920 && y <= 2035 && y !== 2160) {
-        const diff = Math.abs(y - targetYear);
-        if (diff === 0) score += 2500;
-        else if (diff === 1) score += 1200;
-        else score -= 10000;
+        if (isTv) {
+          if (y < targetYear - 2) {
+            score -= 10000;
+          } else if (y >= targetYear) {
+            score += 600;
+          }
+        } else {
+          const diff = Math.abs(y - targetYear);
+          if (diff === 0) score += 2500;
+          else if (diff === 1) score += 1200;
+          else score -= 10000;
+        }
       }
     }
   }

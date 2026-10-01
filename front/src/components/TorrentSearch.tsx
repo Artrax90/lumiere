@@ -194,13 +194,14 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
       filtered = filtered.filter((r) => r.title.toLowerCase().includes('720'));
     }
 
+    const isTv = (title as any).type === 'tv' || (title as any).type === 'show';
     // Sort by selected criteria
     filtered.sort((a, b) => {
-      if (sortBy === 'score') return scoreTorrent(b, title.year) - scoreTorrent(a, title.year);
+      if (sortBy === 'score') return scoreTorrent(b, title.year, isTv) - scoreTorrent(a, title.year, isTv);
       if (sortBy === 'seeders') return (b.seeders || 0) - (a.seeders || 0);
       if (sortBy === 'size') return (b.size || 0) - (a.size || 0);
       if (sortBy === 'date') return new Date(b.date).getTime() - new Date(a.date).getTime();
-      return scoreTorrent(b, title.year) - scoreTorrent(a, title.year);
+      return scoreTorrent(b, title.year, isTv) - scoreTorrent(a, title.year, isTv);
     });
 
     return filtered;

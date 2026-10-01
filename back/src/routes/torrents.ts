@@ -427,14 +427,19 @@ export function torrentRoutes(app: FastifyInstance) {
 
         const torrentYear = extractTorrentYear(r.Title);
         if (targetYear > 0 && torrentYear !== null) {
-          const yearDiff = Math.abs(torrentYear - targetYear);
-          // For movies: if the torrent specifies an explicit year that is > 1 year away (e.g. 1993 vs 2026),
-          // it is guaranteed to be a different movie. Exclude it!
-          if (type !== 'tv' && yearDiff > 1) {
-            continue;
-          }
-          if (type === 'tv' && yearDiff > 3) {
-            continue;
+          if (type === 'tv') {
+            // For TV series: seasons continue for years after premiere.
+            // Only discard if the torrent claims a year before the series ever existed!
+            if (torrentYear < targetYear - 2) {
+              continue;
+            }
+          } else {
+            // For movies: if the torrent specifies an explicit year that is > 1 year away (e.g. 1993 vs 2026),
+            // it is guaranteed to be a different movie. Exclude it!
+            const yearDiff = Math.abs(torrentYear - targetYear);
+            if (yearDiff > 1) {
+              continue;
+            }
           }
         }
 
@@ -468,13 +473,21 @@ export function torrentRoutes(app: FastifyInstance) {
         if (targetYear > 0) {
           const torrentYear = extractTorrentYear(t.title);
           if (torrentYear !== null) {
-            const diff = Math.abs(torrentYear - targetYear);
-            if (diff === 0) {
-              score += 2000;
-            } else if (diff === 1) {
-              score += 1000;
+            if (type === 'tv') {
+              if (torrentYear < targetYear - 2) {
+                score -= 10000;
+              } else if (torrentYear >= targetYear) {
+                score += 500;
+              }
             } else {
-              score -= 10000;
+              const diff = Math.abs(torrentYear - targetYear);
+              if (diff === 0) {
+                score += 2000;
+              } else if (diff === 1) {
+                score += 1000;
+              } else {
+                score -= 10000;
+              }
             }
           }
         }

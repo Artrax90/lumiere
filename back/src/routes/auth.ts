@@ -220,10 +220,10 @@ export function authRoutes(app: FastifyInstance) {
     }
   });
 
-  // Legacy fallback for LAN login (auto-login if single profile without PIN)
+  // Legacy fallback for LAN login (auto-login only on Smart TV devices)
   app.post('/api/auth/lan-login', async (req, reply) => {
-    if (!isLanRequest(req)) {
-      return reply.code(403).send({ error: 'LAN login only available from local network' });
+    if (!isTvRequest(req)) {
+      return reply.code(403).send({ error: 'Auto-login only available on Smart TV devices' });
     }
 
     try {

@@ -115,7 +115,7 @@ import { isWeb } from '@/hooks/usePlatform';
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
-  const { user, loading, needsSetup, serverReady, connectionError } = useAuth();
+  const { user, loading, needsSetup, serverReady, connectionError, confirmServer } = useAuth();
 
   const handleRoutePopState = useCallback((newRoute: AppRoute) => {
     setSection(newRoute.section);
@@ -383,7 +383,7 @@ export default function App() {
   }, [playing, selectedEpisode, selectedShow, selectedTitle, section, handlePlayerExit]);
 
   if (!serverReady) {
-    return <ServerSetup onConnected={() => {}} initialError={connectionError} />;
+    return <ServerSetup onConnected={() => confirmServer()} initialError={connectionError} />;
   }
 
   if (loading) {

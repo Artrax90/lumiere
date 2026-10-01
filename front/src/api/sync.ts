@@ -96,19 +96,6 @@ class SyncClient {
         }
       } catch {}
     }
-
-    try {
-      const base = getServerUrl();
-      const lanRes = await fetch(`${base}/api/auth/lan-login`, { method: 'POST' });
-      if (lanRes.ok) {
-        const data = await lanRes.json();
-        localStorage.setItem('lumiere_access', data.accessToken);
-        localStorage.setItem('lumiere_refresh', data.refreshToken);
-        this.authFailed = false;
-        this.refreshAttempts = 0;
-        return;
-      }
-    } catch {}
   }
 
   private getAuthHeaders(): Record<string, string> {

@@ -414,10 +414,10 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
           imgLoaded={imgLoaded}
         />
       ) : (
-        <div className="absolute left-0 right-0 top-0 z-20 h-[68vh] min-h-[520px] max-h-[760px] w-full overflow-hidden animate-pulse">
+        <div className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden animate-pulse">
           <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-white/[0.02] to-transparent" />
           <div className="absolute inset-0 flex items-end">
-            <div className="w-full max-w-[1600px] px-8 pb-14 lg:px-16 lg:pb-16 space-y-4">
+            <div className="w-full max-w-[1600px] px-6 pb-28 sm:px-8 sm:pb-22 lg:px-16 lg:pb-18 space-y-4">
               <div className="h-4 w-32 rounded-full bg-white/10" />
               <div className="h-10 w-96 max-w-full rounded-2xl bg-white/15" />
               <div className="h-4 w-48 rounded-full bg-white/10" />
@@ -431,7 +431,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
         </div>
       )}
 
-      <div className="relative z-10 pb-10" style={{ paddingTop: 'calc(min(68vh, 760px) - 90px)' }}>
+      <div className="relative z-10 pb-10" style={{ paddingTop: 'calc(min(72vh, 800px) - 60px)' }}>
         {shelves.filter((s) => s.enabled).map((s) => renderShelf(s.id))}
 
         <footer className="px-8 py-16 lg:px-14">
