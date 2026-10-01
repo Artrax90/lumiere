@@ -6365,6 +6365,8 @@
       }
 
       if (!state._torrentSort) state._torrentSort = 'score';
+      if (!state._torrentSortOrder) state._torrentSortOrder = 'desc';
+      var orderFactor = state._torrentSortOrder === 'asc' ? -1 : 1;
       var favVoice = localStorage.getItem('preferred_voiceover') || '';
 
       // Sort according to user preference: favorite voiceover priority first, then seeds, date, size, or smart score
@@ -6375,19 +6377,21 @@
           if (aFav && !bFav) return -1;
           if (!aFav && bFav) return 1;
         }
+        var diff = 0;
         if (state._torrentSort === 'seeds') {
-          return (b.seeders || 0) - (a.seeders || 0);
+          diff = (b.seeders || 0) - (a.seeders || 0);
         } else if (state._torrentSort === 'date') {
           var da = a.date ? new Date(a.date).getTime() : 0;
           var db = b.date ? new Date(b.date).getTime() : 0;
           if (isNaN(da)) da = 0;
           if (isNaN(db)) db = 0;
-          if (db !== da) return db - da;
-          return (b.seeders || 0) - (a.seeders || 0);
+          diff = (db !== da) ? (db - da) : ((b.seeders || 0) - (a.seeders || 0));
         } else if (state._torrentSort === 'size') {
-          return (b.size || 0) - (a.size || 0);
+          diff = (b.size || 0) - (a.size || 0);
+        } else {
+          diff = scoreTorrent(b) - scoreTorrent(a);
         }
-        return scoreTorrent(b) - scoreTorrent(a);
+        return diff * orderFactor;
       });
 
       var html = '';
@@ -6395,12 +6399,13 @@
         html += '<p class="detail-torrent-notice" style="color:#e8c170;padding:6px 12px;font-size:16px;">Показаны все раздачи сериала (точных совпадений для ' + season + ' сезона не найдено):</p>';
       }
 
+      var arrow = state._torrentSortOrder === 'asc' ? ' ▲' : ' ▼';
       html += '<div class="torrent-sort-bar">';
       html += '<span class="torrent-sort-label">Сортировка:</span>';
-      html += '<button class="sort-chip' + (state._torrentSort === 'score' ? ' active' : '') + '" data-sort="score" tabindex="0">По рейтингу</button>';
-      html += '<button class="sort-chip' + (state._torrentSort === 'seeds' ? ' active' : '') + '" data-sort="seeds" tabindex="0">По сидам</button>';
-      html += '<button class="sort-chip' + (state._torrentSort === 'date' ? ' active' : '') + '" data-sort="date" tabindex="0">По дате</button>';
-      html += '<button class="sort-chip' + (state._torrentSort === 'size' ? ' active' : '') + '" data-sort="size" tabindex="0">По размеру</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'score' ? ' active' : '') + '" data-sort="score" tabindex="0">По рейтингу' + (state._torrentSort === 'score' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'seeds' ? ' active' : '') + '" data-sort="seeds" tabindex="0">По сидам' + (state._torrentSort === 'seeds' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'date' ? ' active' : '') + '" data-sort="date" tabindex="0">По дате' + (state._torrentSort === 'date' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'size' ? ' active' : '') + '" data-sort="size" tabindex="0">По размеру' + (state._torrentSort === 'size' ? arrow : '') + '</button>';
       html += '</div>';
 
       var isExpanded = Boolean(state._expandedTorrents);
@@ -6455,8 +6460,13 @@
       container.querySelectorAll('.sort-chip').forEach(function(chip) {
         chip.addEventListener('click', function() {
           var s = chip.getAttribute('data-sort');
-          if (s && s !== state._torrentSort) {
-            state._torrentSort = s;
+          if (s) {
+            if (s === state._torrentSort) {
+              state._torrentSortOrder = (state._torrentSortOrder === 'asc' ? 'desc' : 'asc');
+            } else {
+              state._torrentSort = s;
+              state._torrentSortOrder = 'desc';
+            }
             renderTorrentResults(allResults);
             var activeChip = container.querySelector('.sort-chip[data-sort="' + s + '"]');
             if (activeChip) setDetailFocus(activeChip);
