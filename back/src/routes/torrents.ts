@@ -514,6 +514,9 @@ export function torrentRoutes(app: FastifyInstance) {
 
       results.sort((a, b) => scoreTorrentItem(b) - scoreTorrentItem(a));
 
+      reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+      reply.header('Pragma', 'no-cache');
+      reply.header('Expires', '0');
       return { results, torrents: results };
     } catch (err: any) {
       console.error('JacRed search error:', err.message);

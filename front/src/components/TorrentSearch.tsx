@@ -147,7 +147,10 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
 
       const fetchPromises = queries.map(async (qStr) => {
         try {
-          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}`);
+          const res = await serverFetch(
+            `/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}&_t=${Date.now()}`,
+            { cache: 'no-store' }
+          );
           const data = await res.json();
           return (data.results || []) as TorrentItem[];
         } catch {
@@ -185,12 +188,19 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
     searchWithQuery(title.name);
   }, [title.id, title.name]);
 
-  const sortedResults = useMemo(() => {
+  const { sortedResults, isSeasonFallback } = useMemo(() => {
     let filtered = [...results];
+    let isFallback = false;
 
     // Filter by season if selected using robust season matcher
     if (seasonFilter !== null) {
-      filtered = filtered.filter((r) => matchesTorrentSeason(r.title, seasonFilter));
+      const seasonFiltered = filtered.filter((r) => matchesTorrentSeason(r.title, seasonFilter));
+      if (seasonFiltered.length > 0) {
+        filtered = seasonFiltered;
+      } else if (filtered.length > 0) {
+        // Fallback to all torrents if this specific season has no individual matches
+        isFallback = true;
+      }
     }
 
     // Filter by quality
@@ -227,7 +237,7 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
       return (b.seeders || 0) - (a.seeders || 0);
     });
 
-    return filtered;
+    return { sortedResults: filtered, isSeasonFallback: isFallback };
   }, [results, sortBy, sortOrder, seasonFilter, qualityFilter, title.year, (title as any).type]);
 
   // Extract available seasons from results using range and standard patterns
@@ -541,6 +551,19 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
           {results.length > 0 && seasonFilter !== null
             ? `${t('torrents.notFound')} ${seasonFilter}`
             : t('torrents.notFound')}
+        </div>
+      )}
+
+      {seasonFilter !== null && isSeasonFallback && sortedResults.length > 0 && (
+        <div className="flex items-center justify-between text-[12px] text-amber-300 bg-amber-400/10 border border-amber-400/25 rounded-xl px-4 py-2.5 my-2">
+          <span>Для сезона {seasonFilter} отдельных раздач не найдено. Показаны все доступные раздачи сериала:</span>
+          <button
+            type="button"
+            onClick={() => setSeasonFilter(null)}
+            className="text-[11px] underline hover:text-white ml-2 shrink-0 cursor-pointer"
+          >
+            Сбросить фильтр
+          </button>
         </div>
       )}
 

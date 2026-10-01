@@ -220,7 +220,10 @@ export default function SeasonTorrentBrowser({
 
       const fetchPromises = queries.map(async (qStr) => {
         try {
-          const res = await serverFetch(`/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}`);
+          const res = await serverFetch(
+            `/api/torrents/search?q=${encodeURIComponent(qStr)}${tmdbParam}${typeParam}${yearParam}&_t=${Date.now()}`,
+            { cache: 'no-store' }
+          );
           const data = await res.json();
           return (data.results || []) as TorrentItem[];
         } catch {
