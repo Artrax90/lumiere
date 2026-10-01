@@ -29,6 +29,7 @@
   var bottomControlsFocused = false;
   var bottomBtnIndex = 2; // 0 = restart, 1 = rewind, 2 = play/pause, 3 = forward, 4 = next
   var $timelineRow = null;
+  var lastVerticalNavTime = 0;
 
   // Popup state (audio / subtitles)
   var popupOpen = false;
@@ -1025,7 +1026,10 @@
 
   function clearTopMenuFocus() {
     for (var i = 0; i < topBtns.length; i++) {
-      if (topBtns[i]) topBtns[i].classList.remove('focused');
+      if (topBtns[i]) {
+        topBtns[i].classList.remove('focused');
+        try { topBtns[i].blur(); } catch(e) {}
+      }
     }
   }
 
@@ -1054,7 +1058,10 @@
 
   function blurTimeline() {
     timelineFocused = false;
-    if ($timelineWrap) $timelineWrap.classList.remove('focused');
+    if ($timelineWrap) {
+      $timelineWrap.classList.remove('focused');
+      try { $timelineWrap.blur(); } catch(e) {}
+    }
     if ($timelineRow) $timelineRow.classList.remove('focused');
   }
 
@@ -1119,7 +1126,10 @@
 
   function clearBottomControlsFocus() {
     for (var i = 0; i < bottomBtns.length; i++) {
-      if (bottomBtns[i]) bottomBtns[i].classList.remove('focused');
+      if (bottomBtns[i]) {
+        bottomBtns[i].classList.remove('focused');
+        try { bottomBtns[i].blur(); } catch(e) {}
+      }
     }
   }
 
@@ -1969,7 +1979,17 @@
         // Any other key wakes up and reveals the player OSD in clean neutral state!
         showOsd(true);
         clearAllFocus();
+        lastVerticalNavTime = Date.now();
         return;
+      }
+
+      // Vertical navigation debounce to prevent remote hardware bounce skipping the timeline track!
+      if (isUp || isDown) {
+        var nowNav = Date.now();
+        if (nowNav - lastVerticalNavTime < 240) {
+          return;
+        }
+        lastVerticalNavTime = nowNav;
       }
 
       // --- State A: When Top Menu Buttons Are Focused (Back / Audio / CC) ---
@@ -1991,6 +2011,7 @@
         }
         if (isDown) {
           // Down from top menu moves focus to Timeline Track!
+          lastVerticalNavTime = Date.now();
           focusTimeline();
           return;
         }
@@ -2017,11 +2038,13 @@
         }
         if (isDown) {
           // User request: "нажимаю еще раз вниз и попадаю на кнопки управления плеера"
+          lastVerticalNavTime = Date.now();
           focusBottomControls(bottomBtnIndex !== undefined ? bottomBtnIndex : 2);
           return;
         }
         if (isUp) {
           // Up from timeline moves focus to Top Menu
+          lastVerticalNavTime = Date.now();
           focusTopMenu(topBtnIndex !== undefined ? topBtnIndex : 0);
           return;
         }
@@ -2050,7 +2073,8 @@
           return;
         }
         if (isUp) {
-          // Up from bottom controls moves focus back UP to Timeline Track!
+          // User request: "когда из кнопок управления плеера нажимаю вверх... надо чтобы на дорожку"
+          lastVerticalNavTime = Date.now();
           focusTimeline();
           return;
         }
@@ -2078,12 +2102,15 @@
 
       if (isDown) {
         // User request: "я нажимаю вниз попадаю на дорожку"
+        lastVerticalNavTime = Date.now();
         focusTimeline();
         return;
       }
 
       if (isUp) {
-        focusTopMenu(topBtnIndex !== undefined ? topBtnIndex : 0);
+        // Up in neutral also focuses timeline track
+        lastVerticalNavTime = Date.now();
+        focusTimeline();
         return;
       }
 

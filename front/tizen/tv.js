@@ -9177,6 +9177,8 @@
           closePlayer();
         }
         if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
         return;
       }
 
