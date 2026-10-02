@@ -8,6 +8,7 @@ import uuid
 import tempfile
 import urllib.parse
 from typing import Dict, Any, Optional, Set, Callable, Awaitable
+from datetime import datetime
 import functools
 print = functools.partial(print, flush=True)
 
@@ -1259,10 +1260,31 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         start_ep = ep_page * EP_PAGE_SIZE
         page_episodes = episodes[start_ep : start_ep + EP_PAGE_SIZE]
 
+        today_str = datetime.now().strftime("%Y-%m-%d")
+        has_future_eps = False
+
         builder = InlineKeyboardBuilder()
         for ep in page_episodes:
             ep_num = ep.get("episode") or ep.get("episode_number") or 1
-            builder.button(text=f"{ep_num} серия", callback_data=f"dl_start:tv:{media_id}:{season_num}:{ep_num}")
+            aired = str(ep.get("aired") or ep.get("air_date") or "")
+            is_future = ep.get("isAired") is False
+            if not is_future and aired and len(aired) >= 10 and aired[:10] > today_str:
+                is_future = True
+
+            if is_future:
+                has_future_eps = True
+                short_d = ""
+                if aired and len(aired) >= 10:
+                    try:
+                        short_d = datetime.strptime(aired[:10], "%Y-%m-%d").strftime("%d.%m")
+                    except Exception:
+                        short_d = ""
+                suffix = f" ({short_d})" if short_d else ""
+                btn_txt = f"⏳ {ep_num} с.{suffix}"
+            else:
+                btn_txt = f"{ep_num} серия"
+
+            builder.button(text=btn_txt, callback_data=f"dl_start:tv:{media_id}:{season_num}:{ep_num}")
 
         builder.adjust(4)
 
@@ -1281,10 +1303,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         )
 
         ep_page_info = f" (стр. {ep_page + 1}/{total_ep_pages})" if total_ep_pages > 1 else ""
+        future_hint = "\n\n<i>⏳ Значком отмечены серии, которые ещё не вышли в эфир.</i>" if has_future_eps else "\n\n<i>Бот найдет и скачает на диск именно выбранную серию.</i>"
         text = (
             f"🎯 <b>Выберите серию для загрузки на сервер:</b>{ep_page_info}\n"
-            f"🎬 <b>«{html.escape(title)}»</b> — Сезон {season_num}\n\n"
-            f"<i>Бот найдет и скачает на диск именно выбранную серию.</i>"
+            f"🎬 <b>«{html.escape(title)}»</b> — Сезон {season_num}"
+            f"{future_hint}"
         )
         try:
             await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
@@ -1347,21 +1370,52 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 await call.message.answer(prompt_text, reply_markup=kb, parse_mode="HTML")
             return
 
-        await call.answer("🔍 Ищем доступные релизы на торрентах...")
         is_tv_episode = (season is not None and episode is not None and season > 0 and episode > 0)
         target_year = cached.get("year", "")
         year_param = f"&year={target_year}" if target_year else ""
 
+        # Pre-check: has this episode aired yet?
+        if is_tv_episode:
+            try:
+                s_data = await fetch_api(f"/api/tv/{media_id}/season/{season}")
+                eps_list = (s_data or {}).get("episodes", [])
+                target_ep = next((e for e in eps_list if (e.get("episode") or e.get("episode_number")) == episode), None)
+                if target_ep:
+                    aired = str(target_ep.get("aired") or target_ep.get("air_date") or "")
+                    today_str = datetime.now().strftime("%Y-%m-%d")
+                    is_future = target_ep.get("isAired") is False or (aired and len(aired) >= 10 and aired[:10] > today_str)
+                    if is_future:
+                        date_display = aired[:10] if aired else ""
+                        if date_display:
+                            try:
+                                dt = datetime.strptime(date_display, "%Y-%m-%d")
+                                date_display = dt.strftime("%d.%m.%Y")
+                            except Exception:
+                                pass
+                        date_note = f"\n📅 <b>Дата премьеры:</b> {date_display}" if date_display else ""
+                        await call.message.reply(
+                            f"⏳ <b>Серия {episode} ({season} сезон) ещё не вышла в эфир!</b>{date_note}\n\n"
+                            f"<i>На торрент-трекерах серии появляются только после их выхода по ТВ. "
+                            f"Пожалуйста, дождитесь премьеры.</i>",
+                            parse_mode="HTML"
+                        )
+                        return
+            except Exception:
+                pass
+
+        await call.answer("🔍 Ищем доступные релизы на торрентах...")
+
         # Multi-query strategy for TV episodes vs movies
         queries_to_try = []
         if is_tv_episode:
-            queries_to_try.append(f"{raw_title} {season} сезон")
-            queries_to_try.append(f"{raw_title} S{season:02d}E{episode:02d}")
             queries_to_try.append(raw_title)
             orig_t = cached.get("original_title") or cached.get("original_name")
             if orig_t and orig_t.strip().lower() != raw_title.strip().lower():
-                queries_to_try.append(f"{orig_t} S{season:02d}")
                 queries_to_try.append(orig_t)
+            queries_to_try.append(f"{raw_title} {season} сезон")
+            queries_to_try.append(f"{raw_title} S{season:02d}E{episode:02d}")
+            if orig_t and orig_t.strip().lower() != raw_title.strip().lower():
+                queries_to_try.append(f"{orig_t} S{season:02d}")
         else:
             queries_to_try.append(raw_title)
 
@@ -1412,16 +1466,22 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             season_matches = [t for t in torrents if matches_season(t.get("title", ""), season)]
             if not season_matches:
                 await call.message.reply(
-                    f"⚠️ На торрент-трекерах пока нет релизов для <b>{season} сезона</b> сериала «{html.escape(raw_title)}».\n"
-                    f"<i>Возможно, этот сезон еще не вышел или не был выложен на трекеры.</i>",
+                    f"⚠️ На торрент-трекерах пока нет релизов для <b>{season} сезона</b> сериала «{html.escape(raw_title)}».\n\n"
+                    f"<i>Возможно, этот сезон ещё только выходит или студии озвучки ещё не выложили релизы. Попробуйте выбрать другой сезон.</i>",
                     parse_mode="HTML"
                 )
                 return
             torrents = season_matches
 
         if not torrents:
-            ep_note = f" (Сезон {season}, Серия {episode})" if is_tv_episode else ""
-            await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}»{ep_note}.")
+            if is_tv_episode:
+                await call.message.reply(
+                    f"⚠️ Раздачи для <b>{season} сезона ({episode} серия)</b> сериала «{html.escape(raw_title)}» пока не найдены на торрент-трекерах.\n\n"
+                    f"<i>Возможно, релиз-группы ещё не успели выложить эту серию в сеть. Попробуйте выбрать другой сезон или повторить поиск позже.</i>",
+                    parse_mode="HTML"
+                )
+            else:
+                await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}».")
             return
 
         # Sort releases: prioritize exact episode, then seeders
