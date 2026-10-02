@@ -96,9 +96,7 @@ function isLanRequest(req: any): boolean {
 async function isUserAdmin(userId: number): Promise<boolean> {
   try {
     const res = await pool.query('SELECT role FROM users WHERE id = $1', [userId]);
-    if (res.rows.length > 0 && res.rows[0].role === 'admin') return true;
-    const first = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-    return first.rows.length > 0 && first.rows[0].id === userId;
+    return res.rows.length > 0 && res.rows[0].role === 'admin';
   } catch {
     return false;
   }

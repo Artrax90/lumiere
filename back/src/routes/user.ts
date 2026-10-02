@@ -116,8 +116,22 @@ export function userRoutes(app: FastifyInstance) {
     }
   });
 
-  // Get user Telegram Bot settings
-  app.get('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
+  // Helper to ensure admin only
+  async function isCallerAdmin(request: AuthenticatedRequest): Promise<boolean> {
+    if (request.user?.role === 'admin') return true;
+    try {
+      const res = await pool.query('SELECT role FROM users WHERE id = $1', [request.user!.userId]);
+      return res.rows.length > 0 && res.rows[0].role === 'admin';
+    } catch {
+      return false;
+    }
+  }
+
+  // Get user Telegram Bot settings (Admin only)
+  app.get('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    if (!(await isCallerAdmin(request))) {
+      return reply.code(403).send({ error: 'Только администратор имеет доступ к настройке Telegram-бота' });
+    }
     const userId = request.user!.userId;
     try {
       const result = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
@@ -140,8 +154,11 @@ export function userRoutes(app: FastifyInstance) {
     }
   });
 
-  // Save user Telegram Bot settings
+  // Save user Telegram Bot settings (Admin only)
   app.post('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    if (!(await isCallerAdmin(request))) {
+      return reply.code(403).send({ error: 'Только администратор имеет доступ к настройке Telegram-бота' });
+    }
     const userId = request.user!.userId;
     const { botToken, chatId, allowedChats } = request.body as {
       botToken?: string;
@@ -209,8 +226,11 @@ export function userRoutes(app: FastifyInstance) {
     }
   });
 
-  // Test user Telegram Bot connection
+  // Test user Telegram Bot connection (Admin only)
   app.post('/api/user/telegram/test', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+    if (!(await isCallerAdmin(request))) {
+      return reply.code(403).send({ error: 'Только администратор имеет доступ к настройке Telegram-бота' });
+    }
     const userId = request.user!.userId;
     const body = (request.body as { botToken?: string; chatId?: string }) || {};
 

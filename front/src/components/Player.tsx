@@ -961,106 +961,140 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   };
 
   const dragFractionRef = useRef<number>(0);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+    };
+  }, []);
 
   const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only primary mouse button or touch/pen
+    if (e.button !== 0) return;
     e.stopPropagation();
     e.preventDefault();
     resetHideTimer();
-
-    const target = e.currentTarget;
-    try {
-      target.setPointerCapture(e.pointerId);
-    } catch {}
 
     setIsDragging(true);
     isDraggingRef.current = true;
     isSeekingRef.current = true;
 
-    const rect = target.getBoundingClientRect();
-    const calculateFraction = (clientX: number) => {
-      if (rect.width <= 0) return 0;
+    // Prevent text selection during drag and show grabbing cursor
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
+
+    const getFraction = (clientX: number) => {
+      const rect = progressRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0) return 0;
       return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     };
 
-    const fraction = calculateFraction(e.clientX);
-    dragFractionRef.current = fraction;
-    setDragFraction(fraction);
+    const initialFraction = getFraction(e.clientX);
+    dragFractionRef.current = initialFraction;
 
+    // Direct synchronous DOM update for zero lag
     if (playedBarRef.current) {
-      playedBarRef.current.style.width = `${fraction * 100}%`;
+      playedBarRef.current.style.width = `${initialFraction * 100}%`;
     }
+    setDragFraction(initialFraction);
     if (isFinite(duration) && duration > 0) {
-      setCurrentTime(fraction * duration);
-      setHoverTime(fraction * duration);
+      setCurrentTime(initialFraction * duration);
+      setHoverTime(initialFraction * duration);
     }
-    setHoverX(e.clientX - rect.left);
-  };
+    if (progressRef.current) {
+      const r = progressRef.current.getBoundingClientRect();
+      setHoverX(e.clientX - r.left);
+    }
 
-  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const calculateFraction = (clientX: number) => {
-      if (rect.width <= 0) return 0;
-      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    };
-
-    if (isDraggingRef.current) {
-      e.stopPropagation();
-      e.preventDefault();
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      moveEvt.preventDefault();
+      moveEvt.stopPropagation();
       resetHideTimer();
 
-      const fraction = calculateFraction(e.clientX);
+      const fraction = getFraction(moveEvt.clientX);
       dragFractionRef.current = fraction;
-      setDragFraction(fraction);
 
+      // Direct synchronous DOM update: thumb follows cursor IMMEDIATELY with 0ms lag
       if (playedBarRef.current) {
         playedBarRef.current.style.width = `${fraction * 100}%`;
       }
-      if (isFinite(duration) && duration > 0) {
-        setCurrentTime(fraction * duration);
-        setHoverTime(fraction * duration);
+
+      // Throttle React state updates to 60fps via requestAnimationFrame
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          if (isDraggingRef.current) {
+            const currentFraction = dragFractionRef.current;
+            setDragFraction(currentFraction);
+            if (isFinite(duration) && duration > 0) {
+              setCurrentTime(currentFraction * duration);
+              setHoverTime(currentFraction * duration);
+            }
+            if (progressRef.current) {
+              const r = progressRef.current.getBoundingClientRect();
+              setHoverX(moveEvt.clientX - r.left);
+            }
+          }
+        });
       }
-      setHoverX(e.clientX - rect.left);
-    } else {
-      const fraction = calculateFraction(e.clientX);
-      setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
-      setHoverX(e.clientX - rect.left);
-    }
+    };
+
+    const onPointerUp = (upEvt: PointerEvent) => {
+      upEvt.preventDefault();
+      upEvt.stopPropagation();
+      resetHideTimer();
+
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const finalFraction = getFraction(upEvt.clientX);
+      dragFractionRef.current = finalFraction;
+
+      if (playedBarRef.current) {
+        playedBarRef.current.style.width = `${finalFraction * 100}%`;
+      }
+
+      setIsDragging(false);
+      isDraggingRef.current = false;
+
+      // Seek video to final position
+      seek(finalFraction);
+
+      setHoverTime(null);
+
+      setTimeout(() => {
+        if (!isDraggingRef.current) {
+          setDragFraction(null);
+        }
+      }, 350);
+    };
+
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp, { passive: false });
+    window.addEventListener('pointercancel', onPointerUp, { passive: false });
   };
 
-  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
-    e.stopPropagation();
-    e.preventDefault();
-    resetHideTimer();
-
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
-
+  const handleTimelineHover = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const fraction = rect.width > 0
-      ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-      : (dragFractionRef.current || 0);
-
-    setIsDragging(false);
-    isDraggingRef.current = false;
-
-    seek(fraction);
-
-    setTimeout(() => {
-      setDragFraction(null);
-    }, 400);
-  };
-
-  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingRef.current) return;
-    try {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    } catch {}
-    setIsDragging(false);
-    isDraggingRef.current = false;
-    isSeekingRef.current = false;
-    setDragFraction(null);
+    if (rect.width <= 0) return;
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
+    setHoverX(e.clientX - rect.left);
   };
 
   const setQuality = (index: number) => {
@@ -1443,10 +1477,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           <div
             ref={progressRef}
             className="player-timeline no-drag select-none group relative h-8 flex items-center cursor-pointer touch-none"
+            role="slider"
+            aria-label="Seek slider"
+            tabIndex={0}
             onPointerDown={handlePointerDown}
-            onPointerMove={handlePointerMove}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerCancel}
+            onPointerMove={handleTimelineHover}
             onPointerLeave={() => {
               if (!isDraggingRef.current) setHoverTime(null);
             }}
@@ -1473,10 +1508,17 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               {/* Played range */}
               <div
                 ref={playedBarRef}
-                className="absolute inset-y-0 left-0 rounded-full bg-white pointer-events-none transition-none"
-                style={{ width: `${progress}%` }}
+                className="absolute inset-y-0 left-0 rounded-full bg-white pointer-events-none"
+                style={{ width: `${progress}%`, transition: 'none' }}
               >
-                <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg pointer-events-none transition-transform ${isDragging ? 'opacity-100 scale-125' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'}`} />
+                <div
+                  className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg pointer-events-none ${
+                    isDragging ? 'opacity-100 scale-125' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'
+                  }`}
+                  style={{
+                    transition: isDragging ? 'none' : 'opacity 150ms ease-out, transform 150ms ease-out',
+                  }}
+                />
               </div>
             </div>
             {/* Buffer indicator */}

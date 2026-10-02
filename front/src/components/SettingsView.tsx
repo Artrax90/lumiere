@@ -82,7 +82,10 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const [userLoading, setUserLoading] = useState(false);
   const [usersLoaded, setUsersLoaded] = useState(false);
 
+  const isAdmin = user?.role === 'admin';
+
   const loadUsers = async () => {
+    if (!isAdmin) return;
     try {
       const res = await serverFetch('/api/admin/users');
       if (!res.ok) {
@@ -98,12 +101,16 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   };
 
   useEffect(() => {
-    if (active === 'accounts' && !usersLoaded) {
+    if (active === 'accounts' && isAdmin && !usersLoaded) {
       loadUsers();
     }
-  }, [active, usersLoaded]);
+  }, [active, usersLoaded, isAdmin]);
 
-  const isAdmin = user?.role === 'admin' || (users.length > 0 && user && user.id === users[0]?.id);
+  useEffect(() => {
+    if (!isAdmin && ['telegram', 'accounts', 'tmdb', 'sessions'].includes(active)) {
+      setActive('appearance');
+    }
+  }, [isAdmin, active]);
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -204,15 +211,15 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const categories = [
     { id: 'appearance', label: t('settings.appearance'), desc: t('settings.appearanceDesc'), icon: Monitor },
     { id: 'playback', label: t('settings.playback'), desc: t('settings.playbackDesc'), icon: Play },
-    { id: 'telegram', label: 'Telegram Бот', desc: 'Уведомления о сериях, пульт и голосовой поиск', icon: Send },
-    ...(user?.role === 'admin' ? [{ id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key }] : []),
+    ...(isAdmin ? [{ id: 'telegram', label: 'Telegram Бот', desc: 'Уведомления о сериях, пульт и голосовой поиск', icon: Send }] : []),
+    ...(isAdmin ? [{ id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key }] : []),
     { id: 'home_layout', label: 'Главная страница', desc: 'Порядок и видимость полок рекомендаций', icon: LayoutList },
     { id: 'audio', label: t('settings.audio'), desc: t('settings.audioDesc'), icon: Volume2 },
     { id: 'subtitles', label: t('settings.subtitles'), desc: t('settings.subtitlesDesc'), icon: Captions },
     { id: 'network', label: t('settings.network'), desc: t('settings.networkDesc'), icon: Wifi },
     { id: 'plugins', label: t('settings.plugins'), desc: t('settings.pluginsDesc'), icon: Puzzle },
-    ...(user?.role === 'admin' ? [{ id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User }] : []),
-    ...(user?.role === 'admin' ? [{ id: 'sessions', label: 'Сессии и мониторинг', desc: 'Кто что смотрит сейчас и история просмотров', icon: Activity }] : []),
+    ...(isAdmin ? [{ id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User }] : []),
+    ...(isAdmin ? [{ id: 'sessions', label: 'Сессии и мониторинг', desc: 'Кто что смотрит сейчас и история просмотров', icon: Activity }] : []),
     { id: 'activity', label: t('settings.activity'), desc: t('settings.activityDesc'), icon: Film },
     { id: 'remote', label: t('settings.remote'), desc: t('settings.remoteDesc'), icon: Gamepad2 },
     { id: 'developer', label: t('settings.developer'), desc: t('settings.developerDesc'), icon: Code },
@@ -388,13 +395,13 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
               </div>
             )}
 
-            {/* Telegram Companion Bot (Killer Feature 1) */}
-            {active === 'telegram' && (
+            {/* Telegram Companion Bot (Admin Only) */}
+            {active === 'telegram' && isAdmin && (
               <TelegramBotConfig />
             )}
 
-            {/* TMDB Catalog */}
-            {active === 'tmdb' && (
+            {/* TMDB Catalog (Admin Only) */}
+            {active === 'tmdb' && isAdmin && (
               <TmdbConfig />
             )}
 
