@@ -236,7 +236,7 @@ export function userRoutes(app: FastifyInstance) {
           }
           const token = (prefs.telegram_bot_token || '').trim();
           const chatId = (prefs.telegram_chat_id || '').trim();
-          if (!token || !chatId) return null;
+          if (!token) return null;
           return {
             userId: r.id,
             userName: r.name,

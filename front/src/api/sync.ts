@@ -31,7 +31,51 @@ interface SyncData {
   syncedAt: string;
 }
 
-const IPTV_STORAGE_KEY = 'lumiere_iptv';
+export function getCurrentUserId(): number | null {
+  try {
+    const raw = localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile');
+    if (raw) {
+      const u = JSON.parse(raw);
+      if (u && u.id) return Number(u.id);
+    }
+  } catch {}
+  return null;
+}
+
+export function getUserStorageKey(baseKey: string, userId?: number | null): string {
+  const uid = userId !== undefined ? userId : getCurrentUserId();
+  return uid ? `lumiere_u${uid}_${baseKey}` : `lumiere_guest_${baseKey}`;
+}
+
+export function getScopedItem(baseKey: string): string | null {
+  const scopedKey = getUserStorageKey(baseKey);
+  let val = localStorage.getItem(scopedKey);
+  if (val === null && scopedKey !== baseKey) {
+    // One-time legacy migration for active user
+    const legacyVal = localStorage.getItem(baseKey);
+    if (legacyVal !== null) {
+      val = legacyVal;
+      try {
+        localStorage.setItem(scopedKey, legacyVal);
+        localStorage.removeItem(baseKey);
+      } catch {}
+    }
+  }
+  return val;
+}
+
+export function setScopedItem(baseKey: string, val: string): void {
+  const scopedKey = getUserStorageKey(baseKey);
+  localStorage.setItem(scopedKey, val);
+}
+
+export function removeScopedItem(baseKey: string): void {
+  const scopedKey = getUserStorageKey(baseKey);
+  localStorage.removeItem(scopedKey);
+  if (scopedKey !== baseKey) {
+    localStorage.removeItem(baseKey);
+  }
+}
 
 class SyncClient {
   private syncInterval: ReturnType<typeof setInterval> | null = null;
@@ -172,11 +216,11 @@ class SyncClient {
       positions.push(item);
     }
 
-    localStorage.setItem('lumiere_watch_history', JSON.stringify(positions));
+    setScopedItem('watch_history', JSON.stringify(positions));
 
     // Also ensure playback_positions has this entry
     try {
-      const pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      const pos = JSON.parse(getScopedItem('playback_positions') || '{}');
       pos[item.tmdbId] = {
         time: item.progress || 0,
         timestamp: item.timestamp || Date.now(),
@@ -187,7 +231,7 @@ class SyncClient {
           type: item.mediaType || 'movie',
         },
       };
-      localStorage.setItem('playback_positions', JSON.stringify(pos));
+      setScopedItem('playback_positions', JSON.stringify(pos));
       window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     } catch {}
 
@@ -200,7 +244,7 @@ class SyncClient {
 
     if (existingIndex < 0) {
       favorites.push(item);
-      localStorage.setItem('lumiere_favorites', JSON.stringify(favorites));
+      setScopedItem('favorites', JSON.stringify(favorites));
       this.pendingChanges.favorites.push(item);
     }
   }
@@ -208,7 +252,7 @@ class SyncClient {
   removeFavorite(tmdbId: number, mediaType: string) {
     const favorites = this.getLocalFavorites();
     const filtered = favorites.filter(f => !(f.tmdbId === tmdbId && f.mediaType === mediaType));
-    localStorage.setItem('lumiere_favorites', JSON.stringify(filtered));
+    setScopedItem('favorites', JSON.stringify(filtered));
   }
 
   getLocalWatchHistory(): WatchHistoryItem[] {
@@ -216,7 +260,7 @@ class SyncClient {
     const seen = new Set<string>();
 
     try {
-      const data = localStorage.getItem('lumiere_watch_history');
+      const data = getScopedItem('watch_history');
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed)) {
@@ -232,7 +276,7 @@ class SyncClient {
     } catch {}
 
     try {
-      const posRaw = localStorage.getItem('playback_positions');
+      const posRaw = getScopedItem('playback_positions');
       if (posRaw) {
         const pos = JSON.parse(posRaw);
         for (const [idStr, val] of Object.entries(pos)) {
@@ -263,7 +307,7 @@ class SyncClient {
 
   getLocalFavorites(): FavoriteItem[] {
     try {
-      const data = localStorage.getItem('lumiere_favorites');
+      const data = getScopedItem('favorites');
       return data ? JSON.parse(data) : [];
     } catch {
       return [];
@@ -272,7 +316,7 @@ class SyncClient {
 
   getLocalIptvPlaylists(): IPTVPlaylist[] {
     try {
-      const data = localStorage.getItem(IPTV_STORAGE_KEY);
+      const data = getScopedItem('iptv_playlists');
       if (data) {
         const parsed = JSON.parse(data);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -286,7 +330,7 @@ class SyncClient {
   }
 
   saveLocalIptvPlaylists(playlists: IPTVPlaylist[]) {
-    localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
+    setScopedItem('iptv_playlists', JSON.stringify(playlists));
   }
 
   async mergeWithServer(): Promise<void> {
@@ -308,12 +352,12 @@ class SyncClient {
       }
     }
     if (mergedHistory.size > 0) {
-      localStorage.setItem('lumiere_watch_history', JSON.stringify(Array.from(mergedHistory.values())));
+      setScopedItem('watch_history', JSON.stringify(Array.from(mergedHistory.values())));
     }
 
     // Crucial: Also merge server watch history into playback_positions for Home & UI components
     try {
-      const rawPositions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      const rawPositions = JSON.parse(getScopedItem('playback_positions') || '{}');
       let changed = false;
       for (const item of serverData.watchHistory || []) {
         const id = item.tmdbId;
@@ -336,7 +380,7 @@ class SyncClient {
         }
       }
       if (changed) {
-        localStorage.setItem('playback_positions', JSON.stringify(rawPositions));
+        setScopedItem('playback_positions', JSON.stringify(rawPositions));
         window.dispatchEvent(new CustomEvent('playback-positions-synced'));
       }
     } catch (e) {
@@ -358,7 +402,7 @@ class SyncClient {
       }
     }
     if (mergedFavorites.size > 0) {
-      localStorage.setItem('lumiere_favorites', JSON.stringify(Array.from(mergedFavorites.values())));
+      setScopedItem('favorites', JSON.stringify(Array.from(mergedFavorites.values())));
     }
 
     // Merge IPTV playlists

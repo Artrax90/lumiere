@@ -23,6 +23,7 @@ import { useSearch } from '@/hooks/useSearch';
 import { useGenres } from '@/hooks/useGenres';
 import { useTrending } from '@/hooks/useTrending';
 import Card from './Card';
+import { getScopedItem, setScopedItem, removeScopedItem } from '@/api/sync';
 
 interface SearchViewProps {
   onSelect: (title: Title) => void;
@@ -34,7 +35,8 @@ type SortOption = 'relevance' | 'rating' | 'year';
 
 function getRecentSearches(): string[] {
   try {
-    return JSON.parse(localStorage.getItem('recent_searches') || '[]');
+    const raw = getScopedItem('recent_searches');
+    return JSON.parse(raw || '[]');
   } catch {
     return [];
   }
@@ -46,20 +48,20 @@ function saveRecentSearch(query: string) {
     if (!trimmed) return;
     const searches = getRecentSearches().filter(s => s.toLowerCase() !== trimmed.toLowerCase());
     searches.unshift(trimmed);
-    localStorage.setItem('recent_searches', JSON.stringify(searches.slice(0, 15)));
+    setScopedItem('recent_searches', JSON.stringify(searches.slice(0, 15)));
   } catch {}
 }
 
 function removeRecentSearch(query: string) {
   try {
     const searches = getRecentSearches().filter(s => s !== query);
-    localStorage.setItem('recent_searches', JSON.stringify(searches));
+    setScopedItem('recent_searches', JSON.stringify(searches));
   } catch {}
 }
 
 function clearAllRecentSearches() {
   try {
-    localStorage.removeItem('recent_searches');
+    removeScopedItem('recent_searches');
   } catch {}
 }
 

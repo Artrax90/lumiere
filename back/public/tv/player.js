@@ -7,6 +7,15 @@
   var TOKEN_KEY = 'lumiere_access';
   var SERVER_KEY = 'lumiere_server';
 
+  function getUserStorageKey(baseKey) {
+    var uid = 0;
+    try {
+      var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+      if (u && u.id) uid = u.id;
+    } catch(e) {}
+    return uid ? 'u' + uid + '_' + baseKey : baseKey;
+  }
+
   // Playback state
   var isPlaying = false;
   var currentTime = 0;
@@ -495,7 +504,8 @@
       resumeTarget = startParamSec;
     } else if (movieId) {
       try {
-        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var posKey = getUserStorageKey('playback_positions');
+        var positions = JSON.parse(localStorage.getItem(posKey) || localStorage.getItem('playback_positions') || '{}');
         var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
         var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
         var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
@@ -1636,7 +1646,8 @@
     var now = Date.now();
     try {
       localStorage.setItem('last_watched_id', String(saveId));
-      var pos = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      var posKey = getUserStorageKey('playback_positions');
+      var pos = JSON.parse(localStorage.getItem(posKey) || localStorage.getItem('playback_positions') || '{}');
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
       var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
@@ -1661,20 +1672,22 @@
         timestamp: now,
         title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
       };
-      localStorage.setItem('playback_positions', JSON.stringify(pos));
+      localStorage.setItem(posKey, JSON.stringify(pos));
 
       // Also persist season and episode and timestamp to last_torrents
       try {
-        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        var ltKey = getUserStorageKey('last_torrents');
+        var lastT = JSON.parse(localStorage.getItem(ltKey) || localStorage.getItem('last_torrents') || '{}');
         if (!lastT[saveId]) lastT[saveId] = {};
         lastT[saveId].timestamp = now;
         if (sNum) lastT[saveId].season = sNum;
         if (eNum) lastT[saveId].episode = eNum;
+        localStorage.setItem(ltKey, JSON.stringify(lastT));
         if (sNum) {
-          localStorage.setItem('last_season_' + saveId, String(sNum));
+          localStorage.setItem(getUserStorageKey('last_season_' + saveId), String(sNum));
         }
         if (eNum) {
-          localStorage.setItem('last_episode_' + saveId, String(eNum));
+          localStorage.setItem(getUserStorageKey('last_episode_' + saveId), String(eNum));
         }
       } catch(ltErr) {}
 

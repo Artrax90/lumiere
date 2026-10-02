@@ -5,7 +5,7 @@ import Hls from 'hls.js';
 import { Capacitor } from '@capacitor/core';
 import type { Title } from '@/api/client';
 import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
-import { syncClient } from '@/api/sync';
+import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
 
 interface IPTVChannel {
   id: string;
@@ -30,8 +30,8 @@ interface IPTVViewProps {
   onPlay: (title: Title) => void;
 }
 
-const IPTV_STORAGE_KEY = 'lumiere_iptv';
-const FAVORITES_STORAGE_KEY = 'lumiere_iptv_favorites';
+const IPTV_STORAGE_KEY = 'iptv_playlists';
+const FAVORITES_STORAGE_KEY = 'iptv_favorites';
 
 const DEFAULT_PLAYLISTS = [
   { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: 'https://iptvx.one/epg/epg_lite.xml.gz' },
@@ -138,7 +138,7 @@ function normalizeChannelName(name: string): string {
 
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
-    const data = localStorage.getItem(IPTV_STORAGE_KEY);
+    const data = getScopedItem(IPTV_STORAGE_KEY) || getScopedItem('lumiere_iptv');
     if (data) {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -155,14 +155,14 @@ function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string
 }
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
-  localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
+  setScopedItem(IPTV_STORAGE_KEY, JSON.stringify(playlists));
   // Trigger sync push
   syncClient.push().catch(() => {});
 }
 
 function getSavedFavorites(): Set<string> {
   try {
-    const data = localStorage.getItem(FAVORITES_STORAGE_KEY);
+    const data = getScopedItem(FAVORITES_STORAGE_KEY);
     return data ? new Set(JSON.parse(data)) : new Set();
   } catch {
     return new Set();
@@ -170,7 +170,7 @@ function getSavedFavorites(): Set<string> {
 }
 
 function saveFavorites(favorites: Set<string>) {
-  localStorage.setItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
+  setScopedItem(FAVORITES_STORAGE_KEY, JSON.stringify([...favorites]));
 }
 
 function getChannelMonogram(name: string): string {
@@ -539,7 +539,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   useEffect(() => {
     if (playlists.length === 0 || selectedPlaylist !== null) return;
 
-    const lastPlaylist = localStorage.getItem('lumiere_iptv_last');
+    const lastPlaylist = getScopedItem('iptv_last');
     if (lastPlaylist !== null) {
       const index = parseInt(lastPlaylist);
       if (index >= 0 && index < playlists.length) {
@@ -560,7 +560,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     setLoading(true);
     setError('');
     setSelectedPlaylist(index);
-    localStorage.setItem('lumiere_iptv_last', String(index));
+    setScopedItem('iptv_last', String(index));
 
     try {
       const res = await serverFetch('/api/iptv/parse', {

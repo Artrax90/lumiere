@@ -11,12 +11,13 @@ import CollectionBanner from './CollectionBanner';
 import Top10Row from './Top10Row';
 import { useTopRated, useNowPlaying, useGenreCatalog } from '@/hooks/useCatalog';
 import { getHomeShelves, syncHomeShelvesFromServer, type HomeShelfConfig } from '@/utils/homeShelves';
-import { syncClient } from '@/api/sync';
+import { syncClient, getScopedItem } from '@/api/sync';
 
-// Get playback positions from localStorage with timestamps and title info
+// Get playback positions from user-scoped storage with timestamps and title info
 function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
   try {
-    const raw = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const rawStr = getScopedItem('playback_positions');
+    const raw = JSON.parse(rawStr || '{}');
     const result: Record<number, { time: number; timestamp: number; title?: Title }> = {};
     for (const [id, value] of Object.entries(raw)) {
       if (typeof value === 'object' && value !== null) {
@@ -130,21 +131,16 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
     return () => clearTimeout(fallback);
   }, [current]);
 
-  // Get continue watching from playback positions, sorted by most recent
+  // Get continue watching from playback positions, sorted strictly by most recent
   const continueWatching = useMemo(() => {
     const positions = getPlaybackPositions();
     const entries = Object.entries(positions);
     if (entries.length === 0) return [];
 
-    const lastWatchedId = Number(localStorage.getItem('last_watched_id')) || 0;
-    // Sort by timestamp (most recent first, with last_watched_id first)
+    // Sort strictly by timestamp (most recent first)
     const sortedEntries = entries
-      .sort(([idA, a], [idB, b]) => {
-        if (lastWatchedId) {
-          if (Number(idA) === lastWatchedId && Number(idB) !== lastWatchedId) return -1;
-          if (Number(idB) === lastWatchedId && Number(idA) !== lastWatchedId) return 1;
-        }
-        return (b.timestamp || 0) - (a.timestamp || 0);
+      .sort(([, a], [, b]) => {
+        return (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0);
       });
 
     // Find titles that have been watched

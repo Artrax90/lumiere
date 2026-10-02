@@ -3,7 +3,8 @@ import { useState, useCallback, useRef, useEffect } from 'react';
 import type { Title, Episode } from '@/api/client';
 import { useTrending } from '@/hooks/useTrending';
 import { useAuth } from '@/contexts/AuthContext';
-import { syncClient } from '@/api/sync';
+import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
+import { useGlobalDragScroll } from '@/hooks/useGlobalDragScroll';
 import { serverFetch } from '@/api/server';
 import ServerSetup from '@/components/ServerSetup';
 import { isTizen } from '@/hooks/usePlatform';
@@ -14,10 +15,11 @@ import { useFocus, type FocusableElement } from '@/tv/useFocus';
 
 const tv = isTizen();
 
-// Save playback position to localStorage with timestamp and title info
+// Save playback position to user-scoped localStorage with timestamp and title info
 function savePlaybackPosition(titleId: number, time: number, title?: Title) {
   try {
-    const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const raw = getScopedItem('playback_positions');
+    const positions = JSON.parse(raw || '{}');
     const entry: any = { time, timestamp: Date.now() };
     if (title) {
       const epMatch = (title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
@@ -38,7 +40,7 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
       }
     }
     positions[titleId] = entry;
-    localStorage.setItem('playback_positions', JSON.stringify(positions));
+    setScopedItem('playback_positions', JSON.stringify(positions));
     window.dispatchEvent(new CustomEvent('playback-positions-synced'));
 
     // Also push progress to server immediately
@@ -57,10 +59,11 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
   } catch {}
 }
 
-// Get playback position from localStorage
+// Get playback position from user-scoped localStorage
 function getPlaybackPosition(titleId: number): number {
   try {
-    const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const raw = getScopedItem('playback_positions');
+    const positions = JSON.parse(raw || '{}');
     const entry = positions[titleId];
     return typeof entry === 'object' ? entry.time : (entry || 0);
   } catch {
@@ -71,7 +74,8 @@ function getPlaybackPosition(titleId: number): number {
 // Get all playback positions with timestamps and title info
 export function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
   try {
-    const raw = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    const rawStr = getScopedItem('playback_positions');
+    const raw = JSON.parse(rawStr || '{}');
     const result: Record<number, { time: number; timestamp: number; title?: Title }> = {};
     for (const [id, value] of Object.entries(raw)) {
       if (typeof value === 'object' && value !== null) {
@@ -115,6 +119,7 @@ import { isWeb } from '@/hooks/usePlatform';
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
+  useGlobalDragScroll();
   const { user, loading, needsSetup, serverReady, connectionError, confirmServer } = useAuth();
 
   const handleRoutePopState = useCallback((newRoute: AppRoute) => {

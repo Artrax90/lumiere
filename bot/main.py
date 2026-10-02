@@ -7,7 +7,7 @@ import random
 import uuid
 import tempfile
 import urllib.parse
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Set, Callable, Awaitable
 import functools
 print = functools.partial(print, flush=True)
 
@@ -21,7 +21,7 @@ if sys.platform.startswith('win'):
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, types, F, BaseMiddleware
 from aiogram.filters import CommandStart, Command
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 from aiogram.types import (
@@ -34,11 +34,15 @@ from aiogram.types import (
     MenuButtonWebApp,
     BotCommand,
     MenuButtonCommands,
+    TelegramObject,
 )
 from aiogram.client.session.aiohttp import AiohttpSession
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3500")
 WEB_URL = os.getenv("WEB_URL", "https://lumiere.artrax.net")
+
+# Global registry of allowed chat IDs per bot token: { token: {chat_id, ...} }
+BOT_ALLOWED_CHATS: Dict[str, Set[int]] = {}
 
 def clean_poster_url(raw_poster: str) -> str:
     """Extract a direct clean poster URL from TMDB path or Lumiere image proxy."""
@@ -181,8 +185,48 @@ def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str
 
     return " • ".join(parts)
 
-def build_dispatcher(user_id: int) -> Dispatcher:
+class AccessControlMiddleware(BaseMiddleware):
+    """Restricts bot access strictly to chat IDs authorized in user preferences."""
+    def __init__(self, bot_token: str):
+        self.bot_token = bot_token
+
+    async def __call__(
+        self,
+        handler: Callable[[TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        from_user = getattr(event, "from_user", None)
+        sender_id = from_user.id if from_user else None
+        chat = getattr(event, "chat", None)
+        chat_id = chat.id if chat else sender_id
+
+        allowed = BOT_ALLOWED_CHATS.get(self.bot_token, set())
+
+        is_authorized = (sender_id and sender_id in allowed) or (chat_id and chat_id in allowed)
+
+        if not is_authorized:
+            cid_display = sender_id or chat_id or "Не определен"
+            deny_text = (
+                f"⛔ <b>Доступ ограничен</b>\n\n"
+                f"Ваш Telegram Chat ID: <code>{cid_display}</code>\n\n"
+                f"Бот настроен для работы только с авторизованными пользователями.\n"
+                f"Чтобы получить доступ к управлению сервером Lumière, укажите ваш Chat ID в настройках вашего профиля (раздел «Telegram Бот»).\n\n"
+                f"<i>Посторонние пользователи не имеют доступа к вашему серверу.</i>"
+            )
+            if isinstance(event, types.Message):
+                await event.answer(deny_text, parse_mode="HTML")
+            elif isinstance(event, types.CallbackQuery):
+                await event.answer(f"⛔ Доступ запрещен (Chat ID: {cid_display})", show_alert=True)
+            return
+
+        return await handler(event, data)
+
+def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     dp = Dispatcher()
+    mw = AccessControlMiddleware(bot_token)
+    dp.message.outer_middleware(mw)
+    dp.callback_query.outer_middleware(mw)
 
     async def show_tv_status(user_reply_target):
         sessions_data = await fetch_api("/api/sessions/active")
@@ -1187,7 +1231,7 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
         print(f"[Bot] Connecting to Telegram directly for user {user_id} (direct access verified)")
 
     bot = Bot(token=token, session=session)
-    dp = build_dispatcher(user_id)
+    dp = build_dispatcher(user_id, token)
 
     try:
         me = await bot.get_me()
@@ -1245,11 +1289,24 @@ async def main():
                 for b in bots:
                     token = b.get("token")
                     u_id = b.get("userId")
+                    raw_chat = str(b.get("chatId", "")).strip()
                     if not token:
                         continue
                     active_tokens.add(token)
+
+                    # Parse allowed chat IDs (support comma/semicolon/space separated list of numbers)
+                    allowed_set: Set[int] = set()
+                    for piece in raw_chat.replace(";", ",").replace(" ", ",").split(","):
+                        p = piece.strip()
+                        if p:
+                            try:
+                                allowed_set.add(int(p))
+                            except ValueError:
+                                pass
+                    BOT_ALLOWED_CHATS[token] = allowed_set
+
                     if token not in running_tasks:
-                        print(f"[BotManager] Launching companion bot for user {u_id} ({b.get('userName')})")
+                        print(f"[BotManager] Launching companion bot for user {u_id} ({b.get('userName')}), allowed chats: {allowed_set or 'NONE (Restricted)'}")
                         task = asyncio.create_task(run_bot_instance(token, u_id, proxy_url))
                         running_tasks[token] = task
 
@@ -1259,10 +1316,12 @@ async def main():
                     print(f"[BotManager] Cancelling removed bot token: {tok[:10]}...")
                     running_tasks[tok].cancel()
                     del running_tasks[tok]
+                    BOT_ALLOWED_CHATS.pop(tok, None)
             else:
                 print("[BotManager] Waiting for backend at " + BACKEND_URL)
         except Exception as e:
             print(f"[BotManager] Loop error: {e}")
+
 
         await asyncio.sleep(15)
 

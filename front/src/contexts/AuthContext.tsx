@@ -205,7 +205,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (token) {
         const profile = await fetchProfile(token);
         if (profile) {
+          localStorage.setItem('lumiere_user', JSON.stringify(profile));
+          localStorage.setItem('lumiere_active_profile', JSON.stringify(profile));
           setUser(profile);
+          window.dispatchEvent(new CustomEvent('playback-positions-synced'));
           setLoading(false);
           return;
         } else {
@@ -223,7 +226,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 storeTokens(data.accessToken, data.refreshToken);
                 const newProfile = await fetchProfile(data.accessToken);
                 if (newProfile) {
+                  localStorage.setItem('lumiere_user', JSON.stringify(newProfile));
+                  localStorage.setItem('lumiere_active_profile', JSON.stringify(newProfile));
                   setUser(newProfile);
+                  window.dispatchEvent(new CustomEvent('playback-positions-synced'));
                   setLoading(false);
                   return;
                 }
@@ -231,6 +237,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             } catch {}
           }
           clearTokens();
+          localStorage.removeItem('lumiere_user');
+          localStorage.removeItem('lumiere_active_profile');
         }
       }
 
@@ -255,7 +263,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Ошибка входа');
     storeTokens(data.accessToken, data.refreshToken);
+    localStorage.setItem('lumiere_user', JSON.stringify(data.user));
+    localStorage.setItem('lumiere_active_profile', JSON.stringify(data.user));
     setUser(data.user);
+    window.dispatchEvent(new CustomEvent('playback-positions-synced'));
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {
@@ -267,7 +278,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Login failed');
     storeTokens(data.accessToken, data.refreshToken);
+    localStorage.setItem('lumiere_user', JSON.stringify(data.user));
+    localStorage.setItem('lumiere_active_profile', JSON.stringify(data.user));
     setUser(data.user);
+    window.dispatchEvent(new CustomEvent('playback-positions-synced'));
   }, []);
 
   const logout = useCallback(async () => {
@@ -282,7 +296,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } catch {}
     }
     clearTokens();
+    localStorage.removeItem('lumiere_user');
+    localStorage.removeItem('lumiere_active_profile');
     setUser(null);
+    window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     if (isLan) {
       await fetchProfiles();
     } else {
@@ -292,7 +309,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const switchProfile = useCallback(() => {
     clearTokens();
+    localStorage.removeItem('lumiere_user');
+    localStorage.removeItem('lumiere_active_profile');
     setUser(null);
+    window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     if (isLan) {
       fetchProfiles();
     } else {

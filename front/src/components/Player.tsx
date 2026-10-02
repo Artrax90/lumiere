@@ -55,6 +55,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [subtitleText, setSubtitleText] = useState('');
   const subtitleCuesRef = useRef<Array<{ start: number; end: number; text: string }>>([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [dragFraction, setDragFraction] = useState<number | null>(null);
   const isDraggingRef = useRef(false);
   isDraggingRef.current = isDragging;
   const isSeekingRef = useRef(false);
@@ -630,7 +631,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     if (!video) return;
 
     const handleTimeUpdate = () => {
-      if (!isDragging && !isSeekingRef.current) {
+      if (!isDraggingRef.current && !isSeekingRef.current) {
         const offset = seekOffsetRef.current || 0;
         const effectiveTime = offset + video.currentTime;
         setCurrentTime(effectiveTime);
@@ -947,21 +948,30 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   };
 
   const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+    e.stopPropagation();
     setIsDragging(true);
-    const rect = e.currentTarget.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    // Update UI immediately
-    setCurrentTime(fraction * duration);
+    isDraggingRef.current = true;
+    const initialRect = progressRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
+    const initialFraction = Math.max(0, Math.min(1, (e.clientX - initialRect.left) / initialRect.width));
+    setDragFraction(initialFraction);
+    setCurrentTime(initialFraction * duration);
+    setHoverTime(initialFraction * duration);
+    setHoverX(e.clientX - initialRect.left);
 
     const onMouseMove = (me: MouseEvent) => {
+      const rect = progressRef.current?.getBoundingClientRect() || initialRect;
       const f = Math.max(0, Math.min(1, (me.clientX - rect.left) / rect.width));
-      // Just update UI during drag
+      setDragFraction(f);
       setCurrentTime(f * duration);
+      setHoverTime(f * duration);
+      setHoverX(me.clientX - rect.left);
     };
     const onMouseUp = (me: MouseEvent) => {
-      setIsDragging(false);
+      const rect = progressRef.current?.getBoundingClientRect() || initialRect;
       const f = Math.max(0, Math.min(1, (me.clientX - rect.left) / rect.width));
-      // Actually seek when mouse is released
+      setIsDragging(false);
+      isDraggingRef.current = false;
+      setDragFraction(null);
       seek(f);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
@@ -980,6 +990,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const rect = progressRef.current.getBoundingClientRect();
     const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
     touchFractionRef.current = fraction;
+    setDragFraction(fraction);
     setCurrentTime(fraction * duration);
   };
 
@@ -991,6 +1002,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const rect = progressRef.current.getBoundingClientRect();
     const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
     touchFractionRef.current = fraction;
+    setDragFraction(fraction);
     setCurrentTime(fraction * duration);
   };
 
@@ -999,6 +1011,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     resetHideTimer();
     setIsDragging(false);
     isDraggingRef.current = false;
+    setDragFraction(null);
     seek(touchFractionRef.current);
   };
 
@@ -1216,7 +1229,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     return `${m}:${sec.toString().padStart(2, '0')}`;
   };
 
-  const progress = isFinite(duration) && duration > 0 ? (currentTime / duration) * 100 : 0;
+  const progress = dragFraction !== null
+    ? dragFraction * 100
+    : (isFinite(duration) && duration > 0 ? (currentTime / duration) * 100 : 0);
 
   return (
     <div

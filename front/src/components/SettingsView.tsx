@@ -151,14 +151,14 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
     { id: 'appearance', label: t('settings.appearance'), desc: t('settings.appearanceDesc'), icon: Monitor },
     { id: 'playback', label: t('settings.playback'), desc: t('settings.playbackDesc'), icon: Play },
     { id: 'telegram', label: 'Telegram Бот', desc: 'Уведомления о сериях, пульт и голосовой поиск', icon: Send },
-    { id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key },
+    ...(user?.role === 'admin' ? [{ id: 'tmdb', label: 'Каталог (TMDB)', desc: 'API-ключ, токен и проксирование каталога', icon: Key }] : []),
     { id: 'home_layout', label: 'Главная страница', desc: 'Порядок и видимость полок рекомендаций', icon: LayoutList },
     { id: 'audio', label: t('settings.audio'), desc: t('settings.audioDesc'), icon: Volume2 },
     { id: 'subtitles', label: t('settings.subtitles'), desc: t('settings.subtitlesDesc'), icon: Captions },
     { id: 'network', label: t('settings.network'), desc: t('settings.networkDesc'), icon: Wifi },
     { id: 'plugins', label: t('settings.plugins'), desc: t('settings.pluginsDesc'), icon: Puzzle },
-    { id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User },
-    { id: 'sessions', label: 'Сессии и мониторинг', desc: 'Кто что смотрит сейчас и история просмотров', icon: Activity },
+    ...(user?.role === 'admin' ? [{ id: 'accounts', label: t('settings.accounts'), desc: t('settings.accountsDesc'), icon: User }] : []),
+    ...(user?.role === 'admin' ? [{ id: 'sessions', label: 'Сессии и мониторинг', desc: 'Кто что смотрит сейчас и история просмотров', icon: Activity }] : []),
     { id: 'activity', label: t('settings.activity'), desc: t('settings.activityDesc'), icon: Film },
     { id: 'remote', label: t('settings.remote'), desc: t('settings.remoteDesc'), icon: Gamepad2 },
     { id: 'developer', label: t('settings.developer'), desc: t('settings.developerDesc'), icon: Code },
@@ -1234,7 +1234,7 @@ function TmdbConfig() {
   const fetchConfig = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/settings/tmdb');
+      const res = await serverFetch('/api/settings/tmdb');
       const data = await res.json();
       setConfigured(data.configured);
       setMaskedToken(data.tokenMasked || '');
@@ -1262,7 +1262,7 @@ function TmdbConfig() {
     if (e) e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch('/api/settings/tmdb', {
+      const res = await serverFetch('/api/settings/tmdb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1289,7 +1289,7 @@ function TmdbConfig() {
   const handleTest = async () => {
     setTesting(true);
     try {
-      const res = await fetch('/api/settings/tmdb/test', { method: 'POST' });
+      const res = await serverFetch('/api/settings/tmdb/test', { method: 'POST' });
       const data = await res.json();
       setOnline(data.ok);
       setStatusMessage(data.message || (data.ok ? 'Соединение с TMDB работает' : 'Ошибка соединения'));
