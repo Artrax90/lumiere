@@ -124,6 +124,7 @@ export function userRoutes(app: FastifyInstance) {
       const prefs = result.rows[0]?.preferences || {};
       const token = prefs.telegram_bot_token || '';
       const chatId = prefs.telegram_chat_id || '';
+      const allowedChats = Array.isArray(prefs.telegram_allowed_chats) ? prefs.telegram_allowed_chats : [];
       let botTokenMasked = '';
       if (token) {
         botTokenMasked = token.length > 10 ? `${token.slice(0, 4)}••••••••${token.slice(-4)}` : '••••••••';
@@ -132,16 +133,21 @@ export function userRoutes(app: FastifyInstance) {
         configured: !!(token && chatId),
         botTokenMasked,
         chatId,
+        allowedChats,
       };
     } catch (err: any) {
-      return { configured: false, botTokenMasked: '', chatId: '' };
+      return { configured: false, botTokenMasked: '', chatId: '', allowedChats: [] };
     }
   });
 
   // Save user Telegram Bot settings
   app.post('/api/user/telegram', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
     const userId = request.user!.userId;
-    const { botToken, chatId } = request.body as { botToken?: string; chatId?: string };
+    const { botToken, chatId, allowedChats } = request.body as {
+      botToken?: string;
+      chatId?: string;
+      allowedChats?: Array<{ chatId: string; name?: string } | string>;
+    };
 
     try {
       const currentRes = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
@@ -154,6 +160,25 @@ export function userRoutes(app: FastifyInstance) {
       if (chatId !== undefined) {
         if (chatId.trim()) prefs.telegram_chat_id = chatId.trim();
         else delete prefs.telegram_chat_id;
+      }
+      if (allowedChats !== undefined) {
+        if (Array.isArray(allowedChats)) {
+          prefs.telegram_allowed_chats = allowedChats
+            .map((item: any) => {
+              if (typeof item === 'string') {
+                const s = item.trim();
+                return s ? { chatId: s, name: '' } : null;
+              } else if (item && typeof item === 'object') {
+                const c = String(item.chatId || '').trim();
+                const n = String(item.name || '').trim();
+                return c ? { chatId: c, name: n } : null;
+              }
+              return null;
+            })
+            .filter(Boolean);
+        } else {
+          delete prefs.telegram_allowed_chats;
+        }
       }
 
       await pool.query(
@@ -237,11 +262,24 @@ export function userRoutes(app: FastifyInstance) {
           const token = (prefs.telegram_bot_token || '').trim();
           const chatId = (prefs.telegram_chat_id || '').trim();
           if (!token) return null;
+
+          const rawAllowed = Array.isArray(prefs.telegram_allowed_chats) ? prefs.telegram_allowed_chats : [];
+          const allowedChatIds: string[] = [];
+          for (const item of rawAllowed) {
+            if (typeof item === 'string' && item.trim()) {
+              allowedChatIds.push(item.trim());
+            } else if (item && typeof item === 'object' && item.chatId) {
+              const c = String(item.chatId).trim();
+              if (c) allowedChatIds.push(c);
+            }
+          }
+
           return {
             userId: r.id,
             userName: r.name,
             token,
             chatId,
+            allowedChatIds,
           };
         })
         .filter(Boolean);

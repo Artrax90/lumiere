@@ -232,12 +232,40 @@ export async function startServerDownloadProcess(params: {
               if (videoFiles.length > 0) {
                 videoFiles.sort((a: any, b: any) => b.length - a.length);
                 if (resolvedIndex === 0 || !resolvedIndex) {
-                  resolvedIndex = videoFiles[0].id;
+                  // If season and episode are specified, select the exact episode file!
+                  if (season > 0 && episode > 0) {
+                    const sStr = String(season).padStart(2, '0');
+                    const eStr = String(episode).padStart(2, '0');
+                    const patterns = [
+                      new RegExp(`s0?${season}e0?${episode}\\b`, 'i'),
+                      new RegExp(`\\b0?${season}x0?${episode}\\b`, 'i'),
+                      new RegExp(`\\b0?${episode}\\s*серия`, 'i'),
+                      new RegExp(`\\bсерия\\s*0?${episode}\\b`, 'i'),
+                      new RegExp(`\\bep?0?${episode}\\b`, 'i'),
+                    ];
+                    const matchedEpisodeFile = videoFiles.find((f: any) =>
+                      patterns.some((re) => re.test(f.path))
+                    );
+                    if (matchedEpisodeFile) {
+                      resolvedIndex = matchedEpisodeFile.id;
+                      console.log(`[Downloads] Matched single episode file for S${sStr}E${eStr}: "${matchedEpisodeFile.path}" (ID: ${resolvedIndex})`);
+                    } else {
+                      resolvedIndex = videoFiles[0].id;
+                    }
+                  } else {
+                    resolvedIndex = videoFiles[0].id;
+                  }
                 }
                 const chosen = statData.file_stats.find((f: any) => f.id === resolvedIndex) || videoFiles[0];
                 resolvedIndex = chosen.id;
                 if (chosen.length > 0) {
                   resolvedSize = chosen.length;
+                }
+                if (chosen.path) {
+                  const baseName = chosen.path.split(/[\/\\]/).pop();
+                  if (baseName) {
+                    await pool.query('UPDATE server_downloads SET file_name = $1 WHERE id = $2', [baseName, id]).catch(() => {});
+                  }
                 }
               }
               break;

@@ -58,6 +58,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [dragFraction, setDragFraction] = useState<number | null>(null);
   const isDraggingRef = useRef(false);
   isDraggingRef.current = isDragging;
+  const playedBarRef = useRef<HTMLDivElement>(null);
   const isSeekingRef = useRef(false);
   const controlsJustOpenedRef = useRef<number>(0);
   const touchFractionRef = useRef<number>(0);
@@ -949,35 +950,67 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
 
   const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
+    e.preventDefault();
+    resetHideTimer();
     setIsDragging(true);
     isDraggingRef.current = true;
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
+
     const initialRect = progressRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
-    const initialFraction = Math.max(0, Math.min(1, (e.clientX - initialRect.left) / initialRect.width));
-    setDragFraction(initialFraction);
-    setCurrentTime(initialFraction * duration);
-    setHoverTime(initialFraction * duration);
+    
+    const calculateFraction = (clientX: number) => {
+      if (initialRect.width <= 0) return 0;
+      return Math.max(0, Math.min(1, (clientX - initialRect.left) / initialRect.width));
+    };
+
+    let currentF = calculateFraction(e.clientX);
+    setDragFraction(currentF);
+    if (playedBarRef.current) {
+      playedBarRef.current.style.width = `${currentF * 100}%`;
+    }
+    if (isFinite(duration) && duration > 0) {
+      setCurrentTime(currentF * duration);
+      setHoverTime(currentF * duration);
+    }
     setHoverX(e.clientX - initialRect.left);
 
+    let rafId: number | null = null;
     const onMouseMove = (me: MouseEvent) => {
-      const rect = progressRef.current?.getBoundingClientRect() || initialRect;
-      const f = Math.max(0, Math.min(1, (me.clientX - rect.left) / rect.width));
-      setDragFraction(f);
-      setCurrentTime(f * duration);
-      setHoverTime(f * duration);
-      setHoverX(me.clientX - rect.left);
+      me.preventDefault();
+      currentF = calculateFraction(me.clientX);
+      if (playedBarRef.current) {
+        playedBarRef.current.style.width = `${currentF * 100}%`;
+      }
+      if (rafId) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(() => {
+        setDragFraction(currentF);
+        if (isFinite(duration) && duration > 0) {
+          setCurrentTime(currentF * duration);
+          setHoverTime(currentF * duration);
+        }
+        setHoverX(me.clientX - initialRect.left);
+      });
     };
+
     const onMouseUp = (me: MouseEvent) => {
-      const rect = progressRef.current?.getBoundingClientRect() || initialRect;
-      const f = Math.max(0, Math.min(1, (me.clientX - rect.left) / rect.width));
+      me.preventDefault();
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      if (rafId) cancelAnimationFrame(rafId);
+      currentF = calculateFraction(me.clientX);
       setIsDragging(false);
       isDraggingRef.current = false;
-      setDragFraction(null);
-      seek(f);
+      seek(currentF);
+      setTimeout(() => {
+        setDragFraction(null);
+      }, 200);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
     };
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
+
+    window.addEventListener('mousemove', onMouseMove, { passive: false });
+    window.addEventListener('mouseup', onMouseUp, { passive: false });
   };
 
   const handleTimelineTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
@@ -991,6 +1024,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
     touchFractionRef.current = fraction;
     setDragFraction(fraction);
+    if (playedBarRef.current) {
+      playedBarRef.current.style.width = `${fraction * 100}%`;
+    }
     setCurrentTime(fraction * duration);
   };
 
@@ -1003,6 +1039,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
     touchFractionRef.current = fraction;
     setDragFraction(fraction);
+    if (playedBarRef.current) {
+      playedBarRef.current.style.width = `${fraction * 100}%`;
+    }
     setCurrentTime(fraction * duration);
   };
 
@@ -1011,8 +1050,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     resetHideTimer();
     setIsDragging(false);
     isDraggingRef.current = false;
-    setDragFraction(null);
     seek(touchFractionRef.current);
+    setTimeout(() => {
+      setDragFraction(null);
+    }, 200);
   };
 
   const handleTimelineHover = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -1401,7 +1442,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         <div className="px-6 mb-2">
           <div
             ref={progressRef}
-            className="group relative h-8 flex items-center cursor-pointer touch-none"
+            className="player-timeline no-drag select-none group relative h-8 flex items-center cursor-pointer touch-none"
             onMouseMove={handleTimelineHover}
             onMouseLeave={() => setHoverTime(null)}
             onMouseDown={handleTimelineMouseDown}
@@ -1422,15 +1463,19 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             <div className="relative w-full h-1.5 rounded-full bg-white/20 group-hover:h-2 transition-all">
               {/* Buffered range */}
               <div
-                className="absolute inset-y-0 rounded-full bg-white/40"
+                className="absolute inset-y-0 rounded-full bg-white/40 pointer-events-none"
                 style={{
                   left: `${bufferedRange.start}%`,
                   width: `${Math.max(0, bufferedRange.end - bufferedRange.start)}%`,
                 }}
               />
               {/* Played range */}
-              <div className="absolute inset-y-0 left-0 rounded-full bg-white" style={{ width: `${progress}%` }}>
-                <div className="absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity" />
+              <div
+                ref={playedBarRef}
+                className="absolute inset-y-0 left-0 rounded-full bg-white pointer-events-none transition-none"
+                style={{ width: `${progress}%` }}
+              >
+                <div className={`absolute right-0 top-1/2 -translate-y-1/2 translate-x-1/2 h-4 w-4 rounded-full bg-white shadow-lg pointer-events-none transition-transform ${isDragging ? 'opacity-100 scale-125' : 'opacity-100 sm:opacity-0 sm:group-hover:opacity-100'}`} />
               </div>
             </div>
             {/* Buffer indicator */}

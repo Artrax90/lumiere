@@ -993,6 +993,9 @@ function PreferredVoiceoverSetting() {
 function TelegramBotConfig() {
   const [token, setToken] = useState('');
   const [chatId, setChatId] = useState('');
+  const [allowedChats, setAllowedChats] = useState<Array<{ chatId: string; name?: string }>>([]);
+  const [newChatId, setNewChatId] = useState('');
+  const [newChatName, setNewChatName] = useState('');
   const [maskedToken, setMaskedToken] = useState('');
   const [configured, setConfigured] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -1009,6 +1012,7 @@ function TelegramBotConfig() {
       setConfigured(data.configured);
       setMaskedToken(data.botTokenMasked || '');
       setChatId(data.chatId || '');
+      setAllowedChats(Array.isArray(data.allowedChats) ? data.allowedChats : []);
     } catch {
       // ignore
     } finally {
@@ -1025,6 +1029,22 @@ function TelegramBotConfig() {
     setTimeout(() => setToast(null), 5000);
   };
 
+  const handleAddAllowedChat = () => {
+    const cleanId = newChatId.trim();
+    if (!cleanId) return;
+    if (allowedChats.some(c => c.chatId === cleanId)) {
+      showToast('error', 'Этот Chat ID уже добавлен в список');
+      return;
+    }
+    setAllowedChats([...allowedChats, { chatId: cleanId, name: newChatName.trim() }]);
+    setNewChatId('');
+    setNewChatName('');
+  };
+
+  const handleRemoveAllowedChat = (index: number) => {
+    setAllowedChats(allowedChats.filter((_, i) => i !== index));
+  };
+
   const handleSave = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     setSaving(true);
@@ -1035,6 +1055,7 @@ function TelegramBotConfig() {
         body: JSON.stringify({
           botToken: token.trim() || undefined,
           chatId: chatId.trim() || undefined,
+          allowedChats,
         }),
       });
       const data = await res.json();
@@ -1176,6 +1197,78 @@ function TelegramBotConfig() {
             placeholder="Например: 123456789"
             className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
           />
+        </div>
+
+        {/* Whitelist / Additional Allowed Users */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-[14px] font-medium text-white/85">Разрешённые пользователи (Белый список)</div>
+              <div className="text-[12px] text-white/40 mt-0.5">
+                Добавьте Chat ID людей, которым вы разрешаете пользоваться этим ботом (семья, друзья)
+              </div>
+            </div>
+            {allowedChats.length > 0 && (
+              <span className="rounded-full bg-white/[0.06] px-2.5 py-0.5 text-[11px] font-medium text-white/60">
+                {allowedChats.length} {allowedChats.length === 1 ? 'пользователь' : 'пользователей'}
+              </span>
+            )}
+          </div>
+
+          {/* Add input row */}
+          <div className="flex flex-col sm:flex-row gap-2.5">
+            <input
+              type="text"
+              value={newChatId}
+              onChange={(e) => setNewChatId(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAllowedChat(); } }}
+              placeholder="Chat ID (например: 987654321)"
+              className="flex-1 rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+            />
+            <input
+              type="text"
+              value={newChatName}
+              onChange={(e) => setNewChatName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddAllowedChat(); } }}
+              placeholder="Имя / Заметка (например: Мама, Брат)"
+              className="flex-1 rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-[13px] text-white placeholder:text-white/25 focus:border-amber-300/40 focus:outline-none transition-cinematic"
+            />
+            <button
+              type="button"
+              onClick={handleAddAllowedChat}
+              disabled={!newChatId.trim()}
+              className="flex items-center justify-center gap-1.5 rounded-[12px] bg-white/[0.07] hover:bg-white/[0.14] px-4 py-2.5 text-[13px] font-medium text-amber-300 active:scale-95 transition-all disabled:opacity-40"
+            >
+              <Plus className="h-4 w-4" />
+              <span>Добавить</span>
+            </button>
+          </div>
+
+          {/* List of allowed users */}
+          {allowedChats.length > 0 ? (
+            <div className="divide-y divide-white/[0.04] rounded-[12px] border border-white/[0.06] bg-black/20 overflow-hidden">
+              {allowedChats.map((c, idx) => (
+                <div key={idx} className="flex items-center justify-between px-4 py-2.5 text-[13px]">
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-amber-300/90 text-[12px]">{c.chatId}</span>
+                    {c.name && <span className="text-white/80 font-medium">{c.name}</span>}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveAllowedChat(idx)}
+                    className="p-1 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-colors"
+                    title="Удалить из белого списка"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-[12px] text-white/30 italic">
+              Список пуст. Доступ открыт только основному владельцу бота (Chat ID выше).
+            </div>
+          )}
         </div>
 
         {/* Instructions */}

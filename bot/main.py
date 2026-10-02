@@ -1010,6 +1010,82 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         except Exception:
             pass
 
+    @dp.callback_query(F.data.startswith("dl_seasons:"))
+    async def on_dl_seasons(call: types.CallbackQuery):
+        media_id = int(call.data.split(":")[1])
+        await call.answer("Загружаем сезоны...")
+        det = await fetch_api(f"/api/tv/{media_id}")
+        if not det:
+            await call.message.reply("⚠️ Не удалось загрузить информацию о сериале.")
+            return
+
+        title = det.get("name") or det.get("title") or "Сериал"
+        seasons = det.get("seasons", [])
+        valid_seasons = [s for s in seasons if s.get("season_number", 0) > 0]
+        if not valid_seasons:
+            valid_seasons = seasons or [{"season_number": 1, "name": "1 сезон"}]
+
+        builder = InlineKeyboardBuilder()
+        for s in valid_seasons[:16]:
+            s_num = s.get("season_number", 1)
+            s_name = s.get("name") or f"{s_num} сезон"
+            ep_count = s.get("episode_count")
+            ep_suffix = f" ({ep_count} сер.)" if ep_count else ""
+            builder.button(text=f"📺 {s_name}{ep_suffix}", callback_data=f"dl_eps:{media_id}:{s_num}")
+
+        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+        builder.adjust(2, 2, 2, 2, 2, 2, 2, 2)
+
+        text = (
+            f"🎯 <b>Выберите сезон сериала для загрузки:</b>\n"
+            f"🎬 <b>«{html.escape(title)}»</b>"
+        )
+        try:
+            await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        except Exception:
+            await call.message.reply(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("dl_eps:"))
+    async def on_dl_eps(call: types.CallbackQuery):
+        parts = call.data.split(":")
+        media_id = int(parts[1])
+        season_num = int(parts[2])
+        await call.answer("Загружаем список серий...")
+
+        season_data = await fetch_api(f"/api/tv/{media_id}/season/{season_num}")
+        episodes = (season_data or {}).get("episodes", [])
+
+        if not episodes:
+            det = await fetch_api(f"/api/tv/{media_id}")
+            count = 10
+            if det and det.get("seasons"):
+                matched = next((s for s in det.get("seasons", []) if s.get("season_number") == season_num), None)
+                if matched and matched.get("episode_count"):
+                    count = matched.get("episode_count")
+            episodes = [{"episode_number": i, "name": f"Серия {i}"} for i in range(1, count + 1)]
+
+        det = await fetch_api(f"/api/tv/{media_id}")
+        title = (det or {}).get("name") or (det or {}).get("title") or "Сериал"
+
+        builder = InlineKeyboardBuilder()
+        for ep in episodes[:36]:
+            ep_num = ep.get("episode_number", 1)
+            builder.button(text=f"{ep_num} серия", callback_data=f"dl_start:tv:{media_id}:{season_num}:{ep_num}")
+
+        builder.button(text="⬅️ К сезонам", callback_data=f"dl_seasons:{media_id}")
+        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+        builder.adjust(4, 4, 4, 4, 4, 4, 4, 4, 2)
+
+        text = (
+            f"🎯 <b>Выберите серию для загрузки на сервер:</b>\n"
+            f"🎬 <b>«{html.escape(title)}»</b> — Сезон {season_num}\n\n"
+            f"<i>Бот найдет и скачает на диск именно выбранную серию.</i>"
+        )
+        try:
+            await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        except Exception:
+            await call.message.reply(text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
     @dp.callback_query(F.data.startswith("dl_start:") | F.data.startswith("dl_server:"))
     async def on_dl_start(call: types.CallbackQuery):
         parts = call.data.split(":")
@@ -1041,9 +1117,34 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 except Exception:
                     pass
 
+        # If it's a TV show and season is not chosen yet, ask user: single episode or whole show?
+        if media_type == "tv" and (season is None):
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="🎯 Скачать конкретную серию", callback_data=f"dl_seasons:{media_id}"),
+                ],
+                [
+                    InlineKeyboardButton(text="📦 Скачать весь сезон / сериал", callback_data=f"dl_start:tv:{media_id}:0:0"),
+                ],
+                [
+                    InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+                ]
+            ])
+            await call.answer()
+            prompt_text = (
+                f"📥 <b>Скачивание сериала на сервер:</b>\n\n"
+                f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
+                f"Что вы хотите скачать?"
+            )
+            try:
+                await call.message.reply(prompt_text, reply_markup=kb, parse_mode="HTML")
+            except Exception:
+                await call.message.answer(prompt_text, reply_markup=kb, parse_mode="HTML")
+            return
+
         await call.answer("🔍 Ищем доступные релизы на торрентах...")
         search_query = raw_title
-        if season is not None and episode is not None:
+        if season is not None and episode is not None and season > 0 and episode > 0:
             search_query += f" S{season:02d}E{episode:02d}"
 
         target_year = cached.get("year", "")
@@ -1067,12 +1168,14 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         releases_summary = []
         num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
 
+        title_display = f"{raw_title} S{season:02d}E{episode:02d}" if (season and episode and season > 0 and episode > 0) else raw_title
+
         for idx, t in enumerate(options, 1):
             pick_id = uuid.uuid4().hex[:8]
             badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
             raw_t_title = t.get("title", "")
             TORRENT_PICK_CACHE[pick_id] = {
-                "title": raw_title,
+                "title": title_display,
                 "media_type": media_type,
                 "media_id": media_id,
                 "season": season or 0,
@@ -1098,13 +1201,17 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
         builder.adjust(2, 2, 2)
 
+        ep_header = f" (Сезон {season}, Серия {episode})" if (season and episode and season > 0 and episode > 0) else ""
         pick_text = (
             f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
-            f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
+            f"🎬 <b>«{html.escape(raw_title)}»</b>{ep_header}\n\n"
             + "\n\n".join(releases_summary)
             + "\n\n<i>Нажмите кнопку ниже для скачивания на диск сервера:</i>"
         )
-        await call.message.reply(pick_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        try:
+            await call.message.edit_text(pick_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        except Exception:
+            await call.message.reply(pick_text, reply_markup=builder.as_markup(), parse_mode="HTML")
 
     @dp.callback_query(F.data.startswith("dl_pick:"))
     async def on_dl_pick(call: types.CallbackQuery):
@@ -1301,6 +1408,12 @@ async def main():
                         if p:
                             try:
                                 allowed_set.add(int(p))
+                            except ValueError:
+                                pass
+                    for extra_cid in b.get("allowedChatIds", []):
+                        if extra_cid:
+                            try:
+                                allowed_set.add(int(str(extra_cid).strip()))
                             except ValueError:
                                 pass
                     BOT_ALLOWED_CHATS[token] = allowed_set

@@ -23,10 +23,7 @@ export default function LoginView() {
     setPinDigits([]);
     if (p.hasPin) {
       setSelectedProfile(p);
-    } else if (p.role === 'admin') {
-      setShowPasswordForm(true);
-      setEmail(p.email);
-    } else {
+    } else if (p.isKids) {
       try {
         setPinLoading(true);
         await quickLogin(p.id);
@@ -36,6 +33,11 @@ export default function LoginView() {
       } finally {
         setPinLoading(false);
       }
+    } else {
+      setShowPasswordForm(true);
+      setEmail(p.email);
+      setPassword('');
+      setError('');
     }
   };
 

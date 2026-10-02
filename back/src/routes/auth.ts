@@ -188,6 +188,8 @@ export function authRoutes(app: FastifyInstance) {
         if (!pin || pin.trim() !== user.pin.trim()) {
           return reply.code(401).send({ error: 'Неверный PIN-код' });
         }
+      } else if (!user.is_kids && !isTvRequest(req)) {
+        return reply.code(401).send({ error: 'Для входа в этот аккаунт требуется пароль' });
       }
 
       const payload = {
