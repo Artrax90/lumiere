@@ -138,6 +138,11 @@ export async function startServerDownloadProcess(params: {
   const localFileName = `${id}${localExt}`;
   const localFilePath = join(DOWNLOADS_DIR, localFileName);
 
+  const isTvEpisode = (season > 0 && episode > 0);
+  const isLargePack = isTvEpisode && fileSize > 2.5 * 1024 * 1024 * 1024;
+  const initialDbFileSize = isLargePack ? 0 : fileSize;
+  const initialSizeEstimate = isLargePack ? undefined : (fileSize > 0 ? formatBytes(fileSize) : undefined);
+
   // 1. Insert download record
   await pool.query(
     `INSERT INTO server_downloads (
@@ -160,7 +165,7 @@ export async function startServerDownloadProcess(params: {
       episode,
       localFilePath,
       fileName,
-      fileSize,
+      initialDbFileSize,
       poster,
       torrentHash,
       torrentIndex,
@@ -168,7 +173,7 @@ export async function startServerDownloadProcess(params: {
   );
 
   // 2. Telegram Alert: Download Started
-  notifyDownloadStarted(userId, title, fileSize > 0 ? formatBytes(fileSize) : undefined).catch(() => {});
+  notifyDownloadStarted(userId, title, initialSizeEstimate).catch(() => {});
 
   const abortController = new AbortController();
   activeDownloads.set(id, { abortController });

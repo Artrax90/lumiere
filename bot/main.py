@@ -1518,24 +1518,55 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             pick_id = uuid.uuid4().hex[:8]
             badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
             raw_t_title = t.get("title", "")
+            raw_size = t.get("size", 0)
+            size_tag = t.get("sizeFormatted", "").replace(" ", "")
 
             pack_note = ""
             emoji_prefix = num_emojis[idx - 1] if idx <= 5 else f"{idx}."
             quality_tag = badge.split(" • ")[0]
-            size_tag = t.get("sizeFormatted", "").replace(" ", "")
+            seeds_cnt = t.get("seeders", 0)
+
+            est_ep_size = raw_size
+            is_pack = False
+            eps_in_pack = 1
 
             if is_tv_episode:
-                is_single = bool(
-                    re.search(rf'\b0*{episode}\s*(?:выпуск|сери[яий]|эпизод)', raw_t_title, re.I) or
-                    re.search(rf'(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\s*0*{episode}\b', raw_t_title, re.I) or
-                    re.search(rf'\b0*{season}[xх]0*{episode}\b', raw_t_title, re.I) or
-                    re.search(rf's0*{season}e0*{episode}\b', raw_t_title, re.I)
+                # Detect if this torrent is a season pack / multi-episode batch
+                m_range = (
+                    re.search(r'(\d+)\s*[-–—]\s*(\d+)\s*(?:из\s*\d+\s*)?(?:сери|выпуск|ep)', raw_t_title, re.I) or
+                    re.search(r'(?:сери[яий]|выпуск[а-я]*|episodes?)\s*[:#№]?\s*(\d+)\s*[-–—]\s*(\d+)', raw_t_title, re.I) or
+                    re.search(r'\b\d+[xх](\d+)\s*[-–—]\s*(\d+)', raw_t_title, re.I) or
+                    re.search(r's\d+e(\d+)\s*[-–—]\s*e?(\d+)', raw_t_title, re.I)
                 )
-                if is_single:
-                    btn_title = f"{emoji_prefix} {quality_tag} · Серия {episode} ({size_tag})" if size_tag else f"{emoji_prefix} {quality_tag} · Серия {episode}"
+                if m_range:
+                    e1 = int(m_range.group(1))
+                    e2 = int(m_range.group(2))
+                    if e2 > e1:
+                        eps_in_pack = e2 - e1 + 1
+                        is_pack = True
+                elif re.search(r'полный сезон|сезон целиком|серии целиком', raw_t_title, re.I):
+                    is_pack = True
+                    eps_in_pack = 12
+                elif raw_size > 2.5 * 1024 * 1024 * 1024:
+                    is_pack = True
+                    eps_in_pack = 10
+
+                if is_pack and eps_in_pack > 1:
+                    ep_bytes = raw_size / eps_in_pack
+                    est_ep_size = int(ep_bytes)
+                    if ep_bytes >= 1024 * 1024 * 1024:
+                        ep_size_str = f"~{ep_bytes / (1024 * 1024 * 1024):.1f} ГБ"
+                    else:
+                        ep_size_str = f"~{round(ep_bytes / (1024 * 1024))} МБ"
+
+                    btn_title = f"{emoji_prefix} {quality_tag} · Только {episode} с. ({ep_size_str})"
+                    pack_note = (
+                        f"\n   📦 <i>Раздача-пак: {eps_in_pack} сер. ({size_tag}, {seeds_cnt} сид.)</i>"
+                        f"\n   🎯 <b>Будет скачан ТОЛЬКО файл {episode}-й серии ({ep_size_str})</b>, весь пак качаться не будет."
+                    )
                 else:
-                    btn_title = f"{emoji_prefix} {quality_tag} · Серия {episode} (из пака)"
-                    pack_note = f"\n   ℹ️ <i>Пак сезона ({size_tag}). Сервер скачает только файл серии {episode}.</i>"
+                    btn_title = f"{emoji_prefix} {quality_tag} · Серия {episode} ({size_tag})"
+                    pack_note = f"\n   🎯 <i>Отдельная серия ({size_tag}, {seeds_cnt} сид.).</i>"
             else:
                 btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}" if size_tag else f"{emoji_prefix} {quality_tag}"
 
@@ -1548,9 +1579,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 "poster": poster or "",
                 "magnet": t.get("magnet") or t.get("link", ""),
                 "hash": t.get("hash", ""),
-                "file_size": t.get("size", 0),
+                "file_size": est_ep_size,
                 "file_name": raw_t_title,
                 "badge": badge,
+                "is_pack": is_pack,
+                "pack_size": size_tag,
             }
 
             builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}", style="success")
@@ -1565,10 +1598,10 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
         if is_tv_episode:
             pick_text = (
-                f"📥 <b>Выберите релиз для загрузки серии на сервер:</b>\n"
-                f"🎬 <b>«{html.escape(raw_title)}»</b> (Сезон {season}, Серия {episode})\n\n"
+                f"📥 <b>Выберите качество для загрузки серии на сервер:</b>\n"
+                f"🎬 <b>«{html.escape(raw_title)}»</b> — Сезон {season}, Серия {episode}\n\n"
                 + "\n\n".join(releases_summary)
-                + f"\n\n<i>🎯 Сервер автоматически скачает на диск только серию {episode}!</i>"
+                + f"\n\n💡 <i><b>Обратите внимание:</b> на торрент-трекерах сериалы упакованы паками по несколько серий или сезонами. Сервер Lumière автоматически отбирает нужный файл и скачивает на диск <b>исключительно выбранную серию {episode}</b>, не расходуя память на весь сезон!</i>"
             )
         else:
             pick_text = (
@@ -1614,11 +1647,19 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             dl_id = res.get("id") or cached.get("hash")
             ep_note = ""
             if cached.get("season") and cached.get("episode"):
-                ep_note = f"\n🎯 <b>Будет скачан только файл серии {cached['episode']} (Сезон {cached['season']})</b>, а не весь сезон.\n"
-            success_text = (
-                f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!{ep_note}\n"
-                f"После завершения скачивания вы получите уведомление."
-            )
+                ep_note = (
+                    f"\n🎯 <b>Скачивается ТОЛЬКО {cached['episode']} серия ({cached['season']} сезон).</b>\n"
+                    f"Сервер подключился к раздаче и сохраняет на диск отдельный файл этой серии. Весь остальной пак не скачивается.\n"
+                )
+                success_text = (
+                    f"✅ Серия <b>{cached['episode']}</b> сериала <b>«{html.escape(cached['title'])}»</b> поставлена на загрузку на сервер!{ep_note}\n"
+                    f"После завершения скачивания вы получите уведомление."
+                )
+            else:
+                success_text = (
+                    f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!\n"
+                    f"После завершения скачивания вы получите уведомление."
+                )
             download_url = f"{WEB_URL}/api/downloads/server/download-file/{dl_id}"
             ikb = InlineKeyboardMarkup(inline_keyboard=[
                 [
