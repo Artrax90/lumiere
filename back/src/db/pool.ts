@@ -78,15 +78,18 @@ function saveFallbackDb(db: LocalDb) {
   }
 }
 
-let warnedOffline = false;
+let isPgOffline = false;
+let lastOfflineLogTime = 0;
+let lastPgProbeTime = 0;
+let isSyncingToPg = false;
 
-function executeFallback(sql: string, params: any[] = []): { rows: any[] } {
+function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallback?: boolean } {
   const db = loadFallbackDb();
   const cleanSql = sql.trim().replace(/\s+/g, ' ');
 
   // 1. Migrations / Table creation
   if (cleanSql.startsWith('CREATE TABLE') || cleanSql.startsWith('ALTER TABLE') || cleanSql.startsWith('CREATE INDEX') || cleanSql.startsWith('DROP TABLE')) {
-    return { rows: [] };
+    return { rows: [], _fallback: true };
   }
 
   // 2. Count users
@@ -992,18 +995,103 @@ const rawPool = new pg.Pool({
   user: config.db.user,
   password: config.db.password,
   database: config.db.database,
-  max: 20,
+  max: 25,
   idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 3000,
+  connectionTimeoutMillis: 10000,
+  keepAlive: true,
 });
 
 rawPool.on('error', () => {
   // Silent idle error to prevent uncaught exceptions when PG is offline
 });
 
-// Resilient pool wrapper: transparently falls back to local persistent store when PostgreSQL is offline
+// Resilient pool wrapper: transparently falls back to local persistent store when PostgreSQL is offline,
+// and automatically reconnects to PostgreSQL as soon as it becomes available.
 const originalQuery = rawPool.query.bind(rawPool);
 const originalConnect = rawPool.connect.bind(rawPool);
+
+function isConnError(err: any): boolean {
+  if (!err) return false;
+  return (
+    err.code === 'ECONNREFUSED' ||
+    err.code === 'ENOTFOUND' ||
+    err.code === 'ETIMEDOUT' ||
+    err.code === '57P01' || // admin_shutdown
+    err.code === '57P02' || // crash_shutdown
+    err.code === '57P03' || // cannot_connect_now
+    err.message?.includes('connect ECONNREFUSED') ||
+    err.message?.includes('Connection terminated') ||
+    err.message?.includes('connection timeout') ||
+    err.message?.includes('timeout exceeded')
+  );
+}
+
+async function syncFallbackToPostgres() {
+  if (isSyncingToPg) return;
+  isSyncingToPg = true;
+  try {
+    const db = loadFallbackDb();
+    if (!db.users || db.users.length === 0) {
+      // Mirror users from Postgres to local fallback store
+      const pgUsers = await originalQuery('SELECT * FROM users');
+      if (pgUsers.rows && pgUsers.rows.length > 0) {
+        db.users = pgUsers.rows;
+        saveFallbackDb(db);
+      }
+      return;
+    }
+
+    // Merge users into Postgres
+    for (const u of db.users) {
+      const email = (u.email || '').trim().toLowerCase();
+      if (!email) continue;
+      const existing = await originalQuery('SELECT id FROM users WHERE LOWER(email) = $1', [email]);
+      if (existing.rows.length > 0) {
+        await originalQuery(
+          'UPDATE users SET password_hash = COALESCE($1, password_hash), name = COALESCE($2, name), role = COALESCE($3, role) WHERE id = $4',
+          [u.password_hash, u.name, u.role, existing.rows[0].id]
+        );
+      } else {
+        await originalQuery(
+          'INSERT INTO users (email, password_hash, name, role, pin, is_kids, avatar, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)',
+          [email, u.password_hash, u.name || 'User', u.role || 'user', u.pin || '', !!u.is_kids, u.avatar || '', u.created_at || new Date()]
+        );
+      }
+    }
+
+    // Sync watch history if any
+    for (const h of (db.watch_history || [])) {
+      try {
+        const tsVal = h.timestamp ? BigInt(h.timestamp) : 0n;
+        await originalQuery(
+          'INSERT INTO watch_history (user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (user_id, tmdb_id, media_type) DO UPDATE SET progress = GREATEST(watch_history.progress, EXCLUDED.progress), timestamp = EXCLUDED.timestamp, updated_at = EXCLUDED.updated_at',
+          [h.user_id || 1, h.tmdb_id, h.media_type, h.title_name || '', h.poster || '', h.progress || 0, tsVal, h.updated_at || new Date()]
+        );
+      } catch {}
+    }
+
+    // Refresh fallback users mirror from Postgres
+    const freshUsers = await originalQuery('SELECT * FROM users');
+    if (freshUsers.rows && freshUsers.rows.length > 0) {
+      db.users = freshUsers.rows;
+      saveFallbackDb(db);
+    }
+  } catch (err: any) {
+    console.error('[DB] Background sync to PostgreSQL error:', err.message);
+  } finally {
+    isSyncingToPg = false;
+  }
+}
+
+// Initial probe and sync on startup
+setTimeout(() => {
+  originalQuery('SELECT 1')
+    .then(() => {
+      isPgOffline = false;
+      syncFallbackToPostgres().catch(() => {});
+    })
+    .catch(() => {});
+}, 2000);
 
 function createMockClient() {
   const mockClient = {
@@ -1024,34 +1112,38 @@ function createMockClient() {
     params = [];
   }
 
-  if (warnedOffline) {
+  const now = Date.now();
+
+  // If PG was marked offline, retry every 3 seconds
+  if (isPgOffline && now - lastPgProbeTime < 3000) {
     const sqlText = typeof sql === 'string' ? sql : (sql && sql.text ? sql.text : '');
     const sqlParams = Array.isArray(params) ? params : (sql && sql.values ? sql.values : []);
-    const fallbackResult = executeFallback(sqlText, sqlParams);
+    const fallbackResult = { ...executeFallback(sqlText, sqlParams), _fallback: true };
     if (callback) callback(null, fallbackResult);
     return fallbackResult;
   }
 
   try {
+    lastPgProbeTime = now;
     const result = await originalQuery(sql, params);
+    if (isPgOffline) {
+      console.log('[DB] PostgreSQL connection successfully restored! Primary database resumed.');
+      isPgOffline = false;
+      syncFallbackToPostgres().catch(() => {});
+    }
     if (callback) callback(null, result);
     return result;
   } catch (err: any) {
-    const isConnectionError =
-      err.code === 'ECONNREFUSED' ||
-      err.code === 'ENOTFOUND' ||
-      err.code === 'ETIMEDOUT' ||
-      err.message?.includes('connect ECONNREFUSED') ||
-      err.message?.includes('Connection terminated');
-
-    if (isConnectionError) {
-      if (!warnedOffline) {
-        console.warn('[DB] PostgreSQL is offline. Seamlessly utilizing persistent local fallback database:', fallbackDbPath);
-        warnedOffline = true;
+    if (isConnError(err)) {
+      isPgOffline = true;
+      lastPgProbeTime = now;
+      if (now - lastOfflineLogTime > 30000) {
+        console.warn('[DB] PostgreSQL is temporarily unavailable (' + err.message + '). Utilizing local fallback database for this query.');
+        lastOfflineLogTime = now;
       }
       const sqlText = typeof sql === 'string' ? sql : (sql && sql.text ? sql.text : '');
       const sqlParams = Array.isArray(params) ? params : (sql && sql.values ? sql.values : []);
-      const fallbackResult = executeFallback(sqlText, sqlParams);
+      const fallbackResult = { ...executeFallback(sqlText, sqlParams), _fallback: true };
       if (callback) callback(null, fallbackResult);
       return fallbackResult;
     }
@@ -1061,28 +1153,31 @@ function createMockClient() {
 };
 
 (rawPool as any).connect = async function (callback?: any): Promise<any> {
-  if (warnedOffline) {
+  const now = Date.now();
+
+  if (isPgOffline && now - lastPgProbeTime < 3000) {
     const mockClient = createMockClient();
     if (callback) callback(null, mockClient);
     return mockClient;
   }
 
   try {
+    lastPgProbeTime = now;
     const client = await originalConnect();
+    if (isPgOffline) {
+      console.log('[DB] PostgreSQL connection restored on connect()! Primary database resumed.');
+      isPgOffline = false;
+      syncFallbackToPostgres().catch(() => {});
+    }
     if (callback) callback(null, client);
     return client;
   } catch (err: any) {
-    const isConnectionError =
-      err.code === 'ECONNREFUSED' ||
-      err.code === 'ENOTFOUND' ||
-      err.code === 'ETIMEDOUT' ||
-      err.message?.includes('connect ECONNREFUSED') ||
-      err.message?.includes('Connection terminated');
-
-    if (isConnectionError) {
-      if (!warnedOffline) {
-        console.warn('[DB] PostgreSQL is offline. Seamlessly utilizing persistent local fallback database for client connection:', fallbackDbPath);
-        warnedOffline = true;
+    if (isConnError(err)) {
+      isPgOffline = true;
+      lastPgProbeTime = now;
+      if (now - lastOfflineLogTime > 30000) {
+        console.warn('[DB] PostgreSQL connection error (' + err.message + '). Utilizing mock client with local fallback.');
+        lastOfflineLogTime = now;
       }
       const mockClient = createMockClient();
       if (callback) callback(null, mockClient);

@@ -77,7 +77,10 @@ async function runMigrations() {
 
   for (let attempt = 1; attempt <= 10; attempt++) {
     try {
-      await pool.query(migrations);
+      const res: any = await pool.query(migrations);
+      if (res && res._fallback) {
+        throw new Error('PostgreSQL is offline, waiting for connection...');
+      }
       console.log('[DB] Database migrations completed successfully');
       return;
     } catch (err: any) {

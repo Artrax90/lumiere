@@ -3,8 +3,11 @@ import os from 'os';
 import http from 'http';
 import { join } from 'path';
 import { existsSync, readdirSync, readFileSync, mkdirSync, rmSync, statSync } from 'fs';
-import { execSync, spawn } from 'child_process';
+import { exec, execSync, spawn } from 'child_process';
+import { promisify } from 'util';
 import { config } from '../config.js';
+
+const execAsync = promisify(exec);
 
 let jacredUrl = config.jacred.url;
 let _cachedTorrUrl = config.torrserver.url;
@@ -764,11 +767,10 @@ export function torrentRoutes(app: FastifyInstance) {
 
     try {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
-      const { execSync } = await import('child_process');
-      const probe = execSync(
+      const { stdout: probe } = await execAsync(
         `ffprobe -v quiet -print_format json -show_streams -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
         { timeout: 15000, maxBuffer: 1024 * 1024 }
-      ).toString();
+      );
       const streams = JSON.parse(probe).streams || [];
 
       const langMap: Record<string, string> = { rus: 'Русский', ukr: 'Украинский', eng: 'English', und: 'Неизвестно' };
@@ -823,16 +825,15 @@ export function torrentRoutes(app: FastifyInstance) {
     const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
 
     try {
-      const { execSync } = await import('child_process');
       // Try to get accurate duration with large probesize
       let dur = 0;
 
       // Method 1: format-level duration with large probesize
       try {
-        const fmtResult = execSync(
+        const { stdout: fmtResult } = await execAsync(
           `ffprobe -v quiet -print_format json -show_format -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
           { timeout: 15000 }
-        ).toString();
+        );
         const fmtData = JSON.parse(fmtResult);
         dur = parseFloat(fmtData.format?.duration || '0');
       } catch {}
@@ -840,10 +841,10 @@ export function torrentRoutes(app: FastifyInstance) {
       // Method 2: stream-level duration if format is wrong
       if (dur <= 0) {
         try {
-          const streamResult = execSync(
+          const { stdout: streamResult } = await execAsync(
             `ffprobe -v quiet -print_format json -show_streams -select_streams v:0 "${streamUrl}"`,
             { timeout: 30000 }
-          ).toString();
+          );
           const streamData = JSON.parse(streamResult);
           const videoStream = streamData.streams?.[0];
           if (videoStream) {
@@ -1323,13 +1324,12 @@ export function torrentRoutes(app: FastifyInstance) {
       const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
 
       // Probe for subtitle tracks
-      const { execSync: execSyncSub } = await import('child_process');
       let subtitles: Array<{ id: number; lang: string; label: string }> = [];
       try {
-        const probe = execSyncSub(
+        const { stdout: probe } = await execAsync(
           `ffprobe -v quiet -print_format json -show_streams "${streamUrl}"`,
           { timeout: 30000, maxBuffer: 1024 * 1024 }
-        ).toString();
+        );
         const streams = JSON.parse(probe).streams || [];
         subtitles = streams
           .filter((s: any) => s.codec_type === 'subtitle')
