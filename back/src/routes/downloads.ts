@@ -397,7 +397,7 @@ export function downloadRoutes(app: FastifyInstance) {
         return reply.code(400).send({ error: 'Title is required' });
       }
 
-      let userId: number = req.user?.userId || 0;
+      let userId: number = Number((req.body as any)?.userId) || req.user?.userId || 0;
       if (!userId) {
         // Fallback to first user in system
         const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
@@ -449,9 +449,23 @@ export function downloadRoutes(app: FastifyInstance) {
       const disk = getDiskSpace();
 
       try {
-        const res = await pool.query(
-          `SELECT * FROM server_downloads ORDER BY created_at DESC LIMIT 100`
-        );
+        const requestedUserId = Number((req.query as any)?.userId);
+        let res;
+        if (requestedUserId) {
+          res = await pool.query(
+            `SELECT * FROM server_downloads WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+            [requestedUserId]
+          );
+        } else if (req.user && req.user.role !== 'admin') {
+          res = await pool.query(
+            `SELECT * FROM server_downloads WHERE user_id = $1 ORDER BY created_at DESC LIMIT 100`,
+            [req.user.userId]
+          );
+        } else {
+          res = await pool.query(
+            `SELECT * FROM server_downloads ORDER BY created_at DESC LIMIT 100`
+          );
+        }
 
         const list = res.rows.map((r: any) => {
           const fileSize = Number(r.file_size || 0);

@@ -502,25 +502,35 @@ export function authRoutes(app: FastifyInstance) {
 
     try {
       const result = await pool.query(
-        `SELECT id, email, name, avatar, role, is_kids,
-                (pin IS NOT NULL AND pin != '') as has_pin,
-                pin, created_at
-         FROM users
-         ORDER BY id ASC`
+        `SELECT u.id, u.email, u.name, u.avatar, u.role, u.is_kids,
+                (u.pin IS NOT NULL AND u.pin != '') as has_pin,
+                u.pin, u.created_at,
+                p.preferences
+         FROM users u
+         LEFT JOIN user_preferences p ON p.user_id = u.id
+         ORDER BY u.id ASC`
       );
 
       return {
-        users: result.rows.map((r) => ({
-          id: r.id,
-          email: r.email,
-          name: r.name,
-          avatar: r.avatar || '',
-          role: r.role || 'user',
-          isKids: !!r.is_kids,
-          hasPin: !!r.has_pin,
-          pin: r.pin || '',
-          createdAt: r.created_at,
-        })),
+        users: result.rows.map((r) => {
+          let prefs = r.preferences || {};
+          if (typeof prefs === 'string') {
+            try { prefs = JSON.parse(prefs); } catch {}
+          }
+          const tgChatId = String(prefs.telegram_chat_id || prefs.telegramChatId || '').trim();
+          return {
+            id: r.id,
+            email: r.email,
+            name: r.name,
+            avatar: r.avatar || '',
+            role: r.role || 'user',
+            isKids: !!r.is_kids,
+            hasPin: !!r.has_pin,
+            pin: r.pin || '',
+            telegramChatId: tgChatId,
+            createdAt: r.created_at,
+          };
+        }),
       };
     } catch (err: any) {
       return reply.code(500).send({ error: err.message });
@@ -595,7 +605,7 @@ export function authRoutes(app: FastifyInstance) {
 
     const { id } = request.params as { id: string };
     const targetUserId = parseInt(id);
-    const { name, email, password, role, pin, isKids, avatar } = request.body as {
+    const { name, email, password, role, pin, isKids, avatar, telegramChatId } = request.body as {
       name?: string;
       email?: string;
       password?: string;
@@ -603,6 +613,7 @@ export function authRoutes(app: FastifyInstance) {
       pin?: string;
       isKids?: boolean;
       avatar?: string;
+      telegramChatId?: string;
     };
 
     const userRes = await pool.query('SELECT id, role FROM users WHERE id = $1', [targetUserId]);
@@ -649,7 +660,25 @@ export function authRoutes(app: FastifyInstance) {
       values.push(avatar || '');
     }
 
-    if (updates.length === 0) {
+    if (telegramChatId !== undefined) {
+      try {
+        const prefRes = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [targetUserId]);
+        let prefs = prefRes.rows[0]?.preferences || {};
+        if (typeof prefs === 'string') {
+          try { prefs = JSON.parse(prefs); } catch {}
+        }
+        prefs.telegram_chat_id = (telegramChatId || '').trim();
+        await pool.query(
+          `INSERT INTO user_preferences (user_id, preferences) VALUES ($1, $2)
+           ON CONFLICT (user_id) DO UPDATE SET preferences = EXCLUDED.preferences`,
+          [targetUserId, JSON.stringify(prefs)]
+        );
+      } catch (tgErr: any) {
+        console.warn('[Admin] Failed to update user telegram_chat_id:', tgErr.message);
+      }
+    }
+
+    if (updates.length === 0 && telegramChatId === undefined) {
       return reply.send({ success: true, message: 'Нет изменений' });
     }
 

@@ -51,13 +51,54 @@ export interface UserTelegramConfig {
 export async function getUserTelegramConfig(userId: number): Promise<UserTelegramConfig | null> {
   try {
     const res = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+    let botToken = '';
+    let chatId = '';
     if (res.rows.length > 0) {
       const prefs = res.rows[0].preferences || {};
-      const botToken = prefs.telegram_bot_token || prefs.telegramBotToken || '';
-      const chatId = prefs.telegram_chat_id || prefs.telegramChatId || '';
-      if (botToken && chatId) {
-        return { botToken: String(botToken).trim(), chatId: String(chatId).trim() };
-      }
+      botToken = (prefs.telegram_bot_token || prefs.telegramBotToken || '').trim();
+      chatId = (prefs.telegram_chat_id || prefs.telegramChatId || '').trim();
+    }
+
+    // If user has no direct chatId, check admin allowed_chats if mapped to this userId
+    if (!chatId) {
+      try {
+        const allPrefsRes = await pool.query('SELECT preferences FROM user_preferences');
+        for (const pRow of allPrefsRes.rows) {
+          const p = pRow.preferences || {};
+          const allowed = Array.isArray(p.telegram_allowed_chats) ? p.telegram_allowed_chats : [];
+          for (const item of allowed) {
+            if (item && typeof item === 'object') {
+              if (Number(item.userId) === Number(userId) && item.chatId) {
+                chatId = String(item.chatId).trim();
+                break;
+              }
+            }
+          }
+          if (chatId) break;
+        }
+      } catch {}
+    }
+
+    if (!chatId) return null;
+
+    // If user has no custom bot token, fall back to global admin bot token
+    if (!botToken) {
+      try {
+        const adminRes = await pool.query(
+          `SELECT p.preferences FROM user_preferences p 
+           JOIN users u ON u.id = p.user_id 
+           WHERE p.preferences->>'telegram_bot_token' IS NOT NULL AND p.preferences->>'telegram_bot_token' != '' 
+           ORDER BY (u.role = 'admin') DESC, u.id ASC LIMIT 1`
+        );
+        if (adminRes.rows.length > 0) {
+          const p = adminRes.rows[0].preferences || {};
+          botToken = (p.telegram_bot_token || p.telegramBotToken || '').trim();
+        }
+      } catch {}
+    }
+
+    if (botToken && chatId) {
+      return { botToken, chatId };
     }
   } catch (err: any) {
     console.warn(`[TelegramService] Could not get telegram config for user ${userId}:`, err.message);

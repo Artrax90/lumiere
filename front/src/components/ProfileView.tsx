@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Clock, Heart, Trophy, Monitor, Star, LogOut } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
+import { getScopedItem } from '@/api/sync';
 import { useAuth } from '@/contexts/AuthContext';
 import Card from './Card';
 
@@ -49,7 +50,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
 
   const stats = useMemo(() => {
     try {
-      const raw = localStorage.getItem('playback_positions');
+      const raw = getScopedItem('playback_positions');
       const positions = raw ? JSON.parse(raw) : {};
       let totalSeconds = 0;
       let watchedCount = 0;

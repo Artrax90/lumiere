@@ -344,7 +344,10 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   // 4. Get series subscriptions
   app.get('/api/notifications/subscriptions', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
-    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
+    if (!userId) {
+      return { subscriptions: [] };
+    }
     try {
       const result = await pool.query(
         'SELECT id, tmdb_id, title, poster, last_season, last_episode, created_at FROM series_subscriptions WHERE user_id = $1 ORDER BY id DESC',
@@ -369,7 +372,10 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   // 5. Check if user is subscribed to a series
   app.get('/api/notifications/is-subscribed/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
-    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
+    if (!userId) {
+      return { isSubscribed: false };
+    }
     const { tmdbId } = request.params as { tmdbId: string };
     try {
       const result = await pool.query(
@@ -388,7 +394,10 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   // 6. Subscribe to a series
   app.post('/api/notifications/subscribe', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const bodyUserId = (request.body as any)?.userId;
-    const userId = request.user?.userId || (bodyUserId ? parseInt(bodyUserId, 10) : 1);
+    const userId = request.user?.userId || (bodyUserId ? parseInt(bodyUserId, 10) : 0);
+    if (!userId) {
+      return { success: false, error: 'User is required' };
+    }
     const { tmdbId, title, poster, lastSeason, lastEpisode } = request.body as {
       tmdbId: number;
       title: string;
@@ -428,7 +437,10 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   // 7. Unsubscribe from a series
   app.delete('/api/notifications/subscribe/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
-    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
+    if (!userId) {
+      return { success: false, error: 'User is required' };
+    }
     const { tmdbId } = request.params as { tmdbId: string };
     try {
       await pool.query(
@@ -444,7 +456,10 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
   // 8. Check for new episodes across subscribed series (manual or direct trigger)
   app.post('/api/notifications/check', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
-    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 1);
+    const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
+    if (!userId) {
+      return { success: false, error: 'User is required' };
+    }
     try {
       const newCount = await checkNewEpisodes(userId, tmdbProvider);
       return { success: true, newEpisodesFound: newCount };

@@ -312,20 +312,37 @@ export function sessionRoutes(app: FastifyInstance) {
   app.get(
     '/api/sessions/active',
     { preHandler: [optionalAuth] },
-    async (_req: AuthenticatedRequest, reply) => {
+    async (req: AuthenticatedRequest, reply) => {
       try {
         await ensureSessionTables();
-        const result = await pool.query(
-          `SELECT ps.*, 
-                  COALESCE(u.name, ps.device_name, 'Пользователь') as user_name, 
-                  COALESCE(u.avatar, '') as user_avatar, 
-                  COALESCE(u.email, '') as user_email, 
-                  COALESCE(u.is_kids, false) as is_kids
-           FROM playback_sessions ps
-           LEFT JOIN users u ON u.id = ps.user_id
-           WHERE ps.last_heartbeat >= NOW() - INTERVAL '5 minutes'
-           ORDER BY ps.last_heartbeat DESC`
-        );
+        const queryUserId = (req.query as any)?.userId;
+        const effectiveUserId = req.user?.role === 'admin'
+          ? (queryUserId ? Number(queryUserId) : null)
+          : (req.user?.userId || (queryUserId ? Number(queryUserId) : null));
+
+        const sql = effectiveUserId
+          ? `SELECT ps.*, 
+                    COALESCE(u.name, ps.device_name, 'Пользователь') as user_name, 
+                    COALESCE(u.avatar, '') as user_avatar, 
+                    COALESCE(u.email, '') as user_email, 
+                    COALESCE(u.is_kids, false) as is_kids
+             FROM playback_sessions ps
+             LEFT JOIN users u ON u.id = ps.user_id
+             WHERE ps.last_heartbeat >= NOW() - INTERVAL '5 minutes'
+               AND ps.user_id = $1
+             ORDER BY ps.last_heartbeat DESC`
+          : `SELECT ps.*, 
+                    COALESCE(u.name, ps.device_name, 'Пользователь') as user_name, 
+                    COALESCE(u.avatar, '') as user_avatar, 
+                    COALESCE(u.email, '') as user_email, 
+                    COALESCE(u.is_kids, false) as is_kids
+             FROM playback_sessions ps
+             LEFT JOIN users u ON u.id = ps.user_id
+             WHERE ps.last_heartbeat >= NOW() - INTERVAL '5 minutes'
+             ORDER BY ps.last_heartbeat DESC`;
+
+        const params = effectiveUserId ? [effectiveUserId] : [];
+        const result = await pool.query(sql, params);
 
         console.log(`[Sessions] Active: found ${result.rows.length} sessions`);
 

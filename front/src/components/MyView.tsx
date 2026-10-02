@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { History, Bookmark, Heart, Trash2, Film } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
+import { getScopedItem, setScopedItem } from '@/api/sync';
 import Card from './Card';
 
 interface MyViewProps {
@@ -47,7 +48,7 @@ export default function MyView({ onSelect }: MyViewProps) {
         // Merge local playback history for watched tab if empty
         if (tab === 'watched' && titles.length === 0) {
           try {
-            const raw = localStorage.getItem('playback_positions');
+            const raw = getScopedItem('playback_positions');
             const pos = raw ? JSON.parse(raw) : {};
             for (const val of Object.values(pos)) {
               const t = typeof val === 'object' && val !== null ? (val as any).title : null;
@@ -100,11 +101,11 @@ export default function MyView({ onSelect }: MyViewProps) {
 
       if (activeTab === 'watched') {
         try {
-          const raw = localStorage.getItem('playback_positions');
+          const raw = getScopedItem('playback_positions');
           if (raw) {
             const pos = JSON.parse(raw);
             delete pos[titleId];
-            localStorage.setItem('playback_positions', JSON.stringify(pos));
+            setScopedItem('playback_positions', JSON.stringify(pos));
           }
         } catch {}
       }

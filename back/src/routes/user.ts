@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import pool from '../db/pool.js';
 import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import { testTelegramConnection } from '../services/telegram.js';
+import { comparePassword } from '../services/auth.js';
 
 export function userRoutes(app: FastifyInstance) {
   // Get profile
@@ -316,6 +317,142 @@ export function userRoutes(app: FastifyInstance) {
       return { proxyUrl, bots };
     } catch (err: any) {
       return { proxyUrl: '', bots: [] };
+    }
+  });
+
+  // Internal endpoint to resolve Lumiere user by Telegram Chat ID for strict 1 user = 1 universe isolation
+  app.get('/api/internal/telegram-user', async (request, reply) => {
+    const queryChatId = (request.query as any)?.chatId;
+    if (!queryChatId) {
+      return { found: false, error: 'chatId query parameter is required' };
+    }
+
+    const cleanChatId = String(queryChatId).trim();
+    try {
+      // 1. Direct match on user_preferences.telegram_chat_id
+      const usersRes = await pool.query(
+        `SELECT u.id, u.name, u.email, u.role, p.preferences
+         FROM users u
+         JOIN user_preferences p ON p.user_id = u.id`
+      );
+
+      for (const row of usersRes.rows || []) {
+        let prefs = row.preferences || {};
+        if (typeof prefs === 'string') {
+          try { prefs = JSON.parse(prefs); } catch {}
+        }
+        const userChatId = String(prefs.telegram_chat_id || prefs.telegramChatId || '').trim();
+        if (userChatId && userChatId === cleanChatId) {
+          return {
+            found: true,
+            userId: row.id,
+            userName: row.name,
+            email: row.email,
+            role: row.role || 'user',
+          };
+        }
+      }
+
+      // 2. Check admin allowed_chats if mapped to a specific userId or user name
+      for (const row of usersRes.rows || []) {
+        let prefs = row.preferences || {};
+        if (typeof prefs === 'string') {
+          try { prefs = JSON.parse(prefs); } catch {}
+        }
+        const allowed = Array.isArray(prefs.telegram_allowed_chats) ? prefs.telegram_allowed_chats : [];
+        for (const item of allowed) {
+          if (!item) continue;
+          const allowedCid = typeof item === 'string' ? item.trim() : String(item.chatId || '').trim();
+          if (allowedCid === cleanChatId) {
+            // If item has explicit userId
+            if (typeof item === 'object' && item.userId) {
+              const matchedUser = (usersRes.rows || []).find((u: any) => Number(u.id) === Number(item.userId));
+              if (matchedUser) {
+                return {
+                  found: true,
+                  userId: matchedUser.id,
+                  userName: matchedUser.name,
+                  email: matchedUser.email,
+                  role: matchedUser.role || 'user',
+                };
+              }
+            }
+            // If item name matches user name or email
+            if (typeof item === 'object' && item.name) {
+              const n = String(item.name).trim().toLowerCase();
+              const matchedUser = (usersRes.rows || []).find(
+                (u: any) => u.name.toLowerCase() === n || u.email.toLowerCase() === n
+              );
+              if (matchedUser) {
+                return {
+                  found: true,
+                  userId: matchedUser.id,
+                  userName: matchedUser.name,
+                  email: matchedUser.email,
+                  role: matchedUser.role || 'user',
+                };
+              }
+            }
+          }
+        }
+      }
+
+      return { found: false };
+    } catch (err: any) {
+      return reply.code(500).send({ found: false, error: err.message });
+    }
+  });
+
+  // Internal endpoint to link a Telegram Chat ID to a user account (/link command)
+  app.post('/api/internal/telegram-link', async (request, reply) => {
+    const { chatId, email, password } = (request.body as any) || {};
+    if (!chatId || !email || !password) {
+      return { success: false, error: 'chatId, email и password обязательны' };
+    }
+
+    try {
+      const cleanEmail = String(email).trim().toLowerCase();
+      const cleanChatId = String(chatId).trim();
+
+      const userRes = await pool.query(
+        'SELECT id, name, email, password_hash, role FROM users WHERE LOWER(email) = $1',
+        [cleanEmail]
+      );
+
+      if (userRes.rows.length === 0) {
+        return { success: false, error: 'Пользователь с таким email не найден' };
+      }
+
+      const user = userRes.rows[0];
+      const valid = await comparePassword(String(password), user.password_hash);
+      if (!valid) {
+        return { success: false, error: 'Неверный пароль' };
+      }
+
+      // Save telegram_chat_id into user_preferences
+      const prefRes = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [user.id]);
+      let prefs = prefRes.rows[0]?.preferences || {};
+      if (typeof prefs === 'string') {
+        try { prefs = JSON.parse(prefs); } catch {}
+      }
+      prefs.telegram_chat_id = cleanChatId;
+
+      await pool.query(
+        `INSERT INTO user_preferences (user_id, preferences) VALUES ($1, $2)
+         ON CONFLICT (user_id) DO UPDATE SET preferences = EXCLUDED.preferences`,
+        [user.id, JSON.stringify(prefs)]
+      );
+
+      console.log(`[TelegramLink] Successfully linked Telegram Chat ID ${cleanChatId} to user "${user.name}" (ID ${user.id})`);
+
+      return {
+        success: true,
+        userId: user.id,
+        userName: user.name,
+        email: user.email,
+      };
+    } catch (err: any) {
+      return reply.code(500).send({ success: false, error: err.message });
     }
   });
 

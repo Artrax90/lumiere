@@ -28,6 +28,44 @@
     return '';
   }
 
+  // User-scoped storage isolation helpers (Point 8, 8.1, 10)
+  function getUserStorageKey(baseKey) {
+    var uid = (state && state.user && state.user.id) || 0;
+    if (!uid) {
+      try {
+        var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+        if (u && u.id) uid = u.id;
+      } catch(e) {}
+    }
+    return uid ? 'u' + uid + '_' + baseKey : baseKey;
+  }
+
+  function getStorageItem(key) {
+    var scopedKey = getUserStorageKey(key);
+    var val = localStorage.getItem(scopedKey);
+    if (val === null && scopedKey !== key) {
+      val = localStorage.getItem(key);
+      if (val !== null) {
+        try {
+          localStorage.setItem(scopedKey, val);
+          localStorage.removeItem(key);
+        } catch(e) {}
+      }
+    }
+    return val;
+  }
+
+  function setStorageItem(key, val) {
+    var scopedKey = getUserStorageKey(key);
+    localStorage.setItem(scopedKey, val);
+  }
+
+  function removeStorageItem(key) {
+    var scopedKey = getUserStorageKey(key);
+    localStorage.removeItem(scopedKey);
+    if (scopedKey !== key) localStorage.removeItem(key);
+  }
+
   // Player base URL — same as getBaseUrl() when running in .wgt SPA mode
   function getPlayerBaseUrl() {
     return getBaseUrl();
@@ -2128,13 +2166,11 @@
       }
     }
 
-    var lastWatchedId = Number(localStorage.getItem('last_watched_id')) || 0;
-
     var positions = {};
-    try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
 
     var lastTorrents = {};
-    try { lastTorrents = JSON.parse(localStorage.getItem('last_torrents') || '{}'); } catch(e) {}
+    try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
 
     var changed = false;
     var items = [];
@@ -2161,11 +2197,7 @@
       if (isNaN(ltTs)) ltTs = 0;
       var effectiveTs = Math.max(posTs, ltTs);
 
-      if (numId === lastWatchedId) {
-        effectiveTs = Math.max(effectiveTs, now);
-      }
-
-      if (posTime >= 1 || numId === lastWatchedId) {
+      if (posTime >= 1) {
         var pTitle = (pos && pos.title) || (lastTorrents[id] ? lastTorrents[id].title : null) || 'Видео';
         items.push({
           id: numId,
@@ -2185,7 +2217,6 @@
       var ltItem = lastTorrents[ltId];
       if (ltItem && (ltItem.magnet || ltItem.title) && ltItem.type !== 'iptv') {
         var itemTs = Number(ltItem.timestamp) || 0;
-        if (numLtId === lastWatchedId) itemTs = Math.max(itemTs, now);
         items.push({
           id: numLtId,
           time: 5,
@@ -2198,19 +2229,16 @@
     }
 
     if (changed) {
-      try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+      try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
     }
 
-    // Sort: most recently watched first (leftmost)
+    // Sort: strictly most recently watched first (leftmost) based on true timestamp
     items.sort(function(a, b) {
-      if (lastWatchedId) {
-        if (a.id === lastWatchedId && b.id !== lastWatchedId) return -1;
-        if (b.id === lastWatchedId && a.id !== lastWatchedId) return 1;
-      }
       var timeA = Number(a.timestamp) || 0;
       var timeB = Number(b.timestamp) || 0;
       return timeB - timeA;
     });
+
 
     if (items.length === 0) {
       var row = document.getElementById('row-continue');
@@ -7271,14 +7299,14 @@
 
       try {
       console.log('[Sync] data keys:', Object.keys(data));
-      // Merge IPTV playlists
+      // Merge IPTV playlists (per-user scoped)
       if (data.iptvPlaylists && Array.isArray(data.iptvPlaylists) && data.iptvPlaylists.length > 0) {
         var validPls = data.iptvPlaylists.filter(function(pl) {
           return pl && pl.url && pl.url.indexOf('test/') === -1 && pl.url.indexOf('https://test') === -1;
         });
         if (validPls.length > 0) {
           console.log('[Sync] Saving', validPls.length, 'IPTV playlists');
-          localStorage.setItem('lumiere_iptv', JSON.stringify(validPls));
+          setStorageItem('lumiere_iptv', JSON.stringify(validPls));
         }
       } else {
         console.log('[Sync] No IPTV playlists');
@@ -7287,16 +7315,16 @@
       // Periodically refresh home shelves order from server
       loadAndApplyHomeShelves();
 
-      // Merge playback positions from server
+      // Merge playback positions from server (strictly preserving watch timestamp)
       if (data.watchHistory && Array.isArray(data.watchHistory) && data.watchHistory.length > 0) {
         var local = {};
-        try { local = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e2) {}
+        try { local = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e2) {}
         try { data.watchHistory.forEach(function(item) {
           var id = item.tmdbId;
           if (!id) return;
-          var serverTime = new Date(item.updatedAt).getTime() || 0;
+          var realWatchTime = Number(item.timestamp) || new Date(item.updatedAt).getTime() || 0;
           var localItem = local[id];
-          if (!localItem || serverTime > (localItem.timestamp || 0)) {
+          if (!localItem || realWatchTime >= (localItem.timestamp || 0)) {
             var existingName = (localItem && localItem.title && localItem.title.name) || '';
             var serverTitle = item.titleName || '';
             var chosenName = serverTitle;
@@ -7312,12 +7340,12 @@
             }
             local[id] = {
               time: item.progress || 0,
-              timestamp: serverTime,
+              timestamp: realWatchTime,
               title: { name: chosenName, poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '', id: id, type: itemType }
             };
           }
         });
-        localStorage.setItem('playback_positions', JSON.stringify(local));
+        setStorageItem('playback_positions', JSON.stringify(local));
         } catch(e3) { console.error('[Lumiere] watchHistory merge error:', e3); }
       }
 
@@ -7325,7 +7353,7 @@
       if (data.favorites && Array.isArray(data.favorites) && data.favorites.length > 0) {
         var favs = {};
         data.favorites.forEach(function(f) { favs[f.tmdbId] = f; });
-        localStorage.setItem('lumiere_favorites', JSON.stringify(favs));
+        setStorageItem('lumiere_favorites', JSON.stringify(favs));
       }
 
       // Refresh continue watching
@@ -7341,7 +7369,7 @@
 
   function pushLocalData() {
     var positions = {};
-    try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
 
     var history = [];
     for (var id in positions) {
@@ -7370,6 +7398,7 @@
         });
       }
     }
+
 
     if (history.length > 0) {
       apiPost('/api/sync/push', { watchHistory: history }, function() {});
@@ -7727,7 +7756,7 @@
 
   function getRecentSearches() {
     try {
-      var list = JSON.parse(localStorage.getItem('recent_searches') || '[]');
+      var list = JSON.parse(getStorageItem('recent_searches') || '[]');
       return list.filter(function(item) {
         return typeof item === 'string' && item.trim().length >= 2;
       });
@@ -7743,17 +7772,18 @@
       list = list.filter(function(item) { return item.toLowerCase() !== trimmed.toLowerCase(); });
       list.unshift(trimmed);
       if (list.length > 12) list = list.slice(0, 12);
-      localStorage.setItem('recent_searches', JSON.stringify(list));
+      setStorageItem('recent_searches', JSON.stringify(list));
       renderRecentSearches();
     } catch(e) {}
   }
 
   function clearRecentSearches() {
     try {
-      localStorage.removeItem('recent_searches');
+      removeStorageItem('recent_searches');
       renderRecentSearches();
     } catch(e) {}
   }
+
 
   function renderRecentSearches() {
     var wrap = document.getElementById('search-history-wrap');

@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { getScopedItem } from '@/api/sync';
 
 interface ActivityDay {
   date: string;
@@ -13,7 +14,7 @@ export default function ActivityHeatmap() {
     const dateCounts: Record<string, number> = {};
 
     try {
-      const raw = localStorage.getItem('playback_positions');
+      const raw = getScopedItem('playback_positions');
       if (raw) {
         const positions = JSON.parse(raw);
         for (const val of Object.values(positions)) {

@@ -179,10 +179,39 @@ def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str
 
     return " • ".join(parts)
 
+USER_CHAT_CACHE: Dict[int, dict] = {}
+
+async def resolve_sender_user(event: Any, default_user_id: int) -> dict:
+    """Dynamically resolve the isolated Lumiere user corresponding to this Telegram sender."""
+    from_user = getattr(event, "from_user", None)
+    sender_id = from_user.id if from_user else None
+    if not sender_id:
+        return {"userId": default_user_id, "userName": "Пользователь", "role": "user"}
+
+    if sender_id in USER_CHAT_CACHE:
+        return USER_CHAT_CACHE[sender_id]
+
+    try:
+        user_res = await fetch_api(f"/api/internal/telegram-user?chatId={sender_id}")
+        if user_res and user_res.get("found"):
+            u_info = {
+                "userId": user_res.get("userId"),
+                "userName": user_res.get("userName"),
+                "email": user_res.get("email"),
+                "role": user_res.get("role", "user")
+            }
+            USER_CHAT_CACHE[sender_id] = u_info
+            return u_info
+    except Exception as e:
+        print(f"[Bot] Error resolving user for sender {sender_id}: {e}")
+
+    return {"userId": default_user_id, "userName": "Пользователь", "role": "user"}
+
 class AccessControlMiddleware(BaseMiddleware):
-    """Restricts bot access strictly to chat IDs authorized in user preferences."""
-    def __init__(self, bot_token: str):
+    """Restricts bot access strictly to authorized users, allowing /link for self-linking."""
+    def __init__(self, bot_token: str, default_user_id: int):
         self.bot_token = bot_token
+        self.default_user_id = default_user_id
 
     async def __call__(
         self,
@@ -194,6 +223,12 @@ class AccessControlMiddleware(BaseMiddleware):
         sender_id = from_user.id if from_user else None
         chat = getattr(event, "chat", None)
         chat_id = chat.id if chat else sender_id
+
+        # Allow /link command without prior authorization
+        if isinstance(event, types.Message):
+            msg_text = (event.text or "").strip()
+            if msg_text.startswith("/link"):
+                return await handler(event, data)
 
         allowed = BOT_ALLOWED_CHATS.get(self.bot_token, set())
 
@@ -211,32 +246,44 @@ class AccessControlMiddleware(BaseMiddleware):
         if not is_authorized and chat_id is not None and (chat_id in allowed_normalized or str(chat_id) in allowed_normalized):
             is_authorized = True
 
+        # Check if mapped to a user in database
+        if not is_authorized and sender_id:
+            user_info = await resolve_sender_user(event, self.default_user_id)
+            if user_info.get("email"):
+                is_authorized = True
+                allowed.add(sender_id)
+
         if not is_authorized:
             cid_display = sender_id or chat_id or "Не определен"
             print(f"[Bot Access] ⛔ Access denied for sender {sender_id}, chat {chat_id}. Allowed: {allowed}")
             deny_text = (
-                f"⛔ <b>Доступ ограничен</b>\n\n"
+                f"👋 <b>Добро пожаловать в Lumière Companion!</b>\n\n"
                 f"Ваш Telegram Chat ID: <code>{cid_display}</code>\n\n"
-                f"Бот настроен для работы только с авторизованными пользователями.\n"
-                f"Чтобы получить доступ к управлению сервером Lumière, добавьте ваш Chat ID в настройках профиля (раздел «Telegram Бот» -> «Разрешённые пользователи»).\n\n"
-                f"<i>Посторонние пользователи не имеют доступа к вашему серверу.</i>"
+                f"Чтобы связать этот чат со своим профилем в Lumière, введите команду:\n"
+                f"<code>/link &lt;email&gt; &lt;пароль&gt;</code>\n\n"
+                f"<i>Пример:</i> <code>/link ivan@gmail.com mypassword123</code>\n\n"
+                f"Либо администратор сервера может привязать ваш Chat ID в настройках пользователей.\n"
+                f"<i>Каждый пользователь имеет полностью изолированную вселенную подписок и истории.</i>"
             )
             if isinstance(event, types.Message):
                 await event.answer(deny_text, parse_mode="HTML")
             elif isinstance(event, types.CallbackQuery):
-                await event.answer(f"⛔ Доступ запрещен (Chat ID: {cid_display})", show_alert=True)
+                await event.answer(f"⛔ Чат не привязан. Нажмите /start и введите /link (Chat ID: {cid_display})", show_alert=True)
             return
 
         return await handler(event, data)
 
 def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     dp = Dispatcher()
-    mw = AccessControlMiddleware(bot_token)
+    mw = AccessControlMiddleware(bot_token, user_id)
     dp.message.outer_middleware(mw)
     dp.callback_query.outer_middleware(mw)
 
-    async def show_tv_status(user_reply_target):
-        sessions_data = await fetch_api("/api/sessions/active")
+    async def show_tv_status(user_reply_target, eff_uid: Optional[int] = None):
+        if eff_uid is None:
+            eff_u = await resolve_sender_user(user_reply_target, user_id)
+            eff_uid = eff_u["userId"]
+        sessions_data = await fetch_api(f"/api/sessions/active?userId={eff_uid}")
         active_list = (sessions_data or {}).get("sessions", [])
 
         if not active_list:
@@ -291,10 +338,62 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 pass
         await user_reply_target.answer(text, reply_markup=kb, parse_mode="HTML")
 
+    @dp.message(Command("link"))
+    async def cmd_link(message: types.Message):
+        parts = (message.text or "").strip().split(maxsplit=2)
+        sender_id = message.from_user.id if message.from_user else 0
+        if len(parts) < 3:
+            await message.answer(
+                "ℹ️ <b>Привязка аккаунта к Telegram</b>\n\n"
+                "Чтобы привязать этот чат к вашему личному профилю Lumière, отправьте команду:\n"
+                "<code>/link &lt;email&gt; &lt;пароль&gt;</code>\n\n"
+                "<i>Пример:</i> <code>/link ivan@gmail.com mypassword123</code>\n\n"
+                f"Ваш Telegram Chat ID: <code>{sender_id}</code>",
+                parse_mode="HTML"
+            )
+            return
+
+        email = parts[1].strip()
+        pwd = parts[2].strip()
+
+        link_res = await fetch_api("/api/internal/telegram-link", method="POST", data={
+            "chatId": str(sender_id),
+            "email": email,
+            "password": pwd
+        })
+
+        if link_res and link_res.get("success"):
+            u_id = link_res.get("userId")
+            u_name = link_res.get("userName")
+            USER_CHAT_CACHE[sender_id] = {
+                "userId": u_id,
+                "userName": u_name,
+                "email": email,
+                "role": "user"
+            }
+            allowed = BOT_ALLOWED_CHATS.setdefault(bot_token, set())
+            allowed.add(sender_id)
+
+            await message.answer(
+                f"🎉 <b>Аккаунт успешно привязан!</b>\n\n"
+                f"👤 Профиль: <b>{html.escape(str(u_name))}</b>\n"
+                f"🆔 User ID: <code>{u_id}</code>\n\n"
+                f"Теперь ваши подписки, история просмотров и управление ТВ полностью изолированы для вашего профиля.",
+                reply_markup=get_main_reply_keyboard(),
+                parse_mode="HTML"
+            )
+            await cmd_start(message)
+        else:
+            err = (link_res or {}).get("error", "Неверный email или пароль")
+            await message.answer(f"❌ <b>Ошибка привязки</b>: {err}", parse_mode="HTML")
+
     @dp.message(CommandStart())
     async def cmd_start(message: types.Message):
+        eff_u = await resolve_sender_user(message, user_id)
+        u_name = eff_u.get("userName")
+        profile_badge = f" (Профиль: <b>{html.escape(str(u_name))}</b>)" if u_name else ""
         welcome_text = (
-            "✨ <b>Lumière Companion</b>\n\n"
+            f"✨ <b>Lumière Companion</b>{profile_badge}\n\n"
             "Ваш персональный кино-ассистент и умный пульт управления:\n\n"
             "🔍 <b>Поиск</b>: отправьте название фильма или сериала в чат\n"
             "📺 <b>Пульт Smart TV</b>: управление воспроизведением на ТВ\n"
@@ -334,17 +433,20 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     @dp.callback_query(F.data == "menu:tv")
     async def cb_menu_tv(call: types.CallbackQuery):
         await call.answer()
-        await show_tv_status(call.message)
+        eff_u = await resolve_sender_user(call, user_id)
+        await show_tv_status(call.message, eff_u["userId"])
 
     @dp.callback_query(F.data == "menu:downloads")
     async def cb_menu_downloads(call: types.CallbackQuery):
         await call.answer()
-        await show_downloads(call.message)
+        eff_u = await resolve_sender_user(call, user_id)
+        await show_downloads(call.message, eff_u["userId"])
 
     @dp.callback_query(F.data == "menu:subs")
     async def cb_menu_subs(call: types.CallbackQuery):
         await call.answer()
-        await show_subscriptions(call.message)
+        eff_u = await resolve_sender_user(call, user_id)
+        await show_subscriptions(call.message, eff_u["userId"])
 
     @dp.callback_query(F.data == "menu:status")
     async def cb_menu_status(call: types.CallbackQuery):
@@ -367,12 +469,14 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     @dp.message(Command("tv"))
     @dp.message(F.text == "📺 Сейчас на ТВ")
     async def btn_tv_status(message: types.Message):
-        await show_tv_status(message)
+        eff_u = await resolve_sender_user(message, user_id)
+        await show_tv_status(message, eff_u["userId"])
 
     @dp.message(Command("downloads"))
     @dp.message(F.text == "📥 Скачанное")
     async def btn_downloads(message: types.Message):
-        await show_downloads(message)
+        eff_u = await resolve_sender_user(message, user_id)
+        await show_downloads(message, eff_u["userId"])
 
     @dp.message(Command("status"))
     @dp.message(F.text.in_(["⚙️ Статус", "📊 Статус"]))
@@ -496,8 +600,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         await call.answer("🎲 Крутим рулетку...")
         await trigger_roulette(call, is_callback=True)
 
-    async def show_downloads(target):
-        data = await fetch_api("/api/downloads/server/list")
+    async def show_downloads(target, eff_uid: Optional[int] = None):
+        if eff_uid is None:
+            eff_u = await resolve_sender_user(target, user_id)
+            eff_uid = eff_u["userId"]
+        data = await fetch_api(f"/api/downloads/server/list?userId={eff_uid}")
         if not data:
             await target.answer("Не удалось загрузить список загрузок с сервера.")
             return
@@ -560,12 +667,16 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
     @dp.message(F.text == "📥 Скачанное")
     async def btn_downloads(message: types.Message):
-        await show_downloads(message)
+        eff_u = await resolve_sender_user(message, user_id)
+        await show_downloads(message, eff_u["userId"])
 
-    async def show_subscriptions(target):
-        sub_data = await fetch_api(f"/api/notifications/subscriptions?userId={user_id}")
+    async def show_subscriptions(target, eff_uid: Optional[int] = None):
+        if eff_uid is None:
+            eff_u = await resolve_sender_user(target, user_id)
+            eff_uid = eff_u["userId"]
+        sub_data = await fetch_api(f"/api/notifications/subscriptions?userId={eff_uid}")
         subs = (sub_data or {}).get("subscriptions", [])
-        notif_data = await fetch_api(f"/api/notifications?userId={user_id}")
+        notif_data = await fetch_api(f"/api/notifications?userId={eff_uid}")
         unread = (notif_data or {}).get("unreadCount", 0)
 
         text = (
@@ -598,7 +709,8 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
     @dp.message(F.text == "🔔 Подписки")
     async def btn_subscriptions(message: types.Message):
-        await show_subscriptions(message)
+        eff_u = await resolve_sender_user(message, user_id)
+        await show_subscriptions(message, eff_u["userId"])
 
     async def show_server_status(target):
         dl_data = await fetch_api("/api/downloads/server/list")
@@ -765,10 +877,13 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         if episode is not None:
             val_dict["episode"] = episode
 
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
         res = await fetch_api("/api/sessions/remote-command", method="POST", data={
             "action": "play_media",
             "deviceType": "tv",
-            "userId": user_id,
+            "userId": eff_uid,
             "value": val_dict
         })
 
@@ -782,10 +897,13 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     @dp.callback_query(F.data.startswith("tv_play_local:"))
     async def on_tv_play_local(call: types.CallbackQuery):
         dl_id = call.data.replace("tv_play_local:", "")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
         res = await fetch_api("/api/sessions/remote-command", method="POST", data={
             "action": "play_media",
             "deviceType": "tv",
-            "userId": user_id,
+            "userId": eff_uid,
             "value": {
                 "streamUrl": f"/api/downloads/server/stream/{dl_id}",
                 "downloadId": dl_id,
@@ -802,9 +920,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     async def on_tv_remote_cmd(call: types.CallbackQuery):
         parts = call.data.split(":")
         sub_action = parts[1]
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
 
         if sub_action == "refresh":
-            sessions_data = await fetch_api("/api/sessions/active")
+            sessions_data = await fetch_api(f"/api/sessions/active?userId={eff_uid}")
             active_list = (sessions_data or {}).get("sessions", [])
             if not active_list:
                 await call.answer("Сейчас на ТВ ничего не воспроизводится", show_alert=True)
@@ -863,7 +983,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             "action": action_name,
             "deviceType": "tv",
             "value": val,
-            "userId": user_id,
+            "userId": eff_uid,
         })
 
         if res and res.get("success"):
@@ -871,7 +991,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             await call.answer(f"Команда выполнена: {desc}")
             # Refresh message after command
             await asyncio.sleep(0.5)
-            sessions_data = await fetch_api("/api/sessions/active")
+            sessions_data = await fetch_api(f"/api/sessions/active?userId={eff_uid}")
             active_list = (sessions_data or {}).get("sessions", [])
             if not active_list or sub_action == "stop":
                 try:
@@ -921,7 +1041,9 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     @dp.callback_query(F.data == "sub_check")
     async def on_sub_check(call: types.CallbackQuery):
         await call.answer("🔍 Проверяем торренты на новые серии...")
-        res = await fetch_api(f"/api/notifications/check?userId={user_id}", method="POST")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+        res = await fetch_api(f"/api/notifications/check?userId={eff_uid}", method="POST")
         count = (res or {}).get("newEpisodesFound", 0)
         if count > 0:
             await call.message.reply(f"🎉 Найдено новых серий: <b>{count}</b>! Уведомления отправлены.", parse_mode="HTML")
@@ -949,8 +1071,10 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             except Exception:
                 pass
 
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
         res = await fetch_api("/api/notifications/subscribe", method="POST", data={
-            "userId": user_id,
+            "userId": eff_uid,
             "tmdbId": tmdb_id,
             "title": raw_title,
         })
@@ -982,17 +1106,20 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         raw_title = cached.get("title") or "Медиа"
         poster = cached.get("poster") or ""
 
-        fav_data = await fetch_api("/api/user/favorites?userId=1")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
+        fav_data = await fetch_api(f"/api/user/favorites?userId={eff_uid}")
         fav_list = (fav_data or {}).get("favorites", [])
         is_fav = any(f.get("tmdbId") == media_id for f in fav_list)
 
         if is_fav:
-            await fetch_api(f"/api/user/favorites/{media_id}?userId=1", method="DELETE")
+            await fetch_api(f"/api/user/favorites/{media_id}?userId={eff_uid}", method="DELETE")
             await call.answer("❌ Удалено из закладок", show_alert=False)
             new_btn_text = "🔖 В закладки"
         else:
             await fetch_api("/api/user/favorites", method="POST", data={
-                "userId": 1,
+                "userId": eff_uid,
                 "tmdbId": media_id,
                 "mediaType": media_type,
                 "titleName": raw_title,
@@ -1229,7 +1356,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             return
 
         await call.answer("⏳ Ставим на загрузку...")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
         res = await fetch_api("/api/downloads/server/start", method="POST", data={
+            "userId": eff_uid,
             "title": cached["title"],
             "mediaType": cached["media_type"],
             "mediaId": cached["media_id"],

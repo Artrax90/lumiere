@@ -32,6 +32,7 @@ interface UserItem {
   isKids: boolean;
   hasPin: boolean;
   pin?: string;
+  telegramChatId?: string;
   createdAt: string;
 }
 
@@ -156,6 +157,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
   const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
   const [editPin, setEditPin] = useState('');
   const [editIsKids, setEditIsKids] = useState(false);
+  const [editTelegramChatId, setEditTelegramChatId] = useState('');
   const [editError, setEditError] = useState('');
   const [editLoading, setEditLoading] = useState(false);
 
@@ -167,6 +169,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
     setEditRole((u.role as any) || 'user');
     setEditPin(u.pin || '');
     setEditIsKids(!!u.isKids);
+    setEditTelegramChatId(u.telegramChatId || '');
     setEditError('');
   };
 
@@ -182,6 +185,7 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
         role: editRole,
         pin: editPin.trim(),
         isKids: editIsKids,
+        telegramChatId: editTelegramChatId.trim(),
       };
       if (editPassword.trim()) {
         payload.password = editPassword.trim();
@@ -563,6 +567,11 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                                   PIN: ****
                                 </span>
                               )}
+                              {u.telegramChatId && (
+                                <span className="text-[10px] font-semibold tracking-wider text-sky-300/80 bg-sky-300/10 px-2.5 py-1 rounded-full border border-sky-300/20" title={`Telegram Chat ID: ${u.telegramChatId}`}>
+                                  TG: {u.telegramChatId}
+                                </span>
+                              )}
                               <button
                                 type="button"
                                 onClick={() => startEditUser(u)}
@@ -679,6 +688,28 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                                 onChange={(e) => setEditPin(e.target.value.replace(/\D/g, ''))}
                                 placeholder={editingUser.hasPin && !editPin ? 'PIN установлен (введите новый или удалите)' : 'Например 1234'}
                                 className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40 font-mono tracking-widest"
+                              />
+                            </div>
+
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-[11px] font-medium text-white/40">Telegram Chat ID (для личного бота и уведомлений)</label>
+                                {editTelegramChatId && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditTelegramChatId('')}
+                                    className="text-[11px] text-rose-400 hover:text-rose-300 transition-colors"
+                                  >
+                                    Очистить
+                                  </button>
+                                )}
+                              </div>
+                              <input
+                                type="text"
+                                value={editTelegramChatId}
+                                onChange={(e) => setEditTelegramChatId(e.target.value.replace(/\D/g, ''))}
+                                placeholder="Например 56160081 (или /link в Telegram боте)"
+                                className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40 font-mono"
                               />
                             </div>
 

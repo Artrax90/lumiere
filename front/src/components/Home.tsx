@@ -11,7 +11,7 @@ import CollectionBanner from './CollectionBanner';
 import Top10Row from './Top10Row';
 import { useTopRated, useNowPlaying, useGenreCatalog } from '@/hooks/useCatalog';
 import { getHomeShelves, syncHomeShelvesFromServer, type HomeShelfConfig } from '@/utils/homeShelves';
-import { syncClient, getScopedItem } from '@/api/sync';
+import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
 
 // Get playback positions from user-scoped storage with timestamps and title info
 function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
@@ -20,10 +20,12 @@ function getPlaybackPositions(): Record<number, { time: number; timestamp: numbe
     const raw = JSON.parse(rawStr || '{}');
     const result: Record<number, { time: number; timestamp: number; title?: Title }> = {};
     for (const [id, value] of Object.entries(raw)) {
+      const numId = Number(id);
+      if (isNaN(numId) || numId <= 0 || id.includes('_')) continue;
       if (typeof value === 'object' && value !== null) {
-        result[Number(id)] = value as { time: number; timestamp: number; title?: Title };
+        result[numId] = value as { time: number; timestamp: number; title?: Title };
       } else {
-        result[Number(id)] = { time: value as number, timestamp: 0 };
+        result[numId] = { time: value as number, timestamp: 0 };
       }
     }
     return result;
@@ -65,8 +67,10 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
     window.addEventListener('playback-positions-synced', onPositionsSynced);
     window.addEventListener('storage', onPositionsSynced);
 
-    // Initial pull & merge on Home mount
-    syncClient.mergeWithServer().catch(() => {});
+    // Initial pull & merge on Home mount to ensure full sync with TV and DB
+    syncClient.mergeWithServer().then(() => {
+      setPositionsVersion((v) => v + 1);
+    }).catch(() => {});
 
     return () => {
       window.removeEventListener('home-shelves-changed', onShelvesChanged);
@@ -132,6 +136,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
   }, [current]);
 
   // Get continue watching from playback positions, sorted strictly by most recent
+  // Get continue watching from playback positions, sorted strictly by most recent
   const continueWatching = useMemo(() => {
     const positions = getPlaybackPositions();
     const entries = Object.entries(positions);
@@ -139,30 +144,49 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
 
     // Sort strictly by timestamp (most recent first)
     const sortedEntries = entries
+      .filter(([id]) => !isNaN(Number(id)) && Number(id) > 0 && !id.includes('_'))
       .sort(([, a], [, b]) => {
         return (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0);
       });
 
-    // Find titles that have been watched
-    const allTitles = [...trendingMovies, ...popularMovies];
+    // Find titles that have been watched across all catalog shelves
+    const allTitles = [
+      ...trendingMovies,
+      ...popularMovies,
+      ...popularMovies2,
+      ...popularTv,
+      ...trendingTv,
+      ...nowPlayingMovies,
+      ...topRatedMovies,
+      ...actionMovies,
+      ...comedyMovies,
+      ...scifiMovies,
+      ...familyMovies,
+    ];
     const watched: Title[] = [];
+    const seenIds = new Set<number>();
 
     for (const [id, entry] of sortedEntries) {
-      // First try to find in trending/popular
-      const found = allTitles.find(t => t.id === Number(id));
+      const numId = Number(id);
+      if (seenIds.has(numId)) continue;
+      seenIds.add(numId);
+
+      // First try to find in catalog
+      const found = allTitles.find(t => t.id === numId || (t as any).tmdbId === numId);
       if (found) {
         watched.push(found);
-      } else if (entry.title) {
-        // Use saved title info (from search results) with defaults for missing fields
+      } else if (entry.title && (entry.title.name || (entry.title as any).title)) {
+        // Use saved title info with defaults for missing fields
         const saved = entry.title as any;
-        const cleanSavedName = saved.name
-          ? saved.name.replace(/\s*—\s*Сезон.*$/i, '').replace(/\s*—\s*S\d+.*$/i, '').trim()
-          : 'Unknown';
+        const rawName = saved.name || saved.title || 'Медиа';
+        const cleanSavedName = rawName
+          ? rawName.replace(/\s*—\s*Сезон.*$/i, '').replace(/\s*—\s*S\d+.*$/i, '').replace(/\s*·\s*S\d+.*$/i, '').trim()
+          : 'Медиа';
         const bestPoster = saved.poster || saved.backdrop || '';
         const bestBackdrop = saved.backdrop || saved.poster || '';
         watched.push({
-          id: saved.id || Number(id),
-          tmdbId: saved.tmdbId || saved.id || Number(id),
+          id: saved.id || numId,
+          tmdbId: saved.tmdbId || saved.id || numId,
           name: cleanSavedName,
           type: saved.type || 'movie',
           year: saved.year || 0,
@@ -173,51 +197,100 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
           description: saved.description || '',
           backdrop: bestBackdrop,
           poster: bestPoster,
-          logoText: saved.logoText ? saved.logoText.replace(/\s*—\s*Сезон.*$/i, '').trim() : cleanSavedName,
+          logoText: cleanSavedName,
+        } as Title);
+      } else {
+        // Construct fallback item so enrichment can immediately fetch full details
+        const mediaType = (entry.title && entry.title.type) || 'movie';
+        watched.push({
+          id: numId,
+          tmdbId: numId,
+          name: 'Медиа',
+          type: mediaType,
+          year: 0,
+          runtime: '',
+          rating: '',
+          score: 0,
+          genres: [],
+          description: '',
+          backdrop: '',
+          poster: '',
+          logoText: 'Медиа',
         } as Title);
       }
-      if (watched.length >= 12) break;
+      if (watched.length >= 20) break;
     }
 
     return watched;
-  }, [trendingMovies, popularMovies, positionsVersion]);
+  }, [
+    trendingMovies,
+    popularMovies,
+    popularMovies2,
+    popularTv,
+    trendingTv,
+    nowPlayingMovies,
+    topRatedMovies,
+    actionMovies,
+    comedyMovies,
+    scifiMovies,
+    familyMovies,
+    positionsVersion
+  ]);
 
-  // Enrich continueWatching items that lack backdrops or year
+  // Enrich continueWatching items that lack backdrops, year, or proper title
   useEffect(() => {
     if (continueWatching.length === 0) return;
     const needEnrich = continueWatching.filter(
-      (t) => !t.backdrop || !t.year || t.year <= 1900
+      (t) => !t.backdrop || !t.year || t.year <= 1900 || t.name === 'Медиа' || !t.name
     );
     if (needEnrich.length === 0) return;
 
     let active = true;
     (async () => {
       let updatedAny = false;
-      const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+      const positions = JSON.parse(getScopedItem('playback_positions') || '{}');
 
-      for (const item of needEnrich.slice(0, 6)) {
+      for (const item of needEnrich.slice(0, 8)) {
         if (!active) break;
         try {
-          const endpoint = item.type === 'tv' ? `/api/tv/${item.id}` : `/api/movies/${item.id}`;
-          const res = await serverFetch(endpoint);
-          if (!res.ok) continue;
-          const details = await res.json();
-          if (details && (details.backdrop || details.poster || details.year)) {
+          let details: any = null;
+          let effectiveType = item.type || 'movie';
+          const primaryUrl = effectiveType === 'tv' ? `/api/tv/${item.id}` : `/api/movies/${item.id}`;
+          let res = await serverFetch(primaryUrl);
+          if (res.ok) {
+            details = await res.json();
+          } else {
+            // Try opposite type in case it was misclassified
+            const altUrl = effectiveType === 'tv' ? `/api/movies/${item.id}` : `/api/tv/${item.id}`;
+            const altRes = await serverFetch(altUrl);
+            if (altRes.ok) {
+              details = await altRes.json();
+              effectiveType = effectiveType === 'tv' ? 'movie' : 'tv';
+            }
+          }
+
+          if (details && (details.backdrop || details.poster || details.name || details.title || details.year)) {
             const entry = positions[item.id] || { time: 0, timestamp: Date.now() };
             const existingTitle = (typeof entry === 'object' && entry.title) || {};
+            const cleanName = (details.name || details.title || existingTitle.name || item.name || '')
+              .replace(/\s*—\s*Сезон.*$/i, '')
+              .replace(/\s*—\s*S\d+.*$/i, '')
+              .replace(/\s*·\s*S\d+.*$/i, '')
+              .trim();
+
             positions[item.id] = {
               ...entry,
               title: {
                 ...existingTitle,
                 id: item.id,
-                name: details.name || existingTitle.name || item.name,
-                poster: details.poster || existingTitle.poster || item.poster,
-                backdrop: details.backdrop || existingTitle.backdrop || item.backdrop,
+                name: cleanName || item.name,
+                poster: details.poster || details.poster_path || existingTitle.poster || item.poster,
+                backdrop: details.backdrop || details.backdrop_path || existingTitle.backdrop || item.backdrop,
                 year: details.year || existingTitle.year || item.year,
                 runtime: details.runtime || existingTitle.runtime || item.runtime,
-                score: details.score || existingTitle.score || item.score,
+                score: details.score || details.vote_average || existingTitle.score || item.score,
                 genres: details.genres || existingTitle.genres || item.genres,
-                type: item.type,
+                type: effectiveType,
               },
             };
             updatedAny = true;
@@ -226,7 +299,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
       }
 
       if (active && updatedAny) {
-        localStorage.setItem('playback_positions', JSON.stringify(positions));
+        setScopedItem('playback_positions', JSON.stringify(positions));
         setPositionsVersion((v) => v + 1);
       }
     })();

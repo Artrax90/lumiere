@@ -35,8 +35,11 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
         season: sNum,
         episode: eNum,
       };
-      if (sNum && eNum) {
-        positions[`${titleId}_s${sNum}_e${eNum}`] = { ...entry };
+    }
+    // Clean up any legacy subkeys like 456_s37_e1
+    for (const k of Object.keys(positions)) {
+      if (k.startsWith(`${titleId}_s`) || k.startsWith(`${titleId}_`) || k.includes('_')) {
+        delete positions[k];
       }
     }
     positions[titleId] = entry;

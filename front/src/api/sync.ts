@@ -359,20 +359,32 @@ class SyncClient {
     try {
       const rawPositions = JSON.parse(getScopedItem('playback_positions') || '{}');
       let changed = false;
+
+      // Clean up any non-numeric / subkeys from rawPositions
+      for (const k of Object.keys(rawPositions)) {
+        if (k.includes('_') || isNaN(Number(k))) {
+          delete rawPositions[k];
+          changed = true;
+        }
+      }
+
       for (const item of serverData.watchHistory || []) {
-        const id = item.tmdbId;
-        if (!id) continue;
-        const serverTime = item.timestamp || new Date((item as any).updatedAt || 0).getTime() || Date.now();
+        const id = Number(item.tmdbId);
+        if (!id || isNaN(id) || id <= 0) continue;
+        const serverTime = Number(item.timestamp) || new Date((item as any).updatedAt || 0).getTime() || Date.now();
         const local = rawPositions[id];
-        const localTime = typeof local === 'object' ? (local.timestamp || 0) : 0;
-        if (!local || serverTime >= localTime) {
+        const localTime = typeof local === 'object' ? (Number(local.timestamp) || 0) : 0;
+        const hasLocalTitle = typeof local === 'object' && local.title && local.title.name;
+
+        if (!local || serverTime >= localTime || !hasLocalTitle) {
           rawPositions[id] = {
-            time: item.progress || 0,
-            timestamp: serverTime,
+            time: item.progress || (typeof local === 'object' ? local.time : 0) || 0,
+            timestamp: Math.max(serverTime, localTime),
             title: {
               id: id,
               name: item.titleName || (typeof local === 'object' && local.title?.name) || '',
               poster: item.poster || (typeof local === 'object' && local.title?.poster) || '',
+              backdrop: (typeof local === 'object' && local.title?.backdrop) || '',
               type: item.mediaType || 'movie',
             },
           };

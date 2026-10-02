@@ -8,6 +8,7 @@ import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
 import { apiPost, apiDelete } from '@/api/client';
 import Card from './Card';
+import { getScopedItem } from '@/api/sync';
 import SourceSelector from './SourceSelector';
 import TorrentSearch from './TorrentSearch';
 import SeasonTorrentBrowser from './SeasonTorrentBrowser';
@@ -59,8 +60,9 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
   const savedPosition = (() => {
     try {
-      const positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-      return positions[title.id] || 0;
+      const positions = JSON.parse(getScopedItem('playback_positions') || '{}');
+      const entry = positions[title.id];
+      return typeof entry === 'object' && entry !== null ? (entry.time || 0) : (Number(entry) || 0);
     } catch { return 0; }
   })();
 
