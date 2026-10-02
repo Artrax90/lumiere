@@ -155,9 +155,10 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
     try {
       await client.query('BEGIN');
 
-      // Upsert watch history entries
+      // Upsert watch history entries (sorted deterministically by tmdbId & mediaType to prevent PostgreSQL deadlocks)
       if (watchHistory && watchHistory.length > 0) {
-        for (const item of watchHistory) {
+        const sortedHistory = [...watchHistory].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
+        for (const item of sortedHistory) {
           await client.query(
             `INSERT INTO watch_history (user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
@@ -173,9 +174,10 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
         }
       }
 
-      // Upsert favorites
+      // Upsert favorites (sorted deterministically by tmdbId & mediaType to prevent deadlocks)
       if (favorites && favorites.length > 0) {
-        for (const item of favorites) {
+        const sortedFavorites = [...favorites].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
+        for (const item of sortedFavorites) {
           await client.query(
             `INSERT INTO favorites (user_id, tmdb_id, media_type, title_name, poster, added_at)
              VALUES ($1, $2, $3, $4, $5, NOW())

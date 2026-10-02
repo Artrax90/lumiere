@@ -237,15 +237,25 @@ export async function startServerDownloadProcess(params: {
                     const sStr = String(season).padStart(2, '0');
                     const eStr = String(episode).padStart(2, '0');
                     const patterns = [
-                      new RegExp(`s0?${season}e0?${episode}\\b`, 'i'),
-                      new RegExp(`\\b0?${season}x0?${episode}\\b`, 'i'),
-                      new RegExp(`\\b0?${episode}\\s*серия`, 'i'),
-                      new RegExp(`\\bсерия\\s*0?${episode}\\b`, 'i'),
-                      new RegExp(`\\bep?0?${episode}\\b`, 'i'),
+                      new RegExp(`s0*${season}e0*${episode}\\b`, 'i'),
+                      new RegExp(`\\b0*${season}[xх]0*${episode}\\b`, 'i'),
+                      new RegExp(`\\b0*${episode}\\s*(?:выпуск|сери[яий]|эпизод)`, 'i'),
+                      new RegExp(`(?:выпуск|сери[яий]|эпизод)\\s*[:#№]?\\s*0*${episode}\\b`, 'i'),
+                      new RegExp(`\\bep?\\.?0*${episode}\\b`, 'i'),
+                      new RegExp(`[\\[\\(_\\s\\.-]0*${episode}[\\]\\)_\\s\\.-]`, 'i'),
                     ];
-                    const matchedEpisodeFile = videoFiles.find((f: any) =>
+                    let matchedEpisodeFile = videoFiles.find((f: any) =>
                       patterns.some((re) => re.test(f.path))
                     );
+                    if (!matchedEpisodeFile) {
+                      // Natural sort files by path to match 1-based episode index
+                      const sortedByPath = [...videoFiles].sort((a: any, b: any) =>
+                        a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
+                      );
+                      if (sortedByPath[episode - 1]) {
+                        matchedEpisodeFile = sortedByPath[episode - 1];
+                      }
+                    }
                     if (matchedEpisodeFile) {
                       resolvedIndex = matchedEpisodeFile.id;
                       console.log(`[Downloads] Matched single episode file for S${sStr}E${eStr}: "${matchedEpisodeFile.path}" (ID: ${resolvedIndex})`);

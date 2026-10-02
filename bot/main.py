@@ -1346,37 +1346,123 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             return
 
         await call.answer("🔍 Ищем доступные релизы на торрентах...")
-        search_query = raw_title
-        if season is not None and episode is not None and season > 0 and episode > 0:
-            search_query += f" S{season:02d}E{episode:02d}"
-
+        is_tv_episode = (season is not None and episode is not None and season > 0 and episode > 0)
         target_year = cached.get("year", "")
         year_param = f"&year={target_year}" if target_year else ""
-        torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(search_query)}&tmdbId={media_id}&type={media_type}{year_param}")
-        torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
 
-        if not torrents and search_query != raw_title:
-            torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(raw_title)}&tmdbId={media_id}&type={media_type}{year_param}")
-            torrents = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
+        # Multi-query strategy for TV episodes vs movies
+        queries_to_try = []
+        if is_tv_episode:
+            queries_to_try.append(f"{raw_title} {season} сезон")
+            queries_to_try.append(f"{raw_title} S{season:02d}E{episode:02d}")
+            queries_to_try.append(raw_title)
+            orig_t = cached.get("original_title") or cached.get("original_name")
+            if orig_t and orig_t.strip().lower() != raw_title.strip().lower():
+                queries_to_try.append(f"{orig_t} S{season:02d}")
+                queries_to_try.append(orig_t)
+        else:
+            queries_to_try.append(raw_title)
+
+        torrents = []
+        seen_keys = set()
+
+        for q_try in queries_to_try:
+            extra_params = f"&season={season}&episode={episode}" if is_tv_episode else ""
+            torr_res = await fetch_api(f"/api/torrents/search?q={urllib.parse.quote(q_try)}&tmdbId={media_id}&type={media_type}{year_param}{extra_params}")
+            results = (torr_res or {}).get("results", []) or (torr_res or {}).get("torrents", [])
+            for r in results:
+                k = r.get("hash") or r.get("magnet") or r.get("title")
+                if k and k not in seen_keys:
+                    seen_keys.add(k)
+                    torrents.append(r)
+            if is_tv_episode and len(torrents) >= 15:
+                break
+
+        # Strict Season Filtering for TV shows
+        if is_tv_episode and torrents:
+            def matches_season(t_title: str, s: int) -> bool:
+                rm = re.search(r'(\d+)\s*[-–—]\s*(\d+)\s*(?:сезон|season)', t_title, re.I) or \
+                     re.search(r'(?:сезон[ыа]?|seasons?)\s*[:.]?\s*(\d+)\s*[-–—]\s*(\d+)', t_title, re.I)
+                if rm:
+                    nums = [int(n) for n in rm.groups() if n.isdigit()]
+                    if len(nums) >= 2 and min(nums) <= s <= max(nums):
+                        return True
+                exact_p = [
+                    rf'\b{s}\s*сезон',
+                    rf'сезон[а-я]*\s*[:.]?\s*{s}\b',
+                    rf's0*{s}(?![0-9])',
+                    rf'\b0*{s}[xх]\d+',
+                    rf'season\s*0*{s}\b',
+                ]
+                if any(re.search(p, t_title, re.I) for p in exact_p):
+                    return True
+                return False
+
+            def is_wrong_season(t_title: str, s: int) -> bool:
+                other_m = re.findall(r'(\d+)\s*сезон|сезон[а-я]*\s*[:.]?\s*(\d+)|s0*(\d+)|season\s*0*(\d+)', t_title, re.I)
+                for group in other_m:
+                    for num_str in group:
+                        if num_str and int(num_str) != s:
+                            if not matches_season(t_title, s):
+                                return True
+                return False
+
+            season_matches = [t for t in torrents if matches_season(t.get("title", ""), season)]
+            if not season_matches:
+                season_matches = [t for t in torrents if not is_wrong_season(t.get("title", ""), season)]
+            if season_matches:
+                torrents = season_matches
 
         if not torrents:
-            await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}».")
+            ep_note = f" (Сезон {season}, Серия {episode})" if is_tv_episode else ""
+            await call.message.reply(f"⚠️ Торрент-релизы не найдены для «{html.escape(raw_title)}»{ep_note}.")
             return
 
-        # Sort releases: positive seeders first, then seeders desc
-        torrents.sort(key=lambda x: (x.get("seeders", 0) > 0, x.get("seeders", 0)), reverse=True)
+        # Sort releases: prioritize exact episode, then seeders
+        if is_tv_episode:
+            def episode_score(t: dict) -> tuple:
+                t_title = t.get("title", "")
+                exact_ep = bool(
+                    re.search(rf'\b0*{episode}\s*(?:выпуск|сери[яий]|эпизод)', t_title, re.I) or
+                    re.search(rf'(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\s*0*{episode}\b', t_title, re.I) or
+                    re.search(rf'\b0*{season}[xх]0*{episode}\b', t_title, re.I) or
+                    re.search(rf's0*{season}e0*{episode}\b', t_title, re.I)
+                )
+                range_ep = False
+                erm = re.search(r'(\d+)\s*[-–—]\s*(\d+)\s*(?:выпуск|сери)', t_title, re.I)
+                if erm:
+                    nums = [int(n) for n in erm.groups() if n.isdigit()]
+                    if len(nums) >= 2 and min(nums) <= episode <= max(nums):
+                        range_ep = True
+                seeds = t.get("seeders", 0)
+                return (1 if exact_ep else (0.5 if range_ep else 0), seeds > 0, seeds)
+
+            torrents.sort(key=episode_score, reverse=True)
+        else:
+            torrents.sort(key=lambda x: (x.get("seeders", 0) > 0, x.get("seeders", 0)), reverse=True)
 
         options = torrents[:5]
         builder = InlineKeyboardBuilder()
         releases_summary = []
         num_emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
 
-        title_display = f"{raw_title} S{season:02d}E{episode:02d}" if (season and episode and season > 0 and episode > 0) else raw_title
+        title_display = f"{raw_title} S{season:02d}E{episode:02d}" if is_tv_episode else raw_title
 
         for idx, t in enumerate(options, 1):
             pick_id = uuid.uuid4().hex[:8]
             badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
             raw_t_title = t.get("title", "")
+
+            t_type_badge = ""
+            if is_tv_episode:
+                is_single = bool(
+                    re.search(rf'\b0*{episode}\s*(?:выпуск|сери[яий]|эпизод)', raw_t_title, re.I) or
+                    re.search(rf'(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\s*0*{episode}\b', raw_t_title, re.I) or
+                    re.search(rf'\b0*{season}[xх]0*{episode}\b', raw_t_title, re.I) or
+                    re.search(rf's0*{season}e0*{episode}\b', raw_t_title, re.I)
+                )
+                t_type_badge = f" [Серия {episode}]" if is_single else f" [Сезон {season}]"
+
             TORRENT_PICK_CACHE[pick_id] = {
                 "title": title_display,
                 "media_type": media_type,
@@ -1393,7 +1479,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             emoji_prefix = num_emojis[idx - 1] if idx <= 5 else f"{idx}."
             quality_tag = badge.split(" • ")[0]
             size_tag = t.get("sizeFormatted", "").replace(" ", "")
-            btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}" if size_tag else f"{emoji_prefix} {quality_tag}"
+            btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}{t_type_badge}" if size_tag else f"{emoji_prefix} {quality_tag}{t_type_badge}"
             builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}", style="success")
 
             clean_t_title = html.escape(raw_t_title.strip())
@@ -1404,7 +1490,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
         builder.adjust(2, 2, 2)
 
-        ep_header = f" (Сезон {season}, Серия {episode})" if (season and episode and season > 0 and episode > 0) else ""
+        ep_header = f" (Сезон {season}, Серия {episode})" if is_tv_episode else ""
         pick_text = (
             f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
             f"🎬 <b>«{html.escape(raw_title)}»</b>{ep_header}\n\n"
@@ -1446,8 +1532,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         if res and res.get("success"):
             badge_info = f" ({cached.get('badge')})" if cached.get('badge') else ""
             dl_id = res.get("id") or cached.get("hash")
+            ep_note = ""
+            if cached.get("season") and cached.get("episode"):
+                ep_note = f"\n🎯 <i>Будет скачан файл серии {cached['episode']} (Сезон {cached['season']}).</i>\n"
             success_text = (
-                f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!\n\n"
+                f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!{ep_note}\n"
                 f"После завершения скачивания вы получите уведомление."
             )
             download_url = f"{WEB_URL}/api/downloads/server/download-file/{dl_id}"

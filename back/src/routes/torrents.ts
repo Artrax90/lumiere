@@ -254,19 +254,33 @@ export function torrentRoutes(app: FastifyInstance) {
   ensureTorrServerOptimized().catch(() => {});
   // Search torrents via JacRed with multi-indexer aggregation & smart fallback
   app.get('/api/torrents/search', async (req, reply) => {
-    const { q, alt, category, tmdbId, type, year } = req.query as {
+    const { q, alt, category, tmdbId, type, year, season, episode } = req.query as {
       q?: string;
       alt?: string;
       category?: string;
       tmdbId?: string;
       type?: string;
       year?: string;
+      season?: string;
+      episode?: string;
     };
 
     let targetYear = year ? parseInt(year, 10) : 0;
+    let targetSeason = season ? parseInt(season, 10) : 0;
+    let targetEpisode = episode ? parseInt(episode, 10) : 0;
 
     if (!q) {
       return reply.code(400).send({ error: 'Query required' });
+    }
+
+    // Try to extract season & episode from query string if not passed explicitly
+    if (!targetSeason && q) {
+      const sMatch = q.match(/\bS(\d{1,2})\b/i) || q.match(/(\d{1,2})\s*сезон/i) || q.match(/сезон\s*(\d{1,2})\b/i);
+      if (sMatch) targetSeason = parseInt(sMatch[1], 10);
+    }
+    if (!targetEpisode && q) {
+      const eMatch = q.match(/\bE(\d{1,3})\b/i) || q.match(/(\d{1,3})\s*(?:сери[яий]|выпуск)/i) || q.match(/(?:сери[яий]|выпуск)\s*(\d{1,3})\b/i);
+      if (eMatch) targetEpisode = parseInt(eMatch[1], 10);
     }
 
     try {
@@ -351,8 +365,9 @@ export function torrentRoutes(app: FastifyInstance) {
         for (const rule of franchiseRules) {
           if (rule.test.test(q) || (alt && rule.test.test(alt))) {
             for (const exp of rule.expansions) {
-              if (exp.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(exp)) {
-                extraQueries.push(exp);
+              const fullExp = targetSeason > 0 ? `${exp} ${targetSeason} сезон` : exp;
+              if (fullExp.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(fullExp)) {
+                extraQueries.push(fullExp);
               }
             }
           }
@@ -480,12 +495,89 @@ export function torrentRoutes(app: FastifyInstance) {
         const tracker = (t.tracker || '').toLowerCase();
         const hasTrackers = Boolean(t.magnet && t.magnet.includes('&tr='));
 
+        if (targetSeason > 0) {
+          // Check season range e.g. 1-25 сезон, 1-45 seasons
+          const rangeMatch = t.title.match(/(\d+)\s*[-–—]\s*(\d+)\s*(сезон|season)/i) ||
+                             t.title.match(/(сезон[ыа]?|seasons?)\s*[:.]?\s*(\d+)\s*[-–—]\s*(\d+)/i);
+          let inRange = false;
+          if (rangeMatch) {
+            const s1 = parseInt(rangeMatch[1] || rangeMatch[2], 10);
+            const s2 = parseInt(rangeMatch[2] || rangeMatch[3], 10);
+            const minS = Math.min(s1, s2);
+            const maxS = Math.max(s1, s2);
+            if (targetSeason >= minS && targetSeason <= maxS) {
+              inRange = true;
+              score += 6000;
+            }
+          }
+
+          // Exact season match: e.g. 22 сезон, сезон 22, s22, 22х.., 22x..
+          const isExactSeason =
+            new RegExp(`\\b${targetSeason}\\s*сезон`, 'i').test(t.title) ||
+            new RegExp(`сезон[а-я]*\\s*[:.]?\\s*${targetSeason}\\b`, 'i').test(t.title) ||
+            new RegExp(`s0*${targetSeason}(?![0-9])`, 'i').test(t.title) ||
+            new RegExp(`\\b0*${targetSeason}[xх]\\d+`, 'i').test(t.title) ||
+            new RegExp(`season\\s*0*${targetSeason}\\b`, 'i').test(t.title);
+
+          if (isExactSeason) {
+            score += 15000;
+          }
+
+          // If neither exact season nor range match, check if it explicitly mentions OTHER season(s)
+          if (!isExactSeason && !inRange) {
+            const otherSeasonMatch = t.title.match(/\b(\d{1,2})\s*сезон/i) ||
+                                     t.title.match(/сезон[а-я]*\s*[:.]?\s*(\d{1,2})\b/i) ||
+                                     t.title.match(/\bs0*(\d{1,2})(?![0-9])/i) ||
+                                     t.title.match(/\b0*(\d{1,2})[xх]\d+/i);
+            if (otherSeasonMatch) {
+              const otherS = parseInt(otherSeasonMatch[1], 10);
+              if (otherS !== targetSeason) {
+                // Heavily penalize releases of wrong seasons so they drop out
+                score -= 100000;
+              }
+            } else {
+              // Unspecified season in TV series
+              score -= 5000;
+            }
+          }
+
+          // Episode scoring
+          if (targetEpisode > 0) {
+            const exactEp =
+              new RegExp(`\\b0*${targetEpisode}\\s*(?:выпуск|сери[яий]|эпизод)`, 'i').test(t.title) ||
+              new RegExp(`(?:выпуск|сери[яий]|эпизод)\\s*[:#№]?\\s*0*${targetEpisode}\\b`, 'i').test(t.title) ||
+              new RegExp(`\\b0*${targetSeason}[xх]0*${targetEpisode}\\b`, 'i').test(t.title) ||
+              new RegExp(`s0*${targetSeason}e0*${targetEpisode}\\b`, 'i').test(t.title) ||
+              new RegExp(`\\bep?0*${targetEpisode}\\b`, 'i').test(t.title);
+
+            if (exactEp) {
+              score += 10000; // Best match: specific episode!
+            } else {
+              // Check if pack range includes the episode e.g. 1-20 выпуски
+              const epRangeMatch = t.title.match(/(\d+)\s*[-–—]\s*(\d+)\s*(?:выпуск|сери)/i);
+              if (epRangeMatch) {
+                const e1 = parseInt(epRangeMatch[1], 10);
+                const e2 = parseInt(epRangeMatch[2], 10);
+                if (targetEpisode >= Math.min(e1, e2) && targetEpisode <= Math.max(e1, e2)) {
+                  score += 4000; // Pack containing the episode
+                } else {
+                  score -= 15000; // Pack does NOT contain the episode (e.g. 1-10 when target is 13)
+                }
+              } else {
+                const otherEpMatch = t.title.match(/\b(\d{1,3})\s*(?:выпуск|сери[яий]|эпизод)/i) ||
+                                     t.title.match(/(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\\s*(\d{1,3})\b/i);
+                if (otherEpMatch && parseInt(otherEpMatch[1], 10) !== targetEpisode) {
+                  score -= 20000;
+                }
+              }
+            }
+          }
+        }
+
         if (targetYear > 0) {
           const torrentYear = extractTorrentYear(t.title);
           if (torrentYear !== null) {
             if (type === 'tv') {
-              // TV series have older seasons from earlier years (e.g. Comedy Club Season 1 in 2005 vs 2026).
-              // Never penalize older years for TV.
               if (torrentYear >= targetYear) {
                 score += 300;
               }
@@ -524,10 +616,18 @@ export function torrentRoutes(app: FastifyInstance) {
 
       results.sort((a, b) => scoreTorrentItem(b) - scoreTorrentItem(a));
 
+      let finalResults = results;
+      if (targetSeason > 0) {
+        const seasonMatches = results.filter((r) => scoreTorrentItem(r) > 0);
+        if (seasonMatches.length > 0) {
+          finalResults = seasonMatches;
+        }
+      }
+
       reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
       reply.header('Pragma', 'no-cache');
       reply.header('Expires', '0');
-      return { results, torrents: results };
+      return { results: finalResults, torrents: finalResults };
     } catch (err: any) {
       console.error('JacRed search error:', err.message);
       return reply.code(500).send({ error: err.message });
@@ -1121,7 +1221,6 @@ export function torrentRoutes(app: FastifyInstance) {
       const ffmpegArgs = [
         '-threads', '1',
         '-reconnect', '1',
-        '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
         '-probesize', '10000000',
@@ -1178,6 +1277,7 @@ export function torrentRoutes(app: FastifyInstance) {
         playlistPath,
       );
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+      let ffmpegClosed = false;
       try {
         if (ffmpeg.pid && typeof os.setPriority === 'function') {
           os.setPriority(ffmpeg.pid, 15);
@@ -1213,6 +1313,7 @@ export function torrentRoutes(app: FastifyInstance) {
         cleanupSession(sessionId);
       });
       ffmpeg.on('close', (code, signal) => {
+        ffmpegClosed = true;
         console.log(`[FFmpeg] Session ${sessionId} closed: code=${code}, signal=${signal}`);
         if (sess.timer) clearInterval(sess.timer);
         activeSessions.delete(sessionId);
@@ -1232,6 +1333,14 @@ export function torrentRoutes(app: FastifyInstance) {
         if (existsSync(playlistPath)) {
           const content = readFileSync(playlistPath, 'utf-8');
           if (content.includes('.ts')) {
+            resolve();
+            return;
+          }
+        }
+        if (activeSessions.get(sessionId)?.paused === undefined && !existsSync(playlistPath)) {
+          // If session was closed or failed before producing manifest, resolve immediately
+          const s = activeSessions.get(sessionId);
+          if (!s && attempts > 5) {
             resolve();
             return;
           }
