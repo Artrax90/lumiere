@@ -93,6 +93,11 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
     return provider.topRated('tv', page ? parseInt(page) : 1, lang);
   });
 
+  app.get('/api/tv/netflix', async (req) => {
+    const { page, lang } = req.query as { page?: string; lang?: Lang };
+    return provider.netflixTv(page ? parseInt(page) : 1, lang);
+  });
+
   const getGenreTv = async (req: any) => {
     const { genreId } = req.params as { genreId: string };
     const { page, lang } = req.query as { page?: string; lang?: Lang };

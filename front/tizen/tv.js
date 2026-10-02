@@ -1953,6 +1953,20 @@
       }
     });
 
+    // Netflix TV Series
+    apiFetch('/api/tv/netflix', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('netflix-tv-items', data.results.slice(0, 25));
+      }
+    });
+
+    // Netflix Movies
+    apiFetch('/api/movies/netflix', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('netflix-movies-items', data.results.slice(0, 25));
+      }
+    });
+
     // 6. Popular TV Shows
     apiFetch('/api/tv/popular', function(err, data) {
       if (data && data.results && data.results.length > 0) {
@@ -10527,8 +10541,10 @@
   var SHELF_ROW_MAP = {
     'continueWatching': 'row-continue',
     'top10Movies': 'row-top10-movies',
+    'netflixMovies': 'row-netflix-movies',
     'nowPlaying': 'row-now-playing',
     'top10Tv': 'row-top10-tv',
+    'netflixTv': 'row-netflix-tv',
     'topRated': 'row-top-rated',
     'action': 'row-action',
     'banner': 'row-banner',

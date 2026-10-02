@@ -117,6 +117,40 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
+  async netflixTv(page = 1, lang?: Lang): Promise<TitleResult> {
+    const data = await this.client.get('/discover/tv', {
+      with_networks: '213',
+      without_genres: '10763,10767',
+      sort_by: 'popularity.desc',
+      'vote_count.gte': '10',
+      page: String(page),
+      language: this.client.lang(lang),
+    });
+    return {
+      results: data.results.map((t: TmdbTitle) => this.mapTitle(t, 'tv')),
+      page: data.page,
+      totalPages: data.total_pages,
+      totalResults: data.total_results,
+    };
+  }
+
+  async netflixMovies(page = 1, lang?: Lang): Promise<TitleResult> {
+    const data = await this.client.get('/discover/movie', {
+      with_watch_providers: '8',
+      watch_region: 'US',
+      sort_by: 'popularity.desc',
+      'vote_count.gte': '10',
+      page: String(page),
+      language: this.client.lang(lang),
+    });
+    return {
+      results: data.results.map((t: TmdbTitle) => this.mapTitle(t, 'movie')),
+      page: data.page,
+      totalPages: data.total_pages,
+      totalResults: data.total_results,
+    };
+  }
+
   async search(query: string, page = 1, lang?: Lang): Promise<TitleResult> {
     const data = await this.client.get('/search/multi', {
       query,

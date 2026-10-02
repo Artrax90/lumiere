@@ -9,7 +9,7 @@ import ContentRow from './ContentRow';
 import ShowcaseRow from './ShowcaseRow';
 import CollectionBanner from './CollectionBanner';
 import Top10Row from './Top10Row';
-import { useTopRated, useNowPlaying, useGenreCatalog } from '@/hooks/useCatalog';
+import { useTopRated, useNowPlaying, useGenreCatalog, useNetflixCatalog } from '@/hooks/useCatalog';
 import { getHomeShelves, syncHomeShelvesFromServer, type HomeShelfConfig } from '@/utils/homeShelves';
 import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
 
@@ -86,6 +86,8 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
   const { data: trendingTv } = useTrending('tv');
   const { data: nowPlayingMovies } = useNowPlaying(1);
   const { data: topRatedMovies } = useTopRated('movie', 1);
+  const { data: netflixTv } = useNetflixCatalog('tv', 1);
+  const { data: netflixMovies } = useNetflixCatalog('movie', 1);
   const { data: actionMovies } = useGenreCatalog('movie', 28, 1);
   const { data: comedyMovies } = useGenreCatalog('movie', 35, 1);
   const { data: scifiMovies } = useGenreCatalog('movie', 878, 1);
@@ -344,6 +346,18 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
             onPlay={onPlay}
           />
         );
+      case 'netflixMovies':
+        return netflixMovies.length > 0 ? (
+          <ContentRow
+            key="netflixMovies"
+            label="Топ фильмы Netflix"
+            subtitle="Главные кинохиты и оригинальные премьеры Netflix"
+            titles={netflixMovies}
+            variant="portrait"
+            personality="editorial"
+            onSelect={onSelect}
+          />
+        ) : null;
       case 'nowPlaying':
         return nowPlayingMovies.length > 0 ? (
           <ContentRow
@@ -367,6 +381,18 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
             onPlay={onPlay}
           />
         );
+      case 'netflixTv':
+        return netflixTv.length > 0 ? (
+          <ContentRow
+            key="netflixTv"
+            label="Топ сериалы Netflix"
+            subtitle="Популярные оригинальные сериалы и хиты стриминга Netflix"
+            titles={netflixTv}
+            variant="landscape"
+            personality="trending"
+            onSelect={onSelect}
+          />
+        ) : null;
       case 'topRated':
         return (
           <ShowcaseRow

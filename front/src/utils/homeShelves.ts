@@ -10,8 +10,10 @@ export interface HomeShelfConfig {
 export const DEFAULT_SHELVES: HomeShelfConfig[] = [
   { id: 'continueWatching', label: 'Продолжить просмотр', description: 'Фильмы и сериалы с прогресс-баром воспроизведения', enabled: true },
   { id: 'top10Movies', label: 'Топ-10 фильмов сегодня', description: 'Полка в стиле Netflix с гигантскими цифрами 1–10', enabled: true },
+  { id: 'netflixMovies', label: 'Топ фильмы Netflix', description: 'Главные кинохиты и оригинальные премьеры Netflix', enabled: true },
   { id: 'nowPlaying', label: 'Новинки в кино и цифровые релизы', description: 'Свежие премьеры текущего кинопроката', enabled: true },
   { id: 'top10Tv', label: 'Топ-10 сериалов недели', description: 'Полка топовых сериалов недели с крупными номерами 1–10', enabled: true },
+  { id: 'netflixTv', label: 'Топ сериалы Netflix', description: 'Популярные оригинальные сериалы и хиты стриминга Netflix', enabled: true },
   { id: 'topRated', label: 'Шедевры мирового кино (Высокий рейтинг)', description: 'Фильмы с высочайшим рейтингом и золотым свечением', enabled: true },
   { id: 'action', label: 'Боевики и приключения', description: 'Динамичный экшн, блокбастеры и адреналин', enabled: true },
   { id: 'banner', label: 'Подборки (Баннер)', description: 'Широкий кинематографичный баннер подборок', enabled: true },
