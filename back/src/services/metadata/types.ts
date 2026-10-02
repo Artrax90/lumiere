@@ -92,5 +92,7 @@ export interface MetadataProvider {
   similar(id: number, mediaType: 'movie' | 'tv', lang?: Lang): Promise<Title[]>;
   seasonDetails(tvId: number, seasonNumber: number, lang?: Lang): Promise<Episode[]>;
   genres(mediaType: 'movie' | 'tv', lang?: Lang): Promise<Genre[]>;
+  netflixTv?(page?: number, lang?: Lang, period?: 'week' | 'all_time'): Promise<TitleResult>;
+  netflixMovies?(page?: number, lang?: Lang, period?: 'week' | 'all_time'): Promise<TitleResult>;
   person?(id: number, lang?: Lang): Promise<PersonDetails>;
 }

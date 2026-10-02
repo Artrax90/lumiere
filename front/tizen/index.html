@@ -238,7 +238,13 @@
           <div class="row-items top10-row-items" id="top10-movies-items"></div>
         </div>
         <div class="row" id="row-netflix-movies">
-          <h2 class="row-title">🔴 Топ фильмы Netflix</h2>
+          <div class="row-header-wrapper">
+            <h2 class="row-title">🔴 Топ фильмы Netflix</h2>
+            <div class="shelf-tab-group" id="netflix-movies-tabs">
+              <button class="shelf-tab active" data-shelf="movies" data-period="week">🔥 На этой неделе</button>
+              <button class="shelf-tab" data-shelf="movies" data-period="all_time">🏆 За всё время</button>
+            </div>
+          </div>
           <div class="row-items" id="netflix-movies-items"></div>
         </div>
         <div class="row" id="row-now-playing">
@@ -250,7 +256,13 @@
           <div class="row-items top10-row-items" id="top10-tv-items"></div>
         </div>
         <div class="row" id="row-netflix-tv">
-          <h2 class="row-title">🔴 Топ сериалы Netflix</h2>
+          <div class="row-header-wrapper">
+            <h2 class="row-title">🔴 Топ сериалы Netflix</h2>
+            <div class="shelf-tab-group" id="netflix-tv-tabs">
+              <button class="shelf-tab active" data-shelf="tv" data-period="week">🔥 На этой неделе</button>
+              <button class="shelf-tab" data-shelf="tv" data-period="all_time">🏆 За всё время</button>
+            </div>
+          </div>
           <div class="row-items" id="netflix-tv-items"></div>
         </div>
         <div class="row" id="row-top-rated">

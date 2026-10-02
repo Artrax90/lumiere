@@ -94,8 +94,8 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
   });
 
   app.get('/api/tv/netflix', async (req) => {
-    const { page, lang } = req.query as { page?: string; lang?: Lang };
-    return provider.netflixTv(page ? parseInt(page) : 1, lang);
+    const { page, lang, period } = req.query as { page?: string; lang?: Lang; period?: 'week' | 'all_time' };
+    return provider.netflixTv(page ? parseInt(page) : 1, lang, period);
   });
 
   const getGenreTv = async (req: any) => {

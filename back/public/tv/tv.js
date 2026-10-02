@@ -1953,19 +1953,10 @@
       }
     });
 
-    // Netflix TV Series
-    apiFetch('/api/tv/netflix', function(err, data) {
-      if (data && data.results && data.results.length > 0) {
-        renderRow('netflix-tv-items', data.results.slice(0, 25));
-      }
-    });
-
-    // Netflix Movies
-    apiFetch('/api/movies/netflix', function(err, data) {
-      if (data && data.results && data.results.length > 0) {
-        renderRow('netflix-movies-items', data.results.slice(0, 25));
-      }
-    });
+    // Netflix TV Series & Movies with Week / All-Time tabs
+    setupShelfTabs();
+    loadNetflixRow('movies', 'week');
+    loadNetflixRow('tv', 'week');
 
     // 6. Popular TV Shows
     apiFetch('/api/tv/popular', function(err, data) {
@@ -2014,6 +2005,53 @@
 
     loadIptv();
     loadAndApplyHomeShelves();
+  }
+
+  function loadNetflixRow(type, period) {
+    var endpoint = type === 'movies' ? '/api/movies/netflix' : '/api/tv/netflix';
+    var containerId = type === 'movies' ? 'netflix-movies-items' : 'netflix-tv-items';
+    var tabsId = type === 'movies' ? 'netflix-movies-tabs' : 'netflix-tv-tabs';
+    var container = document.getElementById(containerId);
+    if (container) {
+      container.style.opacity = '0.35';
+      container.style.transition = 'opacity 0.25s ease';
+    }
+    var tabsContainer = document.getElementById(tabsId);
+    if (tabsContainer) {
+      var btns = tabsContainer.querySelectorAll('.shelf-tab');
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute('data-period') === period) {
+          btns[i].classList.add('active');
+        } else {
+          btns[i].classList.remove('active');
+        }
+      }
+    }
+    apiFetch(endpoint + '?period=' + period, function(err, data) {
+      if (container) {
+        container.style.opacity = '1';
+      }
+      if (data && data.results && data.results.length > 0) {
+        renderRow(containerId, data.results.slice(0, 25));
+      }
+    });
+  }
+
+  function setupShelfTabs() {
+    var tabs = document.querySelectorAll('.shelf-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      (function(btn) {
+        if (btn._hasClickBound) return;
+        btn._hasClickBound = true;
+        btn.addEventListener('click', function() {
+          var shelf = btn.getAttribute('data-shelf');
+          var period = btn.getAttribute('data-period');
+          if (shelf && period) {
+            loadNetflixRow(shelf, period);
+          }
+        });
+      })(tabs[i]);
+    }
   }
 
   function cleanMovieTitle(raw) {
@@ -9413,6 +9451,110 @@
     console.log('[Lumiere] setupKeyboard: key listeners registered OK');
   }
 
+  function handleShelfTabKeys(code, e, tabEl) {
+    var key = e ? e.key : '';
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack';
+
+    if (isBack) {
+      clearAllFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    var group = tabEl.closest('.shelf-tab-group');
+    var row = tabEl.closest('.row');
+    var tabs = group ? Array.prototype.slice.call(group.querySelectorAll('.shelf-tab')) : [];
+    var tabIdx = tabs.indexOf(tabEl);
+
+    if (isLeft) {
+      if (tabIdx > 0) {
+        tabEl.classList.remove('focused');
+        tabs[tabIdx - 1].classList.add('focused');
+        try { tabs[tabIdx - 1].focus(); } catch(err) {}
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (tabIdx >= 0 && tabIdx < tabs.length - 1) {
+        tabEl.classList.remove('focused');
+        tabs[tabIdx + 1].classList.add('focused');
+        try { tabs[tabIdx + 1].focus(); } catch(err) {}
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      var shelfType = tabEl.getAttribute('data-shelf');
+      var period = tabEl.getAttribute('data-period');
+      if (shelfType && period && typeof loadNetflixRow === 'function') {
+        loadNetflixRow(shelfType, period);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      tabEl.classList.remove('focused');
+      if (row) {
+        var rowCards = Array.prototype.slice.call(row.querySelectorAll('.card'));
+        if (rowCards.length > 0) {
+          var allCards = getVisibleCards();
+          var targetCard = rowCards[0];
+          var gIdx = allCards.indexOf(targetCard);
+          if (gIdx >= 0) {
+            focusCard(gIdx);
+          } else {
+            targetCard.classList.add('focused');
+            targetCard.focus();
+          }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+      focusCard(state.focusedCard || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      tabEl.classList.remove('focused');
+      if (row) {
+        var rows = getVisibleRows();
+        var curRowIdx = rows.indexOf(row);
+        if (curRowIdx > 0) {
+          var prevRow = rows[curRowIdx - 1];
+          var prevCards = Array.prototype.slice.call(prevRow.querySelectorAll('.card'));
+          if (prevCards.length > 0) {
+            var allVisible = getVisibleCards();
+            var prevTarget = prevCards[0];
+            var pIdx = allVisible.indexOf(prevTarget);
+            if (pIdx >= 0) {
+              focusCard(pIdx);
+            } else {
+              prevTarget.classList.add('focused');
+              prevTarget.focus();
+            }
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+        }
+      }
+      clearAllFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
   function handleMainKeys(code, e) {
     var key = e.key;
     var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
@@ -9429,6 +9571,7 @@
     var isOnChip = (state.section === 'search' && !!(targetFocus && (targetFocus.classList.contains('search-chip') || targetFocus.id === 'btn-clear-search-history')));
     var isOnIptv = (state.section === 'iptv' && !!(targetFocus && (targetFocus.classList.contains('iptv-ch-item') || targetFocus.classList.contains('iptv-cat-item') || targetFocus.classList.contains('iptv-action-btn') || targetFocus.classList.contains('iptv-epg-item') || targetFocus.classList.contains('iptv-channel'))));
     var isOnCard = !!(targetFocus && targetFocus.classList.contains('card'));
+    var isOnShelfTab = !!(targetFocus && targetFocus.classList.contains('shelf-tab'));
     var isOnOsk = (state.section === 'search' && !!(targetFocus && targetFocus.classList.contains('osk-key')));
     var settingBtns = document.querySelectorAll('#sec-settings .setting-btn');
     var focusedSetting = targetFocus && targetFocus.classList.contains('setting-btn') ? targetFocus : null;
@@ -9460,6 +9603,11 @@
       return;
     }
 
+    if (isOnShelfTab) {
+      handleShelfTabKeys(code, e, targetFocus);
+      return;
+    }
+
     // IPTV navigation: route to handleIptvKeys unless user is navigating top navbar
     if (state.section === 'iptv') {
       if (isOnNav) {
@@ -9480,7 +9628,7 @@
     }
 
     // FOCUS RECOVERY: If nothing is focused, recover focus!
-    if (!isOnNav && !isOnCard && !isOnSetting && !isOnOsk && !isOnChip && !isOnIptv && !isOnNotif && !isOnProfile) {
+    if (!isOnNav && !isOnCard && !isOnSetting && !isOnOsk && !isOnChip && !isOnIptv && !isOnNotif && !isOnProfile && !isOnShelfTab) {
       if (state.section === 'iptv') {
         if (iptvState.focusedCol === -1) {
           focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
@@ -10680,6 +10828,16 @@
 
     var currentRow = current.closest('.row');
     if (currentRow) {
+      var tabGroup = currentRow.querySelector('.shelf-tab-group');
+      if (tabGroup) {
+        var activeTab = tabGroup.querySelector('.shelf-tab.active') || tabGroup.querySelector('.shelf-tab');
+        if (activeTab) {
+          clearCardFocus();
+          activeTab.classList.add('focused');
+          try { activeTab.focus(); } catch(err) {}
+          return true;
+        }
+      }
       var rows = getVisibleRows();
       var curRowIdx = rows.indexOf(currentRow);
       if (curRowIdx > 0) {

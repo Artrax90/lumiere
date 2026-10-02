@@ -25,8 +25,8 @@ export function movieRoutes(app: FastifyInstance, provider: TmdbProvider) {
   });
 
   app.get('/api/movies/netflix', async (req) => {
-    const { page, lang } = req.query as { page?: string; lang?: Lang };
-    return provider.netflixMovies(page ? parseInt(page) : 1, lang);
+    const { page, lang, period } = req.query as { page?: string; lang?: Lang; period?: 'week' | 'all_time' };
+    return provider.netflixMovies(page ? parseInt(page) : 1, lang, period);
   });
 
   const getGenreMovies = async (req: any) => {

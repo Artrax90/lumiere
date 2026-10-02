@@ -72,7 +72,7 @@ export function useGenreCatalog(mediaType: 'movie' | 'tv', genreId: number, page
   return { data, loading };
 }
 
-export function useNetflixCatalog(mediaType: 'movie' | 'tv', page = 1) {
+export function useNetflixCatalog(mediaType: 'movie' | 'tv', period: 'week' | 'all_time' = 'week', page = 1) {
   const [data, setData] = useState<Title[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -80,7 +80,7 @@ export function useNetflixCatalog(mediaType: 'movie' | 'tv', page = 1) {
     let cancelled = false;
     setLoading(true);
     const path = mediaType === 'movie' ? '/api/movies/netflix' : '/api/tv/netflix';
-    apiFetch<{ results: Title[] }>(path, { page: String(page) })
+    apiFetch<{ results: Title[] }>(path, { page: String(page), period })
       .then((res) => {
         if (!cancelled) {
           setData(res.results || []);
@@ -91,7 +91,7 @@ export function useNetflixCatalog(mediaType: 'movie' | 'tv', page = 1) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [mediaType, page]);
+  }, [mediaType, period, page]);
 
   return { data, loading };
 }

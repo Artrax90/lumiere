@@ -117,12 +117,13 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
-  async netflixTv(page = 1, lang?: Lang): Promise<TitleResult> {
+  async netflixTv(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
+    const isAllTime = period === 'all_time';
     const data = await this.client.get('/discover/tv', {
       with_networks: '213',
       without_genres: '10763,10767',
-      sort_by: 'popularity.desc',
-      'vote_count.gte': '10',
+      sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
+      'vote_count.gte': isAllTime ? '500' : '10',
       page: String(page),
       language: this.client.lang(lang),
     });
@@ -134,12 +135,13 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
-  async netflixMovies(page = 1, lang?: Lang): Promise<TitleResult> {
+  async netflixMovies(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
+    const isAllTime = period === 'all_time';
     const data = await this.client.get('/discover/movie', {
       with_watch_providers: '8',
       watch_region: 'US',
-      sort_by: 'popularity.desc',
-      'vote_count.gte': '10',
+      sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
+      'vote_count.gte': isAllTime ? '1000' : '10',
       page: String(page),
       language: this.client.lang(lang),
     });
