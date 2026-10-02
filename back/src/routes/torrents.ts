@@ -198,21 +198,31 @@ async function ensureTorrServerOptimized() {
     });
     if (res.ok) {
       const sets = (await res.json()) as any;
-      if (!sets.CacheSize || sets.CacheSize < 536870912 || (sets.ConnectionsLimit && sets.ConnectionsLimit < 100)) {
+      if (
+        !sets.CacheSize ||
+        sets.CacheSize < 1073741824 ||
+        !sets.TorrentDisconnectTimeout ||
+        sets.TorrentDisconnectTimeout < 300 ||
+        (sets.ConnectionsLimit && sets.ConnectionsLimit < 150)
+      ) {
         await fetch(`${torrUrl}/settings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             action: 'set',
             sets: {
-              CacheSize: 536870912, // 512 MB cache to support concurrent streams
-              ConnectionsLimit: 100, // 100 connections
-              ReaderReadAHead: 95,
+              CacheSize: 1073741824, // 1024 MB cache to support smooth streaming without underrun
+              ConnectionsLimit: 150, // 150 connections
+              ReaderReadAHead: 85,
+              PreloadCache: 5,
+              TorrentDisconnectTimeout: 300, // 5 min timeout to prevent closing on player buffer/idle
+              ResponsiveMode: true,
+              RetrackersMode: 1,
             },
           }),
           signal: AbortSignal.timeout(5000),
         });
-        console.log('[TorrServer] Automatically optimized settings: 512MB cache, 100 connections');
+        console.log('[TorrServer] Automatically optimized settings: 1024MB cache, 300s timeout, responsive mode');
       }
     }
   } catch {
@@ -694,7 +704,8 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
-    const torrUrl = new URL(`${TORRSERVER_URL}/stream/${encodeURIComponent(filename)}?link=${encodeURIComponent(link)}&index=${index || 0}&play`);
+    const baseTorrUrl = await getActiveTorrServerUrl();
+    const torrUrl = new URL(`${baseTorrUrl}/stream/${encodeURIComponent(filename)}?link=${encodeURIComponent(link)}&index=${index || 0}&play`);
 
     const headers: Record<string, string | string[]> = {};
     if (req.headers.range) {

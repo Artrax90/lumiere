@@ -678,7 +678,28 @@ export function authRoutes(app: FastifyInstance) {
       }
     }
 
-    if (updates.length === 0 && telegramChatId === undefined) {
+    if (updates.length === 0) {
+      if (telegramChatId !== undefined) {
+        const uRes = await pool.query(
+          `SELECT id, email, name, avatar, role, is_kids, (pin IS NOT NULL AND pin != '') as has_pin, created_at
+           FROM users WHERE id = $1`,
+          [targetUserId]
+        );
+        const updated = uRes.rows[0];
+        return {
+          user: {
+            id: updated.id,
+            email: updated.email,
+            name: updated.name,
+            avatar: updated.avatar,
+            role: updated.role,
+            isKids: !!updated.is_kids,
+            hasPin: !!updated.has_pin,
+            createdAt: updated.created_at,
+            telegramChatId: (telegramChatId || '').trim(),
+          },
+        };
+      }
       return reply.send({ success: true, message: 'Нет изменений' });
     }
 

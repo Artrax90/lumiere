@@ -186,7 +186,7 @@ async def resolve_sender_user(event: Any, default_user_id: int) -> dict:
     from_user = getattr(event, "from_user", None)
     sender_id = from_user.id if from_user else None
     if not sender_id:
-        return {"userId": default_user_id, "userName": "Пользователь", "role": "user"}
+        return {"userId": -1, "userName": "Гость", "role": "unlinked", "unlinked": True}
 
     if sender_id in USER_CHAT_CACHE:
         return USER_CHAT_CACHE[sender_id]
@@ -198,14 +198,16 @@ async def resolve_sender_user(event: Any, default_user_id: int) -> dict:
                 "userId": user_res.get("userId"),
                 "userName": user_res.get("userName"),
                 "email": user_res.get("email"),
-                "role": user_res.get("role", "user")
+                "role": user_res.get("role", "user"),
+                "unlinked": False
             }
             USER_CHAT_CACHE[sender_id] = u_info
             return u_info
     except Exception as e:
         print(f"[Bot] Error resolving user for sender {sender_id}: {e}")
 
-    return {"userId": default_user_id, "userName": "Пользователь", "role": "user"}
+    # Strict isolation: NEVER fallback to admin (user 1) for unrecognized chat IDs
+    return {"userId": -1, "userName": "Гость", "role": "unlinked", "unlinked": True}
 
 class AccessControlMiddleware(BaseMiddleware):
     """Restricts bot access strictly to authorized users, allowing /link for self-linking."""
@@ -249,7 +251,7 @@ class AccessControlMiddleware(BaseMiddleware):
         # Check if mapped to a user in database
         if not is_authorized and sender_id:
             user_info = await resolve_sender_user(event, self.default_user_id)
-            if user_info.get("email"):
+            if user_info.get("email") or (user_info.get("userId", 0) > 0 and not user_info.get("unlinked")):
                 is_authorized = True
                 allowed.add(sender_id)
 
@@ -671,9 +673,21 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         await show_downloads(message, eff_u["userId"])
 
     async def show_subscriptions(target, eff_uid: Optional[int] = None):
-        if eff_uid is None:
+        if eff_uid is None or eff_uid <= 0:
             eff_u = await resolve_sender_user(target, user_id)
-            eff_uid = eff_u["userId"]
+            eff_uid = eff_u.get("userId", -1)
+        if eff_uid <= 0:
+            from_u = getattr(target, "from_user", None)
+            cid = from_u.id if from_u else ""
+            text = (
+                "⚠️ <b>Этот Telegram-аккаунт еще не привязан к вашему профилю в Lumière.</b>\n\n"
+                f"Ваш Chat ID: <code>{cid}</code>\n\n"
+                "Чтобы видеть свои персональные подписки, привяжите аккаунт:\n"
+                "<code>/link &lt;email&gt; &lt;пароль&gt;</code>\n"
+                "или попросите администратора указать ваш Chat ID в настройках пользователя."
+            )
+            await target.answer(text, parse_mode="HTML")
+            return
         sub_data = await fetch_api(f"/api/notifications/subscriptions?userId={eff_uid}")
         subs = (sub_data or {}).get("subscriptions", [])
         notif_data = await fetch_api(f"/api/notifications?userId={eff_uid}")
@@ -1072,7 +1086,10 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 pass
 
         eff_u = await resolve_sender_user(call, user_id)
-        eff_uid = eff_u["userId"]
+        eff_uid = eff_u.get("userId", -1)
+        if eff_uid <= 0:
+            await call.answer("⚠️ Сначала привяжите аккаунт: /link <email> <пароль>", show_alert=True)
+            return
         res = await fetch_api("/api/notifications/subscribe", method="POST", data={
             "userId": eff_uid,
             "tmdbId": tmdb_id,
@@ -1157,10 +1174,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         seasons = det.get("seasons", [])
         valid_seasons = [s for s in seasons if s.get("season_number", 0) > 0]
         if not valid_seasons:
-            valid_seasons = seasons or [{"season_number": 1, "name": "1 сезон"}]
+            total_seasons = det.get("seasonsCount") or det.get("number_of_seasons") or 1
+            valid_seasons = [{"season_number": i, "name": f"{i} сезон"} for i in range(1, total_seasons + 1)]
 
         builder = InlineKeyboardBuilder()
-        for s in valid_seasons[:16]:
+        for s in valid_seasons[:30]:
             s_num = s.get("season_number", 1)
             s_name = s.get("name") or f"{s_num} сезон"
             ep_count = s.get("episode_count")

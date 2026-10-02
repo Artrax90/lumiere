@@ -230,6 +230,16 @@
         console.warn('[AVPlay] setDisplayRect error:', dre);
       }
 
+      try {
+        if (webapis.avplay.BufferingMode && webapis.avplay.BufferUnit) {
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_PLAY, webapis.avplay.BufferUnit.TIME, 5000);
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_RESUME, webapis.avplay.BufferUnit.TIME, 3000);
+          console.log('[AVPlay] Configured hardware buffer: play=5000ms, resume=3000ms');
+        }
+      } catch(be) {
+        console.warn('[AVPlay] setBufferingParam note:', be);
+      }
+
       self._setupAvplayListener();
 
       // Prepare and play with both success and error callbacks

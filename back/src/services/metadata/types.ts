@@ -23,6 +23,13 @@ export interface Title {
   cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
   seasonsCount?: number;
+  seasons?: {
+    season_number: number;
+    name: string;
+    episode_count?: number;
+    air_date?: string;
+    poster_path?: string;
+  }[];
 }
 
 export interface PersonCredit {

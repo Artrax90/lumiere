@@ -1518,8 +1518,16 @@
       pct = Math.min(100, Math.round((torrent.loaded_size / torrent.buffer_size) * 100));
       loadedMb = Math.round(torrent.loaded_size / (1024 * 1024));
       totalMb = Math.round(torrent.buffer_size / (1024 * 1024));
-    } else if (torrent.stat === 2 || isPlaying) {
+    } else if (torrent.cache_size && torrent.bytes_read) {
+      pct = Math.min(100, Math.round((torrent.bytes_read / torrent.cache_size) * 100));
+      loadedMb = Math.round(torrent.bytes_read / (1024 * 1024));
+      totalMb = Math.round(torrent.cache_size / (1024 * 1024));
+    } else if (torrent.download_speed > 0) {
+      pct = 85;
+    } else if (torrent.stat === 2) {
       pct = 100;
+    } else {
+      pct = 0;
     }
 
     if (bufferEl) {
@@ -1527,8 +1535,10 @@
         bufferEl.textContent = 'Буфер: ' + pct + '% (' + loadedMb + '/' + totalMb + ' МБ)';
       } else if (pct > 0) {
         bufferEl.textContent = 'Буфер: ' + pct + '%';
+      } else if (player && player._isBuffering) {
+        bufferEl.textContent = 'Буферизация...';
       } else {
-        bufferEl.textContent = 'Буфер: 100%';
+        bufferEl.textContent = 'Буфер готов';
       }
     }
 

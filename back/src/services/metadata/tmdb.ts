@@ -368,6 +368,13 @@ export class TmdbProvider implements MetadataProvider {
 
     if (mediaType === 'tv') {
       base.seasonsCount = details.seasons?.filter((s) => s.season_number > 0).length || (details as any).number_of_seasons || 1;
+      base.seasons = (details.seasons || []).map((s: any) => ({
+        season_number: s.season_number,
+        name: s.name,
+        episode_count: s.episode_count,
+        air_date: s.air_date,
+        poster_path: s.poster_path ? this.client.posterUrl(s.poster_path) : undefined,
+      }));
       if (details.episode_run_time?.[0]) {
         base.runtime = `${details.episode_run_time[0]}m`;
       }

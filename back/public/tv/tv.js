@@ -7109,17 +7109,19 @@
 
       // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
-        var torrPort = '8590';
-        var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
-        var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
-        if (proxyMatch) {
-          var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
-          var torrQuery = proxyMatch[2] || '';
-          if (torrQuery.indexOf('play') === -1) {
-            torrQuery += (torrQuery ? '&' : '?') + 'play';
+        if (!API || API.indexOf('https:') !== 0) {
+          var torrPort = '8590';
+          var torrHost = API ? (API.replace(/:\d+$/, '') + ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
+          var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
+          if (proxyMatch) {
+            var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
+            var torrQuery = proxyMatch[2] || '';
+            if (torrQuery.indexOf('play') === -1) {
+              torrQuery += (torrQuery ? '&' : '?') + 'play';
+            }
+            url = torrHost + '/stream/' + encodeURIComponent(decodeURIComponent(torrFileName)) + torrQuery;
+            console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
           }
-          url = torrHost + '/stream/' + encodeURIComponent(decodeURIComponent(torrFileName)) + torrQuery;
-          console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
         }
       }
     }
