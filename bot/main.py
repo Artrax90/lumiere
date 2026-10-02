@@ -1216,10 +1216,12 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
         builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel"))
 
-        page_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
+        shown_start = start_idx + 1
+        shown_end = min(len(valid_seasons), start_idx + PAGE_SIZE)
+        nav_hint = "\n\n<i>Для выбора других сезонов используйте стрелки внизу ⬇️</i>" if total_pages > 1 else ""
         text = (
-            f"🎯 <b>Выберите сезон сериала для загрузки:</b>{page_info}\n"
-            f"🎬 <b>«{html.escape(title)}»</b> (всего сезонов: {len(valid_seasons)})"
+            f"🎯 <b>Выберите сезон сериала для загрузки:</b> (сезоны {shown_start}–{shown_end} из {len(valid_seasons)})\n"
+            f"🎬 <b>«{html.escape(title)}»</b>{nav_hint}"
         )
         try:
             await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
@@ -1409,9 +1411,13 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
             season_matches = [t for t in torrents if matches_season(t.get("title", ""), season)]
             if not season_matches:
-                season_matches = [t for t in torrents if not is_wrong_season(t.get("title", ""), season)]
-            if season_matches:
-                torrents = season_matches
+                await call.message.reply(
+                    f"⚠️ На торрент-трекерах пока нет релизов для <b>{season} сезона</b> сериала «{html.escape(raw_title)}».\n"
+                    f"<i>Возможно, этот сезон еще не вышел или не был выложен на трекеры.</i>",
+                    parse_mode="HTML"
+                )
+                return
+            torrents = season_matches
 
         if not torrents:
             ep_note = f" (Сезон {season}, Серия {episode})" if is_tv_episode else ""
@@ -1453,7 +1459,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             badge = parse_torrent_badge(t.get("title", ""), t.get("sizeFormatted", ""), t.get("seeders", 0))
             raw_t_title = t.get("title", "")
 
-            t_type_badge = ""
+            pack_note = ""
+            emoji_prefix = num_emojis[idx - 1] if idx <= 5 else f"{idx}."
+            quality_tag = badge.split(" • ")[0]
+            size_tag = t.get("sizeFormatted", "").replace(" ", "")
+
             if is_tv_episode:
                 is_single = bool(
                     re.search(rf'\b0*{episode}\s*(?:выпуск|сери[яий]|эпизод)', raw_t_title, re.I) or
@@ -1461,7 +1471,13 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                     re.search(rf'\b0*{season}[xх]0*{episode}\b', raw_t_title, re.I) or
                     re.search(rf's0*{season}e0*{episode}\b', raw_t_title, re.I)
                 )
-                t_type_badge = f" [Серия {episode}]" if is_single else f" [Сезон {season}]"
+                if is_single:
+                    btn_title = f"{emoji_prefix} {quality_tag} · Серия {episode} ({size_tag})" if size_tag else f"{emoji_prefix} {quality_tag} · Серия {episode}"
+                else:
+                    btn_title = f"{emoji_prefix} {quality_tag} · Серия {episode} (из пака)"
+                    pack_note = f"\n   ℹ️ <i>Пак сезона ({size_tag}). Сервер скачает только файл серии {episode}.</i>"
+            else:
+                btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}" if size_tag else f"{emoji_prefix} {quality_tag}"
 
             TORRENT_PICK_CACHE[pick_id] = {
                 "title": title_display,
@@ -1476,27 +1492,31 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 "file_name": raw_t_title,
                 "badge": badge,
             }
-            emoji_prefix = num_emojis[idx - 1] if idx <= 5 else f"{idx}."
-            quality_tag = badge.split(" • ")[0]
-            size_tag = t.get("sizeFormatted", "").replace(" ", "")
-            btn_title = f"{emoji_prefix} {quality_tag} · {size_tag}{t_type_badge}" if size_tag else f"{emoji_prefix} {quality_tag}{t_type_badge}"
+
             builder.button(text=btn_title, callback_data=f"dl_pick:{pick_id}", style="success")
 
             clean_t_title = html.escape(raw_t_title.strip())
             if len(clean_t_title) > 180:
                 clean_t_title = clean_t_title[:177] + "..."
-            releases_summary.append(f"{emoji_prefix} <code>{clean_t_title}</code>\n   👉 <b>{badge}</b>")
+            releases_summary.append(f"{emoji_prefix} <code>{clean_t_title}</code>\n   👉 <b>{badge}</b>{pack_note}")
 
         builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
         builder.adjust(2, 2, 2)
 
-        ep_header = f" (Сезон {season}, Серия {episode})" if is_tv_episode else ""
-        pick_text = (
-            f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
-            f"🎬 <b>«{html.escape(raw_title)}»</b>{ep_header}\n\n"
-            + "\n\n".join(releases_summary)
-            + "\n\n<i>Нажмите кнопку ниже для скачивания на диск сервера:</i>"
-        )
+        if is_tv_episode:
+            pick_text = (
+                f"📥 <b>Выберите релиз для загрузки серии на сервер:</b>\n"
+                f"🎬 <b>«{html.escape(raw_title)}»</b> (Сезон {season}, Серия {episode})\n\n"
+                + "\n\n".join(releases_summary)
+                + f"\n\n<i>🎯 Сервер автоматически скачает на диск только серию {episode}!</i>"
+            )
+        else:
+            pick_text = (
+                f"📥 <b>Выберите релиз для загрузки на сервер:</b>\n"
+                f"🎬 <b>«{html.escape(raw_title)}»</b>\n\n"
+                + "\n\n".join(releases_summary)
+                + "\n\n<i>Нажмите кнопку ниже для скачивания на диск сервера:</i>"
+            )
         try:
             await call.message.edit_text(pick_text, reply_markup=builder.as_markup(), parse_mode="HTML")
         except Exception:
@@ -1534,7 +1554,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             dl_id = res.get("id") or cached.get("hash")
             ep_note = ""
             if cached.get("season") and cached.get("episode"):
-                ep_note = f"\n🎯 <i>Будет скачан файл серии {cached['episode']} (Сезон {cached['season']}).</i>\n"
+                ep_note = f"\n🎯 <b>Будет скачан только файл серии {cached['episode']} (Сезон {cached['season']})</b>, а не весь сезон.\n"
             success_text = (
                 f"✅ Релиз <b>«{html.escape(cached['title'])}»</b>{badge_info} успешно поставлен на загрузку на диск сервера!{ep_note}\n"
                 f"После завершения скачивания вы получите уведомление."

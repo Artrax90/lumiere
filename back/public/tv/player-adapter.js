@@ -59,6 +59,7 @@
 
   // ========== Play ==========
   PlayerAdapter.prototype.play = function(url) {
+    this._hasFallenBackToVideo = false;
     console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
     if (isTizen()) {
       console.log('[PlayerAdapter] Using AVPlay engine');
@@ -126,18 +127,12 @@
         if (typeof window.sendTvLog === 'function') {
           window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
         }
-        if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
-          console.warn('[AVPlay] Suppressing HTML5 video fallback for HLS transcode stream');
-          self._emit('error', { message: error });
-          return;
-        }
-        if (isTizen()) {
-          self._emit('error', { message: error });
-          return;
-        }
         if (!self._hasFallenBackToVideo) {
           self._hasFallenBackToVideo = true;
           console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay hardware error');
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'avplay_fallback', 'AVPlay hardware error, fallback to HTML5 Video/HLS', { err: String(error), url: self._currentUrl });
+          }
           try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
           self._playVideo(self._currentUrl);
           return;
@@ -231,10 +226,15 @@
       }
 
       try {
+        if (url && (url.indexOf('.m3u8') !== -1 || url.indexOf('/hls') !== -1)) {
+          try {
+            webapis.avplay.setStreamingProperty("ADAPTIVE_INFO", "HLS");
+          } catch(e) {}
+        }
         if (webapis.avplay.BufferingMode && webapis.avplay.BufferUnit) {
-          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_PLAY, webapis.avplay.BufferUnit.TIME, 5000);
-          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_RESUME, webapis.avplay.BufferUnit.TIME, 3000);
-          console.log('[AVPlay] Configured hardware buffer: play=5000ms, resume=3000ms');
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_PLAY, webapis.avplay.BufferUnit.TIME, 2000);
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_RESUME, webapis.avplay.BufferUnit.TIME, 2000);
+          console.log('[AVPlay] Configured hardware buffer: play=2000ms, resume=2000ms');
         }
       } catch(be) {
         console.warn('[AVPlay] setBufferingParam note:', be);
@@ -311,13 +311,8 @@
         self._startAvplayPollTimer();
       }, function(prepareErr) {
         console.error('[AVPlay] prepareAsync error:', prepareErr);
-        if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
-          self._emit('error', { message: 'AVPlay HLS prepare error' });
-          return;
-        }
-        if (isTizen()) {
-          self._emit('error', { message: 'AVPlay prepare error' });
-          return;
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('warn', 'avplay_prepare', 'AVPlay prepareAsync error, fallback to HTML5 Video/HLS', { err: String(prepareErr), url: url });
         }
         if (!self._hasFallenBackToVideo) {
           self._hasFallenBackToVideo = true;
@@ -326,21 +321,17 @@
           self._playVideo(url);
           return;
         }
-        self._emit('error', { message: 'AVPlay prepare error' });
+        self._emit('error', { message: 'AVPlay prepare error: ' + prepareErr });
       });
 
     } catch(e) {
       console.error('[AVPlay] Init error:', e);
-      if (self._currentUrl && self._currentUrl.indexOf('/api/torrents/hls') !== -1) {
-        this._emit('error', { message: e.message });
-        return;
+      if (typeof window.sendTvLog === 'function') {
+        window.sendTvLog('error', 'avplay_init', 'AVPlay init error, fallback to HTML5 Video: ' + e.message, { url: url });
       }
-      if (isTizen()) {
-        this._emit('error', { message: e.message });
-        return;
-      }
-      if (!this._hasFallenBackToVideo) {
-        this._hasFallenBackToVideo = true;
+      if (!self._hasFallenBackToVideo) {
+        self._hasFallenBackToVideo = true;
+        try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
         this._playVideo(url);
         return;
       }
@@ -351,8 +342,21 @@
   // ========== Video Engine ==========
   PlayerAdapter.prototype._playVideo = function(url) {
     var self = this;
+    if (this._videoEl) {
+      try { this._videoEl.pause(); } catch(e) {}
+      try { if (this._videoEl.parentNode) this._videoEl.parentNode.removeChild(this._videoEl); } catch(e) {}
+      this._videoEl = null;
+    }
+    if (this._hls) {
+      try { this._hls.destroy(); } catch(e) {}
+      this._hls = null;
+    }
+    if (this.container) {
+      this.container.style.background = '#000';
+      this.container.style.backgroundColor = '#000';
+    }
     var $video = document.createElement('video');
-    $video.style.cssText = 'width:100%;height:100%;object-fit:contain;';
+    $video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
     $video.playsInline = true;
     this.container.appendChild($video);
     this._videoEl = $video;

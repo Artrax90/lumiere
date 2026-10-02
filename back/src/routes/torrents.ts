@@ -618,10 +618,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
       let finalResults = results;
       if (targetSeason > 0) {
-        const seasonMatches = results.filter((r) => scoreTorrentItem(r) > 0);
-        if (seasonMatches.length > 0) {
-          finalResults = seasonMatches;
-        }
+        finalResults = results.filter((r) => scoreTorrentItem(r) > 0);
       }
 
       reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');

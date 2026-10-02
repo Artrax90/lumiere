@@ -157,7 +157,14 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
       // Upsert watch history entries (sorted deterministically by tmdbId & mediaType to prevent PostgreSQL deadlocks)
       if (watchHistory && watchHistory.length > 0) {
-        const sortedHistory = [...watchHistory].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
+        const validHistory = watchHistory.filter((item: any) => {
+          const tId = parseInt(item.tmdbId || item.id || 0, 10);
+          return tId > 0 && item.mediaType;
+        }).map((item: any) => ({
+          ...item,
+          tmdbId: parseInt(item.tmdbId || item.id, 10),
+        }));
+        const sortedHistory = [...validHistory].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
         for (const item of sortedHistory) {
           await client.query(
             `INSERT INTO watch_history (user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at)
@@ -176,7 +183,14 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
       // Upsert favorites (sorted deterministically by tmdbId & mediaType to prevent deadlocks)
       if (favorites && favorites.length > 0) {
-        const sortedFavorites = [...favorites].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
+        const validFavorites = favorites.filter((item: any) => {
+          const tId = parseInt(item.tmdbId || item.id || 0, 10);
+          return tId > 0 && item.mediaType;
+        }).map((item: any) => ({
+          ...item,
+          tmdbId: parseInt(item.tmdbId || item.id, 10),
+        }));
+        const sortedFavorites = [...validFavorites].sort((a, b) => (a.tmdbId - b.tmdbId) || (a.mediaType || '').localeCompare(b.mediaType || ''));
         for (const item of sortedFavorites) {
           await client.query(
             `INSERT INTO favorites (user_id, tmdb_id, media_type, title_name, poster, added_at)
