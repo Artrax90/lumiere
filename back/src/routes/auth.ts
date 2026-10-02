@@ -588,8 +588,8 @@ export function authRoutes(app: FastifyInstance) {
     });
   });
 
-  // Update user (admin only)
-  app.put('/api/admin/users/:id', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {
+  // Update user (admin only - support both PUT and PATCH)
+  const handleUpdateUser = async (request: AuthenticatedRequest, reply: any) => {
     const adminId = request.user!.userId;
     if (!(await isUserAdmin(adminId))) {
       return reply.code(403).send({ error: 'Только администратор может редактировать пользователей' });
@@ -640,7 +640,7 @@ export function authRoutes(app: FastifyInstance) {
     }
     if (pin !== undefined) {
       updates.push(`pin = $${idx++}`);
-      values.push(pin.trim());
+      values.push((pin || '').trim());
     }
     if (isKids !== undefined) {
       updates.push(`is_kids = $${idx++}`);
@@ -648,7 +648,7 @@ export function authRoutes(app: FastifyInstance) {
     }
     if (avatar !== undefined) {
       updates.push(`avatar = $${idx++}`);
-      values.push(avatar);
+      values.push(avatar || '');
     }
 
     if (updates.length === 0) {
@@ -675,7 +675,10 @@ export function authRoutes(app: FastifyInstance) {
         createdAt: updated.created_at,
       },
     };
-  });
+  };
+
+  app.put('/api/admin/users/:id', { preHandler: requireAuth }, handleUpdateUser);
+  app.patch('/api/admin/users/:id', { preHandler: requireAuth }, handleUpdateUser);
 
   // Delete user (admin only, cannot delete self)
   app.delete('/api/admin/users/:id', { preHandler: requireAuth }, async (request: AuthenticatedRequest, reply) => {

@@ -30,8 +30,6 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
     KeyboardButton,
     FSInputFile,
-    WebAppInfo,
-    MenuButtonWebApp,
     BotCommand,
     MenuButtonCommands,
     TelegramObject,
@@ -78,10 +76,6 @@ def get_main_menu_inline_keyboard() -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="⚙️ Статус сервера", callback_data="menu:status"),
         ]
     ]
-    if WEB_URL.startswith("https://"):
-        buttons.append([InlineKeyboardButton(text="✨ Открыть Lumière в Telegram", web_app=WebAppInfo(url=WEB_URL), style="primary")])
-    elif WEB_URL:
-        buttons.append([InlineKeyboardButton(text="✨ Открыть Lumière Web", url=WEB_URL)])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
@@ -203,15 +197,28 @@ class AccessControlMiddleware(BaseMiddleware):
 
         allowed = BOT_ALLOWED_CHATS.get(self.bot_token, set())
 
-        is_authorized = (sender_id and sender_id in allowed) or (chat_id and chat_id in allowed)
+        is_authorized = False
+        allowed_normalized = set()
+        for a in allowed:
+            allowed_normalized.add(str(a).strip())
+            try:
+                allowed_normalized.add(int(str(a).strip()))
+            except ValueError:
+                pass
+
+        if sender_id is not None and (sender_id in allowed_normalized or str(sender_id) in allowed_normalized):
+            is_authorized = True
+        if not is_authorized and chat_id is not None and (chat_id in allowed_normalized or str(chat_id) in allowed_normalized):
+            is_authorized = True
 
         if not is_authorized:
             cid_display = sender_id or chat_id or "Не определен"
+            print(f"[Bot Access] ⛔ Access denied for sender {sender_id}, chat {chat_id}. Allowed: {allowed}")
             deny_text = (
                 f"⛔ <b>Доступ ограничен</b>\n\n"
                 f"Ваш Telegram Chat ID: <code>{cid_display}</code>\n\n"
                 f"Бот настроен для работы только с авторизованными пользователями.\n"
-                f"Чтобы получить доступ к управлению сервером Lumière, укажите ваш Chat ID в настройках вашего профиля (раздел «Telegram Бот»).\n\n"
+                f"Чтобы получить доступ к управлению сервером Lumière, добавьте ваш Chat ID в настройках профиля (раздел «Telegram Бот» -> «Разрешённые пользователи»).\n\n"
                 f"<i>Посторонние пользователи не имеют доступа к вашему серверу.</i>"
             )
             if isinstance(event, types.Message):
@@ -1353,10 +1360,7 @@ async def run_bot_instance(token: str, user_id: int, proxy_url: str):
                 BotCommand(command="status", description="⚙️ Статус сервера"),
             ]
             await bot.set_my_commands(bot_cmds)
-            if WEB_URL.startswith("https://"):
-                await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="Lumière", web_app=WebAppInfo(url=WEB_URL)))
-            else:
-                await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+            await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
             print(f"[Bot] Commands and menu button successfully set for @{me.username}")
         except Exception as mbe:
             print(f"[Bot] Commands/MenuButton setup note: {mbe}")

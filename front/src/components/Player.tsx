@@ -677,6 +677,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       }
     };
 
+    const onSeeking = () => {
+      isSeekingRef.current = true;
+    };
+    const onSeeked = () => {
+      isSeekingRef.current = false;
+      setLoading(false);
+    };
+
     video.addEventListener('timeupdate', handleTimeUpdate);
     video.addEventListener('progress', onProgress);
     video.addEventListener('play', onPlay);
@@ -685,6 +693,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     video.addEventListener('playing', onPlaying);
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('loadedmetadata', onLoadedMetadata);
+    video.addEventListener('seeking', onSeeking);
+    video.addEventListener('seeked', onSeeked);
 
     return () => {
       video.removeEventListener('timeupdate', handleTimeUpdate);
@@ -695,6 +705,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('loadedmetadata', onLoadedMetadata);
+      video.removeEventListener('seeking', onSeeking);
+      video.removeEventListener('seeked', onSeeked);
     };
   }, [isDragging, onTimeUpdate]);
 
@@ -948,119 +960,107 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     }
   };
 
-  const handleTimelineMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
+  const dragFractionRef = useRef<number>(0);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
     e.stopPropagation();
     e.preventDefault();
     resetHideTimer();
+
+    const target = e.currentTarget;
+    try {
+      target.setPointerCapture(e.pointerId);
+    } catch {}
+
     setIsDragging(true);
     isDraggingRef.current = true;
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'grabbing';
+    isSeekingRef.current = true;
 
-    const initialRect = progressRef.current?.getBoundingClientRect() || e.currentTarget.getBoundingClientRect();
-    
+    const rect = target.getBoundingClientRect();
     const calculateFraction = (clientX: number) => {
-      if (initialRect.width <= 0) return 0;
-      return Math.max(0, Math.min(1, (clientX - initialRect.left) / initialRect.width));
+      if (rect.width <= 0) return 0;
+      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     };
 
-    let currentF = calculateFraction(e.clientX);
-    setDragFraction(currentF);
+    const fraction = calculateFraction(e.clientX);
+    dragFractionRef.current = fraction;
+    setDragFraction(fraction);
+
     if (playedBarRef.current) {
-      playedBarRef.current.style.width = `${currentF * 100}%`;
+      playedBarRef.current.style.width = `${fraction * 100}%`;
     }
     if (isFinite(duration) && duration > 0) {
-      setCurrentTime(currentF * duration);
-      setHoverTime(currentF * duration);
+      setCurrentTime(fraction * duration);
+      setHoverTime(fraction * duration);
     }
-    setHoverX(e.clientX - initialRect.left);
+    setHoverX(e.clientX - rect.left);
+  };
 
-    let rafId: number | null = null;
-    const onMouseMove = (me: MouseEvent) => {
-      me.preventDefault();
-      currentF = calculateFraction(me.clientX);
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const calculateFraction = (clientX: number) => {
+      if (rect.width <= 0) return 0;
+      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    };
+
+    if (isDraggingRef.current) {
+      e.stopPropagation();
+      e.preventDefault();
+      resetHideTimer();
+
+      const fraction = calculateFraction(e.clientX);
+      dragFractionRef.current = fraction;
+      setDragFraction(fraction);
+
       if (playedBarRef.current) {
-        playedBarRef.current.style.width = `${currentF * 100}%`;
+        playedBarRef.current.style.width = `${fraction * 100}%`;
       }
-      if (rafId) cancelAnimationFrame(rafId);
-      rafId = requestAnimationFrame(() => {
-        setDragFraction(currentF);
-        if (isFinite(duration) && duration > 0) {
-          setCurrentTime(currentF * duration);
-          setHoverTime(currentF * duration);
-        }
-        setHoverX(me.clientX - initialRect.left);
-      });
-    };
-
-    const onMouseUp = (me: MouseEvent) => {
-      me.preventDefault();
-      document.body.style.userSelect = '';
-      document.body.style.cursor = '';
-      if (rafId) cancelAnimationFrame(rafId);
-      currentF = calculateFraction(me.clientX);
-      setIsDragging(false);
-      isDraggingRef.current = false;
-      seek(currentF);
-      setTimeout(() => {
-        setDragFraction(null);
-      }, 200);
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-    };
-
-    window.addEventListener('mousemove', onMouseMove, { passive: false });
-    window.addEventListener('mouseup', onMouseUp, { passive: false });
-  };
-
-  const handleTimelineTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    resetHideTimer();
-    const touch = e.touches[0];
-    if (!touch || !progressRef.current || !isFinite(duration) || duration <= 0) return;
-    setIsDragging(true);
-    isDraggingRef.current = true;
-    const rect = progressRef.current.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-    touchFractionRef.current = fraction;
-    setDragFraction(fraction);
-    if (playedBarRef.current) {
-      playedBarRef.current.style.width = `${fraction * 100}%`;
+      if (isFinite(duration) && duration > 0) {
+        setCurrentTime(fraction * duration);
+        setHoverTime(fraction * duration);
+      }
+      setHoverX(e.clientX - rect.left);
+    } else {
+      const fraction = calculateFraction(e.clientX);
+      setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
+      setHoverX(e.clientX - rect.left);
     }
-    setCurrentTime(fraction * duration);
   };
 
-  const handleTimelineTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
     e.stopPropagation();
+    e.preventDefault();
     resetHideTimer();
-    const touch = e.touches[0];
-    if (!touch || !progressRef.current || !isFinite(duration) || duration <= 0) return;
-    const rect = progressRef.current.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (touch.clientX - rect.left) / rect.width));
-    touchFractionRef.current = fraction;
-    setDragFraction(fraction);
-    if (playedBarRef.current) {
-      playedBarRef.current.style.width = `${fraction * 100}%`;
-    }
-    setCurrentTime(fraction * duration);
-  };
 
-  const handleTimelineTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    resetHideTimer();
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+
+    const rect = e.currentTarget.getBoundingClientRect();
+    const fraction = rect.width > 0
+      ? Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+      : (dragFractionRef.current || 0);
+
     setIsDragging(false);
     isDraggingRef.current = false;
-    seek(touchFractionRef.current);
+
+    seek(fraction);
+
     setTimeout(() => {
       setDragFraction(null);
-    }, 200);
+    }, 400);
   };
 
-  const handleTimelineHover = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / rect.width;
-    setHoverTime(isFinite(duration) ? x * duration : 0);
-    setHoverX(e.clientX - rect.left);
+  const handlePointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {}
+    setIsDragging(false);
+    isDraggingRef.current = false;
+    isSeekingRef.current = false;
+    setDragFraction(null);
   };
 
   const setQuality = (index: number) => {
@@ -1443,12 +1443,13 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           <div
             ref={progressRef}
             className="player-timeline no-drag select-none group relative h-8 flex items-center cursor-pointer touch-none"
-            onMouseMove={handleTimelineHover}
-            onMouseLeave={() => setHoverTime(null)}
-            onMouseDown={handleTimelineMouseDown}
-            onTouchStart={handleTimelineTouchStart}
-            onTouchMove={handleTimelineTouchMove}
-            onTouchEnd={handleTimelineTouchEnd}
+            onPointerDown={handlePointerDown}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerCancel}
+            onPointerLeave={() => {
+              if (!isDraggingRef.current) setHoverTime(null);
+            }}
           >
             {/* Hover time tooltip */}
             {hoverTime !== null && !isDragging && (

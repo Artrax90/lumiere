@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
-import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, Key, LayoutList, ArrowUp, ArrowDown, RotateCcw, Send, Star, Check } from 'lucide-react';
+import { ChevronRight, Sparkles, Monitor, Volume2, Captions, Wifi, Puzzle, User, Gamepad2, Code, Info, Moon, Sun, Plus, Trash2, Film, Server, Activity, HardDrive, RefreshCw, CheckCircle2, AlertCircle, ExternalLink, Eye, EyeOff, Key, LayoutList, ArrowUp, ArrowDown, RotateCcw, Send, Star, Check, Pencil, X } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
 import ActiveSessionsView from './ActiveSessionsView';
 import { apiPost, apiDelete } from '@/api/client';
@@ -138,6 +138,60 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
       await loadUsers();
     } catch (err: any) {
       setUserError(err.message);
+    }
+  };
+
+  // User editing state
+  const [editingUser, setEditingUser] = useState<UserItem | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editPassword, setEditPassword] = useState('');
+  const [editRole, setEditRole] = useState<'user' | 'admin'>('user');
+  const [editPin, setEditPin] = useState('');
+  const [editIsKids, setEditIsKids] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+
+  const startEditUser = (u: UserItem) => {
+    setEditingUser(u);
+    setEditName(u.name || '');
+    setEditEmail(u.email || '');
+    setEditPassword('');
+    setEditRole((u.role as any) || 'user');
+    setEditPin(u.pin || '');
+    setEditIsKids(!!u.isKids);
+    setEditError('');
+  };
+
+  const handleSaveEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingUser) return;
+    setEditError('');
+    setEditLoading(true);
+    try {
+      const payload: any = {
+        name: editName.trim(),
+        email: editEmail.trim(),
+        role: editRole,
+        pin: editPin.trim(),
+        isKids: editIsKids,
+      };
+      if (editPassword.trim()) {
+        payload.password = editPassword.trim();
+      }
+      const res = await serverFetch(`/api/admin/users/${editingUser.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Ошибка при обновлении пользователя');
+      setEditingUser(null);
+      await loadUsers();
+    } catch (err: any) {
+      setEditError(err.message || 'Ошибка обновления');
+    } finally {
+      setEditLoading(false);
     }
   };
 
@@ -502,10 +556,19 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                                   PIN: ****
                                 </span>
                               )}
+                              <button
+                                type="button"
+                                onClick={() => startEditUser(u)}
+                                className="ml-1 p-1.5 rounded-lg text-white/40 hover:text-amber-300 hover:bg-amber-300/10 transition-cinematic"
+                                title="Редактировать пользователя"
+                              >
+                                <Pencil className="h-4 w-4" strokeWidth={1.5} />
+                              </button>
                               {!isSelf && (
                                 <button
+                                  type="button"
                                   onClick={() => handleDeleteUser(u.id)}
-                                  className="ml-2 p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-cinematic"
+                                  className="p-1.5 rounded-lg text-white/30 hover:text-red-400 hover:bg-red-500/10 transition-cinematic"
                                   title="Удалить пользователя"
                                 >
                                   <Trash2 className="h-4 w-4" strokeWidth={1.5} />
@@ -516,6 +579,139 @@ export default function SettingsView({ onClose }: SettingsViewProps) {
                         );
                       })}
                     </div>
+
+                    {/* Edit User Modal */}
+                    {editingUser && (
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
+                        <div className="w-full max-w-lg rounded-[24px] glass-panel border border-white/10 p-6 sm:p-8 flex flex-col shadow-2xl relative">
+                          <button
+                            type="button"
+                            onClick={() => setEditingUser(null)}
+                            className="absolute top-5 right-5 p-2 rounded-full text-white/40 hover:text-white hover:bg-white/10 transition-colors"
+                          >
+                            <X className="h-5 w-5" />
+                          </button>
+
+                          <div className="flex items-center gap-3 mb-6">
+                            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-300/10 border border-amber-300/20 text-[20px] font-bold text-amber-200">
+                              {editingUser.name ? editingUser.name.charAt(0).toUpperCase() : '?'}
+                            </div>
+                            <div>
+                              <h3 className="text-[18px] font-semibold text-white/95">Редактирование профиля</h3>
+                              <p className="text-[12px] text-white/45">Изменение параметров учётной записи {editingUser.name}</p>
+                            </div>
+                          </div>
+
+                          <form onSubmit={handleSaveEditUser} className="space-y-4">
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="block text-[11px] font-medium text-white/40 mb-1.5">Имя пользователя</label>
+                                <input
+                                  type="text"
+                                  value={editName}
+                                  onChange={(e) => setEditName(e.target.value)}
+                                  required
+                                  className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white focus:outline-none focus:border-amber-300/40"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-white/40 mb-1.5">Email (логин)</label>
+                                <input
+                                  type="email"
+                                  value={editEmail}
+                                  onChange={(e) => setEditEmail(e.target.value)}
+                                  required
+                                  className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white focus:outline-none focus:border-amber-300/40"
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div>
+                                <label className="block text-[11px] font-medium text-white/40 mb-1.5">Новый пароль (опция)</label>
+                                <input
+                                  type="password"
+                                  value={editPassword}
+                                  onChange={(e) => setEditPassword(e.target.value)}
+                                  placeholder="Оставьте пустым, чтобы не менять"
+                                  autoComplete="new-password"
+                                  minLength={editPassword ? 4 : undefined}
+                                  className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/25 focus:outline-none focus:border-amber-300/40"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-medium text-white/40 mb-1.5">Роль</label>
+                                <select
+                                  value={editRole}
+                                  onChange={(e) => setEditRole(e.target.value as any)}
+                                  className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white focus:outline-none focus:border-amber-300/40"
+                                >
+                                  <option value="user" className="bg-neutral-900 text-white">Пользователь</option>
+                                  <option value="admin" className="bg-neutral-900 text-white">Администратор</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            <div>
+                              <div className="flex items-center justify-between mb-1.5">
+                                <label className="block text-[11px] font-medium text-white/40">PIN-код (4 цифры для быстрого входа)</label>
+                                {editPin && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditPin('')}
+                                    className="text-[11px] text-rose-400 hover:text-rose-300 transition-colors"
+                                  >
+                                    Удалить PIN-код
+                                  </button>
+                                )}
+                              </div>
+                              <input
+                                type="password"
+                                maxLength={4}
+                                value={editPin}
+                                onChange={(e) => setEditPin(e.target.value.replace(/\D/g, ''))}
+                                placeholder={editingUser.hasPin && !editPin ? 'PIN установлен (введите новый или удалите)' : 'Например 1234'}
+                                className="w-full rounded-[10px] bg-white/[0.04] border border-white/[0.08] px-3.5 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/40 font-mono tracking-widest"
+                              />
+                            </div>
+
+                            <label className="flex items-center gap-2.5 cursor-pointer pt-1">
+                              <input
+                                type="checkbox"
+                                checked={editIsKids}
+                                onChange={(e) => setEditIsKids(e.target.checked)}
+                                className="h-4 w-4 rounded bg-white/10 border-white/20 text-amber-400 focus:ring-0"
+                              />
+                              <span className="text-[13px] text-white/80">Детский профиль (фильтрация контента 18+)</span>
+                            </label>
+
+                            {editError && (
+                              <div className="rounded-[8px] bg-red-500/10 border border-red-500/20 px-3.5 py-2 text-[12px] text-red-300">
+                                {editError}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.08]">
+                              <button
+                                type="button"
+                                onClick={() => setEditingUser(null)}
+                                className="rounded-[10px] px-4 py-2.5 text-[13px] font-medium text-white/60 hover:text-white transition-colors"
+                              >
+                                Отмена
+                              </button>
+                              <button
+                                type="submit"
+                                disabled={editLoading}
+                                className="flex items-center gap-2 rounded-[10px] bg-amber-300/90 hover:bg-amber-200/90 px-5 py-2.5 text-[13px] font-semibold text-black/80 transition-cinematic disabled:opacity-50 shadow-lg shadow-amber-500/10"
+                              >
+                                {editLoading ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                                <span>Сохранить</span>
+                              </button>
+                            </div>
+                          </form>
+                        </div>
+                      </div>
+                    )}
                   </>
                 ) : (
                   <p className="text-[14px] text-white/50">{t('settings.adminOnly')}</p>
@@ -1049,14 +1245,17 @@ function TelegramBotConfig() {
     if (e) e.preventDefault();
     setSaving(true);
     try {
+      const payload: any = {
+        chatId: chatId.trim() || undefined,
+        allowedChats,
+      };
+      if (token.trim()) {
+        payload.botToken = token.trim();
+      }
       const res = await serverFetch('/api/user/telegram', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          botToken: token.trim() || undefined,
-          chatId: chatId.trim() || undefined,
-          allowedChats,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Ошибка сохранения');
@@ -1171,6 +1370,13 @@ function TelegramBotConfig() {
               type={showToken ? 'text' : 'password'}
               value={token}
               onChange={(e) => setToken(e.target.value)}
+              autoComplete="new-password"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck="false"
+              data-lpignore="true"
+              data-1p-ignore="true"
+              name="telegram_bot_token_custom_field"
               placeholder={maskedToken ? 'Введите новый токен для замены...' : '123456789:ABCdefGHIjklMNOpqrSTUvwxYZ...'}
               className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 pr-10 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
             />

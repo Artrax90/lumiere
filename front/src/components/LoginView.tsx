@@ -28,12 +28,15 @@ export default function LoginView() {
         setPinLoading(true);
         await quickLogin(p.id);
       } catch (err: any) {
-        setPinError(err.message || 'Ошибка входа');
-        setSelectedProfile(p);
+        setError(err.message || 'Ошибка входа');
+        setShowPasswordForm(true);
+        setEmail(p.email);
+        setSelectedProfile(null);
       } finally {
         setPinLoading(false);
       }
     } else {
+      setSelectedProfile(null);
       setShowPasswordForm(true);
       setEmail(p.email);
       setPassword('');
@@ -204,7 +207,7 @@ export default function LoginView() {
         )}
 
         {/* PIN Entry Modal Overlay */}
-        {selectedProfile && (
+        {selectedProfile && selectedProfile.hasPin && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
             <div className="w-full max-w-sm rounded-[24px] glass-panel border border-white/10 p-8 flex flex-col items-center shadow-2xl">
               <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-300/10 border border-amber-300/20 text-[24px] font-bold text-amber-200 mb-4">

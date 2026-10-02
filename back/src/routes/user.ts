@@ -154,8 +154,17 @@ export function userRoutes(app: FastifyInstance) {
       const prefs = currentRes.rows[0]?.preferences || {};
 
       if (botToken !== undefined) {
-        if (botToken.trim()) prefs.telegram_bot_token = botToken.trim();
-        else delete prefs.telegram_bot_token;
+        const trimmedToken = botToken.trim();
+        if (trimmedToken) {
+          if (!/^\d{6,14}:[A-Za-z0-9_-]{20,}$/.test(trimmedToken)) {
+            return reply.code(400).send({
+              error: 'Неверный формат токена Telegram-бота. Токен от @BotFather должен иметь вид: 123456789:ABCdefGHI...'
+            });
+          }
+          prefs.telegram_bot_token = trimmedToken;
+        } else {
+          delete prefs.telegram_bot_token;
+        }
       }
       if (chatId !== undefined) {
         if (chatId.trim()) prefs.telegram_chat_id = chatId.trim();
