@@ -1163,7 +1163,9 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
 
     @dp.callback_query(F.data.startswith("dl_seasons:"))
     async def on_dl_seasons(call: types.CallbackQuery):
-        media_id = int(call.data.split(":")[1])
+        parts = call.data.split(":")
+        media_id = int(parts[1])
+        page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
         await call.answer("Загружаем сезоны...")
         det = await fetch_api(f"/api/tv/{media_id}")
         if not det:
@@ -1177,20 +1179,47 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             total_seasons = det.get("seasonsCount") or det.get("number_of_seasons") or 1
             valid_seasons = [{"season_number": i, "name": f"{i} сезон"} for i in range(1, total_seasons + 1)]
 
+        # Sort valid seasons by season_number ascending
+        valid_seasons.sort(key=lambda s: s.get("season_number", 1))
+
+        PAGE_SIZE = 20
+        total_pages = max(1, (len(valid_seasons) + PAGE_SIZE - 1) // PAGE_SIZE)
+        if page >= total_pages:
+            page = max(0, total_pages - 1)
+
+        start_idx = page * PAGE_SIZE
+        page_seasons = valid_seasons[start_idx : start_idx + PAGE_SIZE]
+
         builder = InlineKeyboardBuilder()
-        for s in valid_seasons[:30]:
+        for s in page_seasons:
             s_num = s.get("season_number", 1)
             s_name = s.get("name") or f"{s_num} сезон"
             ep_count = s.get("episode_count")
             ep_suffix = f" ({ep_count} сер.)" if ep_count else ""
-            builder.button(text=f"📺 {s_name}{ep_suffix}", callback_data=f"dl_eps:{media_id}:{s_num}")
+            builder.button(text=f"📺 {s_name}{ep_suffix}", callback_data=f"dl_eps:{media_id}:{s_num}:0")
 
-        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
-        builder.adjust(2, 2, 2, 2, 2, 2, 2, 2)
+        builder.adjust(2)
 
+        # Pagination navigation row
+        nav_buttons = []
+        if page > 0:
+            prev_start = (page - 1) * PAGE_SIZE + 1
+            prev_end = page * PAGE_SIZE
+            nav_buttons.append(InlineKeyboardButton(text=f"⬅️ Сезоны {prev_start}–{prev_end}", callback_data=f"dl_seasons:{media_id}:{page - 1}"))
+        if page < total_pages - 1:
+            next_start = (page + 1) * PAGE_SIZE + 1
+            next_end = min(len(valid_seasons), (page + 2) * PAGE_SIZE)
+            nav_buttons.append(InlineKeyboardButton(text=f"Сезоны {next_start}–{next_end} ➡️", callback_data=f"dl_seasons:{media_id}:{page + 1}"))
+
+        if nav_buttons:
+            builder.row(*nav_buttons)
+
+        builder.row(InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel"))
+
+        page_info = f" (стр. {page + 1}/{total_pages})" if total_pages > 1 else ""
         text = (
-            f"🎯 <b>Выберите сезон сериала для загрузки:</b>\n"
-            f"🎬 <b>«{html.escape(title)}»</b>"
+            f"🎯 <b>Выберите сезон сериала для загрузки:</b>{page_info}\n"
+            f"🎬 <b>«{html.escape(title)}»</b> (всего сезонов: {len(valid_seasons)})"
         )
         try:
             await call.message.edit_text(text, reply_markup=builder.as_markup(), parse_mode="HTML")
@@ -1202,6 +1231,7 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         parts = call.data.split(":")
         media_id = int(parts[1])
         season_num = int(parts[2])
+        ep_page = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
         await call.answer("Загружаем список серий...")
 
         season_data = await fetch_api(f"/api/tv/{media_id}/season/{season_num}")
@@ -1219,19 +1249,38 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         det = await fetch_api(f"/api/tv/{media_id}")
         title = (det or {}).get("name") or (det or {}).get("title") or "Сериал"
 
+        EP_PAGE_SIZE = 36
+        total_ep_pages = max(1, (len(episodes) + EP_PAGE_SIZE - 1) // EP_PAGE_SIZE)
+        if ep_page >= total_ep_pages:
+            ep_page = max(0, total_ep_pages - 1)
+
+        start_ep = ep_page * EP_PAGE_SIZE
+        page_episodes = episodes[start_ep : start_ep + EP_PAGE_SIZE]
+
         builder = InlineKeyboardBuilder()
-        for ep in episodes[:50]:
+        for ep in page_episodes:
             ep_num = ep.get("episode") or ep.get("episode_number") or 1
             builder.button(text=f"{ep_num} серия", callback_data=f"dl_start:tv:{media_id}:{season_num}:{ep_num}")
 
         builder.adjust(4)
+
+        nav_buttons = []
+        if ep_page > 0:
+            nav_buttons.append(InlineKeyboardButton(text="⬅️ Предыдущие серии", callback_data=f"dl_eps:{media_id}:{season_num}:{ep_page - 1}"))
+        if ep_page < total_ep_pages - 1:
+            nav_buttons.append(InlineKeyboardButton(text="Следующие серии ➡️", callback_data=f"dl_eps:{media_id}:{season_num}:{ep_page + 1}"))
+        if nav_buttons:
+            builder.row(*nav_buttons)
+
+        season_page = max(0, (season_num - 1) // 20)
         builder.row(
-            InlineKeyboardButton(text="⬅️ К сезонам", callback_data=f"dl_seasons:{media_id}"),
+            InlineKeyboardButton(text="⬅️ К сезонам", callback_data=f"dl_seasons:{media_id}:{season_page}"),
             InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel")
         )
 
+        ep_page_info = f" (стр. {ep_page + 1}/{total_ep_pages})" if total_ep_pages > 1 else ""
         text = (
-            f"🎯 <b>Выберите серию для загрузки на сервер:</b>\n"
+            f"🎯 <b>Выберите серию для загрузки на сервер:</b>{ep_page_info}\n"
             f"🎬 <b>«{html.escape(title)}»</b> — Сезон {season_num}\n\n"
             f"<i>Бот найдет и скачает на диск именно выбранную серию.</i>"
         )

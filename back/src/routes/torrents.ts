@@ -923,19 +923,76 @@ export function torrentRoutes(app: FastifyInstance) {
   const activeSessions = new Map<string, FfmpegSession>();
   const activeSubtitles = new Map<string, { pid: number }>();
 
-  // NOTE: Never send SIGSTOP to FFmpeg during active torrent streaming.
-  // Freezing FFmpeg closes its TCP receive window, causing TorrServer's send buffer
-  // to fill up and choking the BitTorrent swarm download speed to 0 Mbit/s.
-  function pauseFfmpeg(_sess: FfmpegSession) {
-    // No-op: keep socket stream open and active
+  function pauseFfmpeg(sess: FfmpegSession) {
+    if (!sess.paused && sess.pid && process.platform !== 'win32') {
+      try {
+        process.kill(sess.pid, 'SIGSTOP');
+        sess.paused = true;
+      } catch (err: any) {
+        console.error(`[FFmpeg] Pause error pid=${sess.pid}:`, err.message);
+      }
+    }
   }
 
-  function resumeFfmpeg(_sess: FfmpegSession) {
-    // No-op
+  function resumeFfmpeg(sess: FfmpegSession) {
+    if (sess.paused && sess.pid && process.platform !== 'win32') {
+      try {
+        process.kill(sess.pid, 'SIGCONT');
+        sess.paused = false;
+      } catch (err: any) {
+        console.error(`[FFmpeg] Resume error pid=${sess.pid}:`, err.message);
+      }
+    }
   }
 
   function checkThrottle(sess: FfmpegSession) {
-    sess.lastPlayheadUpdate = Date.now();
+    try {
+      if (!existsSync(sess.hlsDir)) return;
+      const files = readdirSync(sess.hlsDir) as string[];
+      let maxSeg = -1;
+      for (const f of files) {
+        if (f.startsWith('seg-') && f.endsWith('.ts')) {
+          const num = parseInt(f.slice(4, -3), 10);
+          if (!isNaN(num) && num > maxSeg) {
+            maxSeg = num;
+          }
+        }
+      }
+
+      if (maxSeg < 0) return;
+
+      const now = Date.now();
+      const deltaSec = Math.min(2, Math.max(0, (now - (sess.lastPlayheadUpdate || now)) / 1000));
+      sess.lastPlayheadUpdate = now;
+
+      // Detection of TV pause: only trigger if TV hasn't requested any segment in > 30 seconds
+      // AND we have segments on disk ready for the TV to download
+      const isTvPaused = sess.lastRequestedSeg >= 0 &&
+                         maxSeg > sess.lastRequestedSeg &&
+                         (now - sess.lastSegRequestTime > 30000);
+
+      if (!isTvPaused) {
+        sess.playbackSeconds += deltaSec;
+      }
+
+      const effectivePlaySec = Math.max(0, sess.playbackSeconds - 2);
+      const playedSeg = Math.floor(effectivePlaySec / 4);
+
+      // Buffer ahead of current playback position
+      const currentPos = Math.max(playedSeg, sess.lastRequestedSeg);
+      const ahead = maxSeg - currentPos;
+
+      // Adaptive throttling:
+      // - PAUSE if TV is paused OR if buffer is >= 15 segments (60s) ahead of playhead
+      // - RESUME if TV is active AND buffer drops to <= 8 segments (32s) ahead
+      if (isTvPaused || ahead >= 15) {
+        pauseFfmpeg(sess);
+      } else if (ahead <= 8) {
+        resumeFfmpeg(sess);
+      }
+    } catch (err: any) {
+      console.error('[FFmpeg] checkThrottle error:', err.message);
+    }
   }
 
   function retireSession(sessionId: string) {
@@ -1062,7 +1119,7 @@ export function torrentRoutes(app: FastifyInstance) {
       // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
       const { spawn } = await import('child_process');
       const ffmpegArgs = [
-        '-threads', '2',
+        '-threads', '1',
         '-reconnect', '1',
         '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
@@ -1083,7 +1140,7 @@ export function torrentRoutes(app: FastifyInstance) {
       if (isVideoTranscode) {
         // Samsung Tizen TVs (2018+) dropped MPEG-4 Part 2/XviD hardware decoders.
         // If Intel QuickSync (VA-API) hardware is available, use hardware encoder (1-2% CPU).
-        // Otherwise, fallback to ultrafast libx264 limited to 2 threads to protect CPU.
+        // Otherwise, fallback to ultrafast libx264 limited to 1 thread to protect CPU.
         if (isVaapiAvailable()) {
           ffmpegArgs.push(
             '-vaapi_device', '/dev/dri/renderD128',
@@ -1093,7 +1150,7 @@ export function torrentRoutes(app: FastifyInstance) {
           );
         } else {
           ffmpegArgs.push(
-            '-threads', '2',
+            '-threads', '1',
             '-c:v', 'libx264',
             '-preset', 'ultrafast',
             '-tune', 'zerolatency',
@@ -1123,7 +1180,7 @@ export function torrentRoutes(app: FastifyInstance) {
       const ffmpeg = spawn('ffmpeg', ffmpegArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
       try {
         if (ffmpeg.pid && typeof os.setPriority === 'function') {
-          os.setPriority(ffmpeg.pid, 10);
+          os.setPriority(ffmpeg.pid, 15);
         }
       } catch {}
 
@@ -1141,7 +1198,7 @@ export function torrentRoutes(app: FastifyInstance) {
       };
       activeSessions.set(sessionId, sess);
 
-      // Inactivity loop: clean up session after 10 minutes of no requests from client
+      // Inactivity & throttling loop: checks every 1000ms
       sess.timer = setInterval(() => {
         if (Date.now() - sess.lastActivity > 600000) {
           console.log(`[FFmpeg] Session ${sessionId} timed out after 10m inactivity`);
@@ -1149,7 +1206,7 @@ export function torrentRoutes(app: FastifyInstance) {
           return;
         }
         checkThrottle(sess);
-      }, 5000);
+      }, 1000);
 
       ffmpeg.on('error', (err) => {
         console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);
