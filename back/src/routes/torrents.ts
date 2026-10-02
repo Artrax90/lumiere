@@ -888,7 +888,25 @@ export function torrentRoutes(app: FastifyInstance) {
     return `${m}:${sec.toString().padStart(2, '0')}`;
   }
 
-  // Track active FFmpeg sessions with dynamic CPU throttling (SIGSTOP/SIGCONT)
+  // Clean up stale HLS session directories older than 2 hours on startup
+  try {
+    const tmpDir = os.tmpdir();
+    const entries = readdirSync(tmpDir);
+    const now = Date.now();
+    for (const entry of entries) {
+      if (entry.startsWith('hls-')) {
+        const fullPath = join(tmpDir, entry);
+        try {
+          const stat = statSync(fullPath);
+          if (now - stat.mtimeMs > 2 * 60 * 60 * 1000) {
+            rmSync(fullPath, { recursive: true, force: true });
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // Track active FFmpeg sessions
   interface FfmpegSession {
     pid: number;
     hlsDir: string;
@@ -905,80 +923,19 @@ export function torrentRoutes(app: FastifyInstance) {
   const activeSessions = new Map<string, FfmpegSession>();
   const activeSubtitles = new Map<string, { pid: number }>();
 
-  function pauseFfmpeg(sess: FfmpegSession) {
-    if (!sess.paused && sess.pid && process.platform !== 'win32') {
-      try {
-        process.kill(sess.pid, 'SIGSTOP');
-        sess.paused = true;
-        console.log(`[FFmpeg] Throttled: PAUSED pid=${sess.pid}`);
-      } catch (err: any) {
-        console.error(`[FFmpeg] Pause error pid=${sess.pid}:`, err.message);
-      }
-    }
+  // NOTE: Never send SIGSTOP to FFmpeg during active torrent streaming.
+  // Freezing FFmpeg closes its TCP receive window, causing TorrServer's send buffer
+  // to fill up and choking the BitTorrent swarm download speed to 0 Mbit/s.
+  function pauseFfmpeg(_sess: FfmpegSession) {
+    // No-op: keep socket stream open and active
   }
 
-  function resumeFfmpeg(sess: FfmpegSession) {
-    if (sess.paused && sess.pid && process.platform !== 'win32') {
-      try {
-        process.kill(sess.pid, 'SIGCONT');
-        sess.paused = false;
-        console.log(`[FFmpeg] Throttled: RESUMED pid=${sess.pid}`);
-      } catch (err: any) {
-        console.error(`[FFmpeg] Resume error pid=${sess.pid}:`, err.message);
-      }
-    }
+  function resumeFfmpeg(_sess: FfmpegSession) {
+    // No-op
   }
 
   function checkThrottle(sess: FfmpegSession) {
-    try {
-      if (!existsSync(sess.hlsDir)) return;
-      const files = readdirSync(sess.hlsDir) as string[];
-      let maxSeg = -1;
-      for (const f of files) {
-        if (f.startsWith('seg-') && f.endsWith('.ts')) {
-          const num = parseInt(f.slice(4, -3), 10);
-          if (!isNaN(num) && num > maxSeg) {
-            maxSeg = num;
-          }
-        }
-      }
-
-      if (maxSeg < 0) return;
-
-      const now = Date.now();
-      const deltaSec = Math.min(2, Math.max(0, (now - (sess.lastPlayheadUpdate || now)) / 1000));
-      sess.lastPlayheadUpdate = now;
-
-      // Detection of TV pause:
-      // If there are segments available on disk that the TV has NOT downloaded yet,
-      // and the TV hasn't requested any segment in > 8 seconds:
-      // The TV is PAUSED or player stopped!
-      const isTvPaused = sess.lastRequestedSeg >= 0 &&
-                         maxSeg > sess.lastRequestedSeg &&
-                         (now - sess.lastSegRequestTime > 8000);
-
-      if (!isTvPaused) {
-        sess.playbackSeconds += deltaSec;
-      }
-
-      // Initial buffer grace: player needs ~2s to initialize AVPlay and load first segment
-      const effectivePlaySec = Math.max(0, sess.playbackSeconds - 2);
-      const playedSeg = Math.floor(effectivePlaySec / 4);
-
-      // Buffer ahead of current playback position
-      const ahead = maxSeg - playedSeg;
-
-      // Throttling thresholds:
-      // - PAUSE if TV is paused OR if buffer is >= 4 segments (16 seconds) ahead of playhead.
-      // - RESUME if TV is active AND buffer drops to <= 2 segments (8 seconds) ahead.
-      if (isTvPaused || ahead >= 4) {
-        pauseFfmpeg(sess);
-      } else if (ahead <= 2) {
-        resumeFfmpeg(sess);
-      }
-    } catch (err: any) {
-      console.error('[FFmpeg] checkThrottle error:', err.message);
-    }
+    sess.lastPlayheadUpdate = Date.now();
   }
 
   function retireSession(sessionId: string) {
@@ -1107,8 +1064,11 @@ export function torrentRoutes(app: FastifyInstance) {
       const ffmpegArgs = [
         '-threads', '2',
         '-reconnect', '1',
+        '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
+        '-probesize', '10000000',
+        '-analyzeduration', '10000000',
       ];
       // Input seek with -accurate_seek ensures exact second seeking without keyframe undershoot
       if (seekTime > 0) {
@@ -1181,14 +1141,15 @@ export function torrentRoutes(app: FastifyInstance) {
       };
       activeSessions.set(sessionId, sess);
 
-      // Dynamic throttle loop: checks every 500ms to pause/resume FFmpeg and clean up after 90s idle
+      // Inactivity loop: clean up session after 10 minutes of no requests from client
       sess.timer = setInterval(() => {
-        if (Date.now() - sess.lastActivity > 90000) {
+        if (Date.now() - sess.lastActivity > 600000) {
+          console.log(`[FFmpeg] Session ${sessionId} timed out after 10m inactivity`);
           cleanupSession(sessionId);
           return;
         }
         checkThrottle(sess);
-      }, 500);
+      }, 5000);
 
       ffmpeg.on('error', (err) => {
         console.error(`[FFmpeg] Session ${sessionId} spawn error:`, err.message);

@@ -1214,19 +1214,21 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 matched = next((s for s in det.get("seasons", []) if s.get("season_number") == season_num), None)
                 if matched and matched.get("episode_count"):
                     count = matched.get("episode_count")
-            episodes = [{"episode_number": i, "name": f"Серия {i}"} for i in range(1, count + 1)]
+            episodes = [{"episode": i, "episode_number": i, "name": f"Серия {i}"} for i in range(1, count + 1)]
 
         det = await fetch_api(f"/api/tv/{media_id}")
         title = (det or {}).get("name") or (det or {}).get("title") or "Сериал"
 
         builder = InlineKeyboardBuilder()
-        for ep in episodes[:36]:
-            ep_num = ep.get("episode_number", 1)
+        for ep in episodes[:50]:
+            ep_num = ep.get("episode") or ep.get("episode_number") or 1
             builder.button(text=f"{ep_num} серия", callback_data=f"dl_start:tv:{media_id}:{season_num}:{ep_num}")
 
-        builder.button(text="⬅️ К сезонам", callback_data=f"dl_seasons:{media_id}")
-        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
-        builder.adjust(4, 4, 4, 4, 4, 4, 4, 4, 2)
+        builder.adjust(4)
+        builder.row(
+            InlineKeyboardButton(text="⬅️ К сезонам", callback_data=f"dl_seasons:{media_id}"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel")
+        )
 
         text = (
             f"🎯 <b>Выберите серию для загрузки на сервер:</b>\n"

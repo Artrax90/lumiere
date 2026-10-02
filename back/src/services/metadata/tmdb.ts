@@ -258,6 +258,7 @@ export class TmdbProvider implements MetadataProvider {
         seriesId: tvId,
         season: ep.season_number,
         episode: ep.episode_number,
+        episode_number: ep.episode_number,
         title: ep.name,
         synopsis: ep.overview,
         runtime: ep.runtime ? `${ep.runtime}m` : '—',

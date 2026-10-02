@@ -61,6 +61,7 @@ export interface Episode {
   seriesId: number;
   season: number;
   episode: number;
+  episode_number?: number;
   title: string;
   synopsis: string;
   runtime: string;

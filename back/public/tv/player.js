@@ -1531,12 +1531,12 @@
     }
 
     if (bufferEl) {
-      if (pct > 0 && totalMb > 0) {
+      if (player && player._isBuffering) {
+        bufferEl.textContent = 'Буферизация...';
+      } else if (pct > 0 && totalMb > 0) {
         bufferEl.textContent = 'Буфер: ' + pct + '% (' + loadedMb + '/' + totalMb + ' МБ)';
       } else if (pct > 0) {
         bufferEl.textContent = 'Буфер: ' + pct + '%';
-      } else if (player && player._isBuffering) {
-        bufferEl.textContent = 'Буферизация...';
       } else {
         bufferEl.textContent = 'Буфер готов';
       }
