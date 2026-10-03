@@ -51,6 +51,33 @@ interface TmdbSeason {
   }[];
 }
 
+// Official Netflix Top 10 Weekly Charts (curated from official Netflix Tudum & FlixPatrol)
+const NETFLIX_WEEKLY_TV_IDS: number[] = [
+  299939, // Монстр: История Лиззи Борден (Monster: The Lizzie Borden Story) - #1
+  320760, // Я тебя знаю (Not a Stranger / Seni Tanıyorum) - #2
+  318918, // LEGO Большой куш (LEGO ONE PIECE) - #3
+  258165, // К востоку от Эдема (East of Eden) - #4
+  236235, // Джентльмены (The Gentlemen) - #5
+  286940, // Wonka's The Golden Ticket - #6
+  300507, // Рулевая (Crew Girl) - #7
+  203857, // Дипломатка (The Diplomat) - #8
+  250923, // Никто этого не хочет (Nobody Wants This) - #9
+  197067, // Монстр: История Джеффри Дамера / Эд Гин (Monster) - #10
+];
+
+const NETFLIX_WEEKLY_MOVIE_IDS: number[] = [
+  1492640, // Унабомбер (UNABOMBER) - #1
+  1514863, // Лучшие из лучших (Best of the Best) - #2
+  950387,  // Minecraft в кино (A Minecraft Movie) - #3
+  860508,  // Шепот за окном (The Whisper Man) - #4
+  436270,  // Чёрный Адам (Black Adam) - #5
+  799583,  // Министерство неджентльменских дел (The Ministry of Ungentlemanly Warfare) - #6
+  1522689, // Зачем мы опять женимся? (Why Did I Get Married Again?) - #7
+  803796,  // Кейпоп-охотницы на демонов (KPop Demon Hunters) - #8
+  361743,  // Топ Ган: Мэверик (Top Gun: Maverick) - #9
+  1621552, // Поймать Эль Чапо (Catching El Chapo) - #10
+];
+
 export class TmdbProvider implements MetadataProvider {
   name = 'tmdb';
 
@@ -117,8 +144,39 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
+  private netflixWeeklyCache = new Map<string, { data: TitleResult; expires: number }>();
+
   async netflixTv(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
     const isAllTime = period === 'all_time';
+    if (!isAllTime && page === 1) {
+      const cacheKey = `tv_week_${lang || 'ru'}`;
+      const cached = this.netflixWeeklyCache.get(cacheKey);
+      if (cached && cached.expires > Date.now()) {
+        return cached.data;
+      }
+      try {
+        const rawItems = await Promise.all(
+          NETFLIX_WEEKLY_TV_IDS.map((id) =>
+            this.client.get(`/tv/${id}`, { language: this.client.lang(lang) }).catch(() => null)
+          )
+        );
+        const results = rawItems
+          .filter(Boolean)
+          .map((t: TmdbTitle) => this.mapTitle(t, 'tv'));
+
+        const titleResult: TitleResult = {
+          results,
+          page: 1,
+          totalPages: 1,
+          totalResults: results.length,
+        };
+        this.netflixWeeklyCache.set(cacheKey, { data: titleResult, expires: Date.now() + 60 * 60 * 1000 });
+        return titleResult;
+      } catch (e) {
+        console.warn('Failed to load curated netflix weekly tv, falling back to discover:', e);
+      }
+    }
+
     const params: Record<string, string> = {
       with_networks: '213',
       without_genres: '10763,10767,10764',
@@ -142,6 +200,35 @@ export class TmdbProvider implements MetadataProvider {
 
   async netflixMovies(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
     const isAllTime = period === 'all_time';
+    if (!isAllTime && page === 1) {
+      const cacheKey = `movie_week_${lang || 'ru'}`;
+      const cached = this.netflixWeeklyCache.get(cacheKey);
+      if (cached && cached.expires > Date.now()) {
+        return cached.data;
+      }
+      try {
+        const rawItems = await Promise.all(
+          NETFLIX_WEEKLY_MOVIE_IDS.map((id) =>
+            this.client.get(`/movie/${id}`, { language: this.client.lang(lang) }).catch(() => null)
+          )
+        );
+        const results = rawItems
+          .filter(Boolean)
+          .map((t: TmdbTitle) => this.mapTitle(t, 'movie'));
+
+        const titleResult: TitleResult = {
+          results,
+          page: 1,
+          totalPages: 1,
+          totalResults: results.length,
+        };
+        this.netflixWeeklyCache.set(cacheKey, { data: titleResult, expires: Date.now() + 60 * 60 * 1000 });
+        return titleResult;
+      } catch (e) {
+        console.warn('Failed to load curated netflix weekly movies, falling back to discover:', e);
+      }
+    }
+
     const params: Record<string, string> = {
       with_watch_providers: '8',
       watch_region: 'US',
