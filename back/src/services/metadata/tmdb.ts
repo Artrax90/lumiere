@@ -123,7 +123,7 @@ export class TmdbProvider implements MetadataProvider {
       with_networks: '213',
       without_genres: '10763,10767,10764',
       sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
-      'vote_count.gte': isAllTime ? '500' : '10',
+      'vote_count.gte': isAllTime ? '500' : '50',
       page: String(page),
       language: this.client.lang(lang),
     };
@@ -146,7 +146,7 @@ export class TmdbProvider implements MetadataProvider {
       with_watch_providers: '8',
       watch_region: 'US',
       sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
-      'vote_count.gte': isAllTime ? '1000' : '10',
+      'vote_count.gte': isAllTime ? '1000' : '50',
       page: String(page),
       language: this.client.lang(lang),
     };
