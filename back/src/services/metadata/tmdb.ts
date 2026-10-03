@@ -119,14 +119,19 @@ export class TmdbProvider implements MetadataProvider {
 
   async netflixTv(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
     const isAllTime = period === 'all_time';
-    const data = await this.client.get('/discover/tv', {
+    const params: Record<string, string> = {
       with_networks: '213',
-      without_genres: '10763,10767',
+      without_genres: '10763,10767,10764',
       sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
       'vote_count.gte': isAllTime ? '500' : '10',
       page: String(page),
       language: this.client.lang(lang),
-    });
+    };
+    if (!isAllTime) {
+      const minYear = new Date().getFullYear() - 3;
+      params['first_air_date.gte'] = `${minYear}-01-01`;
+    }
+    const data = await this.client.get('/discover/tv', params);
     return {
       results: data.results.map((t: TmdbTitle) => this.mapTitle(t, 'tv')),
       page: data.page,
@@ -137,14 +142,19 @@ export class TmdbProvider implements MetadataProvider {
 
   async netflixMovies(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
     const isAllTime = period === 'all_time';
-    const data = await this.client.get('/discover/movie', {
+    const params: Record<string, string> = {
       with_watch_providers: '8',
       watch_region: 'US',
       sort_by: isAllTime ? 'vote_count.desc' : 'popularity.desc',
       'vote_count.gte': isAllTime ? '1000' : '10',
       page: String(page),
       language: this.client.lang(lang),
-    });
+    };
+    if (!isAllTime) {
+      const minYear = new Date().getFullYear() - 3;
+      params['primary_release_date.gte'] = `${minYear}-01-01`;
+    }
+    const data = await this.client.get('/discover/movie', params);
     return {
       results: data.results.map((t: TmdbTitle) => this.mapTitle(t, 'movie')),
       page: data.page,
