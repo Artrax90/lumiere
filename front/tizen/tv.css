@@ -1516,71 +1516,87 @@ body.player-active .section {
 .torrent-sort-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 10px;
+  margin-bottom: 14px;
   padding: 4px 0;
 }
 .torrent-sort-label {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-mute);
   margin-right: 4px;
 }
 .sort-chip {
-  padding: 8px 20px;
+  padding: 6px 16px;
   border-radius: 9999px;
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 500;
-  color: var(--text-mute);
-  background: var(--surface);
-  border: 1.5px solid var(--border);
+  color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   outline: none;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.15s ease-out;
 }
 .sort-chip.active {
-  background: rgba(232, 193, 112, 0.18);
-  color: var(--accent);
-  border-color: rgba(232, 193, 112, 0.45);
+  background: rgba(232, 193, 112, 0.15);
+  color: rgba(232, 193, 112, 0.95);
+  border-color: rgba(232, 193, 112, 0.35);
   font-weight: 600;
 }
 .sort-chip.focused, .sort-chip:focus {
-  background: rgba(232, 193, 112, 0.28);
+  background: rgba(232, 193, 112, 0.25);
   color: #ffffff;
   border-color: var(--accent);
   box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(232, 193, 112, 0.35);
-  transform: scale(1.05);
+  transform: scale(1.04);
 }
 
 /* Detail: Torrents list */
 .detail-torrents-list { display: flex; flex-direction: column; }
-.detail-torrents-list .torrent-item { margin-bottom: 12px; }
+.detail-torrents-list .torrent-item { margin-bottom: 10px; }
 .torrent-item {
-  padding: 16px 22px; border-radius: 14px;
-  background: var(--surface); border: 1.5px solid var(--border);
-  cursor: pointer; transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 14px 18px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
 }
 .torrent-item.focused {
-  background: rgba(232, 193, 112, 0.1);
-  border-color: rgba(232, 193, 112, 0.85);
-  box-shadow: 0 0 0 3px var(--accent), 0 8px 24px rgba(0, 0, 0, 0.45);
-  transform: translateX(6px);
+  background: rgba(232, 193, 112, 0.08) !important;
+  border-color: rgba(232, 193, 112, 0.75) !important;
+  box-shadow: 0 0 0 2px rgba(232, 193, 112, 0.8), 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  transform: translateX(4px);
 }
 .torrent-item.loading {
-  opacity: 0.7;
+  opacity: 0.6;
 }
 .detail-torrent-title {
-  font-size: 20px; font-weight: 500; color: var(--text);
-  margin-bottom: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.88);
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.35;
 }
 .detail-torrent-badges {
-  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
 }
 .detail-torrent-date {
-  font-size: 14px; color: var(--text-mute); margin-top: 8px; letter-spacing: 0.2px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.4);
+  margin-top: 6px;
+  letter-spacing: 0.1px;
 }
-.detail-torrent-meta { display: flex; font-size: 16px; color: var(--text-mute); }
-.detail-torrent-meta > span { margin-right: 24px; }
+.detail-torrent-meta { display: flex; font-size: 14px; color: var(--text-mute); }
+.detail-torrent-meta > span { margin-right: 20px; }
 .detail-torrent-seeds { color: var(--accent); }
 
 /* Detail: Meta grid */
@@ -1653,124 +1669,178 @@ body.player-active .section {
 .t-badges {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
 }
 .t-badge {
   display: inline-flex;
   align-items: center;
-  font-size: 13px;
-  padding: 3px 9px;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
   border-radius: 6px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
   line-height: 1.25;
   white-space: nowrap;
+  border-width: 1px;
+  border-style: solid;
+  box-sizing: border-box;
 }
 .t-badge-res-4k {
-  background: rgba(245, 158, 11, 0.25);
-  color: #fbbf24;
-  border: 1px solid rgba(245, 158, 11, 0.6);
-  box-shadow: 0 0 10px rgba(245, 158, 11, 0.2);
+  background: rgba(251, 191, 36, 0.25);
+  color: #fcd34d;
+  border-color: rgba(251, 191, 36, 0.6);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
+  font-weight: 800;
 }
 .t-badge-res-1080 {
   background: rgba(16, 185, 129, 0.2);
-  color: #34d399;
-  border: 1px solid rgba(16, 185, 129, 0.45);
+  color: #6ee7b7;
+  border-color: rgba(52, 211, 153, 0.5);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
+  font-weight: 700;
 }
-.t-badge-res-720, .t-badge-res-sd {
-  background: rgba(148, 163, 184, 0.16);
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+.t-badge-res-720 {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border-color: rgba(148, 163, 184, 0.4);
+  font-weight: 600;
 }
-.t-badge-hdr, .t-badge-hdr-dv {
-  background: rgba(168, 85, 247, 0.25);
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.55);
-  box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+.t-badge-res-sd {
+  background: rgba(113, 113, 122, 0.2);
+  color: #d4d4d8;
+  border-color: rgba(113, 113, 122, 0.4);
+  font-weight: 600;
+}
+.t-badge-hdr-dv {
+  background: rgba(217, 70, 239, 0.25);
+  color: #f5d0fe;
+  border-color: rgba(232, 121, 249, 0.6);
+  box-shadow: 0 0 12px rgba(192, 132, 252, 0.3);
+  font-weight: 700;
+}
+.t-badge-hdr {
+  background: rgba(168, 85, 247, 0.2);
+  color: #d8b4fe;
+  border-color: rgba(192, 132, 252, 0.5);
+  font-weight: 700;
 }
 .t-badge-codec {
   background: rgba(6, 182, 212, 0.2);
-  color: #22d3ee;
-  border: 1px solid rgba(6, 182, 212, 0.45);
-}
-.t-badge-qual, .t-badge-q {
-  background: rgba(99, 102, 241, 0.2);
-  color: #818cf8;
-  border: 1px solid rgba(99, 102, 241, 0.45);
-}
-.t-badge-qual-cam {
-  background: rgba(239, 68, 68, 0.2);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.45);
-}
-.t-badge-audio, .t-badge-audio-atmos {
-  background: rgba(244, 114, 182, 0.2);
-  color: #f472b6;
-  border: 1px solid rgba(244, 114, 182, 0.45);
+  color: #67e8f9;
+  border-color: rgba(34, 211, 238, 0.5);
+  font-weight: 700;
 }
 .t-badge-color {
   background: rgba(139, 92, 246, 0.2);
-  color: #a78bfa;
-  border: 1px solid rgba(139, 92, 246, 0.4);
+  color: #c4b5fd;
+  border-color: rgba(167, 139, 250, 0.5);
+  font-weight: 600;
+}
+.t-badge-qual,
+.t-badge-q {
+  background: rgba(99, 102, 241, 0.2);
+  color: #a5b4fc;
+  border-color: rgba(129, 140, 248, 0.5);
+  font-weight: 700;
+}
+.t-badge-qual-cam {
+  background: rgba(244, 63, 94, 0.25);
+  color: #fda4af;
+  border-color: rgba(251, 113, 133, 0.5);
+  font-weight: 700;
+}
+.t-badge-audio-atmos {
+  background: rgba(236, 72, 153, 0.25);
+  color: #fbcfe8;
+  border-color: rgba(244, 114, 182, 0.6);
+  box-shadow: 0 0 12px rgba(244, 114, 182, 0.3);
+  font-weight: 700;
+}
+.t-badge-audio {
+  background: rgba(244, 63, 94, 0.2);
+  color: #fda4af;
+  border-color: rgba(251, 113, 133, 0.5);
+  font-weight: 600;
 }
 .t-badge-dub {
-  background: rgba(147, 51, 234, 0.28);
-  color: #c084fc;
-  border: 1px solid rgba(168, 85, 247, 0.55);
-  box-shadow: 0 0 10px rgba(168, 85, 247, 0.2);
+  background: rgba(147, 51, 234, 0.3);
+  color: #e9d5ff;
+  border-color: rgba(168, 85, 247, 0.6);
+  box-shadow: 0 0 8px rgba(168, 85, 247, 0.25);
   font-weight: 700;
   text-transform: none;
 }
+.t-badge-pack {
+  background: rgba(251, 191, 36, 0.15);
+  color: #fde68a;
+  border-color: rgba(251, 191, 36, 0.4);
+  font-weight: 600;
+}
+.t-badge-lang {
+  background: rgba(59, 130, 246, 0.2);
+  color: #93c5fd;
+  border-color: rgba(96, 165, 250, 0.5);
+  font-weight: 700;
+}
+.t-badge-year {
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  border-color: rgba(255, 255, 255, 0.2);
+  font-weight: 500;
+}
 .t-badge-fmt {
-  background: rgba(14, 165, 233, 0.22);
-  color: #38bdf8;
-  border: 1px solid rgba(14, 165, 233, 0.55);
+  background: rgba(14, 165, 233, 0.2);
+  color: #7dd3fc;
+  border-color: rgba(56, 189, 248, 0.5);
+  box-shadow: 0 0 8px rgba(56, 189, 248, 0.2);
   font-weight: 800;
-  letter-spacing: 0.5px;
 }
 .t-badge-tracker {
   background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 .t-badge-bitrate {
   background: rgba(255, 255, 255, 0.07);
-  color: #f1f5f9;
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
   font-weight: 600;
 }
 .t-badge-sub {
-  background: rgba(148, 163, 184, 0.14);
+  background: rgba(148, 163, 184, 0.15);
   color: #cbd5e1;
-  border: 1px solid rgba(148, 163, 184, 0.3);
+  border-color: rgba(148, 163, 184, 0.35);
   font-weight: 600;
 }
 .t-badge-size {
-  background: rgba(255, 255, 255, 0.1);
-  color: #f1f5f9;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  font-weight: 600;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.8);
+  border-color: rgba(255, 255, 255, 0.15);
+  font-weight: 500;
 }
 .t-badge-seeds {
-  background: rgba(34, 197, 94, 0.2);
-  color: #4ade80;
-  border: 1px solid rgba(34, 197, 94, 0.5);
+  background: rgba(16, 185, 129, 0.2);
+  color: #6ee7b7;
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.2);
   font-weight: 700;
 }
 .t-badge-peers {
-  background: rgba(148, 163, 184, 0.12);
-  color: #94a3b8;
-  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(255, 255, 255, 0.5);
+  border-color: rgba(255, 255, 255, 0.1);
+  font-weight: 500;
 }
 .t-badge-loading {
   background: rgba(232, 193, 112, 0.25);
   color: #e8c170;
-  border: 1px solid rgba(232, 193, 112, 0.6);
+  border-color: rgba(232, 193, 112, 0.6);
   animation: pulseLoading 1.2s infinite ease-in-out;
 }
 @keyframes pulseLoading {
@@ -1890,53 +1960,7 @@ body.player-active .section {
   color: #0a0b0f !important;
 }
 
-/* Format & Quality Badges */
-.t-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  align-items: center;
-  margin: 6px 0;
-}
-.t-badge {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  padding: 4px 10px;
-  font-size: 14px;
-  font-weight: 700;
-  border-radius: 6px;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  color: #fff;
-}
-.t-badge-fmt {
-  background: rgba(14, 165, 233, 0.25);
-  border-color: #38bdf8;
-  color: #38bdf8;
-}
-.t-badge-res {
-  background: rgba(232, 193, 112, 0.25);
-  border-color: #e8c170;
-  color: #e8c170;
-}
-.t-badge-codec {
-  background: rgba(168, 85, 247, 0.25);
-  border-color: #c084fc;
-  color: #c084fc;
-}
-.t-badge-qual {
-  background: rgba(16, 185, 129, 0.25);
-  border-color: #34d399;
-  color: #34d399;
-}
-.t-badge-audio {
-  background: rgba(244, 63, 94, 0.25);
-  border-color: #fb7185;
-  color: #fb7185;
-}
+/* Format & Quality Badges - consolidated above */
 
 /* Torrent Pre-Play Confirmation Modal */
 .torrent-confirm-wrap {

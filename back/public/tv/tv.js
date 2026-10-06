@@ -6275,6 +6275,25 @@
       tags.push({ text: dubs[di], type: 'dub' });
     }
 
+    // 9. Multi-episode packs tag (e.g. 1-10 выпуски)
+    var packMatch = str.match(/\b(\d{1,3}\s*[-–—]\s*\d{1,3}\s*(?:выпуск\w*|сери\w*))/i);
+    if (packMatch) {
+      tags.push({ text: packMatch[1], type: 'pack' });
+    }
+
+    // 10. Language
+    if (/\b(РУ|RUS|РУС)\b/.test(s)) {
+      tags.push({ text: 'RUS', type: 'lang' });
+    } else if (/\b(ENG|АНГЛ)\b/.test(s)) {
+      tags.push({ text: 'ENG', type: 'lang' });
+    }
+
+    // 11. Release Year (2000-2029)
+    var yearMatch = str.match(/\b(20[0-2]\d)\b/);
+    if (yearMatch) {
+      tags.push({ text: yearMatch[1], type: 'year' });
+    }
+
     return tags;
   }
 
@@ -6292,13 +6311,23 @@
   window.parseTorrentMeta = parseTorrentMeta;
   window.renderMetaBadges = renderMetaBadges;
 
+  function pluralSeeds(n) {
+    var abs = Math.abs(Number(n)) % 100;
+    var d = abs % 10;
+    if (abs > 10 && abs < 20) return 'сидов';
+    if (d > 1 && d < 5) return 'сида';
+    if (d === 1) return 'сид';
+    return 'сидов';
+  }
+  window.pluralSeeds = pluralSeeds;
+
   function formatTorrentDateRu(dateStr) {
     if (!dateStr) return '';
     try {
       var d = new Date(dateStr);
       if (isNaN(d.getTime())) return '';
-      var months = ['Января', 'Февраля', 'Марта', 'Апреля', 'Мая', 'Июня', 'Июля', 'Августа', 'Сентября', 'Октября', 'Ноября', 'Декабря'];
-      return d.getDate() + ' ' + months[d.getMonth()];
+      var months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+      return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ' г.';
     } catch (e) {
       return '';
     }
