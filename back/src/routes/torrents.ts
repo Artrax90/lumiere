@@ -102,6 +102,8 @@ interface JacRedResult {
   Details?: string;
   PublishDate: string;
   Guid: string;
+  languages?: string[];
+  ffprobe?: Array<any>;
   info?: {
     quality?: number;
     videotype?: string;
@@ -112,6 +114,11 @@ interface JacRedResult {
     originalname?: string;
     relased?: number;
   };
+}
+
+export interface AudioTrackItem {
+  lang: string;
+  title?: string;
 }
 
 export interface TorrentItem {
@@ -129,6 +136,11 @@ export interface TorrentItem {
   date: string;
   hash?: string;
   voices?: string[];
+  resolution?: string;
+  channels?: string;
+  audioTracks?: AudioTrackItem[];
+  subtitles?: string[];
+  bitrate?: string;
 }
 
 export function extractTorrentVoices(str: string, initialVoices?: string[]): string[] {
@@ -231,14 +243,225 @@ function isAudioStudio(v: string): boolean {
   return !isVoiceCategory(v) && !RIPPER_GROUPS.has(v);
 }
 
+export function normalizeStudio(name: string): string {
+  if (!name) return name;
+  const n = name.trim();
+  if (/^HD[- ]?Rezka(\s*Studio)?$/i.test(n) || /^Rezka(\s*Studio)?$/i.test(n)) return 'HDRezka';
+  if (/^(Red Head Sound|RHS|РХС)$/i.test(n)) return 'Red Head Sound';
+  if (/^Flarrow(\s*Films)?$/i.test(n)) return 'Flarrow Films';
+  if (/^(Кравец|Kravec)$/i.test(n)) return 'Кравец';
+  if (/^Кубик\s*в\s*кубе$/i.test(n)) return 'Кубик в кубе';
+  if (/^Movie\s*Dalen$/i.test(n)) return 'MovieDalen';
+  if (/^New\s*Studio$/i.test(n)) return 'NewStudio';
+  if (/^Lost\s*Film$/i.test(n)) return 'LostFilm';
+  if (/^TV\s*Shows$/i.test(n)) return 'TVShows';
+  if (/^(AniLibria|Анилибрия)$/i.test(n)) return 'AniLibria';
+  if (/^(AniDUB|Анидаб)$/i.test(n)) return 'AniDUB';
+  if (/^Кураж[- ]?Бамбей$/i.test(n)) return 'Кураж-Бамбей';
+  return n;
+}
+
 function getRipType(str: string): string {
   const s = (str || '').toUpperCase();
   if (/\b(WEB-DL|WEBDL)\b/.test(s)) return 'WEB-DL';
   if (/\b(WEB-DLRIP|WEBRIP)\b/.test(s)) return 'WEBRip';
   if (/\b(BDRIP|BRRIP|BLURAY|REMUX)\b/.test(s)) return 'BDRip';
+  if (/\b(DCP|DCPRIP)\b/.test(s)) return 'DCPRip';
   if (/\b(HDTV|HDTVRIP)\b/.test(s)) return 'HDTV';
   if (/\b(CAM|CAMRIP|TS|TELESYNC)\b/.test(s)) return 'CAM';
   return 'OTHER';
+}
+
+export function normalizeLang(codeOrName: string): string {
+  if (!codeOrName) return '';
+  const s = codeOrName.trim().toLowerCase();
+  if (/^(rus|ru|russian|русский|рус)$/i.test(s)) return 'RUS';
+  if (/^(eng|en|english|английский|англ)$/i.test(s)) return 'ENG';
+  if (/^(ukr|uk|ukrainian|украинский|укр)$/i.test(s)) return 'UKR';
+  if (/^(jpn|ja|japanese|японский)$/i.test(s)) return 'JPN';
+  if (/^(kor|ko|korean|корейский)$/i.test(s)) return 'KOR';
+  if (/^(fra|fr|french|французский)$/i.test(s)) return 'FRA';
+  if (/^(ger|de|german|немецкий)$/i.test(s)) return 'GER';
+  if (/^(ita|it|italian|итальянский)$/i.test(s)) return 'ITA';
+  if (/^(spa|es|spanish|испанский)$/i.test(s)) return 'SPA';
+  if (/^(chi|zho|zh|chinese|китайский)$/i.test(s)) return 'CHI';
+  return s.length <= 4 ? s.toUpperCase() : s.slice(0, 3).toUpperCase();
+}
+
+export function extractTorrentMediaMetadata(r: JacRedResult, rawVoices: string[] = []): {
+  resolution?: string;
+  channels?: string;
+  audioTracks?: AudioTrackItem[];
+  subtitles?: string[];
+  bitrate?: string;
+} {
+  let resolution: string | undefined;
+  let channels: string | undefined;
+  let bitrate: string | undefined;
+  const audioTracks: AudioTrackItem[] = [];
+  const subtitlesSet = new Set<string>();
+
+  const titleUpper = (r.Title || '').toUpperCase();
+  const streams = Array.isArray(r.ffprobe) ? r.ffprobe : [];
+
+  // 1. Video stream analysis
+  const videoStreams = streams.filter((s) => s && s.codec_type === 'video' && s.width > 200 && s.height > 200);
+  if (videoStreams.length > 0) {
+    const mainVideo = videoStreams.reduce(
+      (prev, curr) => (curr.width * curr.height > prev.width * prev.height ? curr : prev),
+      videoStreams[0]
+    );
+    resolution = `${mainVideo.width}x${mainVideo.height}`;
+
+    if (mainVideo.bit_rate && parseInt(mainVideo.bit_rate, 10) > 0) {
+      bitrate = `${(parseInt(mainVideo.bit_rate, 10) / 1000000).toFixed(2)} Мбит/с`;
+    } else if (mainVideo.tags?.BPS && parseInt(mainVideo.tags.BPS, 10) > 0) {
+      bitrate = `${(parseInt(mainVideo.tags.BPS, 10) / 1000000).toFixed(2)} Мбит/с`;
+    }
+  }
+
+  // Fallback resolution from title
+  if (!resolution) {
+    const resExactMatch = r.Title.match(/\b(\d{3,4})\s*[xх×]\s*(\d{3,4})\b/i);
+    if (resExactMatch) {
+      resolution = `${resExactMatch[1]}x${resExactMatch[2]}`;
+    } else if (/\b(4K|2160P)\b/i.test(titleUpper)) {
+      resolution = '3840x2160';
+    } else if (/\b1080P\b/i.test(titleUpper)) {
+      resolution = '1920x1080';
+    } else if (/\b720P\b/i.test(titleUpper)) {
+      resolution = '1280x720';
+    } else if (/\b(480P|576P)\b/i.test(titleUpper)) {
+      resolution = '720x480';
+    }
+  }
+
+  // Fallback bitrate calculation from duration & file size
+  if (!bitrate && r.Size > 0) {
+    let durSec = 0;
+    for (const s of streams) {
+      const durStr = s?.tags?.DURATION;
+      if (durStr && typeof durStr === 'string') {
+        const parts = durStr.split(':');
+        if (parts.length === 3) {
+          const h = parseFloat(parts[0]) || 0;
+          const m = parseFloat(parts[1]) || 0;
+          const sec = parseFloat(parts[2]) || 0;
+          const total = h * 3600 + m * 60 + sec;
+          if (total > durSec) durSec = total;
+        }
+      }
+    }
+    if (durSec > 60) {
+      const mbps = (r.Size * 8) / (durSec * 1000000);
+      if (mbps > 0.1 && mbps < 200) {
+        bitrate = `${mbps.toFixed(2)} Мбит/с`;
+      }
+    }
+  }
+
+  // 2. Audio streams analysis
+  const audioStreams = streams.filter((s) => s && s.codec_type === 'audio');
+  let maxChannels = 0;
+  const hasAtmos = /\b(ATMOS|DOLBY\s*ATMOS)\b/i.test(titleUpper);
+
+  if (audioStreams.length > 0) {
+    const seenAudio = new Set<string>();
+    for (const s of audioStreams) {
+      const ch = s.channels || (s.channel_layout?.includes('7.1') ? 8 : s.channel_layout?.includes('5.1') ? 6 : 2);
+      if (ch > maxChannels) maxChannels = ch;
+
+      const rawLang = s.tags?.language || s.tags?.LANGUAGE || 'rus';
+      const lang = normalizeLang(rawLang);
+
+      let titleTrack = s.tags?.title || s.tags?.TITLE || '';
+      let trackStudio = '';
+      if (titleTrack) {
+        trackStudio = normalizeStudio(titleTrack);
+      }
+
+      if (lang === 'RUS') {
+        if (!trackStudio || trackStudio === 'Russian' || trackStudio === 'RUS') {
+          const knownStudio = rawVoices.find((v) => isAudioStudio(v));
+          if (knownStudio) {
+            trackStudio = knownStudio;
+          } else {
+            const voiceCat = rawVoices.find((v) => isVoiceCategory(v));
+            if (voiceCat) trackStudio = voiceCat;
+          }
+        }
+      }
+
+      const audioKey = `${lang}_${trackStudio}`;
+      if (!seenAudio.has(audioKey)) {
+        seenAudio.add(audioKey);
+        audioTracks.push({
+          lang,
+          title: trackStudio && trackStudio !== lang && trackStudio !== 'Russian' ? trackStudio : undefined,
+        });
+      }
+    }
+  } else {
+    const langs = Array.isArray(r.languages) ? r.languages : [];
+    const hasRu =
+      langs.some((l) => normalizeLang(l) === 'RUS') ||
+      /\b(ДБ|MVO|DVO|AVO|ДУБЛЯЖ|RUS)\b/i.test(titleUpper) ||
+      rawVoices.length > 0;
+    const hasEn = langs.some((l) => normalizeLang(l) === 'ENG') || /\b(ENG|ENGLISH|ORIGINAL)\b/i.test(titleUpper);
+
+    if (hasRu) {
+      const knownStudio = rawVoices.find((v) => isAudioStudio(v));
+      const voiceCat = rawVoices.find((v) => isVoiceCategory(v));
+      audioTracks.push({
+        lang: 'RUS',
+        title: knownStudio || voiceCat,
+      });
+    }
+    if (hasEn) {
+      audioTracks.push({ lang: 'ENG' });
+    }
+  }
+
+  if (hasAtmos) {
+    channels = maxChannels >= 8 ? '7.1 Atmos' : maxChannels >= 6 ? '5.1 Atmos' : 'Atmos';
+  } else if (maxChannels >= 8) {
+    channels = '7.1';
+  } else if (maxChannels >= 6) {
+    channels = '5.1';
+  } else if (maxChannels === 2) {
+    channels = '2.0';
+  } else if (/\b(7\.1)\b/.test(titleUpper)) {
+    channels = '7.1';
+  } else if (/\b(5\.1|DD5\.?1|AC3\s*5\.1)\b/.test(titleUpper)) {
+    channels = '5.1';
+  } else if (/\b(2\.0|STEREO)\b/.test(titleUpper)) {
+    channels = '2.0';
+  }
+
+  // 3. Subtitles analysis
+  const subStreams = streams.filter((s) => s && s.codec_type === 'subtitle');
+  if (subStreams.length > 0) {
+    for (const s of subStreams) {
+      const rawLang = s.tags?.language || s.tags?.LANGUAGE || 'rus';
+      const lang = normalizeLang(rawLang);
+      if (lang) subtitlesSet.add(lang);
+    }
+  } else {
+    if (/\b(СТ|SUB|SUBS|СУБТИТРЫ)\b/i.test(titleUpper)) {
+      subtitlesSet.add('RUS');
+    }
+    if (/\b(ENGSUB|ENGLISH\s*SUB)\b/i.test(titleUpper)) {
+      subtitlesSet.add('ENG');
+    }
+  }
+
+  return {
+    resolution,
+    channels,
+    audioTracks: audioTracks.length > 0 ? audioTracks : undefined,
+    subtitles: subtitlesSet.size > 0 ? Array.from(subtitlesSet) : undefined,
+    bitrate,
+  };
 }
 
 export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: string; voices?: string[] }>(items: T[]): T[] {
@@ -250,7 +473,7 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
     if (item.hash && Array.isArray(item.voices) && item.voices.length > 0) {
       if (!hashVoices.has(item.hash)) hashVoices.set(item.hash, new Set());
       const s = hashVoices.get(item.hash)!;
-      item.voices.forEach(v => s.add(v));
+      item.voices.forEach(v => s.add(normalizeStudio(v)));
     }
   }
 
@@ -261,6 +484,8 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
   const avoStudios = new Set<string>();
 
   const studioRipTypes = new Map<string, Set<string>>();
+  const dubStudioCounts = new Map<string, number>();
+  const mvoStudioCounts = new Map<string, number>();
 
   for (const item of items) {
     if (!Array.isArray(item.voices)) continue;
@@ -270,10 +495,17 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
     const hasDVO = item.voices.some(v => DVO_TYPES.has(v));
     const hasAVO = item.voices.some(v => AVO_TYPES.has(v));
 
-    for (const v of item.voices) {
+    for (const rawV of item.voices) {
+      const v = normalizeStudio(rawV);
       if (isAudioStudio(v)) {
-        if (hasDub) dubStudios.add(v);
-        if (hasMVO) mvoStudios.add(v);
+        if (hasDub) {
+          dubStudios.add(v);
+          dubStudioCounts.set(v, (dubStudioCounts.get(v) || 0) + 1);
+        }
+        if (hasMVO) {
+          mvoStudios.add(v);
+          mvoStudioCounts.set(v, (mvoStudioCounts.get(v) || 0) + 1);
+        }
         if (hasDVO) dvoStudios.add(v);
         if (hasAVO) avoStudios.add(v);
 
@@ -285,7 +517,8 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
 
   // 3. Enrich items
   return items.map(item => {
-    const voices = new Set(item.voices || []);
+    const rawVoices = (item.voices || []).map(normalizeStudio);
+    const voices = new Set(rawVoices);
 
     // A. Inherit from same hash
     if (item.hash && hashVoices.has(item.hash)) {
@@ -299,7 +532,7 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
     const hasDub = Array.from(voices).some(v => DUB_TYPES.has(v));
     if (hasDub && !hasStudio) {
       if (dubStudios.size === 1) {
-        // Universal consensus: only one dub studio exists across the results
+        // Universal consensus: only one dub studio exists across all results
         dubStudios.forEach(s => voices.add(s));
       } else if (dubStudios.size > 1) {
         // Match by rip type
@@ -307,6 +540,21 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
         const matchingStudios = Array.from(dubStudios).filter(s => studioRipTypes.get(s)?.has(rip));
         if (matchingStudios.length === 1) {
           voices.add(matchingStudios[0]);
+        } else {
+          // If a single studio dominates >= 60% of all dubbed releases
+          let totalCount = 0;
+          let maxStudio = '';
+          let maxCount = 0;
+          for (const [st, cnt] of dubStudioCounts.entries()) {
+            totalCount += cnt;
+            if (cnt > maxCount) {
+              maxCount = cnt;
+              maxStudio = st;
+            }
+          }
+          if (maxStudio && totalCount > 0 && maxCount / totalCount >= 0.6) {
+            voices.add(maxStudio);
+          }
         }
       }
     }
@@ -321,6 +569,20 @@ export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: 
         const matchingStudios = Array.from(mvoStudios).filter(s => studioRipTypes.get(s)?.has(rip));
         if (matchingStudios.length === 1) {
           voices.add(matchingStudios[0]);
+        } else {
+          let totalCount = 0;
+          let maxStudio = '';
+          let maxCount = 0;
+          for (const [st, cnt] of mvoStudioCounts.entries()) {
+            totalCount += cnt;
+            if (cnt > maxCount) {
+              maxCount = cnt;
+              maxStudio = st;
+            }
+          }
+          if (maxStudio && totalCount > 0 && maxCount / totalCount >= 0.6) {
+            voices.add(maxStudio);
+          }
         }
       }
     }
@@ -700,6 +962,9 @@ export function torrentRoutes(app: FastifyInstance) {
         const hashMatch = magLink.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
         const torrentHash = hashMatch ? hashMatch[1].toLowerCase() : '';
 
+        const initialVoices = extractTorrentVoices(r.Title, r.info?.voices);
+        const meta = extractTorrentMediaMetadata(r, initialVoices);
+
         results.push({
           id: r.Guid || key,
           title: r.Title,
@@ -714,7 +979,12 @@ export function torrentRoutes(app: FastifyInstance) {
           details: r.Details || '',
           date: r.PublishDate,
           hash: torrentHash,
-          voices: extractTorrentVoices(r.Title, r.info?.voices),
+          voices: initialVoices,
+          resolution: meta.resolution,
+          channels: meta.channels,
+          audioTracks: meta.audioTracks,
+          subtitles: meta.subtitles,
+          bitrate: meta.bitrate,
         });
       }
 
@@ -844,6 +1114,21 @@ export function torrentRoutes(app: FastifyInstance) {
       }
 
       results = enrichTorrentVoicesCrossMatch(results);
+
+      for (const item of results) {
+        if (Array.isArray(item.audioTracks) && Array.isArray(item.voices)) {
+          const ruTrack = item.audioTracks.find((t) => t.lang === 'RUS');
+          if (ruTrack && !ruTrack.title) {
+            const studio = item.voices.find((v) => isAudioStudio(v));
+            if (studio) {
+              ruTrack.title = studio;
+            } else {
+              const cat = item.voices.find((v) => isVoiceCategory(v));
+              if (cat) ruTrack.title = cat;
+            }
+          }
+        }
+      }
 
       results.sort((a, b) => scoreTorrentItem(b) - scoreTorrentItem(a));
 

@@ -8,6 +8,11 @@ interface TorrentBadgesProps {
   seeders?: number;
   peers?: number;
   tracker?: string;
+  resolution?: string;
+  channels?: string;
+  audioTracks?: Array<{ lang: string; title?: string }>;
+  subtitles?: string[];
+  bitrate?: string;
   className?: string;
   maxBadges?: number;
 }
@@ -39,6 +44,10 @@ export default function TorrentBadges({
   seeders,
   peers,
   tracker,
+  resolution,
+  channels,
+  audioTracks,
+  subtitles,
   className = '',
   maxBadges = 10,
 }: TorrentBadgesProps) {
@@ -46,7 +55,8 @@ export default function TorrentBadges({
     return parseTorrentMeta(title, voices).slice(0, maxBadges);
   }, [title, voices, maxBadges]);
 
-  const hasExtra = tracker || sizeFormatted || seeders != null;
+  const hasMediaInfo = Boolean(resolution || channels || (audioTracks && audioTracks.length > 0) || (subtitles && subtitles.length > 0));
+  const hasExtra = tracker || sizeFormatted || seeders != null || hasMediaInfo;
   if (!badges.length && !hasExtra) return null;
 
   return (
@@ -58,8 +68,46 @@ export default function TorrentBadges({
         </span>
       )}
 
-      {/* Title format and metadata badges */}
-      {badges.map((badge, idx) => {
+      {/* Exact Resolution badge */}
+      {resolution && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-semibold bg-slate-800/80 text-slate-200 border border-slate-600/40 leading-tight">
+          <span>🎞</span>
+          <span>{resolution}</span>
+        </span>
+      )}
+
+      {/* Audio channels badge */}
+      {channels && (
+        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-semibold bg-slate-800/80 text-slate-200 border border-slate-600/40 leading-tight">
+          <span>📶</span>
+          <span>{channels}</span>
+        </span>
+      )}
+
+      {/* Audio tracks badges */}
+      {audioTracks && audioTracks.map((tr, idx) => (
+        <span
+          key={`audio-${tr.lang}-${idx}`}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-semibold bg-blue-950/60 text-blue-300 border border-blue-500/40 leading-tight"
+        >
+          <span>⬇</span>
+          <span>{tr.lang}{tr.title ? ` - ${tr.title}` : ''}</span>
+        </span>
+      ))}
+
+      {/* Subtitles badges */}
+      {subtitles && subtitles.map((sub, idx) => (
+        <span
+          key={`sub-${sub}-${idx}`}
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-[6px] text-[11px] font-semibold bg-slate-800/80 text-slate-300 border border-slate-600/40 leading-tight"
+        >
+          <span>💬</span>
+          <span>{sub}</span>
+        </span>
+      ))}
+
+      {/* Other badges (HDR, DV, format) when mediaInfo is not already covering them */}
+      {!hasMediaInfo && badges.map((badge, idx) => {
         const colorClasses = badgeColorMap[badge.type] || 'bg-white/10 text-white/70 border-white/15';
         return (
           <span

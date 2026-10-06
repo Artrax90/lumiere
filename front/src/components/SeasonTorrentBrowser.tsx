@@ -40,6 +40,11 @@ interface TorrentItem {
   details: string;
   date: string;
   voices?: string[];
+  resolution?: string;
+  channels?: string;
+  audioTracks?: Array<{ lang: string; title?: string }>;
+  subtitles?: string[];
+  bitrate?: string;
 }
 
 export default function SeasonTorrentBrowser({
