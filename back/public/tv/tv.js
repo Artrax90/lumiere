@@ -6292,6 +6292,142 @@
   window.parseTorrentMeta = parseTorrentMeta;
   window.renderMetaBadges = renderMetaBadges;
 
+  var DUB_TYPES = ['Дубляж', 'Проф. дубляж', 'Дублированный'];
+  var MVO_TYPES = ['MVO', 'Многоголосый', 'Проф. многоголосый', 'ПМ', 'PM'];
+  var DVO_TYPES = ['DVO', 'Двуголосый', 'Двухголосый', 'ДВ'];
+  var AVO_TYPES = ['AVO', 'Одноголосый', 'Авторский', 'LVO', 'Закадровый', 'VO'];
+  var TECH_TAGS = ['Субтитры', 'Тифло', 'AD'];
+  var KNOWN_AUDIO_STUDIOS = [
+    'MovieDalen', 'Red Head Sound', 'RHS', 'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka',
+    'NewStudio', 'Кубик в кубе', 'Пифагор', 'Flarrow Films', 'Кураж-Бамбей', 'TVShows',
+    'Невафильм', 'Мосфильм', 'AlexFilm', 'Jaskier', 'LineFilm', 'ColdFilm', 'BaibaKo',
+    'Кириллица', 'Кравец', 'Kravec', 'Sound-Group', 'Good People', 'Дублики', 'AniLibria',
+    'AniDUB', 'SHIZA Project', 'AnimeVost', 'Studio Band', 'СВ-Дубль', 'Paramount Comedy',
+    '2x2', 'RuDub', 'Гоблин', 'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US',
+    'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'AlphaProject', 'Octopus', 'SoftBox',
+    'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm', 'ViruseProject', 'Sunshine Studio',
+    'OMSKBIRD', 'HamsterStudio', 'Kerob', 'Dalemake', 'DoMiNo'
+  ];
+  var RIPPER_GROUPS = [
+    'селезень', 'seleZen', 'ELEKTRI4KA', 'Gears Media', 'Scarabey', 'MegaPeer',
+    'BLUEBIRD', 'DVOika', 'General Film', 'HDclub'
+  ];
+
+  function isVoiceCategory(v) {
+    return DUB_TYPES.indexOf(v) !== -1 || MVO_TYPES.indexOf(v) !== -1 || DVO_TYPES.indexOf(v) !== -1 || AVO_TYPES.indexOf(v) !== -1 || TECH_TAGS.indexOf(v) !== -1;
+  }
+
+  function isAudioStudio(v) {
+    if (KNOWN_AUDIO_STUDIOS.indexOf(v) !== -1) return true;
+    return !isVoiceCategory(v) && RIPPER_GROUPS.indexOf(v) === -1;
+  }
+
+  function getRipType(str) {
+    var s = (str || '').toUpperCase();
+    if (/\b(WEB-DL|WEBDL)\b/.test(s)) return 'WEB-DL';
+    if (/\b(WEB-DLRIP|WEBRIP)\b/.test(s)) return 'WEBRip';
+    if (/\b(BDRIP|BRRIP|BLURAY|REMUX)\b/.test(s)) return 'BDRip';
+    if (/\b(HDTV|HDTVRIP)\b/.test(s)) return 'HDTV';
+    if (/\b(CAM|CAMRIP|TS|TELESYNC)\b/.test(s)) return 'CAM';
+    return 'OTHER';
+  }
+
+  function enrichTorrentVoicesCrossMatch(items) {
+    if (!items || !items.length) return items;
+
+    var hashVoices = {};
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.hash && it.voices && it.voices.length) {
+        if (!hashVoices[it.hash]) hashVoices[it.hash] = [];
+        for (var vi = 0; vi < it.voices.length; vi++) {
+          if (hashVoices[it.hash].indexOf(it.voices[vi]) === -1) hashVoices[it.hash].push(it.voices[vi]);
+        }
+      }
+    }
+
+    var dubStudios = [];
+    var mvoStudios = [];
+    var dvoStudios = [];
+    var avoStudios = [];
+    var studioRipTypes = {};
+
+    for (var j = 0; j < items.length; j++) {
+      var itm = items[j];
+      if (!itm.voices) continue;
+      var rip = getRipType(itm.title);
+      var hasDub = itm.voices.some(function(v) { return DUB_TYPES.indexOf(v) !== -1; });
+      var hasMVO = itm.voices.some(function(v) { return MVO_TYPES.indexOf(v) !== -1; });
+      var hasDVO = itm.voices.some(function(v) { return DVO_TYPES.indexOf(v) !== -1; });
+      var hasAVO = itm.voices.some(function(v) { return AVO_TYPES.indexOf(v) !== -1; });
+
+      for (var vk = 0; vk < itm.voices.length; vk++) {
+        var vTag = itm.voices[vk];
+        if (isAudioStudio(vTag)) {
+          if (hasDub && dubStudios.indexOf(vTag) === -1) dubStudios.push(vTag);
+          if (hasMVO && mvoStudios.indexOf(vTag) === -1) mvoStudios.push(vTag);
+          if (hasDVO && dvoStudios.indexOf(vTag) === -1) dvoStudios.push(vTag);
+          if (hasAVO && avoStudios.indexOf(vTag) === -1) avoStudios.push(vTag);
+          if (!studioRipTypes[vTag]) studioRipTypes[vTag] = [];
+          if (studioRipTypes[vTag].indexOf(rip) === -1) studioRipTypes[vTag].push(rip);
+        }
+      }
+    }
+
+    return items.map(function(item) {
+      var voices = (item.voices || []).slice();
+
+      if (item.hash && hashVoices[item.hash]) {
+        for (var hi = 0; hi < hashVoices[item.hash].length; hi++) {
+          if (voices.indexOf(hashVoices[item.hash][hi]) === -1) voices.push(hashVoices[item.hash][hi]);
+        }
+      }
+
+      var currentStudios = voices.filter(isAudioStudio);
+      var hasStudio = currentStudios.length > 0;
+
+      var hasDub = voices.some(function(v) { return DUB_TYPES.indexOf(v) !== -1; });
+      if (hasDub && !hasStudio) {
+        if (dubStudios.length === 1) {
+          if (voices.indexOf(dubStudios[0]) === -1) voices.push(dubStudios[0]);
+        } else if (dubStudios.length > 1) {
+          var ripT = getRipType(item.title);
+          var matches = dubStudios.filter(function(s) { return studioRipTypes[s] && studioRipTypes[s].indexOf(ripT) !== -1; });
+          if (matches.length === 1 && voices.indexOf(matches[0]) === -1) {
+            voices.push(matches[0]);
+          }
+        }
+      }
+
+      var hasMVO = voices.some(function(v) { return MVO_TYPES.indexOf(v) !== -1; });
+      if (hasMVO && !hasStudio) {
+        if (mvoStudios.length === 1) {
+          if (voices.indexOf(mvoStudios[0]) === -1) voices.push(mvoStudios[0]);
+        } else if (mvoStudios.length > 1) {
+          var ripT2 = getRipType(item.title);
+          var matches2 = mvoStudios.filter(function(s) { return studioRipTypes[s] && studioRipTypes[s].indexOf(ripT2) !== -1; });
+          if (matches2.length === 1 && voices.indexOf(matches2[0]) === -1) {
+            voices.push(matches2[0]);
+          }
+        }
+      }
+
+      var hasDVO = voices.some(function(v) { return DVO_TYPES.indexOf(v) !== -1; });
+      if (hasDVO && !hasStudio && dvoStudios.length === 1) {
+        if (voices.indexOf(dvoStudios[0]) === -1) voices.push(dvoStudios[0]);
+      }
+
+      var hasAVO = voices.some(function(v) { return AVO_TYPES.indexOf(v) !== -1; });
+      if (hasAVO && !hasStudio && avoStudios.length === 1) {
+        if (voices.indexOf(avoStudios[0]) === -1) voices.push(avoStudios[0]);
+      }
+
+      item.voices = voices;
+      return item;
+    });
+  }
+  window.enrichTorrentVoicesCrossMatch = enrichTorrentVoicesCrossMatch;
+
   function pluralSeeds(n) {
     var abs = Math.abs(Number(n)) % 100;
     var d = abs % 10;
@@ -6753,6 +6889,7 @@
             container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
             return;
           }
+          merged = enrichTorrentVoicesCrossMatch(merged);
           state._torrentCache[cacheKey] = merged;
           renderTorrentResults(merged);
         }

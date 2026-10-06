@@ -91,6 +91,155 @@ export function extractTorrentVoices(str: string, extraVoices?: string[]): strin
   return Array.from(dubs);
 }
 
+const DUB_TYPES = new Set(['Дубляж', 'Проф. дубляж', 'Дублированный']);
+const MVO_TYPES = new Set(['MVO', 'Многоголосый', 'Проф. многоголосый', 'ПМ', 'PM']);
+const DVO_TYPES = new Set(['DVO', 'Двуголосый', 'Двухголосый', 'ДВ']);
+const AVO_TYPES = new Set(['AVO', 'Одноголосый', 'Авторский', 'LVO', 'Закадровый', 'VO']);
+const TECH_TAGS = new Set(['Субтитры', 'Тифло', 'AD']);
+
+const KNOWN_AUDIO_STUDIOS = new Set([
+  'MovieDalen', 'Red Head Sound', 'RHS', 'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka',
+  'NewStudio', 'Кубик в кубе', 'Пифагор', 'Flarrow Films', 'Кураж-Бамбей', 'TVShows',
+  'Невафильм', 'Мосфильм', 'AlexFilm', 'Jaskier', 'LineFilm', 'ColdFilm', 'BaibaKo',
+  'Кириллица', 'Кравец', 'Kravec', 'Sound-Group', 'Good People', 'Дублики', 'AniLibria',
+  'AniDUB', 'SHIZA Project', 'AnimeVost', 'Studio Band', 'СВ-Дубль', 'Paramount Comedy',
+  '2x2', 'RuDub', 'Гоблин', 'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US',
+  'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'AlphaProject', 'Octopus', 'SoftBox',
+  'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm', 'ViruseProject', 'Sunshine Studio',
+  'OMSKBIRD', 'HamsterStudio', 'Kerob', 'Dalemake', 'DoMiNo'
+]);
+
+const RIPPER_GROUPS = new Set([
+  'селезень', 'seleZen', 'ELEKTRI4KA', 'Gears Media', 'Scarabey', 'MegaPeer',
+  'BLUEBIRD', 'DVOika', 'General Film', 'HDclub'
+]);
+
+function isVoiceCategory(v: string): boolean {
+  return DUB_TYPES.has(v) || MVO_TYPES.has(v) || DVO_TYPES.has(v) || AVO_TYPES.has(v) || TECH_TAGS.has(v);
+}
+
+function isAudioStudio(v: string): boolean {
+  if (KNOWN_AUDIO_STUDIOS.has(v)) return true;
+  return !isVoiceCategory(v) && !RIPPER_GROUPS.has(v);
+}
+
+function getRipType(str: string): string {
+  const s = (str || '').toUpperCase();
+  if (/\b(WEB-DL|WEBDL)\b/.test(s)) return 'WEB-DL';
+  if (/\b(WEB-DLRIP|WEBRIP)\b/.test(s)) return 'WEBRip';
+  if (/\b(BDRIP|BRRIP|BLURAY|REMUX)\b/.test(s)) return 'BDRip';
+  if (/\b(HDTV|HDTVRIP)\b/.test(s)) return 'HDTV';
+  if (/\b(CAM|CAMRIP|TS|TELESYNC)\b/.test(s)) return 'CAM';
+  return 'OTHER';
+}
+
+export function enrichTorrentVoicesCrossMatch<T extends { title: string; hash?: string; voices?: string[] }>(items: T[]): T[] {
+  if (!Array.isArray(items) || items.length === 0) return items;
+
+  // 1. Group by hash for exact hash inheritance
+  const hashVoices = new Map<string, Set<string>>();
+  for (const item of items) {
+    if (item.hash && Array.isArray(item.voices) && item.voices.length > 0) {
+      if (!hashVoices.has(item.hash)) hashVoices.set(item.hash, new Set());
+      const s = hashVoices.get(item.hash)!;
+      item.voices.forEach(v => s.add(v));
+    }
+  }
+
+  // 2. Collect audio studios by voice category across all items
+  const dubStudios = new Set<string>();
+  const mvoStudios = new Set<string>();
+  const dvoStudios = new Set<string>();
+  const avoStudios = new Set<string>();
+
+  const studioRipTypes = new Map<string, Set<string>>();
+
+  for (const item of items) {
+    if (!Array.isArray(item.voices)) continue;
+    const rip = getRipType(item.title);
+    const hasDub = item.voices.some(v => DUB_TYPES.has(v));
+    const hasMVO = item.voices.some(v => MVO_TYPES.has(v));
+    const hasDVO = item.voices.some(v => DVO_TYPES.has(v));
+    const hasAVO = item.voices.some(v => AVO_TYPES.has(v));
+
+    for (const v of item.voices) {
+      if (isAudioStudio(v)) {
+        if (hasDub) dubStudios.add(v);
+        if (hasMVO) mvoStudios.add(v);
+        if (hasDVO) dvoStudios.add(v);
+        if (hasAVO) avoStudios.add(v);
+
+        if (!studioRipTypes.has(v)) studioRipTypes.set(v, new Set());
+        studioRipTypes.get(v)!.add(rip);
+      }
+    }
+  }
+
+  // 3. Enrich items
+  return items.map(item => {
+    const voices = new Set(item.voices || []);
+
+    // A. Inherit from same hash
+    if (item.hash && hashVoices.has(item.hash)) {
+      hashVoices.get(item.hash)!.forEach(v => voices.add(v));
+    }
+
+    const currentStudios = Array.from(voices).filter(v => isAudioStudio(v));
+    const hasStudio = currentStudios.length > 0;
+
+    // B. If item has Dub category but no studio
+    const hasDub = Array.from(voices).some(v => DUB_TYPES.has(v));
+    if (hasDub && !hasStudio) {
+      if (dubStudios.size === 1) {
+        // Universal consensus: only one dub studio exists across the results
+        dubStudios.forEach(s => voices.add(s));
+      } else if (dubStudios.size > 1) {
+        // Match by rip type
+        const rip = getRipType(item.title);
+        const matchingStudios = Array.from(dubStudios).filter(s => studioRipTypes.get(s)?.has(rip));
+        if (matchingStudios.length === 1) {
+          voices.add(matchingStudios[0]);
+        }
+      }
+    }
+
+    // C. If item has MVO category but no studio
+    const hasMVO = Array.from(voices).some(v => MVO_TYPES.has(v));
+    if (hasMVO && !hasStudio) {
+      if (mvoStudios.size === 1) {
+        mvoStudios.forEach(s => voices.add(s));
+      } else if (mvoStudios.size > 1) {
+        const rip = getRipType(item.title);
+        const matchingStudios = Array.from(mvoStudios).filter(s => studioRipTypes.get(s)?.has(rip));
+        if (matchingStudios.length === 1) {
+          voices.add(matchingStudios[0]);
+        }
+      }
+    }
+
+    // D. If item has DVO category but no studio
+    const hasDVO = Array.from(voices).some(v => DVO_TYPES.has(v));
+    if (hasDVO && !hasStudio) {
+      if (dvoStudios.size === 1) {
+        dvoStudios.forEach(s => voices.add(s));
+      }
+    }
+
+    // E. If item has AVO category but no studio
+    const hasAVO = Array.from(voices).some(v => AVO_TYPES.has(v));
+    if (hasAVO && !hasStudio) {
+      if (avoStudios.size === 1) {
+        avoStudios.forEach(s => voices.add(s));
+      }
+    }
+
+    return {
+      ...item,
+      voices: Array.from(voices),
+    };
+  });
+}
+
 /**
  * Parses torrent title string into structured metadata badges (container, resolution, HDR, codec, etc.)
  */
