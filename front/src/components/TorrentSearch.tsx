@@ -595,6 +595,10 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
                     <TorrentBadges
                       title={item.title}
                       voices={item.voices}
+                      tracker={item.tracker}
+                      sizeFormatted={item.sizeFormatted}
+                      seeders={item.seeders}
+                      peers={item.peers}
                       resolution={item.resolution}
                       channels={item.channels}
                       audioTracks={item.audioTracks}
@@ -602,42 +606,11 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
                       bitrate={item.bitrate}
                       className="mt-2"
                     />
-                    <div className="mt-2.5 flex flex-wrap items-center justify-between gap-3 text-[12px] text-white/50 pt-2 border-t border-white/[0.05]">
-                      <div className="flex items-center gap-2.5">
-                        {item.date && (
-                          <span className="text-white/80 font-medium">
-                            {new Date(item.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}
-                          </span>
-                        )}
-                        {item.tracker && (
-                          <span className="text-white/40 max-w-[240px] truncate">
-                            {item.tracker}
-                          </span>
-                        )}
+                    {item.date && (
+                      <div className="mt-1.5 text-[11px] text-white/40">
+                        Добавлено: {new Date(item.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}
                       </div>
-                      {item.bitrate && (
-                        <div className="text-white/70">
-                          Битрейт: <strong className="text-white font-semibold">{item.bitrate}</strong>
-                        </div>
-                      )}
-                      <div className="flex items-center gap-3.5 ml-auto">
-                        {item.seeders != null && (
-                          <span className="text-white/60">
-                            Раздают: <strong className="text-emerald-400 font-semibold">{item.seeders}</strong>
-                          </span>
-                        )}
-                        {item.peers != null && item.peers > 0 && (
-                          <span className="text-white/40">
-                            Качают: <strong className="text-white/70 font-semibold">{item.peers}</strong>
-                          </span>
-                        )}
-                        {item.sizeFormatted && (
-                          <span className="px-2 py-0.5 rounded-[5px] bg-white/[0.08] text-white/90 border border-white/15 text-[11px] font-semibold">
-                            {item.sizeFormatted}
-                          </span>
-                        )}
-                      </div>
-                    </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {item.details && (

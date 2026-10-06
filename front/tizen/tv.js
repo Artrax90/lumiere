@@ -6307,80 +6307,84 @@
 
   function renderTorrentCardBadges(torrent) {
     var html = '';
-    // 1. Exact resolution badge
-    var res = torrent.resolution;
-    if (!res) {
-      var resM = (torrent.title || '').match(/\b(\d{3,4})\s*[xх×]\s*(\d{3,4})\b/i);
-      if (resM) res = resM[1] + 'x' + resM[2];
-      else if (/\b(4K|2160P)\b/i.test(torrent.title || '')) res = '3840x2160';
-      else if (/\b1080P\b/i.test(torrent.title || '')) res = '1920x1080';
-      else if (/\b720P\b/i.test(torrent.title || '')) res = '1280x720';
-    }
-    if (res) {
-      html += '<span class="t-badge t-badge-res-exact">🎞 ' + esc(res) + '</span>';
+
+    // 1. Tracker badge
+    if (torrent.tracker) {
+      html += '<span class="t-badge t-badge-tracker">' + esc(torrent.tracker) + '</span>';
     }
 
-    // 2. Audio channels badge
+    // 2. Exact resolution badge or parse from title
+    var exactRes = torrent.resolution;
+    var resClass = 't-badge-res-1080';
+    if (exactRes) {
+      var parts = exactRes.split(/[xх×]/i);
+      if (parts.length === 2) {
+        var w = parseInt(parts[0], 10);
+        var h = parseInt(parts[1], 10);
+        if (w >= 3000 || h >= 1600) resClass = 't-badge-res-4k';
+        else if (w >= 1800 || h >= 800) resClass = 't-badge-res-1080';
+        else if (w >= 1200 || h >= 650) resClass = 't-badge-res-720';
+        else resClass = 't-badge-res-sd';
+      }
+      html += '<span class="t-badge ' + resClass + '">' + esc(exactRes) + '</span>';
+    }
+
+    // 3. Title format, HDR, DV, codec, quality badges from parseTorrentMeta
+    var metaTags = parseTorrentMeta(torrent.title || '', torrent.voices);
+    for (var mi = 0; mi < metaTags.length; mi++) {
+      var tag = metaTags[mi];
+      if (exactRes && tag.type.indexOf('res-') === 0) continue;
+      if (torrent.channels && (tag.type === 'audio' || tag.type === 'audio-atmos')) continue;
+      if (torrent.audioTracks && torrent.audioTracks.length > 0 && tag.type === 'dub') continue;
+      html += '<span class="t-badge t-badge-' + tag.type + '">' + esc(tag.text) + '</span>';
+    }
+
+    // 4. Audio channels badge
     var ch = torrent.channels;
-    if (!ch) {
-      if (/\b(7\.1)\b/.test(torrent.title || '')) ch = '7.1';
-      else if (/\b(5\.1|DD5\.?1|AC3\s*5\.1)\b/i.test(torrent.title || '')) ch = '5.1';
-      else if (/\b(2\.0|Stereo)\b/i.test(torrent.title || '')) ch = '2.0';
-      else if (/\bAtmos\b/i.test(torrent.title || '')) ch = 'Atmos';
-    }
     if (ch) {
-      html += '<span class="t-badge t-badge-channels">📶 ' + esc(ch) + '</span>';
+      var chClass = (ch.toLowerCase().indexOf('atmos') !== -1) ? 't-badge-audio-atmos' : 't-badge-audio';
+      html += '<span class="t-badge ' + chClass + '">' + esc(ch) + '</span>';
     }
 
-    // 3. Audio tracks badges
+    // 5. Audio tracks & studios (Voiceovers)
     var tracks = torrent.audioTracks;
     if (Array.isArray(tracks) && tracks.length > 0) {
       for (var ti = 0; ti < tracks.length; ti++) {
         var tr = tracks[ti];
         var txt = esc(tr.lang || 'RUS');
         if (tr.title) {
-          txt += ' - ' + esc(tr.title);
+          txt += ' · ' + esc(tr.title);
         }
-        html += '<span class="t-badge t-badge-audio-track">⬇ ' + txt + '</span>';
-      }
-    } else {
-      var hasRu = false;
-      var ruTitle = '';
-      if (Array.isArray(torrent.voices) && torrent.voices.length > 0) {
-        hasRu = true;
-        var voiceStudios = torrent.voices.filter(function(v) { return isAudioStudio(v); });
-        if (voiceStudios.length > 0) {
-          ruTitle = voiceStudios[0];
-        } else {
-          ruTitle = torrent.voices[0];
-        }
-      } else if (/\b(ДБ|Дубляж|MVO|DVO|AVO|RUS)\b/i.test(torrent.title || '')) {
-        hasRu = true;
-        if (/\b(Дубляж|Дублированный)\b/i.test(torrent.title || '')) ruTitle = 'Дубляж';
-        else if (/\b(MVO|МВО)\b/i.test(torrent.title || '')) ruTitle = 'MVO';
-      }
-      if (hasRu) {
-        var ruTxt = 'RUS' + (ruTitle ? ' - ' + ruTitle : '');
-        html += '<span class="t-badge t-badge-audio-track">⬇ ' + esc(ruTxt) + '</span>';
-      }
-      if (/\b(ENG|English|Original)\b/i.test(torrent.title || '')) {
-        html += '<span class="t-badge t-badge-audio-track">⬇ ENG</span>';
+        html += '<span class="t-badge t-badge-dub">' + txt + '</span>';
       }
     }
 
-    // 4. Subtitle badges
+    // 6. Subtitles badge
     var subs = torrent.subtitles;
     if (Array.isArray(subs) && subs.length > 0) {
       for (var si = 0; si < subs.length; si++) {
-        html += '<span class="t-badge t-badge-sub">💬 ' + esc(subs[si]) + '</span>';
+        html += '<span class="t-badge t-badge-sub">СУБ: ' + esc(subs[si]) + '</span>';
       }
-    } else {
-      if (/\b(СТ|Sub|Subs|Субтитры)\b/i.test(torrent.title || '')) {
-        html += '<span class="t-badge t-badge-sub">💬 RUS</span>';
-      }
-      if (/\b(EngSub|English\s*Sub)\b/i.test(torrent.title || '')) {
-        html += '<span class="t-badge t-badge-sub">💬 ENG</span>';
-      }
+    }
+
+    // 7. Bitrate badge
+    if (torrent.bitrate) {
+      html += '<span class="t-badge t-badge-bitrate">' + esc(torrent.bitrate) + '</span>';
+    }
+
+    // 8. Size badge
+    if (torrent.sizeFormatted) {
+      html += '<span class="t-badge t-badge-size">💾 ' + esc(torrent.sizeFormatted) + '</span>';
+    }
+
+    // 9. Seeders badge
+    if (torrent.seeders != null) {
+      html += '<span class="t-badge t-badge-seeds">⚡ ' + torrent.seeders + ' ' + pluralSeeds(torrent.seeders) + '</span>';
+    }
+
+    // 10. Peers badge
+    if (torrent.peers != null && torrent.peers > 0) {
+      html += '<span class="t-badge t-badge-peers">👥 ' + torrent.peers + '</span>';
     }
 
     return html;
@@ -6866,36 +6870,12 @@
         html += renderTorrentCardBadges(torrent);
         html += '</div>';
 
-        // Line 3: Footer (matching user screenshot)
-        var dateRu = formatTorrentDateRu(torrent.date);
-        var trackerStr = torrent.tracker || '';
-        if (trackerStr.length > 45) trackerStr = trackerStr.slice(0, 42) + '...';
-
-        html += '<div class="detail-torrent-footer">';
-        html += '<div class="torrent-footer-left">';
-        if (dateRu) html += '<span class="torrent-footer-date">' + esc(dateRu) + '</span>';
-        if (trackerStr) html += '<span class="torrent-footer-trackers">' + esc(trackerStr) + '</span>';
-        html += '</div>';
-
-        html += '<div class="torrent-footer-center">';
-        if (torrent.bitrate) {
-          html += '<span class="torrent-footer-bitrate">Битрейт: <strong>' + esc(torrent.bitrate) + '</strong></span>';
+        if (torrent.date) {
+          var dStr = formatTorrentDateRu(torrent.date);
+          if (dStr) {
+            html += '<div class="detail-torrent-date">Добавлено: ' + esc(dStr) + '</div>';
+          }
         }
-        html += '</div>';
-
-        html += '<div class="torrent-footer-right">';
-        if (torrent.seeders != null) {
-          html += '<span class="torrent-footer-seeds">Раздают: <strong>' + torrent.seeders + '</strong></span>';
-        }
-        if (torrent.peers != null && torrent.peers > 0) {
-          html += '<span class="torrent-footer-peers">Качают: <strong>' + torrent.peers + '</strong></span>';
-        }
-        if (torrent.sizeFormatted) {
-          html += '<span class="torrent-footer-size">' + esc(torrent.sizeFormatted) + '</span>';
-        }
-        html += '</div>';
-        html += '</div>';
-
         html += '</div>';
       });
       html += '</div>';
