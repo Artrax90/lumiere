@@ -1521,19 +1521,19 @@ body.player-active .section {
   padding: 4px 0;
 }
 .torrent-sort-label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-mute);
   margin-right: 4px;
 }
 .sort-chip {
-  padding: 6px 16px;
+  padding: 7px 18px;
   border-radius: 9999px;
-  font-size: 13px;
+  font-size: 14.5px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.6);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   outline: none;
   cursor: pointer;
   transition: all 0.15s ease-out;
@@ -1554,12 +1554,12 @@ body.player-active .section {
 
 /* Detail: Torrents list */
 .detail-torrents-list { display: flex; flex-direction: column; }
-.detail-torrents-list .torrent-item { margin-bottom: 10px; }
+.detail-torrents-list .torrent-item { margin-bottom: 12px; }
 .torrent-item {
-  padding: 14px 18px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 16px 22px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   box-sizing: border-box;
@@ -1574,25 +1574,25 @@ body.player-active .section {
   opacity: 0.6;
 }
 .detail-torrent-title {
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.88);
-  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.92);
+  margin-bottom: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.35;
+  line-height: 1.4;
 }
 .detail-torrent-badges {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
 }
 .detail-torrent-date {
-  font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
-  margin-top: 6px;
+  font-size: 13.5px;
+  color: rgba(255, 255, 255, 0.45);
+  margin-top: 8px;
   letter-spacing: 0.1px;
 }
 .detail-torrent-meta { display: flex; font-size: 14px; color: var(--text-mute); }
@@ -1669,16 +1669,16 @@ body.player-active .section {
 .t-badges {
   display: inline-flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 7px;
   align-items: center;
 }
 .t-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  padding: 2px 7px;
-  border-radius: 6px;
+  gap: 5px;
+  font-size: 13.5px;
+  padding: 3.5px 10px;
+  border-radius: 7px;
   font-weight: 600;
   text-transform: none;
   letter-spacing: normal;
