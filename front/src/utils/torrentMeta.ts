@@ -21,9 +21,80 @@ export interface TorrentMetaBadge {
 }
 
 /**
+ * Extracts dubbing, studio and voiceover identifiers from torrent title and extra voice metadata.
+ */
+export function extractTorrentVoices(str: string, extraVoices?: string[]): string[] {
+  const dubs = new Set<string>();
+  if (Array.isArray(extraVoices)) {
+    for (const v of extraVoices) {
+      if (v && typeof v === 'string' && v.trim()) dubs.add(v.trim());
+    }
+  }
+
+  if (!str) return Array.from(dubs);
+
+  // 1. Delimited D / Dub / MVO / DVO / AVO / LVO / VO
+  if (/[\s|\[\/(]D[\s|\]\/),]/i.test(str) || /\|\s*D\s*\|/i.test(str) || /\|\s*D\s*$/i.test(str)) dubs.add('Дубляж');
+  if (/[\s|\[\/(]ПД[\s|\]\/),]/i.test(str) || /\bPD\b/i.test(str)) dubs.add('Проф. дубляж');
+  if (/[\s|\[\/(]MVO[\s|\]\/),]/i.test(str) || /\bМВО\b/i.test(str)) dubs.add('MVO');
+  if (/[\s|\[\/(]ПМ[\s|\]\/),]/i.test(str) || /\bPM\b/i.test(str)) dubs.add('Проф. многоголосый');
+  if (/[\s|\[\/(]DVO[\s|\]\/),]/i.test(str) || /\bДВО\b/i.test(str)) dubs.add('DVO');
+  if (/[\s|\[\/(]AVO[\s|\]\/),]/i.test(str) || /\bАVO\b/i.test(str) || /\bАВО\b/i.test(str)) dubs.add('AVO');
+  if (/[\s|\[\/(]LVO[\s|\]\/),]/i.test(str) || /\bЛВО\b/i.test(str)) dubs.add('LVO');
+  if (/[\s|\[\/(]VO[\s|\]\/),]/i.test(str)) dubs.add('Закадровый');
+  if (/[\s|\[\/(]AD[\s|\]\/),]/i.test(str)) dubs.add('Тифло');
+
+  // 2. Explicit Russian words
+  if (/\b(Дубляж|Дублированный)\b/i.test(str)) dubs.add('Дубляж');
+  if (/\b(Многоголосый|Проф\.?\s*многоголосый)\b/i.test(str)) dubs.add('Многоголосый');
+  if (/\b(Двуголосый|Двухголосый)\b/i.test(str)) dubs.add('Двуголосый');
+  if (/\b(Одноголосый)\b/i.test(str)) dubs.add('Одноголосый');
+  if (/\b(Авторский)\b/i.test(str)) dubs.add('Авторский');
+  if (/\b(Субтитры)\b/i.test(str)) dubs.add('Субтитры');
+
+  // 3. 'от ...' release groups
+  const otMatch = str.match(/\bот\s+([a-zA-Z0-9_\u0400-\u04FF]+)/i);
+  if (otMatch && otMatch[1]) {
+    const name = otMatch[1];
+    if (!/^(WEB|BDRip|HDTV|DVDRip|1080p|720p|4k|2160p|h264|hevc|rip)$/i.test(name)) {
+      dubs.add(name);
+    }
+  }
+
+  // 4. Pipe delimited studio/release: | Studio | or | Studio
+  const pipeMatches = str.matchAll(/\|\s*([a-zA-Z0-9_\u0400-\u04FF\s]{2,25}?)(?=\s*\||\s*$|\s*\[)/g);
+  for (const m of pipeMatches) {
+    const val = m[1].trim();
+    if (val && !/^(D|MVO|DVO|AVO|LVO|VO|SDR|HDR|HDR10\+?|DV|4K|1080P|720P|WEB-DL|WEBRip|BDRip|HEVC|H\.?264|AVC)$/i.test(val)) {
+      dubs.add(val);
+    }
+  }
+
+  // 5. Popular studios & authors
+  const studios = [
+    'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka', 'NewStudio', 'Кубик в кубе', 'Red Head Sound', 'RHS',
+    'AlexFilm', 'Jaskier', 'LineFilm', 'Пифагор', 'Кравец', 'Kravec', 'Невафильм', 'Flarrow Films',
+    'TVShows', 'RuDub', 'ColdFilm', 'Кураж-Бамбей', 'AniLibria', 'AniDUB', 'SHIZA Project', 'Гоблин',
+    'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US', 'Кириллица', 'СВ-Дубль', 'Мосфильм',
+    'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'BaibaKo', 'Gears Media', 'AlphaProject',
+    'Good People', 'Octopus', 'SoftBox', 'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm',
+    'ViruseProject', 'Sunshine Studio', 'OMSKBIRD', 'HamsterStudio', 'Kerob', 'MovieDalen',
+    'селезень', 'seleZen', 'ELEKTRI4KA', 'Scarabey', 'Dalemake', 'DoMiNo'
+  ];
+  for (const st of studios) {
+    const reg = new RegExp(`(^|[^a-zA-Z0-9_\u0400-\u04FF])${st}([^a-zA-Z0-9_\u0400-\u04FF]|$)`, 'i');
+    if (reg.test(str)) {
+      dubs.add(st);
+    }
+  }
+
+  return Array.from(dubs);
+}
+
+/**
  * Parses torrent title string into structured metadata badges (container, resolution, HDR, codec, etc.)
  */
-export function parseTorrentMeta(str: string): TorrentMetaBadge[] {
+export function parseTorrentMeta(str: string, extraVoices?: string[]): TorrentMetaBadge[] {
   if (!str) return [];
   const tags: TorrentMetaBadge[] = [];
   const s = str.toUpperCase();
@@ -86,10 +157,10 @@ export function parseTorrentMeta(str: string): TorrentMetaBadge[] {
   else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
   else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
 
-  // 8. Dubbing / Studio tag
-  const studioMatch = str.match(/\b(LostFilm|HDRezka|NewStudio|Кубик в кубе|Red Head Sound|AlexFilm|Jaskier|Дубляж|LineFilm|Пифагор|Кравец|Невафильм)\b/i);
-  if (studioMatch) {
-    tags.push({ text: studioMatch[1], type: 'dub' });
+// 8. Dubbing / Voiceover / Studio tags
+  const voices = extractTorrentVoices(str, extraVoices);
+  for (const v of voices) {
+    tags.push({ text: v, type: 'dub' });
   }
 
   // 9. Multi-episode packs tag (e.g. 1-10 выпуски, 1-27 выпуски)

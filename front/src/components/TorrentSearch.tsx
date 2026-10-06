@@ -75,6 +75,7 @@ interface TorrentItem {
   link: string;
   details: string;
   date: string;
+  voices?: string[];
 }
 
 interface TorrentFile {
@@ -588,6 +589,7 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
                     </div>
                     <TorrentBadges
                       title={item.title}
+                      voices={item.voices}
                       tracker={item.tracker}
                       sizeFormatted={item.sizeFormatted}
                       seeders={item.seeders}

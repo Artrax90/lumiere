@@ -39,6 +39,7 @@ interface TorrentItem {
   link: string;
   details: string;
   date: string;
+  voices?: string[];
 }
 
 export default function SeasonTorrentBrowser({

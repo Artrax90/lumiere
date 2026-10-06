@@ -3,6 +3,7 @@ import { parseTorrentMeta, pluralSeeds, type TorrentMetaBadge } from '@/utils/to
 
 interface TorrentBadgesProps {
   title: string;
+  voices?: string[];
   sizeFormatted?: string;
   seeders?: number;
   peers?: number;
@@ -25,7 +26,7 @@ const badgeColorMap: Record<TorrentMetaBadge['type'], string> = {
   'qual-cam': 'bg-rose-500/25 text-rose-300 border-rose-500/50 font-bold',
   'audio-atmos': 'bg-pink-500/25 text-pink-200 border-pink-400/60 shadow-[0_0_12px_rgba(244,114,182,0.3)] font-bold',
   audio: 'bg-rose-500/20 text-rose-300 border-rose-400/50 font-semibold',
-  dub: 'bg-violet-600/25 text-violet-200 border-violet-500/50 font-semibold',
+  dub: 'bg-purple-600/30 text-purple-200 border-purple-500/60 shadow-[0_0_8px_rgba(168,85,247,0.25)] font-bold',
   pack: 'bg-amber-400/15 text-amber-200 border-amber-400/40 font-semibold',
   lang: 'bg-blue-500/20 text-blue-300 border-blue-400/50 font-bold',
   year: 'bg-white/[0.08] text-white/70 border-white/20 font-medium',
@@ -33,6 +34,7 @@ const badgeColorMap: Record<TorrentMetaBadge['type'], string> = {
 
 export default function TorrentBadges({
   title,
+  voices,
   sizeFormatted,
   seeders,
   peers,
@@ -41,8 +43,8 @@ export default function TorrentBadges({
   maxBadges = 10,
 }: TorrentBadgesProps) {
   const badges = useMemo(() => {
-    return parseTorrentMeta(title).slice(0, maxBadges);
-  }, [title, maxBadges]);
+    return parseTorrentMeta(title, voices).slice(0, maxBadges);
+  }, [title, voices, maxBadges]);
 
   const hasExtra = tracker || sizeFormatted || seeders != null;
   if (!badges.length && !hasExtra) return null;

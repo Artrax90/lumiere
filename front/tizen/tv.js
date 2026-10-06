@@ -6190,11 +6190,96 @@
     else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
     else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
 
+    // 8. Dubbing / Studio / Voiceover tag
+    var dubs = [];
+    if (extraVoices && Array.isArray(extraVoices)) {
+      for (var vi = 0; vi < extraVoices.length; vi++) {
+        var ev = (extraVoices[vi] || '').trim();
+        if (ev && dubs.indexOf(ev) === -1) dubs.push(ev);
+      }
+    }
+    // Delimited D / MVO / DVO / AVO / LVO / VO
+    if (/[\s|\[\/(]D[\s|\]\/),]/i.test(str) || /\|\s*D\s*\|/i.test(str) || /\|\s*D\s*$/i.test(str)) {
+      if (dubs.indexOf('Дубляж') === -1) dubs.push('Дубляж');
+    }
+    if (/[\s|\[\/(]ПД[\s|\]\/),]/i.test(str) || /\bPD\b/i.test(str)) {
+      if (dubs.indexOf('Проф. дубляж') === -1) dubs.push('Проф. дубляж');
+    }
+    if (/[\s|\[\/(]MVO[\s|\]\/),]/i.test(str) || /\bМВО\b/i.test(str)) {
+      if (dubs.indexOf('MVO') === -1) dubs.push('MVO');
+    }
+    if (/[\s|\[\/(]ПМ[\s|\]\/),]/i.test(str) || /\bPM\b/i.test(str)) {
+      if (dubs.indexOf('Проф. многоголосый') === -1) dubs.push('Проф. многоголосый');
+    }
+    if (/[\s|\[\/(]DVO[\s|\]\/),]/i.test(str) || /\bДВО\b/i.test(str)) {
+      if (dubs.indexOf('DVO') === -1) dubs.push('DVO');
+    }
+    if (/[\s|\[\/(]AVO[\s|\]\/),]/i.test(str) || /\bАVO\b/i.test(str) || /\bАВО\b/i.test(str)) {
+      if (dubs.indexOf('AVO') === -1) dubs.push('AVO');
+    }
+    if (/[\s|\[\/(]LVO[\s|\]\/),]/i.test(str) || /\bЛВО\b/i.test(str)) {
+      if (dubs.indexOf('LVO') === -1) dubs.push('LVO');
+    }
+    if (/[\s|\[\/(]VO[\s|\]\/),]/i.test(str)) {
+      if (dubs.indexOf('Закадровый') === -1) dubs.push('Закадровый');
+    }
+    if (/\b(Дубляж|Дублированный)\b/i.test(str)) {
+      if (dubs.indexOf('Дубляж') === -1) dubs.push('Дубляж');
+    }
+    if (/\b(Многоголосый|Проф\.?\s*многоголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Многоголосый') === -1) dubs.push('Многоголосый');
+    }
+    if (/\b(Двуголосый|Двухголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Двуголосый') === -1) dubs.push('Двуголосый');
+    }
+    if (/\b(Одноголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Одноголосый') === -1) dubs.push('Одноголосый');
+    }
+    if (/\b(Авторский)\b/i.test(str)) {
+      if (dubs.indexOf('Авторский') === -1) dubs.push('Авторский');
+    }
+    if (/\b(Субтитры)\b/i.test(str)) {
+      if (dubs.indexOf('Субтитры') === -1) dubs.push('Субтитры');
+    }
+    var otMatch = str.match(/\bот\s+([a-zA-Z0-9_\u0400-\u04FF]+)/i);
+    if (otMatch && otMatch[1]) {
+      var otName = otMatch[1];
+      if (!/^(WEB|BDRip|HDTV|DVDRip|1080p|720p|4k|2160p|h264|hevc|rip)$/i.test(otName)) {
+        if (dubs.indexOf(otName) === -1) dubs.push(otName);
+      }
+    }
+    var pipeMatches = str.match(/\|\s*([a-zA-Z0-9_\u0400-\u04FF\s]{2,25}?)(?=\s*\||\s*$|\s*\[)/g) || [];
+    for (var pi = 0; pi < pipeMatches.length; pi++) {
+      var pVal = pipeMatches[pi].replace(/^\|\s*/, '').trim();
+      if (pVal && !/^(D|MVO|DVO|AVO|LVO|VO|SDR|HDR|HDR10\+?|DV|4K|1080P|720P|WEB-DL|WEBRip|BDRip|HEVC|H\.?264|AVC)$/i.test(pVal)) {
+        if (dubs.indexOf(pVal) === -1) dubs.push(pVal);
+      }
+    }
+    var tvStudios = [
+      'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka', 'NewStudio', 'Кубик в кубе', 'Red Head Sound', 'RHS',
+      'AlexFilm', 'Jaskier', 'LineFilm', 'Пифагор', 'Кравец', 'Kravec', 'Невафильм', 'Flarrow Films',
+      'TVShows', 'RuDub', 'ColdFilm', 'Кураж-Бамбей', 'AniLibria', 'AniDUB', 'SHIZA Project', 'Гоблин',
+      'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US', 'Кириллица', 'СВ-Дубль', 'Мосфильм',
+      'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'BaibaKo', 'Gears Media', 'AlphaProject',
+      'Good People', 'Octopus', 'SoftBox', 'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm',
+      'ViruseProject', 'Sunshine Studio', 'OMSKBIRD', 'HamsterStudio', 'Kerob', 'MovieDalen',
+      'селезень', 'seleZen', 'ELEKTRI4KA', 'Scarabey', 'Dalemake', 'DoMiNo'
+    ];
+    for (var si = 0; si < tvStudios.length; si++) {
+      var sReg = new RegExp('(^|[^a-zA-Z0-9_\u0400-\u04FF])' + tvStudios[si].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-zA-Z0-9_\u0400-\u04FF]|$)', 'i');
+      if (sReg.test(str)) {
+        if (dubs.indexOf(tvStudios[si]) === -1) dubs.push(tvStudios[si]);
+      }
+    }
+    for (var di = 0; di < dubs.length; di++) {
+      tags.push({ text: dubs[di], type: 'dub' });
+    }
+
     return tags;
   }
 
-  function renderMetaBadges(str) {
-    var tags = parseTorrentMeta(str);
+  function renderMetaBadges(str, extraVoices) {
+    var tags = parseTorrentMeta(str, extraVoices);
     if (!tags.length) return '';
     var res = '<div class="t-badges">';
     for (var i = 0; i < tags.length; i++) {
@@ -6545,7 +6630,7 @@
         if (favVoice && (torrent.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1) {
           html += '<span class="t-badge" style="background:rgba(232,193,112,0.25);color:#e8c170;border:1px solid #e8c170;font-weight:bold;">\u2b50 ' + esc(favVoice) + '</span>';
         }
-        html += renderMetaBadges(torrent.title);
+        html += renderMetaBadges(torrent.title, torrent.voices);
         if (torrent.sizeFormatted) {
           html += '<span class="t-badge t-badge-size">💾 ' + esc(torrent.sizeFormatted) + '</span>';
         }
@@ -6555,7 +6640,20 @@
         if (torrent.peers != null && torrent.peers > 0) {
           html += '<span class="t-badge t-badge-peers">👥 ' + torrent.peers + '</span>';
         }
-        html += '</div></div>';
+        html += '</div>';
+        if (torrent.date) {
+          var dStr = '';
+          try {
+            var dt = new Date(torrent.date);
+            if (!isNaN(dt.getTime())) {
+              dStr = dt.toLocaleDateString('ru-RU');
+            }
+          } catch (e) {}
+          if (dStr) {
+            html += '<div class="detail-torrent-date">Добавлено: ' + esc(dStr) + '</div>';
+          }
+        }
+        html += '</div>';
       });
       html += '</div>';
 

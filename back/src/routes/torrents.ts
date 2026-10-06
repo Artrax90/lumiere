@@ -102,9 +102,19 @@ interface JacRedResult {
   Details?: string;
   PublishDate: string;
   Guid: string;
+  info?: {
+    quality?: number;
+    videotype?: string;
+    voices?: string[];
+    types?: string[];
+    sizeName?: string;
+    name?: string;
+    originalname?: string;
+    relased?: number;
+  };
 }
 
-interface TorrentItem {
+export interface TorrentItem {
   id: string;
   title: string;
   tracker: string;
@@ -118,6 +128,75 @@ interface TorrentItem {
   details: string;
   date: string;
   hash?: string;
+  voices?: string[];
+}
+
+export function extractTorrentVoices(str: string, initialVoices?: string[]): string[] {
+  const dubs = new Set<string>();
+  if (Array.isArray(initialVoices)) {
+    for (const v of initialVoices) {
+      if (v && typeof v === 'string' && v.trim()) dubs.add(v.trim());
+    }
+  }
+
+  if (!str) return Array.from(dubs);
+
+  // 1. Delimited D / Dub / MVO / DVO / AVO / LVO / VO
+  if (/[\s|\[\/(]D[\s|\]\/),]/i.test(str) || /\|\s*D\s*\|/i.test(str) || /\|\s*D\s*$/i.test(str)) dubs.add('Дубляж');
+  if (/[\s|\[\/(]ПД[\s|\]\/),]/i.test(str) || /\bPD\b/i.test(str)) dubs.add('Проф. дубляж');
+  if (/[\s|\[\/(]MVO[\s|\]\/),]/i.test(str) || /\bМВО\b/i.test(str)) dubs.add('MVO');
+  if (/[\s|\[\/(]ПМ[\s|\]\/),]/i.test(str) || /\bPM\b/i.test(str)) dubs.add('Проф. многоголосый');
+  if (/[\s|\[\/(]DVO[\s|\]\/),]/i.test(str) || /\bДВО\b/i.test(str)) dubs.add('DVO');
+  if (/[\s|\[\/(]AVO[\s|\]\/),]/i.test(str) || /\bАVO\b/i.test(str) || /\bАВО\b/i.test(str)) dubs.add('AVO');
+  if (/[\s|\[\/(]LVO[\s|\]\/),]/i.test(str) || /\bЛВО\b/i.test(str)) dubs.add('LVO');
+  if (/[\s|\[\/(]VO[\s|\]\/),]/i.test(str)) dubs.add('Закадровый');
+  if (/[\s|\[\/(]AD[\s|\]\/),]/i.test(str)) dubs.add('Тифло');
+
+  // 2. Explicit Russian words
+  if (/\b(Дубляж|Дублированный)\b/i.test(str)) dubs.add('Дубляж');
+  if (/\b(Многоголосый|Проф\.?\s*многоголосый)\b/i.test(str)) dubs.add('Многоголосый');
+  if (/\b(Двуголосый|Двухголосый)\b/i.test(str)) dubs.add('Двуголосый');
+  if (/\b(Одноголосый)\b/i.test(str)) dubs.add('Одноголосый');
+  if (/\b(Авторский)\b/i.test(str)) dubs.add('Авторский');
+  if (/\b(Субтитры)\b/i.test(str)) dubs.add('Субтитры');
+
+  // 3. 'от ...' release groups
+  const otMatch = str.match(/\bот\s+([a-zA-Z0-9_\u0400-\u04FF]+)/i);
+  if (otMatch && otMatch[1]) {
+    const name = otMatch[1];
+    if (!/^(WEB|BDRip|HDTV|DVDRip|1080p|720p|4k|2160p|h264|hevc|rip)$/i.test(name)) {
+      dubs.add(name);
+    }
+  }
+
+  // 4. Pipe delimited studio/release: | Studio | or | Studio
+  const pipeMatches = str.matchAll(/\|\s*([a-zA-Z0-9_\u0400-\u04FF\s]{2,25}?)(?=\s*\||\s*$|\s*\[)/g);
+  for (const m of pipeMatches) {
+    const val = m[1].trim();
+    if (val && !/^(D|MVO|DVO|AVO|LVO|VO|SDR|HDR|HDR10\+?|DV|4K|1080P|720P|WEB-DL|WEBRip|BDRip|HEVC|H\.?264|AVC)$/i.test(val)) {
+      dubs.add(val);
+    }
+  }
+
+  // 5. Popular studios & authors
+  const studios = [
+    'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka', 'NewStudio', 'Кубик в кубе', 'Red Head Sound', 'RHS',
+    'AlexFilm', 'Jaskier', 'LineFilm', 'Пифагор', 'Кравец', 'Kravec', 'Невафильм', 'Flarrow Films',
+    'TVShows', 'RuDub', 'ColdFilm', 'Кураж-Бамбей', 'AniLibria', 'AniDUB', 'SHIZA Project', 'Гоблин',
+    'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US', 'Кириллица', 'СВ-Дубль', 'Мосфильм',
+    'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'BaibaKo', 'Gears Media', 'AlphaProject',
+    'Good People', 'Octopus', 'SoftBox', 'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm',
+    'ViruseProject', 'Sunshine Studio', 'OMSKBIRD', 'HamsterStudio', 'Kerob', 'MovieDalen',
+    'селезень', 'seleZen', 'ELEKTRI4KA', 'Scarabey', 'Dalemake', 'DoMiNo'
+  ];
+  for (const st of studios) {
+    const reg = new RegExp(`(^|[^a-zA-Z0-9_\u0400-\u04FF])${st}([^a-zA-Z0-9_\u0400-\u04FF]|$)`, 'i');
+    if (reg.test(str)) {
+      dubs.add(st);
+    }
+  }
+
+  return Array.from(dubs);
 }
 
 interface TorrentFile {
@@ -486,6 +565,7 @@ export function torrentRoutes(app: FastifyInstance) {
           details: r.Details || '',
           date: r.PublishDate,
           hash: torrentHash,
+          voices: extractTorrentVoices(r.Title, r.info?.voices),
         });
       }
 
