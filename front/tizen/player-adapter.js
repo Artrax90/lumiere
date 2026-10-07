@@ -149,6 +149,7 @@
       },
       onsubtitlechange: function(duration, text) {
         console.log('[AVPlay] onSubtitleChange:', text);
+        self._emit('subtitleChange', { text: text, duration: duration });
       },
       ondrmevent: function(drmEvent, drmData) {}
     });
@@ -1043,11 +1044,13 @@
     if (this._currentUrl && this._currentUrl.indexOf('/api/torrents/hls') !== -1) {
       if (index >= 0 && this.currentAudio !== index) {
         this.currentAudio = index;
+        var target = (index < this.audioTracks.length) ? this.audioTracks[index] : null;
+        var audioParam = (target && target.id !== undefined) ? target.id : index;
         var cleanUrl = this._currentUrl.replace(/([?&])audio=\d+(&|$)/g, '$1').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
         var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
-        var newUrl = cleanUrl + joinChar + 'audio=' + index + '&start=' + Math.floor(this._currentTime);
+        var newUrl = cleanUrl + joinChar + 'audio=' + audioParam + '&start=' + Math.floor(this._currentTime);
         this._currentUrl = newUrl;
-        console.log('[PlayerAdapter] Switching HLS audio track to', index, 'reloading:', newUrl);
+        console.log('[PlayerAdapter] Switching HLS audio track to', index, '(param: ' + audioParam + ') reloading:', newUrl);
         if (this.engineType === 'avplay') {
           this._seekHlsAvplay(this._currentTime);
         } else if (this._hls && this._videoEl) {
@@ -1061,9 +1064,11 @@
     if (this.engineType === 'avplay') {
       try {
         if (index >= 0 && index < this.audioTracks.length) {
-          webapis.avplay.setSelectTrack('AUDIO', this.audioTracks[index].index);
+          var targetTrack = this.audioTracks[index];
+          var hwIndex = (targetTrack.index !== undefined) ? targetTrack.index : (targetTrack.id !== undefined ? targetTrack.id : index);
+          webapis.avplay.setSelectTrack('AUDIO', hwIndex);
           this.currentAudio = index;
-          console.log('[AVPlay] Audio track set to:', this.audioTracks[index].name);
+          console.log('[AVPlay] Audio track set to:', targetTrack.name, 'hwIndex:', hwIndex);
         }
       } catch(e) { console.error('[AVPlay] setAudioTrack error:', e); }
     }
@@ -1073,13 +1078,16 @@
   PlayerAdapter.prototype.setSubtitleTrack = function(index) {
     if (this.engineType === 'avplay') {
       try {
-        if (index >= 0 && this.subtitleTracks[index]) {
-          webapis.avplay.setSelectTrack('TEXT', this.subtitleTracks[index].index);
+        if (index >= 0 && index < this.subtitleTracks.length) {
+          var targetSub = this.subtitleTracks[index];
+          var hwIndex = (targetSub.index !== undefined) ? targetSub.index : (targetSub.id !== undefined ? targetSub.id : index);
+          webapis.avplay.setSelectTrack('TEXT', hwIndex);
           this.currentSubtitle = index;
-          console.log('[AVPlay] Subtitle track set to:', this.subtitleTracks[index].name);
+          console.log('[AVPlay] Subtitle track set to:', targetSub.name, 'hwIndex:', hwIndex);
         } else {
           // Disable subtitles
           this.currentSubtitle = -1;
+          try { webapis.avplay.setSelectTrack('TEXT', -1); } catch(te) {}
           console.log('[AVPlay] Subtitles disabled');
         }
       } catch(e) { console.error('[AVPlay] setSubtitleTrack error:', e); }

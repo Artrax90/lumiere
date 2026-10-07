@@ -301,14 +301,17 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           }));
           setAudioTracks(tracks);
         }
-        // Subtitle tracks — store info, actual VTT loaded below from HLS session
+        // Subtitle tracks — assign WebVTT extraction URL via backend ffmpeg
         if (data.subtitleTracks?.length > 0) {
-          const subs = data.subtitleTracks.map((t: any, i: number) => ({
-            id: t.id,
-            name: t.name,
-            lang: t.lang,
-            // URL will be set after HLS session is known
-          }));
+          const subs = data.subtitleTracks.map((t: any, i: number) => {
+            const trackId = t.id !== undefined ? t.id : i;
+            return {
+              id: trackId,
+              name: t.name || `Субтитры ${i + 1}`,
+              lang: t.lang || '',
+              url: `/api/torrents/subtitle/${trackId}?link=${encodedLink}&index=${idx}`,
+            };
+          });
           setSubtitleTracks(subs);
         }
       })
@@ -1214,7 +1217,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       setCurrentSubtitle(id);
       setLoading(true);
       try {
-        const res = await fetch((track as any).url);
+        const res = await serverFetch((track as any).url);
         if (!res.ok) {
           console.error('Subtitle fetch failed:', res.status, res.statusText);
           subtitleCuesRef.current = [];
