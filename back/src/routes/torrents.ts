@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import os from 'os';
 import http from 'http';
 import { join } from 'path';
-import { existsSync, readdirSync, readFileSync, mkdirSync, rmSync, statSync } from 'fs';
+import { existsSync, readdirSync, readFileSync, createReadStream, mkdirSync, rmSync, statSync, unlinkSync } from 'fs';
 import { exec, execSync, spawn } from 'child_process';
 import { promisify } from 'util';
 import { config } from '../config.js';
@@ -83,11 +83,16 @@ function isVaapiAvailable(): boolean {
 function getHlsTmpBase(): string {
   if (process.env.HLS_TMP_DIR) return process.env.HLS_TMP_DIR;
   if (process.platform === 'win32') return join(os.tmpdir(), 'lumiere-hls');
-  return '/tmp';
+  // Always use server SSD disk (/tmp/lumiere-hls) instead of RAM /dev/shm (limited to 64MB in Docker)
+  return '/tmp/lumiere-hls';
 }
 
 function getHlsDir(sessionId: string): string {
-  return join(getHlsTmpBase(), `hls-${sessionId}`);
+  const base = getHlsTmpBase();
+  if (!existsSync(base)) {
+    try { mkdirSync(base, { recursive: true }); } catch {}
+  }
+  return join(base, `hls-${sessionId}`);
 }
 
 interface JacRedResult {
@@ -1381,6 +1386,10 @@ export function torrentRoutes(app: FastifyInstance) {
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/proxy', handler: handleTorrentProxy });
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/proxy/:filename', handler: handleTorrentProxy });
 
+  // In-memory caches for tracks and duration to avoid redundant FFprobe runs against TorrServer
+  const torrentTracksCache = new Map<string, { data: any; expires: number }>();
+  const torrentDurationCache = new Map<string, { data: any; expires: number }>();
+
   // Get audio and subtitle track info via FFprobe
   app.get('/api/torrents/tracks', async (req, reply) => {
     const { link, index } = req.query as { link?: string; index?: string };
@@ -1389,11 +1398,18 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link required' });
     }
 
+    const cacheKey = `${link}-${index || 0}`;
+    const cached = torrentTracksCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return cached.data;
+    }
+
     try {
-      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      const torrUrl = await getActiveTorrServerUrl();
+      const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       const { stdout: probe } = await execAsync(
         `ffprobe -v quiet -print_format json -show_streams -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
-        { timeout: 15000, maxBuffer: 1024 * 1024 }
+        { timeout: 12000, maxBuffer: 1024 * 1024 }
       );
       const streams = JSON.parse(probe).streams || [];
 
@@ -1428,7 +1444,9 @@ export function torrentRoutes(app: FastifyInstance) {
           codec: s.codec_name,
         }));
 
-      return { audioTracks, subtitleTracks };
+      const result = { audioTracks, subtitleTracks };
+      torrentTracksCache.set(cacheKey, { data: result, expires: Date.now() + 24 * 3600 * 1000 });
+      return result;
     } catch (err: any) {
       console.warn('Track probe warning:', err.message);
       return {
@@ -1446,9 +1464,16 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link parameter required' });
     }
 
-    const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+    const cacheKey = `${link}-${index || 0}`;
+    const cached = torrentDurationCache.get(cacheKey);
+    if (cached && cached.expires > Date.now()) {
+      return cached.data;
+    }
 
     try {
+      const torrUrl = await getActiveTorrServerUrl();
+      const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+
       // Try to get accurate duration with large probesize
       let dur = 0;
 
@@ -1484,7 +1509,9 @@ export function torrentRoutes(app: FastifyInstance) {
         } catch {}
       }
 
-      return { duration: dur, formatted: formatTime(dur) };
+      const res = { duration: dur, formatted: formatTime(dur) };
+      torrentDurationCache.set(cacheKey, { data: res, expires: Date.now() + 24 * 3600 * 1000 });
+      return res;
     } catch (err: any) {
       console.warn('FFprobe error:', err.message);
       return { duration: 0, formatted: '0:00' };
@@ -1503,18 +1530,22 @@ export function torrentRoutes(app: FastifyInstance) {
 
   // Clean up stale HLS session directories older than 2 hours on startup
   try {
-    const tmpDir = os.tmpdir();
-    const entries = readdirSync(tmpDir);
+    const tmpDirs = [getHlsTmpBase(), os.tmpdir()];
     const now = Date.now();
-    for (const entry of entries) {
-      if (entry.startsWith('hls-')) {
-        const fullPath = join(tmpDir, entry);
-        try {
-          const stat = statSync(fullPath);
-          if (now - stat.mtimeMs > 2 * 60 * 60 * 1000) {
-            rmSync(fullPath, { recursive: true, force: true });
+    for (const tmpDir of tmpDirs) {
+      if (existsSync(tmpDir)) {
+        const entries = readdirSync(tmpDir);
+        for (const entry of entries) {
+          if (entry.startsWith('hls-')) {
+            const fullPath = join(tmpDir, entry);
+            try {
+              const stat = statSync(fullPath);
+              if (now - stat.mtimeMs > 2 * 60 * 60 * 1000) {
+                rmSync(fullPath, { recursive: true, force: true });
+              }
+            } catch {}
           }
-        } catch {}
+        }
       }
     }
   } catch {}
@@ -1535,6 +1566,7 @@ export function torrentRoutes(app: FastifyInstance) {
 
   const activeSessions = new Map<string, FfmpegSession>();
   const activeSubtitles = new Map<string, { pid: number }>();
+  const probedVideoCodecs = new Map<string, string>();
 
   function pauseFfmpeg(sess: FfmpegSession) {
     if (!sess.paused && sess.pid && process.platform !== 'win32') {
@@ -1578,30 +1610,47 @@ export function torrentRoutes(app: FastifyInstance) {
       const deltaSec = Math.min(2, Math.max(0, (now - (sess.lastPlayheadUpdate || now)) / 1000));
       sess.lastPlayheadUpdate = now;
 
-      // Detection of TV pause: only trigger if TV hasn't requested any segment in > 30 seconds
-      // AND we have segments on disk ready for the TV to download
-      const isTvPaused = sess.lastRequestedSeg >= 0 &&
+      // Detection of TV/client pause: only trigger if client hasn't requested any segment in > 45 seconds
+      // AND has not touched playlist/player in > 20 seconds
+      // AND we have segments on disk ready for the player to download
+      const isClientActive = (now - (sess.lastActivity || 0) < 20000);
+      const isTvPaused = !isClientActive &&
+                         sess.lastRequestedSeg >= 0 &&
                          maxSeg > sess.lastRequestedSeg &&
-                         (now - sess.lastSegRequestTime > 30000);
+                         (now - sess.lastSegRequestTime > 45000);
 
       if (!isTvPaused) {
         sess.playbackSeconds += deltaSec;
       }
 
       const effectivePlaySec = Math.max(0, sess.playbackSeconds - 2);
-      const playedSeg = Math.floor(effectivePlaySec / 4);
+      const playedSeg = Math.floor(effectivePlaySec / 3);
 
       // Buffer ahead of current playback position
       const currentPos = Math.max(playedSeg, sess.lastRequestedSeg);
       const ahead = maxSeg - currentPos;
 
       // Adaptive throttling:
-      // - PAUSE if TV is paused OR if buffer is >= 15 segments (60s) ahead of playhead
-      // - RESUME if TV is active AND buffer drops to <= 8 segments (32s) ahead
-      if (isTvPaused || ahead >= 15) {
+      // - PAUSE if TV is paused OR if buffer is >= 35 segments (105s) ahead of playhead
+      // - RESUME if TV is active AND buffer drops to <= 18 segments (54s) ahead
+      if (isTvPaused || ahead >= 35) {
         pauseFfmpeg(sess);
-      } else if (ahead <= 8) {
+      } else if (ahead <= 18) {
         resumeFfmpeg(sess);
+      }
+
+      // Rolling window rotation: clean up segments that are > 60 segments (180s) behind playhead
+      // to keep disk usage microscopic (< 100MB per movie) while allowing plenty of local scrubbing.
+      const minKeepSeg = Math.max(0, currentPos - 60);
+      if (minKeepSeg > 0) {
+        for (const f of files) {
+          if (f.startsWith('seg-') && f.endsWith('.ts')) {
+            const num = parseInt(f.slice(4, -3), 10);
+            if (!isNaN(num) && num < minKeepSeg) {
+              try { unlinkSync(join(sess.hlsDir, f)); } catch {}
+            }
+          }
+        }
       }
     } catch (err: any) {
       console.error('[FFmpeg] checkThrottle error:', err.message);
@@ -1653,12 +1702,14 @@ export function torrentRoutes(app: FastifyInstance) {
     const audioIndex = parseInt(audio || '0', 10) || 0;
     const seekTime = parseFloat(start || '0') || 0;
     const paramFilename = (req.params?.filename || '').toLowerCase();
-    const isAviRequested = paramFilename.endsWith('.avi');
-    let isVideoTranscode = vcodec === 'h264' || isAviRequested;
+    const LEGACY_CONTAINER_EXTS = ['.avi', '.divx', '.wmv', '.asf', '.vob', '.flv', '.rmvb', '.rm', '.mpg', '.mpeg', '.m2v', '.ogv'];
+    const isLegacyRequested = LEGACY_CONTAINER_EXTS.some(ext => paramFilename.endsWith(ext));
+    let isVideoTranscode = vcodec === 'h264' || isLegacyRequested;
 
     const torrUrl = await getActiveTorrServerUrl();
+    const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
 
-    // If transcode not explicitly requested, check if target file is .avi to prevent browser decode error
+    // If transcode not explicitly requested, check if target file container or codec requires transcode
     if (!isVideoTranscode && link) {
       try {
         const statRes = await fetch(`${torrUrl}/stream?link=${encodeURIComponent(link)}&index=-1&stat`, {
@@ -1667,14 +1718,36 @@ export function torrentRoutes(app: FastifyInstance) {
         if (statRes.ok) {
           const statData = (await statRes.json()) as any;
           const targetFile = statData.file_stats?.find((f: any) => String(f.id) === String(index || 0));
-          if (targetFile?.path?.toLowerCase().endsWith('.avi')) {
+          const targetPath = (targetFile?.path || '').toLowerCase();
+          if (LEGACY_CONTAINER_EXTS.some(ext => targetPath.endsWith(ext))) {
             isVideoTranscode = true;
           }
         }
       } catch {}
-    }
 
-    const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      // If still not transcoding, check if video stream has an incompatible codec (e.g. MKV with DivX/XviD, VC-1, MPEG-2)
+      if (!isVideoTranscode) {
+        const probeKey = `${link}-${index || 0}`;
+        let codec = probedVideoCodecs.get(probeKey);
+        if (!codec) {
+          try {
+            const { stdout: probeOut } = await execAsync(
+              `ffprobe -v quiet -select_streams v:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 "${streamUrl}"`,
+              { timeout: 2500 }
+            );
+            codec = probeOut.trim().toLowerCase();
+            if (codec) {
+              probedVideoCodecs.set(probeKey, codec);
+            }
+          } catch {}
+        }
+        const INCOMPATIBLE_VIDEO_CODECS = ['mpeg4', 'msmpeg4', 'msmpeg4v3', 'vc1', 'wmv3', 'mpeg2video', 'theora'];
+        if (codec && INCOMPATIBLE_VIDEO_CODECS.includes(codec)) {
+          console.log(`[FFmpeg] Incompatible video codec detected: ${codec}, enabling H.264 transcode`);
+          isVideoTranscode = true;
+        }
+      }
+    }
     const { createHash } = await import('crypto');
     // Include audio index, seek time, and vcodec in session ID for isolation
     const sessionId = createHash('sha256').update(`${link}-${index}-a${audioIndex}-s${seekTime}-v${isVideoTranscode ? 'h264' : 'copy'}`).digest('hex').slice(0, 32);
@@ -1693,7 +1766,12 @@ export function torrentRoutes(app: FastifyInstance) {
     const existingSession = activeSessions.get(sessionId);
     if (existingSession && existsSync(playlistPath)) {
       existingSession.lastActivity = Date.now();
-      checkThrottle(existingSession);
+      // If client is actively requesting playlist and FFmpeg was throttled, wake it up immediately!
+      if (existingSession.paused) {
+        resumeFfmpeg(existingSession);
+      } else {
+        checkThrottle(existingSession);
+      }
       let manifest = readFileSync(playlistPath, 'utf-8');
       // Validate manifest is proper M3U8 before serving
       if (manifest.includes('#EXTM3U') && manifest.includes('#EXTINF')) {
@@ -1732,12 +1810,12 @@ export function torrentRoutes(app: FastifyInstance) {
       // Uses -hls_list_size 0 (VOD playlist, no deleted segments) to prevent jumping/twitching
       const { spawn } = await import('child_process');
       const ffmpegArgs = [
-        '-threads', '1',
+        '-threads', '0',
         '-reconnect', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
-        '-probesize', '10000000',
-        '-analyzeduration', '10000000',
+        '-probesize', '1000000',
+        '-analyzeduration', '1000000',
       ];
       // Input seek with -accurate_seek ensures exact second seeking without keyframe undershoot
       if (seekTime > 0) {
@@ -1780,11 +1858,13 @@ export function torrentRoutes(app: FastifyInstance) {
         '-ac', '2',
         '-g', '50',
         '-keyint_min', '25',
-        '-force_key_frames', 'expr:gte(t,n_forced*4)',
+        '-force_key_frames', 'expr:gte(t,n_forced*3)',
         '-f', 'hls',
-        '-hls_time', '4',
+        '-hls_time', '3',
         '-hls_list_size', '0',
+        '-hls_playlist_type', 'event',
         '-hls_segment_type', 'mpegts',
+        '-hls_flags', 'temp_file',
         '-hls_segment_filename', join(hlsDir, 'seg-%d.ts'),
         '-y',
         playlistPath,
@@ -1858,8 +1938,8 @@ export function torrentRoutes(app: FastifyInstance) {
             return;
           }
         }
-        if (attempts++ < 150) {
-          setTimeout(check, 200);
+        if (attempts++ < 300) {
+          setTimeout(check, 100);
         } else {
           resolve();
         }
@@ -2005,13 +2085,14 @@ export function torrentRoutes(app: FastifyInstance) {
 
   app.get('/api/torrents/subtitle/:trackId', async (req, reply) => {
     const { trackId } = req.params as { trackId: string };
-    const { link, index } = req.query as { link?: string; index?: string };
+    const { link, index, time } = req.query as { link?: string; index?: string; time?: string };
 
     if (!link) {
       return reply.code(400).send({ error: 'link required' });
     }
 
-    const cacheKey = `${link}-${index}-${trackId}`;
+    const seekSec = time && parseInt(time, 10) > 3 ? Math.max(0, parseInt(time, 10) - 2) : 0;
+    const cacheKey = `${link}-${index}-${trackId}-s${seekSec}`;
     const cached = subtitleCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
       reply.header('Content-Type', 'text/vtt');
@@ -2020,52 +2101,112 @@ export function torrentRoutes(app: FastifyInstance) {
     }
 
     try {
-      const streamUrl = `${TORRSERVER_URL}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
+      const torrUrl = await getActiveTorrServerUrl();
+      const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       const { spawn: spawnSub } = await import('child_process');
 
-      // Extract subtitle as WebVTT using spawn (no timeout limit)
-      const vtt = await new Promise<string>((resolve, reject) => {
+      // Extract subtitle as WebVTT using spawn with fast demuxing, -copyts, and idle detection
+      const vtt = await new Promise<string>((resolve) => {
         const chunks: Buffer[] = [];
-        const ffmpeg = spawnSub('ffmpeg', [
+        let resolved = false;
+
+        const subArgs = [
+          '-threads', '0',
+          '-probesize', '1000000',
+          '-analyzeduration', '1000000',
           '-reconnect', '1',
           '-reconnect_streamed', '1',
           '-reconnect_delay_max', '5',
+        ];
+        const startSec = seekSec > 0 ? Math.max(0, seekSec - 10) : 0;
+        if (startSec > 0) {
+          subArgs.push('-ss', String(startSec));
+        }
+        subArgs.push(
           '-i', streamUrl,
+          '-vn', '-an',
+          '-copyts',
           '-map', `0:s:${trackId}`,
           '-c:s', 'webvtt',
+          '-to', String(seekSec + 100),
           '-f', 'webvtt',
           'pipe:1',
-        ], { stdio: ['pipe', 'pipe', 'pipe'] });
+        );
 
-        ffmpeg.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-        ffmpeg.stderr.on('data', () => {}); // suppress stderr
+        console.log('[Subtitle] Starting extraction:', subArgs.join(' '));
+        const ffmpeg = spawnSub('ffmpeg', subArgs, { stdio: ['pipe', 'pipe', 'pipe'] });
+        const stderrChunks: Buffer[] = [];
+        let idleTimer: NodeJS.Timeout | null = null;
 
-        ffmpeg.on('close', (code) => {
-          if (code === 0 && chunks.length > 0) {
-            resolve(Buffer.concat(chunks).toString('utf-8'));
+        const killProc = () => {
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+          try { ffmpeg.kill('SIGTERM'); } catch {}
+          setTimeout(() => {
+            try { ffmpeg.kill('SIGKILL'); } catch {}
+          }, 200);
+        };
+
+        req.raw.on('close', killProc);
+
+        const finish = (resultText?: string) => {
+          if (resolved) return;
+          resolved = true;
+          if (idleTimer) { clearTimeout(idleTimer); idleTimer = null; }
+          clearTimeout(timeoutId);
+          killProc();
+          const out = resultText ?? Buffer.concat(chunks).toString('utf-8');
+          if (out && out.includes('WEBVTT')) {
+            resolve(out);
           } else {
-            reject(new Error(`FFmpeg exited with code ${code}`));
+            resolve('WEBVTT\n\n');
+          }
+        };
+
+        ffmpeg.stdout.on('data', (chunk: Buffer) => {
+          chunks.push(chunk);
+          // If cues have already arrived and stdout goes silent for 1.2s, finish early to return data instantly
+          if (idleTimer) clearTimeout(idleTimer);
+          const currentText = Buffer.concat(chunks).toString('utf-8');
+          if (currentText.includes('-->') && currentText.length > 300) {
+            idleTimer = setTimeout(() => {
+              finish();
+            }, 1200);
           }
         });
+        ffmpeg.stderr.on('data', (d: Buffer) => {
+          stderrChunks.push(d);
+        });
 
-        ffmpeg.on('error', reject);
+        ffmpeg.on('close', (code) => {
+          console.log('[Subtitle] FFmpeg closed code:', code, 'chunks:', chunks.length);
+          finish();
+        });
 
-        // Safety timeout: kill after 5 minutes
-        setTimeout(() => {
-          try { ffmpeg.kill('SIGKILL'); } catch {}
-          reject(new Error('Subtitle extraction timeout'));
-        }, 300000);
+        ffmpeg.on('error', (err) => {
+          console.error('[Subtitle] FFmpeg spawn error:', err);
+          finish();
+        });
+
+        // 7-second timeout: stop FFmpeg if TorrServer takes too long
+        const timeoutId = setTimeout(() => {
+          console.warn('[Subtitle] Extraction timeout 7s reached, returning received chunks:', chunks.length);
+          finish();
+        }, 7000);
       });
 
-      // Cache for 1 hour
-      subtitleCache.set(cacheKey, { data: vtt, expires: Date.now() + 3600000 });
+      // Cache for 1 hour only if valid cues were returned
+      if (vtt && vtt.includes('-->') && vtt.length > 200) {
+        subtitleCache.set(cacheKey, { data: vtt, expires: Date.now() + 3600000 });
+      }
 
       reply.header('Content-Type', 'text/vtt');
       reply.header('Access-Control-Allow-Origin', '*');
       return reply.send(vtt);
     } catch (err: any) {
       console.error('Subtitle extract error:', err.message);
-      return reply.code(500).send({ error: 'Failed to extract subtitle' });
+      reply.header('Content-Type', 'text/vtt');
+      reply.header('Access-Control-Allow-Origin', '*');
+      return reply.send('WEBVTT\n\n');
     }
   });
 
@@ -2118,7 +2259,7 @@ export function torrentRoutes(app: FastifyInstance) {
       let attempts = 0;
       const check = () => {
         if (existsSync(segPath)) resolve(true);
-        else if (attempts++ > 100) resolve(false);
+        else if (attempts++ > 200) resolve(false);
         else setTimeout(check, 100);
       };
       check();
@@ -2138,18 +2279,18 @@ export function torrentRoutes(app: FastifyInstance) {
       if (!existsSync(segPath)) {
         return reply.code(404).send({ error: 'Segment not found' });
       }
-      const stat = statSync(segPath);
+      const data = readFileSync(segPath);
       reply.header('Content-Type', 'video/mp2t');
       reply.header('Access-Control-Allow-Origin', '*');
       reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
       reply.header('Access-Control-Allow-Headers', '*');
-      reply.header('Content-Length', stat.size);
+      reply.header('Cache-Control', 'public, max-age=86400, immutable');
+      reply.header('Content-Length', data.length);
 
       if (req.method === 'HEAD') {
         return reply.send();
       }
 
-      const data = readFileSync(segPath);
       return reply.send(data);
     } catch {
       return reply.code(404).send({ error: 'Segment not found' });

@@ -7709,6 +7709,7 @@
 
     openPlayer({
       url: url,
+      api: API,
       title: name,
       id: movieId,
       type: mediaType,

@@ -23,6 +23,24 @@
     return hasAvplay;
   }
 
+  var LANG_MAP = {
+    rus: 'Русский', ru: 'Русский', russian: 'Русский',
+    eng: 'English', en: 'English', english: 'English',
+    ukr: 'Украинский', uk: 'Украинский', ukrainian: 'Украинский',
+    jpn: 'Японский', ja: 'Японский', japanese: 'Японский',
+    fra: 'Французский', fre: 'Французский', fr: 'Французский', french: 'Французский',
+    deu: 'Немецкий', ger: 'Немецкий', de: 'Немецкий', german: 'Немецкий',
+    ita: 'Итальянский', it: 'Итальянский', italian: 'Итальянский',
+    spa: 'Испанский', es: 'Испанский', spanish: 'Испанский',
+    por: 'Португальский', pt: 'Португальский', portuguese: 'Португальский',
+    chi: 'Китайский', zho: 'Китайский', zh: 'Китайский', chinese: 'Китайский',
+    kor: 'Корейский', ko: 'Корейский', korean: 'Корейский',
+    pol: 'Польский', pl: 'Польский', polish: 'Польский',
+    cze: 'Чешский', ces: 'Чешский', cs: 'Чешский', czech: 'Чешский',
+    tur: 'Турецкий', tr: 'Турецкий', turkish: 'Турецкий',
+    und: 'Неизвестно'
+  };
+
   // ========== Player Adapter ==========
   function PlayerAdapter(containerId) {
     this.container = document.getElementById(containerId);
@@ -253,21 +271,50 @@
         try {
           var info = webapis.avplay.getTotalTrackInfo();
           if (info) {
+            var prevAudio = self.audioTracks || [];
+            var prevSubs = self.subtitleTracks || [];
             self.audioTracks = [];
             self.subtitleTracks = [];
             for (var i = 0; i < info.length; i++) {
               var track = info[i];
+              var extra = {};
+              if (track.extra_info) {
+                if (typeof track.extra_info === 'string') {
+                  try { extra = JSON.parse(track.extra_info); } catch(pe) { extra = {}; }
+                } else if (typeof track.extra_info === 'object') {
+                  extra = track.extra_info;
+                }
+              }
+              var rawLang = (extra.language || extra.track_lang || extra.lang || '').toLowerCase().trim();
+              var langName = LANG_MAP[rawLang] || rawLang || '';
+              var codec = extra.fourCC || extra.codec || '';
+              var ch = extra.channels ? (extra.channels + 'ch') : '';
+
               if (track.type === 'AUDIO') {
+                var prevA = prevAudio[self.audioTracks.length];
+                var aName = (prevA && prevA.name && prevA.name.indexOf('Track') !== 0) ? prevA.name : '';
+                if (!aName) {
+                  aName = langName ? langName : ('Дорожка ' + (self.audioTracks.length + 1));
+                  if (codec) aName += ' ' + codec;
+                  if (ch) aName += ' ' + ch;
+                }
                 self.audioTracks.push({
                   index: track.index,
-                  name: track.extra_info ? track.extra_info.language || 'Track ' + (self.audioTracks.length + 1) : 'Track ' + (self.audioTracks.length + 1),
-                  lang: track.extra_info ? track.extra_info.language || '' : ''
+                  name: aName,
+                  lang: langName || rawLang,
+                  codec: codec,
+                  channels: ch
                 });
               } else if (track.type === 'TEXT') {
+                var prevS = prevSubs[self.subtitleTracks.length];
+                var sName = (prevS && prevS.name && prevS.name.indexOf('Track') !== 0) ? prevS.name : '';
+                if (!sName) {
+                  sName = langName ? langName : ('Субтитры ' + (self.subtitleTracks.length + 1));
+                }
                 self.subtitleTracks.push({
                   index: track.index,
-                  name: track.extra_info ? track.extra_info.language || 'Track ' + (self.subtitleTracks.length + 1) : 'Track ' + (self.subtitleTracks.length + 1),
-                  lang: track.extra_info ? track.extra_info.language || '' : ''
+                  name: sName,
+                  lang: langName || rawLang
                 });
               }
             }
@@ -1069,6 +1116,16 @@
           webapis.avplay.setSelectTrack('AUDIO', hwIndex);
           this.currentAudio = index;
           console.log('[AVPlay] Audio track set to:', targetTrack.name, 'hwIndex:', hwIndex);
+
+          // Flush AVPlay audio decoder buffer so the new audio track takes effect immediately
+          try {
+            var ct = webapis.avplay.getCurrentTime();
+            if (typeof ct === 'number' && ct > 0) {
+              webapis.avplay.seekTo(ct, function() {
+                console.log('[AVPlay] Audio buffer flushed at', ct);
+              }, function() {});
+            }
+          } catch(se) {}
         }
       } catch(e) { console.error('[AVPlay] setAudioTrack error:', e); }
     }

@@ -452,8 +452,9 @@
 
       player.on('subtitleChange', function(data) {
         if ($subtitleOverlay && currentSubtitleIdx >= 0) {
-          if (data && data.text) {
-            $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(data.text) + '</span>';
+          var txt = (data && data.text ? String(data.text) : '').trim();
+          if (txt) {
+            $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(txt) + '</span>';
           } else {
             $subtitleOverlay.innerHTML = '';
           }
@@ -1181,7 +1182,10 @@
       for (var i = 0; i < tracks.length; i++) {
         var t = tracks[i];
         var isCur = (player && player.currentAudio === i);
-        var lbl = t.name || (t.lang ? 'Язык: ' + t.lang : 'Дорожка ' + (i + 1));
+        var lbl = t.name || '';
+        if (!lbl || lbl.indexOf('Track') === 0) {
+          lbl = t.lang ? (t.lang + (t.codec ? ' ' + t.codec : '')) : ('Дорожка ' + (i + 1));
+        }
         popupItems.push({ label: lbl, index: i, track: t, active: isCur });
       }
     }
@@ -1205,10 +1209,9 @@
       for (var i = 0; i < tracks.length; i++) {
         var t = tracks[i];
         var isCur = (currentSubtitleIdx === i);
-        var lbl = t.name || (t.lang ? 'Язык: ' + t.lang : 'Субтитры ' + (i + 1));
-        if (!t.url && torrentLink) {
-          var subId = (t.id !== undefined) ? t.id : (t.index !== undefined ? t.index : i);
-          t.url = '/api/torrents/subtitle/' + subId + '?link=' + encodeURIComponent(torrentLink) + '&index=' + (torrentFileIndex >= 0 ? torrentFileIndex : 0);
+        var lbl = t.name || '';
+        if (!lbl || lbl.indexOf('Track') === 0) {
+          lbl = t.lang ? ('Субтитры: ' + t.lang) : ('Субтитры ' + (i + 1));
         }
         popupItems.push({ label: lbl, index: i, track: t, active: isCur });
       }
@@ -1256,7 +1259,7 @@
         }
         showFlash('💬', 'Субтитры выкл.');
       } else {
-        if (sel.track && sel.track.url) {
+        if (sel.track && sel.track.url && sel.track.isExternal) {
           loadSubtitleVtt(sel.track.url);
         }
         if (player && typeof player.setSubtitleTrack === 'function') {
@@ -1327,7 +1330,12 @@
     if (subtitleCues.length === 0) return; // Native AVPlay subtitles manage overlay directly via subtitleChange
     for (var i = 0; i < subtitleCues.length; i++) {
       if (currentTime >= subtitleCues[i].start && currentTime < subtitleCues[i].end) {
-        $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(subtitleCues[i].text) + '</span>';
+        var txt = (subtitleCues[i].text || '').trim();
+        if (txt) {
+          $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(txt) + '</span>';
+        } else {
+          $subtitleOverlay.innerHTML = '';
+        }
         return;
       }
     }
@@ -1642,14 +1650,15 @@
   }
 
   function loadTrackInfo(url) {
-    var linkMatch = url.match(/link=([^&]+)/);
-    var indexMatch = url.match(/index=(\d+)/);
-    if (!linkMatch) return;
-    var link = decodeURIComponent(linkMatch[1]);
-    var index = indexMatch ? indexMatch[1] : '0';
+    var linkMatch = url ? url.match(/link=([^&]+)/) : null;
+    var indexMatch = url ? url.match(/index=(\d+)/) : null;
+    var link = (linkMatch ? decodeURIComponent(linkMatch[1]) : '') || torrentLink;
+    var index = (indexMatch ? indexMatch[1] : '') || (torrentFileIndex >= 0 ? String(torrentFileIndex) : '0');
+    if (!link) return;
 
+    var apiBase = API || (typeof getBaseUrl === 'function' ? getBaseUrl() : '') || 'http://192.168.1.196:3500';
     var xhr = new XMLHttpRequest();
-    xhr.open('GET', API + '/api/torrents/tracks?link=' + encodeURIComponent(link) + '&index=' + index, true);
+    xhr.open('GET', apiBase + '/api/torrents/tracks?link=' + encodeURIComponent(link) + '&index=' + index, true);
     xhr.timeout = 10000;
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
@@ -1658,16 +1667,14 @@
         try {
           var data = JSON.parse(xhr.responseText);
           if (data.audioTracks && data.audioTracks.length > 0 && player) {
-            if (player.audioTracks && player.audioTracks.length > 0) {
-              // Merge detailed titles/languages/codecs from ffprobe into existing AVPlay hardware tracks without wiping hw indexes!
-              for (var ai = 0; ai < player.audioTracks.length; ai++) {
+            var curAudio = (typeof player.getAudioTracks === 'function') ? player.getAudioTracks() : player.audioTracks;
+            if (curAudio && curAudio.length > 0) {
+              for (var ai = 0; ai < curAudio.length; ai++) {
                 if (data.audioTracks[ai]) {
-                  if (!player.audioTracks[ai].name || player.audioTracks[ai].name.indexOf('Track') === 0) {
-                    player.audioTracks[ai].name = data.audioTracks[ai].name || data.audioTracks[ai].lang;
-                  }
-                  player.audioTracks[ai].lang = data.audioTracks[ai].lang || player.audioTracks[ai].lang;
-                  player.audioTracks[ai].codec = data.audioTracks[ai].codec;
-                  player.audioTracks[ai].id = data.audioTracks[ai].id;
+                  curAudio[ai].name = data.audioTracks[ai].name || curAudio[ai].name;
+                  curAudio[ai].lang = data.audioTracks[ai].lang || curAudio[ai].lang;
+                  curAudio[ai].codec = data.audioTracks[ai].codec || curAudio[ai].codec;
+                  curAudio[ai].id = data.audioTracks[ai].id;
                 }
               }
             } else {
@@ -1675,10 +1682,18 @@
             }
           }
           if (data.subtitleTracks && data.subtitleTracks.length > 0 && player) {
-            player.subtitleTracks = data.subtitleTracks;
-            player.subtitleTracks.forEach(function(st) {
-              st.url = '/api/torrents/subtitle/' + st.id + '?link=' + encodeURIComponent(link) + '&index=' + index;
-            });
+            var curSubs = (typeof player.getSubtitleTracks === 'function') ? player.getSubtitleTracks() : player.subtitleTracks;
+            if (curSubs && curSubs.length > 0) {
+              for (var si = 0; si < curSubs.length; si++) {
+                if (data.subtitleTracks[si]) {
+                  curSubs[si].name = data.subtitleTracks[si].name || curSubs[si].name;
+                  curSubs[si].lang = data.subtitleTracks[si].lang || curSubs[si].lang;
+                  curSubs[si].id = data.subtitleTracks[si].id;
+                }
+              }
+            } else {
+              player.subtitleTracks = data.subtitleTracks;
+            }
           }
         } catch(e) {}
       }

@@ -453,6 +453,14 @@ body {
   line-height: 1.4;
   text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95);
 }
+.sub-text:empty {
+  display: none !important;
+  padding: 0 !important;
+  background: transparent !important;
+}
+#subtitle-overlay:empty {
+  display: none !important;
+}
 
 /* Next Episode Autoplay Countdown (30s) */
 #next-ep-overlay {

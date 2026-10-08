@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import Hls from 'hls.js';
+import Hls, { type HlsConfig } from 'hls.js';
 import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maximize2, Minimize2, Settings, Loader2, Subtitles, ChevronRight, ExternalLink, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
@@ -22,6 +22,29 @@ interface PlayerProps {
 }
 
 type SettingsPanel = 'none' | 'quality' | 'audio' | 'subtitles';
+
+function getHlsPlayerConfig(overrides?: Partial<HlsConfig>): Partial<HlsConfig> {
+  const isMobileOrTv = Capacitor.isNativePlatform() ||
+    (typeof navigator !== 'undefined' && /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini|Tizen|SmartTV|SMART-TV/i.test(navigator.userAgent));
+
+  return {
+    progressive: false,
+    startFragPrefetch: true,
+    maxBufferLength: isMobileOrTv ? 60 : 90,
+    maxMaxBufferLength: isMobileOrTv ? 120 : 180,
+    backBufferLength: isMobileOrTv ? 30 : 60,
+    maxBufferSize: isMobileOrTv ? 100 * 1000 * 1000 : 250 * 1000 * 1000,
+    highBufferWatchdogPeriod: 2,
+    nudgeMaxRetry: 5,
+    nudgeOnVideoHole: true,
+    startLevel: -1,
+    debug: false,
+    fragLoadingTimeOut: 30000,
+    manifestLoadingTimeOut: 30000,
+    levelLoadingTimeOut: 30000,
+    ...overrides,
+  };
+}
 
 export default function Player({ title, onExit, initialTime, onTimeUpdate, externalSubs }: PlayerProps) {
   const { t } = useTranslation();
@@ -54,12 +77,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [hoverX, setHoverX] = useState(0);
   const [subtitleText, setSubtitleText] = useState('');
   const subtitleCuesRef = useRef<Array<{ start: number; end: number; text: string }>>([]);
+  const loadedRangesRef = useRef<Array<{ start: number; end: number }>>([]);
+  const [subtitleCuesVersion, setSubtitleCuesVersion] = useState(0);
+  const subPrefetchingRef = useRef(false);
+  const subFetchingRef = useRef(false);
+  const lastPrefetchTimeRef = useRef(0);
   const [isDragging, setIsDragging] = useState(false);
   const [dragFraction, setDragFraction] = useState<number | null>(null);
   const isDraggingRef = useRef(false);
   isDraggingRef.current = isDragging;
   const playedBarRef = useRef<HTMLDivElement>(null);
   const isSeekingRef = useRef(false);
+  const seekDebounceTimer = useRef<ReturnType<typeof setTimeout>>();
   const controlsJustOpenedRef = useRef<number>(0);
   const touchFractionRef = useRef<number>(0);
   const realDurationRef = useRef<number>(0); // Duration from FFprobe (for torrents)
@@ -71,7 +100,12 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [audioTracks, setAudioTracks] = useState<Array<{ id: number; name: string; lang: string }>>([]);
   const [currentAudio, setCurrentAudio] = useState(0);
   const [subtitleTracks, setSubtitleTracks] = useState<Array<{ id: number; name: string; lang: string }>>([]);
+  const subtitleTracksRef = useRef<Array<{ id: number; name: string; lang: string }>>([]);
+  subtitleTracksRef.current = subtitleTracks;
   const [currentSubtitle, setCurrentSubtitle] = useState(-1); // -1 = off
+  const currentSubtitleRef = useRef(currentSubtitle);
+  currentSubtitleRef.current = currentSubtitle;
+  const subAbortControllerRef = useRef<AbortController | null>(null);
 
   const [settingsPanel, setSettingsPanel] = useState<SettingsPanel>('none');
   const settingsPanelRef = useRef<SettingsPanel>('none');
@@ -229,11 +263,15 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const langMap: Record<string, string> = { rus: 'Русский', eng: 'English', ukr: 'Украинский', und: 'Неизвестно' };
     const subs = externalSubs.map((s) => ({
       id: s.id,
-      name: langMap[s.lang] || s.name,
+      name: (langMap[s.lang] || s.name) + ' (.srt)',
       lang: s.lang,
       url: s.url,
+      isExternal: true,
     }));
-    setSubtitleTracks(subs);
+    setSubtitleTracks(prev => {
+      const embedded = prev.filter((p: any) => !p.isExternal);
+      return [...subs, ...embedded];
+    });
   }, [externalSubs]);
 
   // Fetch duration, audio tracks, and subtitles from backend for torrent streams
@@ -306,13 +344,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           const subs = data.subtitleTracks.map((t: any, i: number) => {
             const trackId = t.id !== undefined ? t.id : i;
             return {
-              id: trackId,
+              id: 1000 + trackId,
               name: t.name || `Субтитры ${i + 1}`,
               lang: t.lang || '',
               url: `/api/torrents/subtitle/${trackId}?link=${encodedLink}&index=${idx}`,
+              isExternal: false,
             };
           });
-          setSubtitleTracks(subs);
+          setSubtitleTracks(prev => {
+            const externals = prev.filter((p: any) => p.isExternal);
+            return [...externals, ...subs];
+          });
+          if (currentSubtitleRef.current >= 0) {
+            setSubtitle(currentSubtitleRef.current);
+          }
         }
       })
       .catch(() => {});
@@ -381,17 +426,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     }
 
     if (isHls && Hls.isSupported()) {
-      const hls = new Hls({
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
-        backBufferLength: 30,
-        maxBufferSize: 60 * 1000 * 1000, // 60 MB
-        startLevel: -1,
-        debug: false,
-        fragLoadingTimeOut: 30000,
-        manifestLoadingTimeOut: 30000,
-        levelLoadingTimeOut: 30000,
-      });
+      const hls = new Hls(getHlsPlayerConfig());
       hlsRef.current = hls;
 
       hls.loadSource(url);
@@ -444,17 +479,20 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                     if (lines[i].includes('-->')) { timeLineIndex = i; break; }
                   }
                   if (timeLineIndex === -1) continue;
-                  const timeMatch = lines[timeLineIndex].match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})/);
+                  const timeMatch = lines[timeLineIndex].match(/((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})/);
                   if (!timeMatch) continue;
                   const start = parseVttTime(timeMatch[1].replace(',', '.'));
                   const end = parseVttTime(timeMatch[2].replace(',', '.'));
-                  const text = lines.slice(timeLineIndex + 1).join('\n').trim();
+                  const text = cleanSubText(lines.slice(timeLineIndex + 1).join('\n'));
                   if (text) cues.push({ start, end, text });
                 }
                 if (cues.length > 0) {
                   console.log('Loaded', cues.length, 'subtitle cues');
                   subtitleCuesRef.current = cues;
-                  setSubtitleTracks([{ id: 0, name: 'Субтитры', lang: 'auto' }]);
+                  setSubtitleTracks(prev => {
+                    if (prev.some((p: any) => p.url || p.isExternal)) return prev;
+                    return [{ id: 0, name: 'Субтитры', lang: 'auto' }];
+                  });
                   setCurrentSubtitle(0);
                 }
               })
@@ -473,6 +511,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       });
 
       hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, (_event, data) => {
+        if (!data.audioTracks || data.audioTracks.length === 0) return;
         const tracks = data.audioTracks.map((track, id) => ({
           id,
           name: track.name || `Track ${id}`,
@@ -486,12 +525,16 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       });
 
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, (_event, data) => {
-        const tracks = data.subtitleTracks.map((track, id) => ({
-          id,
-          name: track.name || `Track ${id}`,
-          lang: track.lang || 'unknown',
-        }));
-        setSubtitleTracks(tracks);
+        if (isTorrent) return;
+        if (!data.subtitleTracks || data.subtitleTracks.length === 0) return;
+        setSubtitleTracks(prev => {
+          if (prev.some((p: any) => p.url || p.isExternal)) return prev;
+          return data.subtitleTracks.map((track, id) => ({
+            id,
+            name: track.name || `Track ${id}`,
+            lang: track.lang || 'unknown',
+          }));
+        });
       });
 
       let reconnectAttempts = 0;
@@ -522,17 +565,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   reconnectUrl = serverUrl(`/api/torrents/hls-seek?link=${linkMatch[1]}&index=${indexMatch ? indexMatch[1] : '0'}&time=${savedTime}`);
                 }
               }
-              const newHls = new Hls({
-                maxBufferLength: 30,
-                maxMaxBufferLength: 60,
-                backBufferLength: 30,
-                maxBufferSize: 60 * 1000 * 1000,
-                startLevel: -1,
-                debug: false,
-                fragLoadingTimeOut: 30000,
-                manifestLoadingTimeOut: 30000,
-                levelLoadingTimeOut: 30000,
-              });
+              const newHls = new Hls(getHlsPlayerConfig());
               hlsRef.current = newHls;
               reconnectAttempts = 0;
               newHls.loadSource(reconnectUrl);
@@ -594,23 +627,15 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           if (Hls.isSupported()) {
             video.removeAttribute('src');
             video.load();
-            const hls = new Hls({
-              maxBufferLength: 30,
-              maxMaxBufferLength: 60,
-              backBufferLength: 30,
-              maxBufferSize: 60 * 1000 * 1000,
-              startLevel: -1,
-              debug: false,
-              fragLoadingTimeOut: 30000,
-              manifestLoadingTimeOut: 30000,
-              levelLoadingTimeOut: 30000,
-            });
+            const hls = new Hls(getHlsPlayerConfig());
             hlsRef.current = hls;
             hls.loadSource(hlsUrl);
             hls.attachMedia(video);
             hls.on(Hls.Events.MANIFEST_PARSED, () => {
               setLoading(false);
-              if (initialTime && initialTime > 0) video.currentTime = initialTime;
+              if (initialTime && initialTime > 0 && !fallbackHls.includes('&start=')) {
+                video.currentTime = initialTime;
+              }
               video.play().catch(() => {});
             });
             return;
@@ -647,14 +672,30 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         if (onTimeUpdate) {
           onTimeUpdate(effectiveTime);
         }
+        if (subtitleCuesRef.current.length > 0 && currentSubtitleRef.current >= 0) {
+          const cue = subtitleCuesRef.current.find(c => effectiveTime >= c.start && effectiveTime <= c.end);
+          setSubtitleText(cue?.text ? cue.text.trim() : '');
+        } else if (currentSubtitleRef.current < 0) {
+          setSubtitleText('');
+        }
       }
     };
     const onProgress = () => {
       const dur = realDurationRef.current > 0 ? realDurationRef.current : (duration > 0 ? duration : video.duration);
       if (video.buffered.length > 0 && dur && isFinite(dur) && dur > 0) {
         const offset = seekOffsetRef.current || 0;
-        const bStart = Math.max(0, offset + video.buffered.start(0));
-        const bEnd = Math.min(dur, offset + video.buffered.end(video.buffered.length - 1));
+        const cur = video.currentTime;
+        let startSec = video.buffered.start(0);
+        let endSec = video.buffered.end(0);
+        for (let i = 0; i < video.buffered.length; i++) {
+          if (cur >= video.buffered.start(i) - 0.5 && cur <= video.buffered.end(i) + 0.5) {
+            startSec = video.buffered.start(i);
+            endSec = video.buffered.end(i);
+            break;
+          }
+        }
+        const bStart = Math.max(0, offset + startSec);
+        const bEnd = Math.min(dur, offset + endSec);
         setBufferedRange({
           start: Math.max(0, (bStart / dur) * 100),
           end: Math.min(100, (bEnd / dur) * 100),
@@ -728,14 +769,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          video.currentTime = Math.max(0, video.currentTime - 10);
+          skip(-10);
           break;
         case 'ArrowRight':
           e.preventDefault();
-          {
-            const maxDur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
-            video.currentTime = Math.min(maxDur, video.currentTime + 10);
-          }
+          skip(10);
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -888,20 +926,54 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       }
 
       if (isBuffered) {
+        if (seekDebounceTimer.current) {
+          clearTimeout(seekDebounceTimer.current);
+          seekDebounceTimer.current = undefined;
+        }
         video.currentTime = localTarget;
-      } else {
-        // Outside buffer: reload HLS starting from targetTime offset
-        const newOffset = Math.floor(targetTime);
-        seekOffsetRef.current = newOffset;
-        isSeekingRef.current = true;
-        setLoading(true);
+        video.play().catch(() => {});
+        if (currentSubtitleRef.current >= 0) {
+          const effTime = (seekOffsetRef.current || 0) + localTarget;
+          const isCovered = loadedRangesRef.current.some(r => effTime >= r.start && effTime <= r.end - 10);
+          if (!isCovered) {
+            setSubtitle(currentSubtitleRef.current, Math.floor(effTime));
+          } else {
+            const match = subtitleCuesRef.current.find(c => effTime >= c.start && effTime <= c.end);
+            setSubtitleText(match?.text ? match.text.trim() : '');
+          }
+        }
+        return;
+      }
 
-        // Update buffered range to start at the new position immediately
-        setBufferedRange({
-          start: Math.max(0, (newOffset / duration) * 100),
-          end: Math.max(0, (newOffset / duration) * 100),
-        });
+      // Outside buffer: debounce server seek to prevent swarm thrashing on rapid taps
+      const newOffset = Math.floor(targetTime);
+      seekOffsetRef.current = newOffset;
+      isSeekingRef.current = true;
+      setLoading(true);
+      setSubtitleText(''); // Instantly clear subtitle on seek to avoid ghost text
 
+      // Instantly start prefetching subtitles for the new target time if active!
+      if (currentSubtitleRef.current >= 0) {
+        const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+        if (!isCovered) {
+          setSubtitle(currentSubtitleRef.current, newOffset);
+        } else {
+          const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+          setSubtitleText(match?.text ? match.text.trim() : '');
+        }
+      }
+
+      // Update buffered range to start at the new position immediately
+      setBufferedRange({
+        start: Math.max(0, (newOffset / duration) * 100),
+        end: Math.max(0, (newOffset / duration) * 100),
+      });
+
+      if (seekDebounceTimer.current) {
+        clearTimeout(seekDebounceTimer.current);
+      }
+
+      seekDebounceTimer.current = setTimeout(() => {
         let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
         if (!activeHlsSource && isTorrent) {
           const sourceUrl = title.videoUrl || title.directUrl || '';
@@ -919,28 +991,69 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         const separator = cleanUrl.includes('?') ? '&' : '?';
         const newSeekUrl = serverUrl(`${cleanUrl}${separator}start=${newOffset}&audio=${currentAudioIndex}`);
 
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+
+        // Reset video.currentTime to 0 so browser doesn't stall waiting for old playhead
         video.currentTime = 0;
 
-        if (hlsRef.current) {
-          hlsRef.current.stopLoad();
-          hlsRef.current.loadSource(newSeekUrl);
-          hlsRef.current.startLoad(0);
-          hlsRef.current.once(Hls.Events.MANIFEST_PARSED, () => {
+        if (isHls && Hls.isSupported()) {
+          const newHls = new Hls(getHlsPlayerConfig({ startPosition: 0 }));
+          hlsRef.current = newHls;
+
+          newHls.loadSource(newSeekUrl);
+          newHls.attachMedia(video);
+
+          newHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setLoading(false);
+            isSeekingRef.current = false;
             video.currentTime = 0;
             video.play().catch(() => {});
+
+            if (currentSubtitleRef.current >= 0) {
+              const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+              if (!isCovered) {
+                setSubtitle(currentSubtitleRef.current, newOffset);
+              } else {
+                const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+                setSubtitleText(match?.text ? match.text.trim() : '');
+              }
+            }
+          });
+
+          newHls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              console.error('HLS seek error:', data);
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                newHls.startLoad();
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                newHls.recoverMediaError();
+              }
+            }
           });
         } else {
           video.src = newSeekUrl;
           video.load();
-          video.currentTime = 0;
           video.play().catch(() => {});
+
+          if (currentSubtitleRef.current >= 0) {
+            const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+            if (!isCovered) {
+              setSubtitle(currentSubtitleRef.current, newOffset);
+            } else {
+              const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+              setSubtitleText(match?.text ? match.text.trim() : '');
+            }
+          }
         }
 
         // Safety fallback: allow timeupdate after 5s even if events are missed
         setTimeout(() => {
           isSeekingRef.current = false;
         }, 5000);
-      }
+      }, 200);
     } else {
       video.currentTime = targetTime;
     }
@@ -1167,17 +1280,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     const newUrl = urlObj.toString();
 
     // Create new HLS instance
-    const hls = new Hls({
-      maxBufferLength: 30,
-      maxMaxBufferLength: 60,
-      backBufferLength: 30,
-      maxBufferSize: 60 * 1000 * 1000,
-      startLevel: -1,
-      debug: false,
-      fragLoadingTimeOut: 30000,
-      manifestLoadingTimeOut: 30000,
-      levelLoadingTimeOut: 30000,
-    });
+    const hls = new Hls(getHlsPlayerConfig());
     hlsRef.current = hls;
 
     hls.loadSource(newUrl);
@@ -1202,45 +1305,72 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     });
   };
 
-  const setSubtitle = async (id: number) => {
-    const track = subtitleTracks.find(t => t.id === id);
-    if (!track) {
+  const cleanSubText = (text: string) => {
+    if (!text) return '';
+    return text.replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+  };
+
+  const setSubtitle = async (id: number, targetSec?: number) => {
+    // 1. Explicitly turn off subtitles
+    if (id < 0) {
+      if (subAbortControllerRef.current) {
+        subAbortControllerRef.current.abort();
+        subAbortControllerRef.current = null;
+      }
       setCurrentSubtitle(-1);
       subtitleCuesRef.current = [];
+      loadedRangesRef.current = [];
       setSubtitleText('');
       setSettingsPanel('none');
       return;
     }
 
-    // If it's an external subtitle (has url), fetch and parse it
-    if ((track as any).url) {
+    // 2. Look up track using ref to avoid stale state closure!
+    const track = subtitleTracksRef.current.find(t => t.id === id);
+    if (!track) {
+      // If tracks are still loading asynchronously, remember desired ID without resetting to -1!
       setCurrentSubtitle(id);
-      setLoading(true);
+      return;
+    }
+
+    // 3. If external or backend-extracted subtitle, fetch and parse WebVTT
+    if ((track as any).url) {
+      // Abort previous in-flight fetch so TorrServer and network don't choke
+      if (subAbortControllerRef.current) {
+        subAbortControllerRef.current.abort();
+      }
+      const abortController = new AbortController();
+      subAbortControllerRef.current = abortController;
+      subFetchingRef.current = true;
+
       try {
-        const res = await serverFetch((track as any).url);
+        const baseSubUrl = (track as any).url.replace(/&time=\d+/g, '');
+        const curSec = targetSec !== undefined
+          ? targetSec
+          : Math.floor((seekOffsetRef.current || 0) + (videoRef.current ? videoRef.current.currentTime : (initialTime || 0)));
+        const fetchSec = Math.max(0, curSec - 5);
+        const subUrl = (!(track as any).isExternal && fetchSec > 0)
+          ? `${baseSubUrl}&time=${fetchSec}`
+          : baseSubUrl;
+
+        const res = await serverFetch(subUrl, { signal: abortController.signal });
         if (!res.ok) {
           console.error('Subtitle fetch failed:', res.status, res.statusText);
-          subtitleCuesRef.current = [];
-          setLoading(false);
           setSettingsPanel('none');
           return;
         }
         const vtt = await res.text();
         console.log('Subtitle VTT received:', vtt.length, 'bytes');
-        console.log('VTT first 500 chars:', vtt.substring(0, 500));
+
         // Parse WebVTT cues — handle both \n and \r\n, skip WEBVTT header
         const cues: Array<{ start: number; end: number; text: string }> = [];
-        // Normalize line endings and split into blocks
         const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
         const blocks = normalized.split(/\n\n+/);
-        console.log('VTT blocks count:', blocks.length);
         for (let bi = 0; bi < blocks.length; bi++) {
           const block = blocks[bi];
           const lines = block.trim().split('\n');
           if (lines.length < 2) continue;
-          // Skip WEBVTT header and NOTE blocks
           if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
-          // Find the timestamp line (might not be the first line due to cue identifiers)
           let timeLineIndex = -1;
           for (let i = 0; i < lines.length; i++) {
             if (lines[i].includes('-->')) {
@@ -1248,27 +1378,47 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               break;
             }
           }
-          if (timeLineIndex === -1) {
-            if (bi < 5) console.log('Block', bi, 'no timestamp line:', lines[0]);
-            continue;
-          }
-          const timeMatch = lines[timeLineIndex].match(/(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[\.,]\d{3})/);
-          if (!timeMatch) {
-            if (bi < 5) console.log('Block', bi, 'timestamp parse failed:', lines[timeLineIndex]);
-            continue;
-          }
+          if (timeLineIndex === -1) continue;
+          const timeMatch = lines[timeLineIndex].match(/((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})/);
+          if (!timeMatch) continue;
           const start = parseVttTime(timeMatch[1].replace(',', '.'));
           const end = parseVttTime(timeMatch[2].replace(',', '.'));
-          const text = lines.slice(timeLineIndex + 1).join('\n').trim();
+          const text = cleanSubText(lines.slice(timeLineIndex + 1).join('\n'));
           if (text) cues.push({ start, end, text });
         }
-        console.log('Parsed subtitle cues:', cues.length, cues.slice(0, 3));
-        subtitleCuesRef.current = cues;
-        setLoading(false);
-      } catch (err) {
-        console.error('Failed to load subtitles:', err);
-        subtitleCuesRef.current = [];
-        setLoading(false);
+        console.log('Parsed subtitle cues:', cues.length);
+
+        const newRange = { start: Math.max(0, fetchSec - 5), end: fetchSec + 90 };
+        if (targetSec === undefined) {
+          loadedRangesRef.current = [newRange];
+        } else {
+          loadedRangesRef.current.push(newRange);
+        }
+
+        if (cues.length > 0) {
+          const existing = (targetSec !== undefined ? subtitleCuesRef.current : []) || [];
+          const map = new Map<string, { start: number; end: number; text: string }>();
+          for (const c of existing) {
+            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
+          }
+          for (const c of cues) {
+            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
+          }
+          subtitleCuesRef.current = Array.from(map.values()).sort((a, b) => a.start - b.start);
+          const video = videoRef.current;
+          if (video) {
+            const curT = (seekOffsetRef.current || 0) + video.currentTime;
+            const match = subtitleCuesRef.current.find(c => curT >= c.start && curT <= c.end);
+            setSubtitleText(match?.text ? match.text.trim() : '');
+          }
+        }
+        setCurrentSubtitle(id);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to load subtitles:', err);
+        }
+      } finally {
+        subFetchingRef.current = false;
       }
     } else if (hlsRef.current) {
       // HLS embedded subtitle
@@ -1279,9 +1429,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     setSettingsPanel('none');
   };
 
-  // Update subtitle display
+  // Update subtitle display and throttled prefetch using loadedRangesRef
   useEffect(() => {
-    if (subtitleCuesRef.current.length === 0) {
+    if (currentSubtitle < 0) {
       setSubtitleText('');
       return;
     }
@@ -1290,8 +1440,18 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       const video = videoRef.current;
       if (!video) return;
       const t = (seekOffsetRef.current || 0) + video.currentTime;
-      const cue = subtitleCuesRef.current.find(c => t >= c.start && t <= c.end);
-      setSubtitleText(cue?.text || '');
+      const cues = subtitleCuesRef.current;
+      const cue = cues.find(c => t >= c.start && t <= c.end);
+      setSubtitleText(cue?.text ? cue.text.trim() : '');
+
+      // Check if current position is covered in loadedRangesRef
+      const ranges = loadedRangesRef.current;
+      const isCovered = ranges.some(r => t >= r.start && t <= r.end - 15);
+      const now = Date.now();
+      if (!isCovered && !subFetchingRef.current && now - lastPrefetchTimeRef.current > 1500) {
+        lastPrefetchTimeRef.current = now;
+        setSubtitle(currentSubtitle, Math.floor(t));
+      }
     }, 100);
 
     return () => clearInterval(interval);
@@ -1350,10 +1510,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       )}
 
       {/* Subtitle overlay */}
-      {subtitleText && (
+      {subtitleText && subtitleText.trim() && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center max-w-[80%]">
           <div className="inline-block px-4 py-2 rounded-lg bg-black/80 backdrop-blur-sm text-white text-[18px] leading-relaxed shadow-lg">
-            {subtitleText}
+            {subtitleText.trim()}
           </div>
         </div>
       )}

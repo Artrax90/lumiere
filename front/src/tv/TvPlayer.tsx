@@ -112,6 +112,8 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
     import('hls.js').then(({ default: Hls }) => {
       if (Hls.isSupported()) {
         const hls = new Hls({
+          progressive: false,
+          startFragPrefetch: true,
           maxBufferLength: 30,
           maxMaxBufferLength: 60,
           backBufferLength: 30,
