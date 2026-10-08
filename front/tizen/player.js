@@ -186,27 +186,27 @@
     $popupList = document.getElementById('popup-list');
     $subtitleOverlay = document.getElementById('subtitle-overlay');
 
-    // Cache top buttons
+    // Cache top buttons (only Back button remains on top)
     topBtns = [];
     var btnBack = document.getElementById('btn-back');
-    var btnAudio = document.getElementById('btn-audio');
-    var btnCc = document.getElementById('btn-cc');
     if (btnBack) topBtns.push(btnBack);
-    if (btnAudio) topBtns.push(btnAudio);
-    if (btnCc) topBtns.push(btnCc);
 
-    // Cache bottom transport buttons
+    // Cache bottom transport & track buttons (audio and cc on bottom-right)
     bottomBtns = [];
     var btnRestart = document.getElementById('btn-restart');
     var btnRewind = document.getElementById('btn-rewind');
     var btnPlayPause = document.getElementById('btn-play-pause');
     var btnForward = document.getElementById('btn-forward');
     var btnNext = document.getElementById('btn-next');
+    var btnAudio = document.getElementById('btn-audio');
+    var btnCc = document.getElementById('btn-cc');
     if (btnRestart) bottomBtns.push(btnRestart);
     if (btnRewind) bottomBtns.push(btnRewind);
     if (btnPlayPause) bottomBtns.push(btnPlayPause);
     if (btnForward) bottomBtns.push(btnForward);
     if (btnNext) bottomBtns.push(btnNext);
+    if (btnAudio) bottomBtns.push(btnAudio);
+    if (btnCc) bottomBtns.push(btnCc);
     bottomControlsFocused = false;
     bottomBtnIndex = 2;
     lastSeekKeyTime = 0;
@@ -378,6 +378,38 @@
 
     if ($osdTitle) $osdTitle.textContent = movieTitle;
 
+    // Resolve Russian episode title from TMDB if missing ("Сериал · SxxExx · Название серии")
+    if (movieId && curSeason && curEpisode) {
+      var hasEpTitle = (movieTitle || '').match(/·\s*S\d+\s*E\d+\s*·\s*(.+)$/i);
+      if (!hasEpTitle) {
+        var baseSeries = (movieTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+        var sStr = (curSeason < 10 ? '0' + curSeason : String(curSeason));
+        var eStr = (curEpisode < 10 ? '0' + curEpisode : String(curEpisode));
+
+        var fetchEpUrl = (API || '') + '/api/tv/' + movieId + '/season/' + curSeason + '?lang=ru';
+        var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('lumiere_access');
+        var xhrEp = new XMLHttpRequest();
+        xhrEp.open('GET', fetchEpUrl, true);
+        if (token) xhrEp.setRequestHeader('Authorization', 'Bearer ' + token);
+        xhrEp.onload = function() {
+          if (xhrEp.status === 200) {
+            try {
+              var sData = JSON.parse(xhrEp.responseText);
+              if (sData && sData.episodes && Array.isArray(sData.episodes)) {
+                var found = sData.episodes.find(function(epItem) { return (epItem.episode || epItem.episode_number) === curEpisode; });
+                if (found && found.title && found.title !== ('Серия ' + curEpisode)) {
+                  var fullTitle = (baseSeries || 'Сериал') + ' · S' + sStr + 'E' + eStr + ' · ' + found.title;
+                  movieTitle = fullTitle;
+                  if ($osdTitle) $osdTitle.textContent = fullTitle;
+                }
+              }
+            } catch(eParse) {}
+          }
+        };
+        xhrEp.send();
+      }
+    }
+
     // Initialize Player Adapter
     if (typeof PlayerAdapter === 'function') {
       player = new PlayerAdapter('player');
@@ -387,10 +419,15 @@
         isPlaying = true;
         showFlash('▶', 'Воспроизведение');
         saveProgress();
+        showOsd(true);
       });
 
       player.on('playing', function() {
         isPlaying = true;
+        updatePlayPauseButton();
+        if (osdVisible && !popupOpen) {
+          showOsd(true);
+        }
       });
 
       player.on('paused', function() {
@@ -991,19 +1028,32 @@
       osdTimer = null;
     }
 
-    if (autoHide && isPlaying && !popupOpen) {
+    if (autoHide && !popupOpen) {
       var timeoutMs = (timelineFocused || bottomControlsFocused || topMenuFocused) ? 7000 : 4000;
       osdTimer = setTimeout(function() {
         if (!popupOpen) {
-          clearAllFocus();
-          hideOsd();
+          if (isPlaying) {
+            clearAllFocus();
+            hideOsd();
+          } else if (player) {
+            var hideOncePlaying = function() {
+              setTimeout(function() {
+                if (!popupOpen) {
+                  clearAllFocus();
+                  hideOsd();
+                }
+              }, 3000);
+              try { player.off('playing', hideOncePlaying); } catch(e) {}
+            };
+            player.on('playing', hideOncePlaying);
+          }
         }
       }, timeoutMs);
     }
   }
 
   function hideOsd() {
-    if (popupOpen || topMenuFocused || timelineFocused || bottomControlsFocused || !isPlaying) return;
+    if (popupOpen) return;
     osdVisible = false;
     clearAllFocus();
     if ($osd) $osd.classList.add('hide');
@@ -1223,10 +1273,11 @@
   }
 
   function closePopup() {
+    var pType = popupType;
     popupOpen = false;
     popupItems = [];
     if ($popup) $popup.classList.add('hidden');
-    focusTopMenu();
+    focusBottomControls(pType === 'audio' ? 5 : 6);
   }
 
   function renderPopup() {
@@ -1898,6 +1949,14 @@
   function destroyPlayer() {
     try {
       stopSession();
+      if (currentStreamUrl && currentStreamUrl.indexOf('/api/torrents/') !== -1) {
+        try {
+          var stopXhr = new XMLHttpRequest();
+          stopXhr.open('POST', API + '/api/torrents/hls/stop', true);
+          stopXhr.setRequestHeader('Content-Type', 'application/json');
+          stopXhr.send(JSON.stringify({ link: currentStreamUrl }));
+        } catch(e) {}
+      }
       if (bufferTimer) { clearInterval(bufferTimer); bufferTimer = null; }
       if (iptvStatsTimer) { clearInterval(iptvStatsTimer); iptvStatsTimer = null; }
       if (resumeTimer) { clearInterval(resumeTimer); resumeTimer = null; }
@@ -1977,7 +2036,7 @@
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
         if (popupOpen) {
           closePopup();
-        } else if (timelineFocused || bottomControlsFocused || topMenuFocused) {
+        } else if (osdVisible) {
           forceHideOsd();
         } else {
           goBack();

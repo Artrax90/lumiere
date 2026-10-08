@@ -693,11 +693,12 @@ async function ensureTorrServerOptimized() {
     });
     if (res.ok) {
       const sets = (await res.json()) as any;
+      const targetCacheSize = 209715200; // 200 MB cache (prevents multi-GB RAM exhaustion while ensuring smooth 4K/1080p playback)
+      const targetTimeout = 30; // 30s disconnect timeout (releases memory promptly when client stops)
       if (
-        !sets.CacheSize ||
-        sets.CacheSize < 1073741824 ||
-        !sets.TorrentDisconnectTimeout ||
-        sets.TorrentDisconnectTimeout < 300 ||
+        sets.CacheSize !== targetCacheSize ||
+        sets.TorrentDisconnectTimeout !== targetTimeout ||
+        !sets.RemoveCacheOnDrop ||
         (sets.ConnectionsLimit && sets.ConnectionsLimit < 150)
       ) {
         await fetch(`${torrUrl}/settings`, {
@@ -706,18 +707,19 @@ async function ensureTorrServerOptimized() {
           body: JSON.stringify({
             action: 'set',
             sets: {
-              CacheSize: 1073741824, // 1024 MB cache to support smooth streaming without underrun
-              ConnectionsLimit: 150, // 150 connections
+              CacheSize: targetCacheSize,
+              ConnectionsLimit: 150,
               ReaderReadAHead: 85,
               PreloadCache: 5,
-              TorrentDisconnectTimeout: 300, // 5 min timeout to prevent closing on player buffer/idle
+              TorrentDisconnectTimeout: targetTimeout,
+              RemoveCacheOnDrop: true,
               ResponsiveMode: true,
               RetrackersMode: 1,
             },
           }),
           signal: AbortSignal.timeout(5000),
         });
-        console.log('[TorrServer] Automatically optimized settings: 1024MB cache, 300s timeout, responsive mode');
+        console.log('[TorrServer] Automatically optimized settings: 200MB cache, RemoveCacheOnDrop: true, 30s timeout');
       }
     }
   } catch {
@@ -1313,6 +1315,9 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   });
 
+  // Track active proxy torrent requests to prevent premature TorrServer drops
+  const activeProxyTorrents = new Map<string, number>();
+
   // Proxy TorrServer streams (direct) — supports Range & container hint for AVPlay seeking
   const handleTorrentProxy = async (req: any, reply: any) => {
     const { link, index } = req.query as { link?: string; index?: string };
@@ -1320,6 +1325,12 @@ export function torrentRoutes(app: FastifyInstance) {
 
     if (!link) {
       return reply.code(400).send({ error: 'link parameter required' });
+    }
+
+    const hashMatch = link.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+    const proxyHash = hashMatch ? hashMatch[1].toLowerCase() : undefined;
+    if (proxyHash) {
+      activeProxyTorrents.set(proxyHash, Date.now());
     }
 
     const baseTorrUrl = await getActiveTorrServerUrl();
@@ -1359,19 +1370,29 @@ export function torrentRoutes(app: FastifyInstance) {
           return;
         }
 
+        proxyRes.on('data', () => {
+          if (proxyHash) activeProxyTorrents.set(proxyHash, Date.now());
+        });
+
         proxyRes.pipe(reply.raw);
-        proxyRes.on('end', () => resolve());
+        proxyRes.on('end', () => {
+          if (proxyHash) activeProxyTorrents.delete(proxyHash);
+          resolve();
+        });
         proxyRes.on('error', (err) => {
+          if (proxyHash) activeProxyTorrents.delete(proxyHash);
           console.error('[Proxy] TorrServer stream pipe error:', err.message);
           resolve();
         });
       });
 
       req.raw.on('close', () => {
+        if (proxyHash) activeProxyTorrents.delete(proxyHash);
         try { proxyReq.destroy(); } catch {}
       });
 
       proxyReq.on('error', (err) => {
+        if (proxyHash) activeProxyTorrents.delete(proxyHash);
         console.error('[Proxy] TorrServer proxy request error:', err.message);
         if (!reply.raw.headersSent) {
           reply.code(502).send({ error: 'TorrServer connection error' });
@@ -1555,6 +1576,7 @@ export function torrentRoutes(app: FastifyInstance) {
     pid: number;
     hlsDir: string;
     streamKey: string;
+    torrentHash?: string;
     paused: boolean;
     lastRequestedSeg: number;
     lastSegRequestTime: number;
@@ -1657,7 +1679,7 @@ export function torrentRoutes(app: FastifyInstance) {
     }
   }
 
-  function retireSession(sessionId: string) {
+  async function retireSession(sessionId: string) {
     const sess = activeSessions.get(sessionId);
     if (!sess) return;
     if (sess.timer) clearInterval(sess.timer);
@@ -1674,6 +1696,26 @@ export function torrentRoutes(app: FastifyInstance) {
       }
     } catch {}
     activeSessions.delete(sessionId);
+
+    // Promptly drop torrent stream in TorrServer if no other session uses it, releasing all RAM cache
+    if (sess.torrentHash) {
+      const isTorrentStillInUse = Array.from(activeSessions.values()).some(s => s.torrentHash === sess.torrentHash);
+      if (!isTorrentStillInUse) {
+        try {
+          const torrUrl = await getActiveTorrServerUrl();
+          await fetch(`${torrUrl}/torrents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'drop', hash: sess.torrentHash }),
+            signal: AbortSignal.timeout(2000),
+          });
+          console.log(`[TorrServer] Dropped inactive torrent ${sess.torrentHash} to free RAM`);
+        } catch (e: any) {
+          console.warn('[TorrServer] Drop torrent error:', e.message);
+        }
+      }
+    }
+
     // Graceful delayed directory removal:
     // Keep directory on disk for 25 seconds so any in-flight segment or playlist requests
     // from the TV get served cleanly without 404 / connection reset!
@@ -1787,11 +1829,18 @@ export function torrentRoutes(app: FastifyInstance) {
     }
 
     const streamKey = `${link}-${index || 0}`;
+    const hashMatch = link.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+    const torrentHash = hashMatch ? hashMatch[1].toLowerCase() : undefined;
 
     if (!existingSession) {
+      const nowTime = Date.now();
       // Clean up any other active transcoding sessions for the same torrent file (prevent multiple concurrent transcoders)
+      // or sessions that have been idle for > 30 seconds
       for (const [sId, sess] of activeSessions.entries()) {
         if (sess.streamKey === streamKey && sId !== sessionId) {
+          retireSession(sId);
+        } else if (nowTime - sess.lastActivity > 30000) {
+          console.log(`[FFmpeg] Retiring idle session ${sId} on new stream request`);
           retireSession(sId);
         }
       }
@@ -1882,6 +1931,7 @@ export function torrentRoutes(app: FastifyInstance) {
         pid: ffmpeg.pid!,
         hlsDir,
         streamKey,
+        torrentHash,
         paused: false,
         lastRequestedSeg: -1,
         lastSegRequestTime: now,
@@ -1893,8 +1943,8 @@ export function torrentRoutes(app: FastifyInstance) {
 
       // Inactivity & throttling loop: checks every 1000ms
       sess.timer = setInterval(() => {
-        if (Date.now() - sess.lastActivity > 600000) {
-          console.log(`[FFmpeg] Session ${sessionId} timed out after 10m inactivity`);
+        if (Date.now() - sess.lastActivity > 60000) {
+          console.log(`[FFmpeg] Session ${sessionId} timed out after 60s inactivity`);
           cleanupSession(sessionId);
           return;
         }
@@ -1972,6 +2022,46 @@ export function torrentRoutes(app: FastifyInstance) {
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls', handler: handleHls });
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls/stream.m3u8', handler: handleHls });
   app.route({ method: ['GET', 'HEAD'], url: '/api/torrents/hls/:filename', handler: handleHls });
+
+  // Explicit stop endpoint to instantly free FFmpeg and TorrServer RAM when client leaves player
+  app.post('/api/torrents/hls/stop', async (req, reply) => {
+    let body: any = {};
+    try {
+      body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || req.query || {});
+    } catch {
+      body = req.query || {};
+    }
+    const { session, hash, link } = body;
+    let targetHash = hash;
+    if (!targetHash && link) {
+      const m = String(link).match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+      if (m) targetHash = m[1].toLowerCase();
+    }
+    if (session && activeSessions.has(session)) {
+      console.log(`[FFmpeg] Explicit stop requested for session ${session}`);
+      await retireSession(session);
+    }
+    if (targetHash) {
+      const h = targetHash.toLowerCase();
+      for (const [sId, sess] of activeSessions.entries()) {
+        if (sess.torrentHash === h) {
+          console.log(`[FFmpeg] Explicit stop: retiring session ${sId} for torrent ${h}`);
+          await retireSession(sId);
+        }
+      }
+      try {
+        const torrUrl = await getActiveTorrServerUrl();
+        await fetch(`${torrUrl}/torrents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'drop', hash: h }),
+          signal: AbortSignal.timeout(2000),
+        });
+        console.log(`[TorrServer] Explicit drop executed for torrent ${h}`);
+      } catch {}
+    }
+    return { ok: true };
+  });
 
   // Serve pre-extracted subtitles from HLS session
   app.get('/api/torrents/hls-subs', async (req, reply) => {
@@ -2356,4 +2446,46 @@ export function torrentRoutes(app: FastifyInstance) {
   app.get('/api/torrents/jacred/config', async () => {
     return { url: jacredUrl };
   });
+
+  // Periodic background cleanup of orphaned TorrServer working torrents to prevent memory accumulation
+  setInterval(async () => {
+    try {
+      const torrUrl = await getActiveTorrServerUrl();
+      const res = await fetch(`${torrUrl}/torrents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (!res.ok) return;
+      const list = (await res.json()) as Array<{ hash: string; stat: number; title?: string }>;
+      if (!Array.isArray(list)) return;
+
+      const now = Date.now();
+      const activeHlsHashes = new Set(
+        Array.from(activeSessions.values())
+          .map(s => s.torrentHash?.toLowerCase())
+          .filter(Boolean)
+      );
+
+      for (const t of list) {
+        // stat 2 is "Torrent working" (holds RAM cache)
+        if (t.stat === 2 && t.hash) {
+          const h = t.hash.toLowerCase();
+          const isHlsActive = activeHlsHashes.has(h);
+          const isProxyActive = activeProxyTorrents.has(h) && (now - (activeProxyTorrents.get(h) || 0) < 30000);
+
+          if (!isHlsActive && !isProxyActive) {
+            console.log(`[TorrServer] Auto-dropping idle working torrent ${t.hash} (${t.title || ''}) to free RAM cache`);
+            await fetch(`${torrUrl}/torrents`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'drop', hash: t.hash }),
+              signal: AbortSignal.timeout(2000),
+            }).catch(() => {});
+          }
+        }
+      }
+    } catch {}
+  }, 45000);
 }

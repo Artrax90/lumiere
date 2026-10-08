@@ -147,6 +147,31 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
     };
   }, [url, initialTime]);
 
+  // Notify server to stop FFmpeg and release TorrServer RAM when leaving TV player
+  useEffect(() => {
+    const streamUrl = title.videoUrl || title.directUrl || '';
+    if (!streamUrl.includes('/api/torrents/')) return;
+
+    const stopStreaming = () => {
+      const hashMatch = streamUrl.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+      const hash = hashMatch ? hashMatch[1] : undefined;
+      const payload = JSON.stringify({ hash, link: streamUrl });
+      try {
+        serverFetch('/api/torrents/hls/stop', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: payload,
+        }).catch(() => {});
+      } catch {}
+    };
+
+    window.addEventListener('beforeunload', stopStreaming);
+    return () => {
+      window.removeEventListener('beforeunload', stopStreaming);
+      stopStreaming();
+    };
+  }, [title.videoUrl, title.directUrl]);
+
   // Handle Samsung remote keys
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

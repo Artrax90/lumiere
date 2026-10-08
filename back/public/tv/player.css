@@ -317,8 +317,21 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  position: relative;
   padding: 8px 0 12px;
+}
+.osd-controls-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+.osd-controls-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: absolute;
+  right: 0;
 }
 .osd-ctrl-btn {
   padding: 12px 26px;
@@ -335,6 +348,11 @@ body {
   align-items: center;
   gap: 8px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.osd-ctrl-btn.osd-extra-btn {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.24);
+  padding: 12px 22px;
 }
 .osd-ctrl-btn.osd-ctrl-primary {
   background: rgba(232, 193, 112, 0.22);

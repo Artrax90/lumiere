@@ -654,6 +654,35 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     };
   }, [title.videoUrl, title.directUrl, hasVideo, isHls]);
 
+  // Notify server to stop FFmpeg and release TorrServer RAM when leaving player or closing tab
+  useEffect(() => {
+    const streamUrl = title.videoUrl || title.directUrl || '';
+    if (!streamUrl.includes('/api/torrents/')) return;
+
+    const stopStreaming = () => {
+      const hashMatch = streamUrl.match(/xt=urn:btih:([a-zA-Z0-9]+)/i);
+      const hash = hashMatch ? hashMatch[1] : undefined;
+      const payload = JSON.stringify({ hash, link: streamUrl });
+      try {
+        if (typeof navigator !== 'undefined' && navigator.sendBeacon) {
+          navigator.sendBeacon(serverUrl('/api/torrents/hls/stop'), new Blob([payload], { type: 'application/json' }));
+        } else {
+          serverFetch('/api/torrents/hls/stop', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: payload,
+          }).catch(() => {});
+        }
+      } catch {}
+    };
+
+    window.addEventListener('beforeunload', stopStreaming);
+    return () => {
+      window.removeEventListener('beforeunload', stopStreaming);
+      stopStreaming();
+    };
+  }, [title.videoUrl, title.directUrl]);
+
   // Video event handlers
   useEffect(() => {
     const video = videoRef.current;

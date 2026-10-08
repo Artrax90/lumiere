@@ -651,6 +651,16 @@
       }
       this._videoEl = null;
     }
+    var stoppingUrl = this._currentUrl;
+    if (stoppingUrl && stoppingUrl.indexOf('/api/torrents/') !== -1) {
+      try {
+        var stopXhr = new XMLHttpRequest();
+        var apiBase = (typeof API !== 'undefined' ? API : '');
+        stopXhr.open('POST', apiBase + '/api/torrents/hls/stop', true);
+        stopXhr.setRequestHeader('Content-Type', 'application/json');
+        stopXhr.send(JSON.stringify({ link: stoppingUrl }));
+      } catch(e) {}
+    }
     this._isPlaying = false;
     this._duration = 0;
     this._currentTime = 0;

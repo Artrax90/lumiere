@@ -120,10 +120,6 @@
               '</div>' +
             '</div>' +
           '</div>' +
-          '<div class="osd-top-right">' +
-            '<button id="btn-audio" class="osd-btn osd-top-btn" data-btn="audio" tabindex="0">\ud83d\udd0a Звук</button>' +
-            '<button id="btn-cc" class="osd-btn osd-top-btn" data-btn="cc" tabindex="0">\ud83d\udcac Субтитры</button>' +
-          '</div>' +
         '</div>' +
         '<div id="center-indicator">' +
           '<span id="center-indicator-icon">\u25b6</span>' +
@@ -142,18 +138,24 @@
             '<span id="time-total">0:00</span>' +
           '</div>' +
           '<div id="osd-controls" class="osd-controls-row">' +
-            '<button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>' +
-            '<button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>' +
-            '<button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>' +
-            '<button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>' +
-            '<button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>' +
+            '<div class="osd-controls-center">' +
+              '<button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>' +
+              '<button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>' +
+              '<button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>' +
+              '<button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>' +
+              '<button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>' +
+            '</div>' +
+            '<div class="osd-controls-right">' +
+              '<button id="btn-audio" class="osd-ctrl-btn osd-extra-btn" data-ctrl="audio" tabindex="0" title="Аудиодорожки">\ud83d\udd0a Звук</button>' +
+              '<button id="btn-cc" class="osd-ctrl-btn osd-extra-btn" data-ctrl="cc" tabindex="0" title="Субтитры">\ud83d\udcac Субтитры</button>' +
+            '</div>' +
           '</div>' +
           '<div class="osd-hint-row">' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Пуск</div>' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">\u25c4 / \u25ba</span> Перемотка 10с</div>' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">\u25b2</span> Меню плеера</div>' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">\u25bc</span> Дорожка / Кнопки</div>' +
-            '<div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Выход</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Выбор</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25c4 / \u25ba</span> Перемотка / Дорожки</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25b2</span> Ползунок дорожки</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25bc</span> Скрыть плеер</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Скрыть / Выход</div>' +
           '</div>' +
         '</div>' +
       '</div>' +
@@ -5715,6 +5717,8 @@
       }
 
       var episodes = data.episodes;
+      state.seasonEpisodes = state.seasonEpisodes || {};
+      state.seasonEpisodes[showId + '_s' + seasonNum] = episodes;
       var today = new Date().toISOString().slice(0, 10);
       
       // Filter out unreleased future episodes
@@ -7608,9 +7612,20 @@
       baseSeriesName = 'Доктор Хаус';
     }
 
+    var epTitlePart = '';
+    var epTitleMatch = (titleStr || '').match(/·\s*S\d+\s*E\d+\s*·\s*(.+)$/i);
+    if (epTitleMatch && epTitleMatch[1]) {
+      epTitlePart = epTitleMatch[1].trim();
+    } else if (state.seasonEpisodes && state.seasonEpisodes[movieId + '_s' + sNum]) {
+      var foundEp = state.seasonEpisodes[movieId + '_s' + sNum].find(function(e) { return (e.episode || e.episode_number) === eNum; });
+      if (foundEp && foundEp.title && foundEp.title !== ('Серия ' + eNum)) {
+        epTitlePart = foundEp.title;
+      }
+    }
+
     var name = '';
     if (isTv && sNum && eNum) {
-      name = (baseSeriesName || 'Сериал') + ' · S' + (sNum < 10 ? '0' + sNum : sNum) + 'E' + (eNum < 10 ? '0' + eNum : eNum);
+      name = (baseSeriesName || 'Сериал') + ' · S' + (sNum < 10 ? '0' + sNum : sNum) + 'E' + (eNum < 10 ? '0' + eNum : eNum) + (epTitlePart ? ' · ' + epTitlePart : '');
     } else if (titleStr && (titleStr.indexOf(' · S') !== -1 || !detailName)) {
       name = titleStr;
     } else if (detailName) {
