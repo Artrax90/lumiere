@@ -251,11 +251,16 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate 
           e.preventDefault();
           break;
 
-        case 10009: // Back — exit player
-          if (avplay) {
-            try { avplay.stop(); avplay.close(); } catch {}
+        case 10009: // Back — hide OSD if visible, otherwise exit player
+          if (showOsd) {
+            setShowOsd(false);
+            if (osdTimer.current) clearTimeout(osdTimer.current);
+          } else {
+            if (avplay) {
+              try { avplay.stop(); avplay.close(); } catch {}
+            }
+            onExit();
           }
-          onExit();
           e.preventDefault();
           break;
       }

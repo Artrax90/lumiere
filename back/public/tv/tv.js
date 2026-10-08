@@ -2114,8 +2114,46 @@
     state.playerOpenedFrom = 'app';
 
     // 1. Determine target season and episode
-    var targetSeason = (tObj && tObj.season) ? parseInt(tObj.season, 10) : null;
-    var targetEpisode = (tObj && tObj.episode) ? parseInt(tObj.episode, 10) : null;
+    var targetSeason = null;
+    var targetEpisode = null;
+
+    // Priority 1: Check explicit season and episode in rawName (from the card user clicked!)
+    var sMatch = rawName.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || rawName.match(/\bS([0-9]+)E([0-9]+)\b/i);
+    if (sMatch) {
+      targetSeason = parseInt(sMatch[1], 10);
+      targetEpisode = parseInt(sMatch[2], 10);
+    } else {
+      var sOnlyMatch = rawName.match(/·\s*S([0-9]+)/i);
+      if (sOnlyMatch) targetSeason = parseInt(sOnlyMatch[1], 10);
+    }
+
+    // Priority 2: Check playback_positions for this item
+    if (!targetSeason || !targetEpisode) {
+      try {
+        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var pEntry = positions[item.id];
+        if (pEntry && pEntry.title) {
+          if (!targetSeason && pEntry.title.season) targetSeason = parseInt(pEntry.title.season, 10);
+          if (!targetEpisode && pEntry.title.episode) targetEpisode = parseInt(pEntry.title.episode, 10);
+          if (!targetSeason || !targetEpisode) {
+            var pNameMatch = (pEntry.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (pEntry.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+            if (pNameMatch) {
+              if (!targetSeason) targetSeason = parseInt(pNameMatch[1], 10);
+              if (!targetEpisode) targetEpisode = parseInt(pNameMatch[2], 10);
+            }
+          }
+        }
+      } catch(e) {}
+    }
+
+    // Priority 3: Fallback to tObj / item.title / last_season_
+    if (!targetSeason && tObj && tObj.season) targetSeason = parseInt(tObj.season, 10);
+    if (!targetEpisode && tObj && tObj.episode) targetEpisode = parseInt(tObj.episode, 10);
+
+    if (item.title && typeof item.title === 'object') {
+      if (!targetSeason && item.title.season) targetSeason = parseInt(item.title.season, 10);
+      if (!targetEpisode && item.title.episode) targetEpisode = parseInt(item.title.episode, 10);
+    }
 
     if (!targetSeason) {
       try {
@@ -2124,43 +2162,14 @@
       } catch(e) {}
     }
 
-    var sMatch = rawName.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || rawName.match(/\bS([0-9]+)E([0-9]+)\b/i);
-    if (sMatch) {
-      if (!targetSeason) targetSeason = parseInt(sMatch[1], 10);
-      if (!targetEpisode) targetEpisode = parseInt(sMatch[2], 10);
-    } else {
-      var sOnlyMatch = rawName.match(/·\s*S([0-9]+)/i);
-      if (sOnlyMatch && !targetSeason) targetSeason = parseInt(sOnlyMatch[1], 10);
-    }
-
-    if (item.title && typeof item.title === 'object') {
-      if (!targetSeason && item.title.season) targetSeason = parseInt(item.title.season, 10);
-      if (!targetEpisode && item.title.episode) targetEpisode = parseInt(item.title.episode, 10);
-    }
-
-    // Also check playback_positions
-    try {
-      var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
-      var pEntry = positions[item.id];
-      if (pEntry && pEntry.title) {
-        if (!targetSeason && pEntry.title.season) targetSeason = parseInt(pEntry.title.season, 10);
-        if (!targetEpisode && pEntry.title.episode) targetEpisode = parseInt(pEntry.title.episode, 10);
-        if (!targetSeason || !targetEpisode) {
-          var pNameMatch = (pEntry.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (pEntry.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
-          if (pNameMatch) {
-            if (!targetSeason) targetSeason = parseInt(pNameMatch[1], 10);
-            if (!targetEpisode) targetEpisode = parseInt(pNameMatch[2], 10);
-          }
-        }
-      }
-    } catch(e) {}
-
     // Ensure state.continueContext is passed so openTorrent knows exact season/episode
+    // CRITICAL: Only use tObj.fileIndex/fileName if tObj actually belongs to the target episode!
+    var canUseTObjFile = Boolean(tObj && (!tObj.episode || tObj.episode === targetEpisode));
     state.continueContext = {
       season: targetSeason,
       episode: targetEpisode,
-      fileIndex: (tObj && tObj.fileIndex !== undefined) ? tObj.fileIndex : undefined,
-      fileName: (tObj && tObj.fileName) ? tObj.fileName : undefined
+      fileIndex: (canUseTObjFile && tObj.fileIndex !== undefined) ? tObj.fileIndex : undefined,
+      fileName: (canUseTObjFile && tObj.fileName) ? tObj.fileName : undefined
     };
 
     var poster = cPoster || (item.title && typeof item.title === 'object' && item.title.poster) || '';
@@ -7214,32 +7223,37 @@
           } catch(ex) {}
         }
 
-        // Try fileIndex from ctx or savedT
-        var targetFileIdx = (ctx.fileIndex !== undefined) ? ctx.fileIndex : (savedT ? savedT.fileIndex : undefined);
-        if (targetFileIdx !== undefined) {
-          var found = data.files.find(function(f) { return f.id === targetFileIdx; });
-          if (found) targetFile = found;
-        }
-
-        // Try fileName from ctx or savedT
-        var targetFileName = ctx.fileName || (savedT ? savedT.fileName : null);
-        if (!targetFile && targetFileName) {
-          var foundByName = data.files.find(function(f) { return f.name === targetFileName; });
-          if (foundByName) targetFile = foundByName;
-        }
-
-        // If TV series and targetEpisode is known, find matching file in videoFiles!
-        if (!targetFile && targetEpisode != null && videoFiles.length > 0) {
+        // 1. If TV series and targetEpisode is known, ALWAYS find matching file by episode number FIRST!
+        if (targetEpisode != null && videoFiles.length > 0) {
           for (var vf = 0; vf < videoFiles.length; vf++) {
             var epNum = extractEpisodeNumber(videoFiles[vf].name, vf, targetSeason);
             if (epNum === targetEpisode) {
               targetFile = videoFiles[vf];
+              console.log('[TV] Resume matched episode ' + targetEpisode + ' in videoFiles:', targetFile.name);
               break;
             }
           }
         }
 
-        // Fallback: first video file
+        // 2. If not found by episode, try fileName (only if matches episode or movie)
+        if (!targetFile) {
+          var targetFileName = ctx.fileName || (savedT && savedT.episode === targetEpisode ? savedT.fileName : null);
+          if (targetFileName) {
+            var foundByName = data.files.find(function(f) { return f.name === targetFileName; });
+            if (foundByName) targetFile = foundByName;
+          }
+        }
+
+        // 3. If still not found, try fileIndex (only if matches episode or movie)
+        if (!targetFile) {
+          var targetFileIdx = (ctx.fileIndex !== undefined) ? ctx.fileIndex : (savedT && savedT.episode === targetEpisode ? savedT.fileIndex : undefined);
+          if (targetFileIdx !== undefined) {
+            var found = data.files.find(function(f) { return f.id === targetFileIdx; });
+            if (found) targetFile = found;
+          }
+        }
+
+        // 4. Fallback: first video file
         if (!targetFile) {
           targetFile = videoFiles[0];
         }
@@ -9384,11 +9398,13 @@
   function handleBackKey(e) {
     if (e && e.preventDefault) e.preventDefault();
     var now = Date.now();
-    if (now - lastBackTimestamp < 700 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 700) || (state._justClosedPlayer && now - state._justClosedPlayer < 700)) {
+    var lastShared = Math.max(lastBackTimestamp, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
+    if (now - lastShared < 600 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 600) || (state._justClosedPlayer && now - state._justClosedPlayer < 600)) {
       console.log('[Lumiere] Ignoring rapid duplicate back key (within cooldown)');
       return;
     }
     lastBackTimestamp = now;
+    try { if (typeof window !== 'undefined') window.lastBackTimestamp = now; } catch(we) {}
     console.log('[Lumiere] Back key pressed');
 
     // -2. If server configuration modal is open, close it
@@ -9710,9 +9726,22 @@
       // 1. If player is open, forward ALL keys directly to handlePlayerKey
       var playerContainer = document.getElementById('player-container');
       if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
+        var isBackKey = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+        if (isBackKey) {
+          var nowB = Date.now();
+          var lastSharedB = Math.max(lastBackTimestamp, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
+          if (nowB - lastSharedB < 500) {
+            if (e && e.preventDefault) e.preventDefault();
+            if (e && e.stopPropagation) e.stopPropagation();
+            if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+            return;
+          }
+          lastBackTimestamp = nowB;
+          try { if (typeof window !== 'undefined') window.lastBackTimestamp = nowB; } catch(we) {}
+        }
         if (typeof window.handlePlayerKey === 'function') {
           window.handlePlayerKey(code, key, e);
-        } else if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+        } else if (isBackKey) {
           closePlayer();
         }
         if (e && e.preventDefault) e.preventDefault();

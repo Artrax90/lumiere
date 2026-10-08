@@ -39,6 +39,7 @@
   var bottomBtnIndex = 2; // 0 = restart, 1 = rewind, 2 = play/pause, 3 = forward, 4 = next
   var $timelineRow = null;
   var lastVerticalNavTime = 0;
+  var lastPlayerBackTime = 0;
 
   // Popup state (audio / subtitles)
   var popupOpen = false;
@@ -1795,6 +1796,11 @@
         lastT[saveId].timestamp = now;
         if (sNum) lastT[saveId].season = sNum;
         if (eNum) lastT[saveId].episode = eNum;
+        if (torrentFileIndex >= 0) lastT[saveId].fileIndex = torrentFileIndex;
+        if (torrentFiles && torrentFiles.length > 0) {
+          var curTf = torrentFiles.find(function(f) { return f.id === torrentFileIndex; });
+          if (curTf && curTf.name) lastT[saveId].fileName = curTf.name;
+        }
         localStorage.setItem(ltKey, JSON.stringify(lastT));
         if (sNum) {
           localStorage.setItem(getUserStorageKey('last_season_' + saveId), String(sNum));
@@ -2034,13 +2040,25 @@
 
       // 1. Back / Return / Escape Key
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+        var nowBack = Date.now();
+        var lastSharedBack = Math.max(lastPlayerBackTime, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
+        if (nowBack - lastSharedBack < 500) {
+          if (e && e.preventDefault) e.preventDefault();
+          if (e && e.stopPropagation) e.stopPropagation();
+          return;
+        }
+        lastPlayerBackTime = nowBack;
+        try { if (typeof window !== 'undefined') window.lastBackTimestamp = nowBack; } catch(we) {}
+
         if (popupOpen) {
           closePopup();
-        } else if (osdVisible) {
+        } else if (osdVisible || ($osd && !$osd.classList.contains('hide'))) {
           forceHideOsd();
         } else {
           goBack();
         }
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
         return;
       }
 
