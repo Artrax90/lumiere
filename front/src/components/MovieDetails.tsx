@@ -182,8 +182,10 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
       .catch(() => {});
 
     const token = localStorage.getItem('lumiere_access');
-    if (token && (title.type === 'tv' || title.type === 'show')) {
-      serverFetch(`/api/notifications/is-subscribed/${title.id}`, {
+    if (token) {
+      const isTv = (title.type === 'tv' || title.type === 'show');
+      const mType = isTv ? 'tv' : 'movie';
+      serverFetch(`/api/notifications/is-subscribed/${title.id}?mediaType=${mType}`, {
         headers: { Authorization: `Bearer ${token}` }
       })
         .then((res) => res.json())
@@ -527,61 +529,69 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                   <span>Трейлер</span>
                 </button>
 
-                {/* TV Series notification bell button */}
-                {(displayTitle.type === 'tv' || displayTitle.type === 'show') && (
-                  <button
-                    onClick={async () => {
-                      const token = localStorage.getItem('lumiere_access');
-                      if (!token) return;
-                      try {
-                        if (isSubscribed) {
-                          await serverFetch(`/api/notifications/subscribe/${displayTitle.id}`, {
-                            method: 'DELETE',
-                            headers: { Authorization: `Bearer ${token}` }
-                          });
-                          setIsSubscribed(false);
-                        } else {
-                          await serverFetch('/api/notifications/subscribe', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-                            body: JSON.stringify({
-                              tmdbId: displayTitle.id,
-                              title: displayTitle.name,
-                              poster: displayTitle.poster,
-                              lastSeason: (() => {
-                                const seasons = (details as any)?.seasons;
-                                if (Array.isArray(seasons) && seasons.length > 0) {
-                                  return Math.max(...seasons.map((s: any) => s.season_number || 0));
-                                }
-                                return 0;
-                              })(),
-                              lastEpisode: (() => {
-                                const seasons = (details as any)?.seasons;
-                                if (Array.isArray(seasons) && seasons.length > 0) {
-                                  const maxS = Math.max(...seasons.map((s: any) => s.season_number || 0));
-                                  const sObj = seasons.find((s: any) => s.season_number === maxS);
-                                  return sObj?.episode_count || 0;
-                                }
-                                return 0;
-                              })()
-                            })
-                          });
-                          setIsSubscribed(true);
-                        }
-                      } catch (e) {
-                        console.error('Subscription error:', e);
+                {/* Notification bell button (Series new episodes or Movie digital release) */}
+                <button
+                  onClick={async () => {
+                    const token = localStorage.getItem('lumiere_access');
+                    if (!token) return;
+                    const isTv = (displayTitle.type === 'tv' || displayTitle.type === 'show');
+                    const mType = isTv ? 'tv' : 'movie';
+                    try {
+                      if (isSubscribed) {
+                        await serverFetch(`/api/notifications/subscribe/${displayTitle.id}?mediaType=${mType}`, {
+                          method: 'DELETE',
+                          headers: { Authorization: `Bearer ${token}` }
+                        });
+                        setIsSubscribed(false);
+                      } else {
+                        await serverFetch('/api/notifications/subscribe', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            tmdbId: displayTitle.id,
+                            title: displayTitle.logoText || displayTitle.name,
+                            poster: displayTitle.poster,
+                            mediaType: mType,
+                            year: displayTitle.year ? parseInt(displayTitle.year as any, 10) : undefined,
+                            lastSeason: isTv ? (() => {
+                              const seasons = (details as any)?.seasons;
+                              if (Array.isArray(seasons) && seasons.length > 0) {
+                                return Math.max(...seasons.map((s: any) => s.season_number || 0));
+                              }
+                              return 0;
+                            })() : 0,
+                            lastEpisode: isTv ? (() => {
+                              const seasons = (details as any)?.seasons;
+                              if (Array.isArray(seasons) && seasons.length > 0) {
+                                const maxS = Math.max(...seasons.map((s: any) => s.season_number || 0));
+                                const sObj = seasons.find((s: any) => s.season_number === maxS);
+                                return sObj?.episode_count || 0;
+                              }
+                              return 0;
+                            })() : 0
+                          })
+                        });
+                        setIsSubscribed(true);
                       }
-                    }}
-                    className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
-                      isSubscribed
-                        ? 'bg-amber-400/25 text-amber-300 border border-amber-400/50'
-                        : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/15'
-                    }`}
-                    title={isSubscribed ? "Отслеживается" : "Следить за новыми сериями"}
-                  >
-                    <Bell className={`h-4 w-4 ${isSubscribed ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.8} />
-                  </button>
-                )}
+                    } catch (e) {
+                      console.error('Subscription error:', e);
+                    }
+                  }}
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
+                    isSubscribed
+                      ? 'bg-amber-400/25 text-amber-300 border border-amber-400/50'
+                      : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/15'
+                  }`}
+                  title={
+                    isSubscribed
+                      ? "Отслеживается"
+                      : (displayTitle.type === 'tv' || displayTitle.type === 'show')
+                        ? "Следить за новыми сериями"
+                        : "Следить за цифровым релизом"
+                  }
+                >
+                  <Bell className={`h-4 w-4 ${isSubscribed ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.8} />
+                </button>
                 </div>
               </div>
 
