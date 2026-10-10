@@ -532,6 +532,16 @@ export function userRoutes(app: FastifyInstance) {
       [userId, tmdbId, mediaType, titleName, poster || '']
     );
 
+    // Auto-subscribe movie to digital release tracking
+    if (mediaType === 'movie' || mediaType === 'film') {
+      pool.query(
+        `INSERT INTO series_subscriptions (user_id, tmdb_id, title, poster, last_season, last_episode, media_type, target_quality, is_notified)
+         VALUES ($1, $2, $3, $4, 0, 0, 'movie', 'digital', false)
+         ON CONFLICT (user_id, tmdb_id) DO NOTHING`,
+        [userId, tmdbId, titleName, poster || '']
+      ).catch((subErr: any) => console.warn('[Favorites] Auto-subscribe movie release notice failed:', subErr.message));
+    }
+
     return { success: true, id: result.rows[0]?.id };
   });
 

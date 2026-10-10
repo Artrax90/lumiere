@@ -219,6 +219,38 @@ export async function notifyNewEpisode(
   return sendTelegramPhoto(userId, posterUrl || '', text, replyMarkup);
 }
 
+export async function notifyMovieDigitalRelease(
+  userId: number,
+  movieTitle: string,
+  quality: string,
+  audio: string,
+  posterUrl?: string,
+  actionData?: { movieId: number }
+): Promise<boolean> {
+  const text = `🔔 <b>Цифровой релиз в Lumière!</b>\n\n` +
+    `🎬 <b>${movieTitle}</b>\n` +
+    `💎 Качество: <b>${quality || 'WEB-DL 1080p'}</b>\n` +
+    `🎙 Звук: <b>${audio || 'Дублированный [Чистый звук]'}</b>\n\n` +
+    `<i>Фильм вышел в отличном качестве и готов к просмотру.</i>`;
+
+  const inlineKeyboard: any[][] = [];
+  if (actionData && actionData.movieId) {
+    inlineKeyboard.push([
+      {
+        text: '▶ Включить на ТВ',
+        callback_data: `tv_play:movie:${actionData.movieId}`,
+      },
+      {
+        text: '📥 Скачать на сервер',
+        callback_data: `dl_server:movie:${actionData.movieId}`,
+      },
+    ]);
+  }
+
+  const replyMarkup = inlineKeyboard.length > 0 ? { inline_keyboard: inlineKeyboard } : undefined;
+  return sendTelegramPhoto(userId, posterUrl || '', text, replyMarkup);
+}
+
 export async function notifyDownloadStarted(
   userId: number,
   title: string,

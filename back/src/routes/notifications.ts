@@ -3,7 +3,7 @@ import pool from '../db/pool.js';
 import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 import type { TmdbProvider } from '../services/metadata/tmdb.js';
 import { config } from '../config.js';
-import { notifyNewEpisode } from '../services/telegram.js';
+import { notifyNewEpisode, notifyMovieDigitalRelease } from '../services/telegram.js';
 
 const JACRED_MIRRORS = [
   config.jacred.url,
@@ -11,6 +11,62 @@ const JACRED_MIRRORS = [
   'http://jacred.xyz',
   'http://jacred.me',
 ].filter(Boolean);
+
+export function parseMovieReleaseQuality(title: string, sizeBytes?: number): {
+  isDigital: boolean;
+  quality?: string;
+  audio?: string;
+  reason?: string;
+} {
+  const t = title || '';
+
+  // 1. Strict video exclusion: screener/cam tags
+  const camVideoRegex = /\b(CAM|CAMRip|HDCAM|TS|TeleSync|TC|TeleCine|DCPRip)\b/i;
+  if (camVideoRegex.test(t)) {
+    return { isDigital: false, reason: 'Cam/TS video detected' };
+  }
+
+  // 2. Strict audio exclusion: screen / line audio tags (even if video is 1080p/4K WEB-DL)
+  const screenAudioRegex = /\bLine\b|звук\s*с\s*(?:TS|CAM|экран|кинотеатр)|звук[:\s]*(?:TS|CAM)|звук\s*с\s*Line|Line\s*\/\s*чистый\s*звук\s*отсутствует|\[Line\]|\(Line\)/i;
+  if (screenAudioRegex.test(t)) {
+    return { isDigital: false, reason: 'Screen audio (Line/TS) detected' };
+  }
+
+  // 3. Digital video tag detection
+  let quality = '';
+  if (/\b(4K|2160p|UHD)\b/i.test(t)) quality = '4K UHD';
+  else if (/\b(BDRip|BRRip|Blu[- ]?Ray|BD[- ]?Remux|Remux)\b/i.test(t)) quality = 'BDRip';
+  else if (/\b(WEB[- ]?DL|WEBRip)\b/i.test(t)) quality = 'WEB-DL';
+  else if (/\b(1080p)\b/i.test(t)) quality = '1080p';
+  else if (/\b(HDTV)\b/i.test(t)) quality = 'HDTV';
+
+  if (!quality) {
+    return { isDigital: false, reason: 'No digital quality tag' };
+  }
+
+  // 4. If size is provided and too small (< 2.0 GB for full movie)
+  if (sizeBytes && sizeBytes < 2.0 * 1024 * 1024 * 1024) {
+    return { isDigital: false, reason: 'Size too small for full movie' };
+  }
+
+  // 5. Clean Russian audio detection
+  let audio = '';
+  if (/дублированн(?:ый|ое|ая)|DUB|чистый\s*звук|iTunes|Лицензия|Кинопоиск|Okko|Иви|START|Premier/i.test(t)) {
+    audio = 'Дублированный [Чистый звук]';
+  } else if (/Red\s*Head\s*Sound|RHS|Flarrow\s*Films|Кравец|Кубик\s*в\s*кубе/i.test(t)) {
+    audio = 'Профессиональный дубляж (Студия)';
+  } else if (/(?:профессиональн(?:ый|ое)|МВО|DVO|многоголос)/i.test(t)) {
+    audio = 'Профессиональный [Многоголосый]';
+  } else if (/(?:RUS|русский|звук)/i.test(t)) {
+    audio = 'Русская дорожка';
+  }
+
+  if (!audio) {
+    return { isDigital: false, reason: 'No Russian audio found' };
+  }
+
+  return { isDigital: true, quality, audio };
+}
 
 export function parseTorrentReleaseInfo(title: string): { season: number; episode: number } {
   let season = 0;
@@ -69,7 +125,7 @@ export function parseTorrentReleaseInfo(title: string): { season: number; episod
   return { season, episode };
 }
 
-async function fetchJacRedReleases(query: string): Promise<Array<{ title: string; publishDate: string }>> {
+async function fetchJacRedReleases(query: string): Promise<Array<{ title: string; publishDate: string; size?: number }>> {
   const uniqueMirrors = Array.from(new Set(JACRED_MIRRORS));
   for (const mirror of uniqueMirrors) {
     try {
@@ -79,11 +135,12 @@ async function fetchJacRedReleases(query: string): Promise<Array<{ title: string
         signal: AbortSignal.timeout(7000),
       });
       if (res.ok) {
-        const data = (await res.json()) as { Results?: Array<{ Title?: string; PublishDate?: string }> };
+        const data = (await res.json()) as { Results?: Array<{ Title?: string; PublishDate?: string; Size?: number }> };
         if (data.Results && data.Results.length > 0) {
           return data.Results.map((r) => ({
             title: r.Title || '',
             publishDate: r.PublishDate || '',
+            size: typeof r.Size === 'number' ? r.Size : undefined,
           }));
         }
       }
@@ -143,16 +200,129 @@ async function detectLatestRelease(title: string, tmdbId: number, tmdbProvider?:
   return { season: latestSeason, episode: latestEpisode };
 }
 
+export async function detectMovieDigitalRelease(
+  title: string,
+  year?: number
+): Promise<{ isDigital: boolean; quality?: string; audio?: string; torrentTitle?: string }> {
+  const queriesToSearch: string[] = [title];
+  const cleanTitle = title.replace(/\s*\(\d{4}\)$/, '').trim();
+  if (cleanTitle !== title && !queriesToSearch.includes(cleanTitle)) {
+    queriesToSearch.push(cleanTitle);
+  }
+  if (year) {
+    const withYear = `${cleanTitle} ${year}`;
+    if (!queriesToSearch.includes(withYear)) {
+      queriesToSearch.push(withYear);
+    }
+  }
+
+  for (const q of queriesToSearch) {
+    try {
+      const torrents = await fetchJacRedReleases(q);
+      for (const item of torrents) {
+        const parsed = parseMovieReleaseQuality(item.title, item.size);
+        if (parsed.isDigital) {
+          return {
+            isDigital: true,
+            quality: parsed.quality,
+            audio: parsed.audio,
+            torrentTitle: item.title,
+          };
+        }
+      }
+    } catch {}
+  }
+
+  return { isDigital: false };
+}
+
 // Track last check times per user to throttle background queries
 const userLastCheckMap = new Map<number, number>();
 let globalLastCheckTime = 0;
+
+export async function checkMovieDigitalReleases(targetUserId?: number): Promise<number> {
+  let newCount = 0;
+  try {
+    const querySql = targetUserId
+      ? `SELECT id, user_id, tmdb_id, title, poster, media_type, target_quality, is_notified
+         FROM series_subscriptions
+         WHERE user_id = $1 AND media_type = 'movie' AND (is_notified = false OR is_notified IS NULL)`
+      : `SELECT id, user_id, tmdb_id, title, poster, media_type, target_quality, is_notified
+         FROM series_subscriptions
+         WHERE media_type = 'movie' AND (is_notified = false OR is_notified IS NULL)`;
+    const queryParams = targetUserId ? [targetUserId] : [];
+
+    const subsResult = await pool.query(querySql, queryParams);
+    const subs = subsResult.rows || [];
+
+    for (const sub of subs) {
+      try {
+        const detected = await detectMovieDigitalRelease(sub.title);
+        if (detected.isDigital) {
+          const qualityStr = detected.quality || 'WEB-DL 1080p';
+          const audioStr = detected.audio || 'Дублированный [Чистый звук]';
+          const releaseMsg = `Фильм вышел в качестве ${qualityStr} с чистым звуком (${audioStr})!`;
+
+          // Check if identical unread notification already exists to avoid duplicate entries
+          const existingNotif = await pool.query(
+            'SELECT id FROM notifications WHERE user_id = $1 AND media_id = $2 AND message = $3 AND is_read = false',
+            [sub.user_id, sub.tmdb_id, releaseMsg]
+          );
+
+          if (!existingNotif.rows || existingNotif.rows.length === 0) {
+            await pool.query(
+              `INSERT INTO notifications (user_id, title, message, media_type, media_id, poster, action_data, is_read)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, false)`,
+              [
+                sub.user_id,
+                sub.title,
+                releaseMsg,
+                'movie',
+                sub.tmdb_id,
+                sub.poster || '',
+                JSON.stringify({
+                  movieId: sub.tmdb_id,
+                  quality: qualityStr,
+                  audio: audioStr,
+                  title: sub.title,
+                }),
+              ]
+            );
+            newCount++;
+
+            // Trigger Telegram Push Notification with poster & 1-click action buttons
+            notifyMovieDigitalRelease(
+              sub.user_id,
+              sub.title,
+              qualityStr,
+              audioStr,
+              sub.poster || '',
+              { movieId: sub.tmdb_id }
+            ).catch((tErr) => console.warn(`[Notifications] Movie Telegram notify error:`, tErr.message));
+          }
+
+          // Mark subscription as notified so we don't spam for this movie
+          await pool.query(
+            `UPDATE series_subscriptions SET is_notified = true WHERE id = $1`,
+            [sub.id]
+          );
+        }
+      } catch (subErr: any) {
+        console.warn(`[Notifications] Error checking movie "${sub.title}":`, subErr.message);
+      }
+    }
+  } catch (err: any) {
+    console.error('[Notifications] checkMovieDigitalReleases fatal error:', err.message);
+  }
+  return newCount;
+}
 
 export async function checkNewEpisodes(targetUserId?: number, tmdbProvider?: TmdbProvider): Promise<number> {
   let newCount = 0;
   try {
     const querySql = targetUserId
-      ? 'SELECT id, user_id, tmdb_id, title, poster, last_season, last_episode FROM series_subscriptions WHERE user_id = $1'
-      : 'SELECT id, user_id, tmdb_id, title, poster, last_season, last_episode FROM series_subscriptions';
+      ? `SELECT id, user_id, tmdb_id, title, poster, last_season, last_episode FROM series_subscriptions WHERE user_id = $1 AND (media_type IS NULL OR media_type = 'tv')`
+      : `SELECT id, user_id, tmdb_id, title, poster, last_season, last_episode FROM series_subscriptions WHERE (media_type IS NULL OR media_type = 'tv')`;
     const queryParams = targetUserId ? [targetUserId] : [];
 
     const subsResult = await pool.query(querySql, queryParams);
@@ -256,6 +426,11 @@ export function startNotificationScheduler(tmdbProvider?: TmdbProvider) {
         if (c > 0) console.log(`[Notifications] Initial check found ${c} new episode release(s)`);
       })
       .catch(() => {});
+    checkMovieDigitalReleases(undefined)
+      .then((c) => {
+        if (c > 0) console.log(`[Notifications] Initial check found ${c} new movie digital release(s)`);
+      })
+      .catch(() => {});
   }, 10000);
 
   // 2. Periodic background check every 20 minutes
@@ -265,9 +440,14 @@ export function startNotificationScheduler(tmdbProvider?: TmdbProvider) {
         if (c > 0) console.log(`[Notifications] Periodic check found ${c} new episode release(s)`);
       })
       .catch(() => {});
+    checkMovieDigitalReleases(undefined)
+      .then((c) => {
+        if (c > 0) console.log(`[Notifications] Periodic check found ${c} new movie digital release(s)`);
+      })
+      .catch(() => {});
   }, 20 * 60 * 1000);
 
-  console.log('[Notifications] Background episode checker scheduled (every 20 min)');
+  console.log('[Notifications] Background release checker scheduled (episodes & movie digital releases, every 20 min)');
 }
 
 export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProvider) {
@@ -281,6 +461,7 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
     if (Date.now() - lastCheck > 10 * 60 * 1000) {
       userLastCheckMap.set(userId, Date.now());
       checkNewEpisodes(userId, tmdbProvider).catch(() => {});
+      checkMovieDigitalReleases(userId).catch(() => {});
     }
 
     try {
@@ -341,7 +522,7 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
     }
   });
 
-  // 4. Get series subscriptions
+  // 4. Get series and movie subscriptions
   app.get('/api/notifications/subscriptions', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
     const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
@@ -350,7 +531,7 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
     }
     try {
       const result = await pool.query(
-        'SELECT id, tmdb_id, title, poster, last_season, last_episode, created_at FROM series_subscriptions WHERE user_id = $1 ORDER BY id DESC',
+        'SELECT id, tmdb_id, title, poster, last_season, last_episode, media_type, target_quality, is_notified, created_at FROM series_subscriptions WHERE user_id = $1 ORDER BY id DESC',
         [userId]
       );
       return {
@@ -361,6 +542,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
           poster: row.poster,
           lastSeason: row.last_season,
           lastEpisode: row.last_episode,
+          mediaType: row.media_type || 'tv',
+          targetQuality: row.target_quality || 'digital',
+          isNotified: !!row.is_notified,
           createdAt: row.created_at,
         })),
       };
@@ -369,7 +553,7 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
     }
   });
 
-  // 5. Check if user is subscribed to a series
+  // 5. Check if user is subscribed to a series or movie
   app.get('/api/notifications/is-subscribed/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
     const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
@@ -377,11 +561,13 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
       return { isSubscribed: false };
     }
     const { tmdbId } = request.params as { tmdbId: string };
+    const queryMediaType = (request.query as any)?.mediaType;
     try {
-      const result = await pool.query(
-        'SELECT id, tmdb_id, title, last_season, last_episode FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2',
-        [userId, parseInt(tmdbId, 10)]
-      );
+      const sql = queryMediaType
+        ? 'SELECT id, tmdb_id, title, last_season, last_episode, media_type, is_notified FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2 AND media_type = $3'
+        : 'SELECT id, tmdb_id, title, last_season, last_episode, media_type, is_notified FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2';
+      const params = queryMediaType ? [userId, parseInt(tmdbId, 10), queryMediaType] : [userId, parseInt(tmdbId, 10)];
+      const result = await pool.query(sql, params);
       return {
         isSubscribed: result.rows.length > 0,
         subscription: result.rows[0] || null,
@@ -391,26 +577,51 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
     }
   });
 
-  // 6. Subscribe to a series
+  // 6. Subscribe to a series or movie
   app.post('/api/notifications/subscribe', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const bodyUserId = (request.body as any)?.userId;
     const userId = request.user?.userId || (bodyUserId ? parseInt(bodyUserId, 10) : 0);
     if (!userId) {
       return { success: false, error: 'User is required' };
     }
-    const { tmdbId, title, poster, lastSeason, lastEpisode } = request.body as {
+    const { tmdbId, title, poster, mediaType, lastSeason, lastEpisode, year } = request.body as {
       tmdbId: number;
       title: string;
       poster?: string;
+      mediaType?: string;
       lastSeason?: number;
       lastEpisode?: number;
+      year?: number;
     };
 
     if (!tmdbId || !title) {
       return { success: false, error: 'tmdbId and title are required' };
     }
 
+    const resolvedMediaType = mediaType === 'movie' ? 'movie' : 'tv';
+
     try {
+      if (resolvedMediaType === 'movie') {
+        await pool.query(
+          `INSERT INTO series_subscriptions (user_id, tmdb_id, title, poster, last_season, last_episode, media_type, target_quality, is_notified)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+           ON CONFLICT (user_id, tmdb_id) DO UPDATE
+           SET title = EXCLUDED.title, poster = EXCLUDED.poster, media_type = EXCLUDED.media_type, target_quality = EXCLUDED.target_quality, is_notified = false`,
+          [userId, tmdbId, title, poster || '', 0, 0, 'movie', 'digital', false]
+        );
+
+        // Asynchronously check right away in background in case movie is already digital
+        detectMovieDigitalRelease(title, year)
+          .then((detected) => {
+            if (detected.isDigital) {
+              checkMovieDigitalReleases(userId).catch(() => {});
+            }
+          })
+          .catch(() => {});
+
+        return { success: true, isSubscribed: true, mediaType: 'movie' };
+      }
+
       let initSeason = lastSeason || 0;
       let initEpisode = lastEpisode || 0;
 
@@ -422,19 +633,19 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
       }
 
       await pool.query(
-        `INSERT INTO series_subscriptions (user_id, tmdb_id, title, poster, last_season, last_episode)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO series_subscriptions (user_id, tmdb_id, title, poster, last_season, last_episode, media_type, target_quality, is_notified)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (user_id, tmdb_id) DO UPDATE
-         SET title = EXCLUDED.title, poster = EXCLUDED.poster, last_season = EXCLUDED.last_season, last_episode = EXCLUDED.last_episode`,
-        [userId, tmdbId, title, poster || '', initSeason, initEpisode]
+         SET title = EXCLUDED.title, poster = EXCLUDED.poster, last_season = EXCLUDED.last_season, last_episode = EXCLUDED.last_episode, media_type = EXCLUDED.media_type`,
+        [userId, tmdbId, title, poster || '', initSeason, initEpisode, 'tv', 'digital', false]
       );
-      return { success: true, isSubscribed: true, lastSeason: initSeason, lastEpisode: initEpisode };
+      return { success: true, isSubscribed: true, lastSeason: initSeason, lastEpisode: initEpisode, mediaType: 'tv' };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   });
 
-  // 7. Unsubscribe from a series
+  // 7. Unsubscribe from a series or movie
   app.delete('/api/notifications/subscribe/:tmdbId', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
     const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
@@ -442,18 +653,20 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
       return { success: false, error: 'User is required' };
     }
     const { tmdbId } = request.params as { tmdbId: string };
+    const queryMediaType = (request.query as any)?.mediaType;
     try {
-      await pool.query(
-        'DELETE FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2',
-        [userId, parseInt(tmdbId, 10)]
-      );
+      const sql = queryMediaType
+        ? 'DELETE FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2 AND media_type = $3'
+        : 'DELETE FROM series_subscriptions WHERE user_id = $1 AND tmdb_id = $2';
+      const params = queryMediaType ? [userId, parseInt(tmdbId, 10), queryMediaType] : [userId, parseInt(tmdbId, 10)];
+      await pool.query(sql, params);
       return { success: true, isSubscribed: false };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
   });
 
-  // 8. Check for new episodes across subscribed series (manual or direct trigger)
+  // 8. Check for new episodes & digital releases (manual or direct trigger)
   app.post('/api/notifications/check', { preHandler: [optionalAuth] }, async (request: AuthenticatedRequest) => {
     const queryUserId = (request.query as any)?.userId;
     const userId = request.user?.userId || (queryUserId ? parseInt(queryUserId, 10) : 0);
@@ -461,8 +674,9 @@ export function notificationRoutes(app: FastifyInstance, tmdbProvider?: TmdbProv
       return { success: false, error: 'User is required' };
     }
     try {
-      const newCount = await checkNewEpisodes(userId, tmdbProvider);
-      return { success: true, newEpisodesFound: newCount };
+      const newEpisodes = await checkNewEpisodes(userId, tmdbProvider);
+      const newMovies = await checkMovieDigitalReleases(userId);
+      return { success: true, newEpisodesFound: newEpisodes, newMoviesFound: newMovies };
     } catch (err: any) {
       return { success: false, error: err.message };
     }
