@@ -4628,9 +4628,8 @@
     html += '<button class="detail-btn detail-btn-icon" id="detail-watchlist-btn" tabindex="0" title="Буду смотреть">+</button>';
     html += '<button class="detail-btn detail-btn-icon" id="detail-fav-btn" tabindex="0" title="В закладки">♡</button>';
     html += '<button class="detail-btn detail-btn-icon" id="detail-watched-btn" tabindex="0" title="Просмотрено">✓</button>';
-    if (d.type === 'tv') {
-      html += '<button class="detail-btn detail-btn-icon" id="detail-track-btn" tabindex="0" title="Следить за новыми сериями">🔔</button>';
-    }
+    var trackTitle = (d.type === 'tv') ? 'Следить за новыми сериями' : 'Следить за цифровым релизом';
+    html += '<button class="detail-btn detail-btn-icon" id="detail-track-btn" tabindex="0" title="' + esc(trackTitle) + '">🔔</button>';
     html += '<button class="detail-btn detail-btn-trailer" id="detail-trailer-btn" tabindex="0">🎞 Трейлер</button>';
     html += '</div>'; // end detail-actions
 
@@ -5337,55 +5336,79 @@
     }
 
     var trackBtn = document.getElementById('detail-track-btn');
-    if (trackBtn && d.type === 'tv') {
-      apiFetch('/api/notifications/is-subscribed/' + d.id, function(err, res) {
+    if (trackBtn) {
+      var isTv = (d.type === 'tv');
+      var mType = isTv ? 'tv' : 'movie';
+      var subTitleActive = isTv ? 'Отписаться от серий' : 'Отписаться от релиза';
+      var subTitleInactive = isTv ? 'Следить за новыми сериями' : 'Следить за цифровым релизом';
+
+      apiFetch('/api/notifications/is-subscribed/' + d.id + '?mediaType=' + mType, function(err, res) {
         if (!err && res && res.isSubscribed) {
           trackBtn.innerHTML = '🔕';
-          trackBtn.setAttribute('title', 'Отписаться от серий');
+          trackBtn.setAttribute('title', subTitleActive);
           trackBtn.classList.add('active-action');
         } else {
           trackBtn.innerHTML = '🔔';
-          trackBtn.setAttribute('title', 'Следить за новыми сериями');
+          trackBtn.setAttribute('title', subTitleInactive);
           trackBtn.classList.remove('active-action');
         }
       });
+
       trackBtn.addEventListener('click', function() {
         var isSubbed = trackBtn.classList.contains('active-action');
         if (isSubbed) {
-          apiDelete('/api/notifications/subscribe/' + d.id, function(err) {
+          apiDelete('/api/notifications/subscribe/' + d.id + '?mediaType=' + mType, function(err) {
             if (!err) {
               trackBtn.innerHTML = '🔔';
-              trackBtn.setAttribute('title', 'Следить за новыми сериями');
+              trackBtn.setAttribute('title', subTitleInactive);
               trackBtn.classList.remove('active-action');
-              showTvToast('Вы отписались от обновлений серий', 2000);
+              showTvToast(isTv ? 'Вы отписались от обновлений серий' : 'Вы отписались от релиза фильма', 2000);
             }
           });
         } else {
-          var curSeason = 0;
-          var curEpisode = 0;
-          if (d.seasons && Array.isArray(d.seasons)) {
-            for (var si = 0; si < d.seasons.length; si++) {
-              var sObj = d.seasons[si];
-              if (sObj && sObj.season_number > curSeason) {
-                curSeason = sObj.season_number;
-                curEpisode = sObj.episode_count || 1;
+          if (isTv) {
+            var curSeason = 0;
+            var curEpisode = 0;
+            if (d.seasons && Array.isArray(d.seasons)) {
+              for (var si = 0; si < d.seasons.length; si++) {
+                var sObj = d.seasons[si];
+                if (sObj && sObj.season_number > curSeason) {
+                  curSeason = sObj.season_number;
+                  curEpisode = sObj.episode_count || 1;
+                }
               }
             }
+            apiPost('/api/notifications/subscribe', {
+              tmdbId: d.id,
+              title: d.logoText || d.name,
+              poster: d.poster,
+              mediaType: 'tv',
+              lastSeason: curSeason,
+              lastEpisode: curEpisode
+            }, function(err) {
+              if (!err) {
+                trackBtn.innerHTML = '🔕';
+                trackBtn.setAttribute('title', subTitleActive);
+                trackBtn.classList.add('active-action');
+                showTvToast('Вы подписались на новые серии!', 2000);
+              }
+            });
+          } else {
+            apiPost('/api/notifications/subscribe', {
+              tmdbId: d.id,
+              title: d.logoText || d.name,
+              poster: d.poster,
+              mediaType: 'movie',
+              year: d.year ? parseInt(d.year, 10) : undefined
+            }, function(err) {
+              if (!err) {
+                trackBtn.innerHTML = '🔕';
+                trackBtn.setAttribute('title', subTitleActive);
+                trackBtn.classList.add('active-action');
+                showTvToast('🔔 Сообщим, когда фильм выйдет в хорошем качестве с чистым звуком!', 3000);
+              }
+            });
           }
-          apiPost('/api/notifications/subscribe', {
-            tmdbId: d.id,
-            title: d.logoText || d.name,
-            poster: d.poster,
-            lastSeason: curSeason,
-            lastEpisode: curEpisode
-          }, function(err) {
-            if (!err) {
-              trackBtn.innerHTML = '🔕';
-              trackBtn.setAttribute('title', 'Отписаться от серий');
-              trackBtn.classList.add('active-action');
-              showTvToast('Вы подписались на новые серии!', 2000);
-            }
-          });
         }
       });
     }
