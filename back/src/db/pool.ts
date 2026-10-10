@@ -72,7 +72,7 @@ function loadFallbackDb(): LocalDb {
 
 function saveFallbackDb(db: LocalDb) {
   try {
-    fs.writeFileSync(fallbackDbPath, JSON.stringify(db, null, 2), 'utf8');
+    fs.writeFileSync(fallbackDbPath, JSON.stringify(db, (k, v) => (typeof v === 'bigint' ? v.toString() : v), 2), 'utf8');
   } catch (err: any) {
     console.error('[DB] Error saving local fallback db:', err.message);
   }
@@ -545,7 +545,7 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
     return { rows: [] };
   }
 
-  // 16. Series Subscriptions
+  // 16. Series & Movie Subscriptions
   if (/SELECT .* FROM series_subscriptions WHERE user_id = \$1 AND tmdb_id = \$2/i.test(cleanSql)) {
     const sub = db.series_subscriptions.find((s) => s.user_id === Number(params[0]) && s.tmdb_id === Number(params[1]));
     return { rows: sub ? [sub] : [] };
@@ -555,8 +555,26 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
     if (params.length > 0 && params[0] !== undefined) {
       subs = subs.filter((s) => s.user_id === Number(params[0]));
     }
+    if (/media_type = 'movie'/i.test(cleanSql)) {
+      subs = subs.filter((s) => s.media_type === 'movie');
+    } else if (/media_type = 'tv'/i.test(cleanSql)) {
+      subs = subs.filter((s) => !s.media_type || s.media_type === 'tv');
+    }
+    if (/is_notified = false/i.test(cleanSql)) {
+      subs = subs.filter((s) => !s.is_notified);
+    }
     subs.sort((a, b) => (b.id || 0) - (a.id || 0));
     return { rows: subs };
+  }
+  if (/UPDATE series_subscriptions SET is_notified = \$1 WHERE id = \$2/i.test(cleanSql)) {
+    const isNotified = Boolean(params[0]);
+    const id = Number(params[1]);
+    const sub = db.series_subscriptions.find((s) => s.id === id);
+    if (sub) {
+      sub.is_notified = isNotified;
+      saveFallbackDb(db);
+    }
+    return { rows: sub ? [sub] : [] };
   }
   if (/UPDATE series_subscriptions SET last_season = \$1, last_episode = \$2 WHERE user_id = \$3 AND tmdb_id = \$4/i.test(cleanSql)) {
     const season = Number(params[0]);
@@ -572,7 +590,8 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
     return { rows: sub ? [sub] : [] };
   }
   if (/INSERT INTO series_subscriptions/i.test(cleanSql)) {
-    const existingIdx = db.series_subscriptions.findIndex((s) => s.user_id === Number(params[0]) && s.tmdb_id === Number(params[1]));
+    const mType = cleanSql.includes('media_type') ? (params[6] || 'tv') : 'tv';
+    const existingIdx = db.series_subscriptions.findIndex((s) => s.user_id === Number(params[0]) && s.tmdb_id === Number(params[1]) && (!s.media_type || s.media_type === mType));
     const nextId = db.series_subscriptions.length > 0 ? Math.max(...db.series_subscriptions.map((s) => s.id || 0)) + 1 : 1;
     const item = {
       id: existingIdx >= 0 ? db.series_subscriptions[existingIdx].id : nextId,
@@ -582,6 +601,9 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
       poster: params[3] || '',
       last_season: Number(params[4] || 0),
       last_episode: Number(params[5] || 0),
+      media_type: mType,
+      target_quality: 'digital',
+      is_notified: false,
       created_at: new Date().toISOString()
     };
     if (existingIdx >= 0) {

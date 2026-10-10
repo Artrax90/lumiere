@@ -144,19 +144,26 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 
--- Series subscriptions (tracking new episodes)
+-- Series & Movie subscriptions (tracking new episodes & digital releases)
 CREATE TABLE IF NOT EXISTS series_subscriptions (
   id SERIAL PRIMARY KEY,
   user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   tmdb_id INTEGER NOT NULL,
   title VARCHAR(500) NOT NULL,
   poster VARCHAR(500) DEFAULT '',
+  media_type VARCHAR(50) DEFAULT 'tv',
+  target_quality VARCHAR(50) DEFAULT 'digital',
   last_season INTEGER DEFAULT 0,
   last_episode INTEGER DEFAULT 0,
+  is_notified BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE(user_id, tmdb_id)
 );
+ALTER TABLE series_subscriptions ADD COLUMN IF NOT EXISTS media_type VARCHAR(50) DEFAULT 'tv';
+ALTER TABLE series_subscriptions ADD COLUMN IF NOT EXISTS target_quality VARCHAR(50) DEFAULT 'digital';
+ALTER TABLE series_subscriptions ADD COLUMN IF NOT EXISTS is_notified BOOLEAN DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS idx_series_subscriptions_user_id ON series_subscriptions(user_id);
+CREATE INDEX IF NOT EXISTS idx_series_subscriptions_media ON series_subscriptions(user_id, media_type);
 
 -- EPG Reminders / Auto-switch
 CREATE TABLE IF NOT EXISTS epg_reminders (
