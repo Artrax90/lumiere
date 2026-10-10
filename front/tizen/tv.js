@@ -342,7 +342,7 @@
     }
     state.activePlayerMedia = null;
 
-    if (detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
+    if (state.playerOpenedFrom === 'detail' && detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
       var isSameDetailLoaded = hasDetailContent && (Number(state.detailLoadedId) === Number(targetDetail.id));
       if (isSameDetailLoaded) {
         if (app) {
@@ -355,9 +355,9 @@
         var focusTarget = null;
         if (targetDetail.type === 'tv') {
           var targetEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.episode) ||
-                         parseInt(localStorage.getItem('last_episode_' + targetDetail.id), 10);
+                         parseInt(getStorageItem('last_episode_' + targetDetail.id), 10);
           var targetSeason = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.season) ||
-                             parseInt(localStorage.getItem('last_season_' + targetDetail.id), 10);
+                             parseInt(getStorageItem('last_season_' + targetDetail.id), 10);
 
           if (targetEp) {
             if (targetSeason) {
@@ -2080,26 +2080,26 @@
 
     if (item && item.id) {
       try {
-        localStorage.setItem('last_watched_id', String(item.id));
-        var posMap = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        setStorageItem('last_watched_id', String(item.id));
+        var posMap = JSON.parse(getStorageItem('playback_positions') || '{}');
         if (posMap[item.id]) {
           posMap[item.id].timestamp = Date.now();
-          localStorage.setItem('playback_positions', JSON.stringify(posMap));
+          setStorageItem('playback_positions', JSON.stringify(posMap));
         }
       } catch(e) {}
     }
 
     var lastTorrents = {};
-    try { lastTorrents = JSON.parse(localStorage.getItem('last_torrents') || '{}'); } catch(e) {}
+    try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
     var tObj = lastTorrents[item.id];
     var isTvShow = (Number(item.id) === 1408) ||
                    (tObj && (tObj.type === 'tv' || tObj.season)) ||
                    (item.title && (item.title.type === 'tv' || item.title.season)) ||
                    (rawName && /·\s*S\d+/i.test(rawName)) ||
-                   !!localStorage.getItem('last_season_' + item.id);
+                   !!getStorageItem('last_season_' + item.id);
     if (!isTvShow && Number(item.id) !== 13) {
       for (var lk in localStorage) {
-        if (lk.indexOf('season_torrent_' + item.id + '_') === 0) {
+        if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
           isTvShow = true;
           break;
         }
@@ -2127,10 +2127,27 @@
       if (sOnlyMatch) targetSeason = parseInt(sOnlyMatch[1], 10);
     }
 
-    // Priority 2: Check playback_positions for this item
-    if (!targetSeason || !targetEpisode) {
-      try {
-        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+    // Priority 2: Check playback_positions for this item (including per-episode keys id_sX_eY)
+    try {
+      var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+      if (!targetSeason || !targetEpisode) {
+        var bestEpTime = 0;
+        for (var pk in positions) {
+          if (pk.indexOf(item.id + '_s') === 0) {
+            var epM = pk.match(/_s(\d+)_e(\d+)/);
+            if (epM) {
+              var epItem = positions[pk];
+              var epTs = typeof epItem === 'object' ? (epItem.timestamp || epItem.updatedAt || 0) : 0;
+              if (epTs > bestEpTime) {
+                bestEpTime = epTs;
+                targetSeason = parseInt(epM[1], 10);
+                targetEpisode = parseInt(epM[2], 10);
+              }
+            }
+          }
+        }
+      }
+      if (!targetSeason || !targetEpisode) {
         var pEntry = positions[item.id];
         if (pEntry && pEntry.title) {
           if (!targetSeason && pEntry.title.season) targetSeason = parseInt(pEntry.title.season, 10);
@@ -2143,10 +2160,10 @@
             }
           }
         }
-      } catch(e) {}
-    }
+      }
+    } catch(e) {}
 
-    // Priority 3: Fallback to tObj / item.title / last_season_
+    // Priority 3: Fallback to tObj / item.title / last_season_ / last_episode_
     if (!targetSeason && tObj && tObj.season) targetSeason = parseInt(tObj.season, 10);
     if (!targetEpisode && tObj && tObj.episode) targetEpisode = parseInt(tObj.episode, 10);
 
@@ -2157,10 +2174,18 @@
 
     if (!targetSeason) {
       try {
-        var ls = localStorage.getItem('last_season_' + item.id);
+        var ls = getStorageItem('last_season_' + item.id);
         if (ls) targetSeason = parseInt(ls, 10);
       } catch(e) {}
     }
+    if (!targetEpisode) {
+      try {
+        var le = getStorageItem('last_episode_' + item.id);
+        if (le) targetEpisode = parseInt(le, 10);
+      } catch(e) {}
+    }
+
+    console.log('[TV] launchContinueWatching target: S' + targetSeason + ' E' + targetEpisode + ' for item', item.id, rawName);
 
     // Ensure state.continueContext is passed so openTorrent knows exact season/episode
     // CRITICAL: Only use tObj.fileIndex/fileName if tObj actually belongs to the target episode!
@@ -2192,12 +2217,12 @@
     if (curType === 'tv') {
       if (targetSeason) {
         try {
-          seasonTorrent = JSON.parse(localStorage.getItem('season_torrent_' + item.id + '_' + targetSeason) || 'null');
+          seasonTorrent = JSON.parse(getStorageItem('season_torrent_' + item.id + '_' + targetSeason) || 'null');
         } catch(e) {}
       }
       if (!seasonTorrent || !seasonTorrent.magnet) {
         for (var k in localStorage) {
-          if (k.indexOf('season_torrent_' + item.id + '_') === 0) {
+          if (k.indexOf('season_torrent_' + item.id + '_') !== -1) {
             try { seasonTorrent = JSON.parse(localStorage.getItem(k)); } catch(e) {}
             if (seasonTorrent && seasonTorrent.magnet) break;
           }
@@ -2318,6 +2343,7 @@
         var card = document.createElement('div');
         card.className = 'card';
         card.setAttribute('tabindex', '0');
+        card.setAttribute('data-id', item.id);
         card._continueItem = item;
         var rawName = (item.title && typeof item.title === 'object') ? (item.title.name || item.title.logoText || '') : (item.title || '');
         var poster = (item.title && typeof item.title === 'object') ? (item.title.poster || '') : '';
@@ -2336,12 +2362,12 @@
           if (positions[item.id] && typeof positions[item.id].title === 'object') {
             positions[item.id].title.name = 'Форрест Гамп';
             positions[item.id].title.type = 'movie';
-            try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+            try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
           }
         }
 
-        // Self-heal House M.D. (ID 1408) if collided with movie "1408"
-        if (Number(item.id) === 1408 || /^(1408|Комната 1408)$/i.test(name)) {
+        // Self-heal House M.D. (ID 1408) only if literally collided with movie "1408"
+        if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(name) || !name)) {
           name = 'Доктор Хаус';
           rawName = 'Доктор Хаус';
           if (item.title && typeof item.title === 'object') {
@@ -2359,8 +2385,8 @@
             }
           }
           try {
-            localStorage.setItem('playback_positions', JSON.stringify(positions));
-            localStorage.setItem('last_torrents', JSON.stringify(lastTorrents));
+            setStorageItem('playback_positions', JSON.stringify(positions));
+            setStorageItem('last_torrents', JSON.stringify(lastTorrents));
           } catch(e) {}
         }
         if ((!/[\u0400-\u04FF]/.test(name) || /\.(mkv|mp4|avi)$/i.test(name)) && torrent && torrent.title && /[\u0400-\u04FF]/.test(torrent.title)) {
@@ -2377,10 +2403,10 @@
                          ((item.title && item.title.type === 'tv') || (item.title && item.title.season)) ||
                          ((torrent && torrent.type === 'tv') || (torrent && torrent.season)) ||
                          (/ · S[0-9]+/i.test(rawName)) ||
-                         !!localStorage.getItem('last_season_' + item.id);
+                         !!getStorageItem('last_season_' + item.id);
           if (!isTvShow && Number(item.id) !== 13) {
             for (var lk in localStorage) {
-              if (lk.indexOf('season_torrent_' + item.id + '_') === 0) {
+              if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
                 isTvShow = true;
                 break;
               }
@@ -2410,8 +2436,14 @@
                   var epE = (torrent && torrent.episode) || (item.title && item.title.episode);
                   if (!epS) {
                     try {
-                      var lsV = localStorage.getItem('last_season_' + item.id);
+                      var lsV = getStorageItem('last_season_' + item.id);
                       if (lsV) epS = parseInt(lsV, 10);
+                    } catch(e) {}
+                  }
+                  if (!epE) {
+                    try {
+                      var leV = getStorageItem('last_episode_' + item.id);
+                      if (leV) epE = parseInt(leV, 10);
                     } catch(e) {}
                   }
                   if (epS && epE) {
@@ -2445,14 +2477,14 @@
                     positions[item.id].title.poster = data.poster;
                   }
                 }
-                try { localStorage.setItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+                try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
               }
 
               // Also persist in last_torrents
               if (lastTorrents[item.id]) {
                 lastTorrents[item.id].title = ruName;
                 lastTorrents[item.id].type = type;
-                try { localStorage.setItem('last_torrents', JSON.stringify(lastTorrents)); } catch(e) {}
+                try { setStorageItem('last_torrents', JSON.stringify(lastTorrents)); } catch(e) {}
               }
             }
 
@@ -2496,6 +2528,9 @@
           '<div class="card-title"><span class="card-title-text">' + esc(name) + '</span></div>';
 
         card.addEventListener('focus', function() {
+          clearCardFocus();
+          card.classList.add('focused');
+          state._currentFocusedCard = card;
           if (state.section === 'home' && typeof updateHeroBanner === 'function') {
             updateHeroBanner(card._titleData);
           }
@@ -2505,6 +2540,7 @@
         });
 
         card.addEventListener('blur', function() {
+          card.classList.remove('focused');
           if (typeof stopCardTitleMarquee === 'function') {
             stopCardTitleMarquee(card);
           }
@@ -2525,7 +2561,12 @@
         });
 
         card.addEventListener('click', function() {
-          var cleanName = (typeof name === 'string' && name !== '[object Object]') ? name : '';
+          state._currentFocusedCard = card;
+          state.lastDetailTitleId = item.id;
+          state.fromContinueWatching = true;
+          var titleEl = card.querySelector('.card-title-text');
+          var activeName = (titleEl && titleEl.innerText) ? titleEl.innerText.trim() : ((card._titleData && card._titleData.name) || name);
+          var cleanName = (typeof activeName === 'string' && activeName !== '[object Object]') ? activeName : '';
           if (!cleanName && item.title) {
             cleanName = (typeof item.title === 'object') ? (item.title.name || item.title.title || '') : item.title;
           }
@@ -2702,7 +2743,7 @@
     if (!container || !row) return;
 
     var positions = {};
-    try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
 
     var watchedIds = [];
     var watchedItems = [];
@@ -4398,6 +4439,9 @@
     state.detailSeason = '';
     state.detail = null;
     state.detailLoadedId = title.id;
+    if (title && title.id) {
+      state.lastDetailTitleId = title.id;
+    }
 
     // Loading state
     renderDetailLoading(title);
@@ -4571,8 +4615,8 @@
     html += '<div class="detail-actions">';
     var savedTorrent = null;
     var savedPosition = 0;
-    try { savedTorrent = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[d.id] || null; } catch(e) {}
-    try { savedPosition = (JSON.parse(localStorage.getItem('playback_positions') || '{}'))[d.id] || 0; } catch(e) {}
+    try { savedTorrent = (JSON.parse(getStorageItem('last_torrents') || '{}'))[d.id] || null; } catch(e) {}
+    try { savedPosition = (JSON.parse(getStorageItem('playback_positions') || '{}'))[d.id] || 0; } catch(e) {}
     if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
     var hasResume = savedTorrent && savedPosition > 30;
 
@@ -4710,7 +4754,7 @@
     if (d.type === 'tv') {
       var savedSeason = 1;
       try {
-        var sSaved = localStorage.getItem('last_season_' + d.id);
+        var sSaved = getStorageItem('last_season_' + d.id);
         if (sSaved && parseInt(sSaved, 10) > 0) savedSeason = parseInt(sSaved, 10);
       } catch(e) {}
       var sCount = d.seasonsCount || (d.seasons && d.seasons.length) || 1;
@@ -4781,7 +4825,7 @@
       state.detailTab = 'episodes';
       var initSeason = 1;
       try {
-        var lsInit = localStorage.getItem('last_season_' + d.id);
+        var lsInit = getStorageItem('last_season_' + d.id);
         if (lsInit && parseInt(lsInit, 10) > 0) initSeason = parseInt(lsInit, 10);
       } catch(e) {}
       state.detailSeason = String(initSeason);
@@ -4836,6 +4880,13 @@
   }
 
   function hideDetail() {
+    var now = Date.now();
+    lastBackTimestamp = now;
+    state.modalCloseTimestamp = now;
+    try { if (typeof window !== 'undefined') window.lastBackTimestamp = now; } catch(we) {}
+
+    var closingDetailId = state.detailLoadedId || (state.detail && state.detail.id) || state.lastDetailTitleId;
+
     if (!$detail) $detail = document.getElementById('detail');
     if ($detail) {
       $detail.classList.add('hidden');
@@ -4847,9 +4898,31 @@
       app.classList.remove('hidden');
       app.style.display = 'block';
     }
+
     var c = document.querySelector('.card.focused');
+    if (!c && closingDetailId) {
+      c = document.querySelector('#continue-items .card[data-id="' + closingDetailId + '"]') ||
+          document.querySelector('#sec-' + state.section + ' .card[data-id="' + closingDetailId + '"]');
+    }
+    if (!c && state.fromContinueWatching) {
+      c = document.querySelector('#continue-items .card');
+    }
+    if (!c && state.section === 'home') {
+      c = document.querySelector('#continue-items .card') ||
+          document.querySelector('#sec-home .card');
+    }
+
     if (c) {
-      try { c.focus(); } catch(e) {}
+      clearCardFocus();
+      clearNavFocus();
+      c.classList.add('focused');
+      state._currentFocusedCard = c;
+      try { c.focus({ preventScroll: true }); } catch(e) { try { c.focus(); } catch(e2) {} }
+      if (typeof scrollToCard === 'function') scrollToCard(c);
+      if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(c);
+      if (state.section === 'home' && c._titleData && typeof updateHeroBanner === 'function') {
+        updateHeroBanner(c._titleData);
+      }
     } else {
       focusNav(state.focusedNav || 0);
     }
@@ -4981,8 +5054,8 @@
 
       // 2. Check localStorage last_season_ / last_episode_
       if (!foundResume) {
-        var sSaved = parseInt(localStorage.getItem('last_season_' + det.id), 10);
-        var eSaved = parseInt(localStorage.getItem('last_episode_' + det.id), 10);
+        var sSaved = parseInt(getStorageItem('last_season_' + det.id), 10);
+        var eSaved = parseInt(getStorageItem('last_episode_' + det.id), 10);
         if (sSaved && eSaved) {
           targetSeason = sSaved;
           targetEp = eSaved;
@@ -4993,7 +5066,7 @@
       // 3. Check playback_positions
       if (!foundResume) {
         try {
-          var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+          var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
           var bestTime = 0;
           for (var pk in positions) {
             if (pk.indexOf(det.id + '_s') === 0) {
@@ -5024,7 +5097,7 @@
       // 4. Check last_torrents
       if (!foundResume) {
         try {
-          var lastT = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id];
+          var lastT = (JSON.parse(getStorageItem('last_torrents') || '{}'))[det.id];
           if (lastT && lastT.episode) {
             targetEp = parseInt(lastT.episode, 10);
             if (lastT.season) targetSeason = parseInt(lastT.season, 10);
@@ -5074,8 +5147,8 @@
     var savedTorrent = null;
     var savedPosition = 0;
     if (det.id) {
-      try { savedTorrent = (JSON.parse(localStorage.getItem('last_torrents') || '{}'))[det.id] || null; } catch(ex) {}
-      try { savedPosition = (JSON.parse(localStorage.getItem('playback_positions') || '{}'))[det.id] || 0; } catch(ex) {}
+      try { savedTorrent = (JSON.parse(getStorageItem('last_torrents') || '{}'))[det.id] || null; } catch(ex) {}
+      try { savedPosition = (JSON.parse(getStorageItem('playback_positions') || '{}'))[det.id] || 0; } catch(ex) {}
       if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
     }
     if (savedTorrent && savedTorrent.magnet && savedPosition > 30) {
@@ -5639,7 +5712,7 @@
           state.detailSeason = val;
           try {
             var showId = (state.detail && state.detail.id) || (title && title.id);
-            if (showId) localStorage.setItem('last_season_' + showId, val);
+            if (showId) setStorageItem('last_season_' + showId, val);
           } catch(e) {}
           var all = document.querySelectorAll('.season-btn');
           for (var j = 0; j < all.length; j++) {
@@ -5764,12 +5837,12 @@
 
       var watchedList = [];
       try {
-        var wRaw = localStorage.getItem('watched_episodes_' + showId);
+        var wRaw = getStorageItem('watched_episodes_' + showId);
         if (wRaw) watchedList = JSON.parse(wRaw);
       } catch(we) {}
       var playbackPositions = {};
       try {
-        playbackPositions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        playbackPositions = JSON.parse(getStorageItem('playback_positions') || '{}');
       } catch(pe) {}
 
       var html = '<div class="episodes-grid">';
@@ -5875,7 +5948,7 @@
 
       // If returning from player or opening detail, keep last watched episode focused and centered!
       var preserveEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == showId && state.lastPlayedEpisode.season === seasonNum && state.lastPlayedEpisode.episode) ||
-                       (parseInt(localStorage.getItem('last_season_' + showId), 10) === seasonNum ? parseInt(localStorage.getItem('last_episode_' + showId), 10) : null);
+                       (parseInt(getStorageItem('last_season_' + showId), 10) === seasonNum ? parseInt(getStorageItem('last_episode_' + showId), 10) : null);
       if (preserveEp) {
         var pCard = container.querySelector('.episode-card[data-episode="' + preserveEp + '"]');
         if (pCard && !document.querySelector('.episode-card.focused')) {
@@ -5905,8 +5978,8 @@
     };
     try {
       if (showId) {
-        localStorage.setItem('last_season_' + showId, String(seasonNum));
-        localStorage.setItem('last_episode_' + showId, String(epNum));
+        setStorageItem('last_season_' + showId, String(seasonNum));
+        setStorageItem('last_episode_' + showId, String(epNum));
       }
     } catch(e) {}
 
@@ -5949,7 +6022,7 @@
 
       var savedKey = 'season_torrent_' + showId + '_' + seasonNum;
       var savedTorrent = null;
-      try { savedTorrent = JSON.parse(localStorage.getItem(savedKey) || 'null'); } catch(e) {}
+      try { savedTorrent = JSON.parse(getStorageItem(savedKey) || 'null'); } catch(e) {}
 
       var sorted = candidateList.slice().sort(function(a, b) {
         var scoreA = scoreTorrent(a) + (a._epBonus || 0);
@@ -6032,6 +6105,8 @@
           }
 
           if (matchedFile) {
+            matchedFile.season = seasonNum;
+            matchedFile.episode = epNum;
             try {
               var sTorrentData = {
                 magnet: candidate.magnet,
@@ -6041,10 +6116,11 @@
                 fileIndex: matchedFile.id,
                 fileName: matchedFile.name
               };
-              localStorage.setItem(savedKey, JSON.stringify(sTorrentData));
-              localStorage.setItem('last_season_' + showId, String(seasonNum));
+              setStorageItem(savedKey, JSON.stringify(sTorrentData));
+              setStorageItem('last_season_' + showId, String(seasonNum));
+              setStorageItem('last_episode_' + showId, String(epNum));
 
-              var lastTorrentsMap = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+              var lastTorrentsMap = JSON.parse(getStorageItem('last_torrents') || '{}');
               lastTorrentsMap[showId] = {
                 magnet: candidate.magnet,
                 title: epTitleStr,
@@ -6054,7 +6130,7 @@
                 fileIndex: matchedFile.id,
                 fileName: matchedFile.name
               };
-              localStorage.setItem('last_torrents', JSON.stringify(lastTorrentsMap));
+              setStorageItem('last_torrents', JSON.stringify(lastTorrentsMap));
             } catch(se) {}
 
             playFile(matchedFile, epTitleStr, showId, epPoster, files, autoPlayDirect ? 0 : undefined);
@@ -7092,8 +7168,8 @@
     if (movieId) {
       try {
         var now = Date.now();
-        localStorage.setItem('last_watched_id', String(movieId));
-        var last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        setStorageItem('last_watched_id', String(movieId));
+        var last = JSON.parse(getStorageItem('last_torrents') || '{}');
         var prev = last[movieId] || {};
         last[movieId] = {
           magnet: magnet,
@@ -7105,14 +7181,14 @@
           episode: prev.episode,
           timestamp: now
         };
-        localStorage.setItem('last_torrents', JSON.stringify(last));
+        setStorageItem('last_torrents', JSON.stringify(last));
       } catch(e) {}
 
       if ((mediaType === 'tv' || (state.detail && state.detail.type === 'tv')) && state.detailSeason) {
         try {
           var sPrev = {};
-          try { sPrev = JSON.parse(localStorage.getItem('season_torrent_' + movieId + '_' + state.detailSeason) || '{}') || {}; } catch(e2) {}
-          localStorage.setItem('season_torrent_' + movieId + '_' + state.detailSeason, JSON.stringify({
+          try { sPrev = JSON.parse(getStorageItem('season_torrent_' + movieId + '_' + state.detailSeason) || '{}') || {}; } catch(e2) {}
+          setStorageItem('season_torrent_' + movieId + '_' + state.detailSeason, JSON.stringify({
             magnet: magnet,
             title: movieName || sPrev.title,
             type: mediaType,
@@ -7131,7 +7207,7 @@
     var startParam = '';
     if (movieId) {
       try {
-        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
         var saved = positions[movieId];
         if (saved && typeof saved === 'object' && saved.time > 30) {
           startParam = '&start=' + Math.floor(saved.time);
@@ -7192,7 +7268,7 @@
         var savedT = null;
         if (movieId) {
           try {
-            savedT = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+            savedT = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
             if (savedT) {
               if (targetSeason == null && savedT.season) targetSeason = parseInt(savedT.season, 10);
               if (targetEpisode == null && savedT.episode) targetEpisode = parseInt(savedT.episode, 10);
@@ -7202,13 +7278,28 @@
 
         if (movieId && (targetSeason == null || targetEpisode == null)) {
           try {
-            var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+            var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+            var bestEpTime = 0;
+            for (var pk in positions) {
+              if (pk.indexOf(movieId + '_s') === 0) {
+                var epM = pk.match(/_s(\d+)_e(\d+)/);
+                if (epM) {
+                  var epItem = positions[pk];
+                  var epTs = typeof epItem === 'object' ? (epItem.timestamp || epItem.updatedAt || 0) : 0;
+                  if (epTs > bestEpTime) {
+                    bestEpTime = epTs;
+                    if (targetSeason == null) targetSeason = parseInt(epM[1], 10);
+                    if (targetEpisode == null) targetEpisode = parseInt(epM[2], 10);
+                  }
+                }
+              }
+            }
             var savedPos = positions[movieId];
             if (savedPos && savedPos.title) {
-              var epM = (savedPos.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (savedPos.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
-              if (epM) {
-                if (targetSeason == null) targetSeason = parseInt(epM[1], 10);
-                if (targetEpisode == null) targetEpisode = parseInt(epM[2], 10);
+              var epM2 = (savedPos.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (savedPos.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+              if (epM2) {
+                if (targetSeason == null) targetSeason = parseInt(epM2[1], 10);
+                if (targetEpisode == null) targetEpisode = parseInt(epM2[2], 10);
               }
               if (savedPos.title.season && targetSeason == null) targetSeason = parseInt(savedPos.title.season, 10);
               if (savedPos.title.episode && targetEpisode == null) targetEpisode = parseInt(savedPos.title.episode, 10);
@@ -7218,8 +7309,14 @@
 
         if (targetSeason == null && movieId) {
           try {
-            var lsVal = localStorage.getItem('last_season_' + movieId);
+            var lsVal = getStorageItem('last_season_' + movieId);
             if (lsVal) targetSeason = parseInt(lsVal, 10);
+          } catch(ex) {}
+        }
+        if (targetEpisode == null && movieId) {
+          try {
+            var leVal = getStorageItem('last_episode_' + movieId);
+            if (leVal) targetEpisode = parseInt(leVal, 10);
           } catch(ex) {}
         }
 
@@ -7258,21 +7355,28 @@
           targetFile = videoFiles[0];
         }
 
+        if (targetFile) {
+          if (targetSeason) targetFile.season = targetSeason;
+          if (targetEpisode) targetFile.episode = targetEpisode;
+        }
+
         // Update last_torrents with the file we are actually launching
         if (movieId && targetFile) {
           try {
-            var curLast = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+            var curLast = JSON.parse(getStorageItem('last_torrents') || '{}');
             if (!curLast[movieId]) curLast[movieId] = {};
             curLast[movieId].magnet = magnet;
             curLast[movieId].fileIndex = targetFile.id;
             curLast[movieId].fileName = targetFile.name;
             if (targetSeason) curLast[movieId].season = targetSeason;
             if (targetEpisode) curLast[movieId].episode = targetEpisode;
-            localStorage.setItem('last_torrents', JSON.stringify(curLast));
+            setStorageItem('last_torrents', JSON.stringify(curLast));
+            if (targetSeason) setStorageItem('last_season_' + movieId, String(targetSeason));
+            if (targetEpisode) setStorageItem('last_episode_' + movieId, String(targetEpisode));
           } catch(e) {}
         }
 
-        playFile(targetFile, movieName, movieId);
+        playFile(targetFile, movieName, movieId, (state.detail && state.detail.poster) || '', data.files);
         return;
       }
 
@@ -7595,27 +7699,37 @@
     var poster = customPoster || (state.detail && state.detail.poster) || '';
 
     // Extract season and episode clues before constructing title
-    var sNum = null;
-    var eNum = null;
-    var epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
-                  (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
-                  ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
-                  ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i);
-    if (epMatch) {
-      sNum = parseInt(epMatch[1], 10);
-      eNum = parseInt(epMatch[2], 10);
+    var sNum = (file && file.season) || null;
+    var eNum = (file && file.episode) || null;
+    var epMatch = null;
+    if (!sNum || !eNum) {
+      epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
+                (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
+                ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
+                ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i) ||
+                ((file && file.name) || '').match(/(?:^|[^\d])(\d{1,2})[-._](\d{1,3})(?:[^\d]|$)/);
+      if (epMatch) {
+        if (!sNum) sNum = parseInt(epMatch[1], 10);
+        if (!eNum) eNum = parseInt(epMatch[2], 10);
+      }
     }
     if (!sNum && movieId) {
       try {
-        var ltObj = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+        var ltObj = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
         if (ltObj && ltObj.season) { sNum = parseInt(ltObj.season, 10); eNum = parseInt(ltObj.episode, 10); }
       } catch(ex) {}
       if (!sNum) {
         try {
-          var lsVal = localStorage.getItem('last_season_' + movieId);
+          var lsVal = getStorageItem('last_season_' + movieId);
           if (lsVal) sNum = parseInt(lsVal, 10);
         } catch(ex) {}
       }
+    }
+    if (!eNum && movieId) {
+      try {
+        var leVal = getStorageItem('last_episode_' + movieId);
+        if (leVal) eNum = parseInt(leVal, 10);
+      } catch(ex) {}
     }
 
     var isTv = (Number(movieId) === 1408) || (state.detail && state.detail.type === 'tv') || (sNum != null) || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
@@ -7661,7 +7775,7 @@
       startParam = '&start=0';
     } else if (movieId) {
       try {
-        var positions = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
         var saved = null;
         if (epMatch || (sNum && eNum)) {
           var epKey = movieId + '_s' + sNum + '_e' + eNum;
@@ -7691,21 +7805,23 @@
 
       try {
         var now = Date.now();
-        localStorage.setItem('last_watched_id', String(movieId));
+        setStorageItem('last_watched_id', String(movieId));
 
-        var posMap = JSON.parse(localStorage.getItem('playback_positions') || '{}');
+        var posMap = JSON.parse(getStorageItem('playback_positions') || '{}');
         if (!posMap[movieId]) posMap[movieId] = {};
         posMap[movieId].timestamp = now;
         if (!posMap[movieId].title) {
-          posMap[movieId].title = { name: name, poster: poster, id: movieId, type: mediaType };
+          posMap[movieId].title = { name: name, poster: poster, id: movieId, type: mediaType, season: sNum, episode: eNum };
         } else if (typeof posMap[movieId].title === 'object') {
           posMap[movieId].title.name = name;
           posMap[movieId].title.type = mediaType;
+          if (sNum) posMap[movieId].title.season = sNum;
+          if (eNum) posMap[movieId].title.episode = eNum;
           if (poster && !posMap[movieId].title.poster) posMap[movieId].title.poster = poster;
         }
-        localStorage.setItem('playback_positions', JSON.stringify(posMap));
+        setStorageItem('playback_positions', JSON.stringify(posMap));
 
-        var lastT = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+        var lastT = JSON.parse(getStorageItem('last_torrents') || '{}');
         if (!lastT[movieId]) lastT[movieId] = {};
         lastT[movieId].timestamp = now;
         if (file && file.id !== undefined) lastT[movieId].fileIndex = file.id;
@@ -7715,9 +7831,12 @@
           if (sNum) lastT[movieId].season = sNum;
           if (eNum) lastT[movieId].episode = eNum;
         }
-        localStorage.setItem('last_torrents', JSON.stringify(lastT));
+        setStorageItem('last_torrents', JSON.stringify(lastT));
         if (isTv && sNum) {
-          localStorage.setItem('last_season_' + movieId, String(sNum));
+          setStorageItem('last_season_' + movieId, String(sNum));
+        }
+        if (isTv && eNum) {
+          setStorageItem('last_episode_' + movieId, String(eNum));
         }
       } catch(le) {}
     }
@@ -8708,7 +8827,7 @@
         });
 
         try {
-          var raw = localStorage.getItem('playback_positions');
+          var raw = getStorageItem('playback_positions');
           var pos = raw ? JSON.parse(raw) : {};
           var existingIds = {};
           titles.forEach(function(t) { existingIds[t.id] = true; });
@@ -9184,7 +9303,7 @@
 
     // Calculate stats from playback_positions
     var positions = {};
-    try { positions = JSON.parse(localStorage.getItem('playback_positions') || '{}'); } catch(e) {}
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
 
     var totalSeconds = 0;
     var watchedCount = 0;
@@ -9397,6 +9516,21 @@
 
   function handleBackKey(e) {
     if (e && e.preventDefault) e.preventDefault();
+    if (e && e.repeat) return;
+
+    // 0. If player open, forward directly to player without triggering tv.js debounce!
+    var playerContainer = document.getElementById('player-container');
+    if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
+      if (typeof window.handlePlayerKey === 'function') {
+        window.handlePlayerKey(10009, 'Escape', e);
+      } else if (typeof window.handlePlayerBackKey === 'function') {
+        window.handlePlayerBackKey();
+      } else {
+        closePlayer();
+      }
+      return;
+    }
+
     var now = Date.now();
     var lastShared = Math.max(lastBackTimestamp, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
     if (now - lastShared < 600 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 600) || (state._justClosedPlayer && now - state._justClosedPlayer < 600)) {
@@ -9444,17 +9578,6 @@
         window.closeTorrentConfirmModal();
       } else if (confirmModal.parentNode) {
         confirmModal.parentNode.removeChild(confirmModal);
-      }
-      return;
-    }
-
-    // 1. If player open, close it
-    var playerContainer = document.getElementById('player-container');
-    if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
-      if (typeof window.handlePlayerBackKey === 'function') {
-        window.handlePlayerBackKey();
-      } else {
-        closePlayer();
       }
       return;
     }
@@ -9727,18 +9850,6 @@
       var playerContainer = document.getElementById('player-container');
       if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
         var isBackKey = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
-        if (isBackKey) {
-          var nowB = Date.now();
-          var lastSharedB = Math.max(lastBackTimestamp, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
-          if (nowB - lastSharedB < 500) {
-            if (e && e.preventDefault) e.preventDefault();
-            if (e && e.stopPropagation) e.stopPropagation();
-            if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
-            return;
-          }
-          lastBackTimestamp = nowB;
-          try { if (typeof window !== 'undefined') window.lastBackTimestamp = nowB; } catch(we) {}
-        }
         if (typeof window.handlePlayerKey === 'function') {
           window.handlePlayerKey(code, key, e);
         } else if (isBackKey) {

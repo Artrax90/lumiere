@@ -912,6 +912,10 @@
       $overlay.classList.add('hidden');
       $overlay.style.display = 'none';
     }
+    var btnNextNow = document.getElementById('btn-next-now');
+    var btnNextCancel = document.getElementById('btn-next-cancel');
+    if (btnNextNow) btnNextNow.classList.remove('focused');
+    if (btnNextCancel) btnNextCancel.classList.remove('focused');
   }
 
   function updateNextEpButtons() {
@@ -927,6 +931,7 @@
     if (!nextFile) return;
     console.log('[Player] Playing next episode:', nextFile);
     hideNextEpOverlay(true);
+    forceHideOsd();
     showFlash('▶', 'Следующая серия...');
 
     var nextSeason = nextFile.season || curSeason || 1;
@@ -1030,24 +1035,11 @@
     }
 
     if (autoHide && !popupOpen) {
-      var timeoutMs = (timelineFocused || bottomControlsFocused || topMenuFocused) ? 7000 : 4000;
+      var timeoutMs = (timelineFocused || bottomControlsFocused || topMenuFocused) ? 6000 : 3500;
       osdTimer = setTimeout(function() {
         if (!popupOpen) {
-          if (isPlaying) {
-            clearAllFocus();
-            hideOsd();
-          } else if (player) {
-            var hideOncePlaying = function() {
-              setTimeout(function() {
-                if (!popupOpen) {
-                  clearAllFocus();
-                  hideOsd();
-                }
-              }, 3000);
-              try { player.off('playing', hideOncePlaying); } catch(e) {}
-            };
-            player.on('playing', hideOncePlaying);
-          }
+          clearAllFocus();
+          hideOsd();
         }
       }, timeoutMs);
     }
@@ -1077,6 +1069,11 @@
     clearTopMenuFocus();
     clearBottomControlsFocus();
     blurTimeline();
+    try {
+      if (document.activeElement && document.activeElement !== document.body) {
+        document.activeElement.blur();
+      }
+    } catch(ae) {}
   }
 
   // ========== Top Action Buttons Focus ==========
@@ -1916,6 +1913,8 @@
       mediaId: movieId || 0,
       mediaTitle: effectiveTitle,
       mediaPoster: posterUrl || '',
+      season: (mediaType === 'tv' && curSeason) ? curSeason : 0,
+      episode: (mediaType === 'tv' && curEpisode) ? curEpisode : 0,
       currentTime: Math.round(currentTime || 0),
       duration: Math.round(duration || 0),
       isPaused: !activePlaying
@@ -1942,6 +1941,11 @@
     console.log('[Player] Exiting player...');
     try { saveProgress(); } catch(e1) {}
     try { destroyPlayer(); } catch(e2) { console.error('[Player] destroyPlayer error:', e2); }
+    try {
+      var exitNow = Date.now();
+      if (typeof window !== 'undefined') window.lastBackTimestamp = exitNow;
+      if (typeof state !== 'undefined' && state) state._justClosedPlayer = exitNow;
+    } catch(te) {}
     if (typeof window.closePlayer === 'function') {
       try {
         window.closePlayer();
@@ -2041,17 +2045,17 @@
       // 1. Back / Return / Escape Key
       if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
         var nowBack = Date.now();
-        var lastSharedBack = Math.max(lastPlayerBackTime, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
-        if (nowBack - lastSharedBack < 500) {
+        if (nowBack - lastPlayerBackTime < 280) {
           if (e && e.preventDefault) e.preventDefault();
           if (e && e.stopPropagation) e.stopPropagation();
           return;
         }
         lastPlayerBackTime = nowBack;
-        try { if (typeof window !== 'undefined') window.lastBackTimestamp = nowBack; } catch(we) {}
 
         if (popupOpen) {
           closePopup();
+        } else if (nextEpOverlayVisible) {
+          hideNextEpOverlay(true);
         } else if (osdVisible || ($osd && !$osd.classList.contains('hide'))) {
           forceHideOsd();
         } else {
