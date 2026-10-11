@@ -73,12 +73,12 @@ export default function TvKeyboard({
 
   return (
     <div
-      className={`rounded-[20px] bg-white/[0.03] border border-white/[0.08] p-3 sm:p-4 backdrop-blur-xl select-none ${className}`}
+      className={`rounded-2xl bg-[#0e1017]/90 border border-white/[0.08] p-2.5 sm:p-3 backdrop-blur-2xl select-none shadow-2xl ${className}`}
     >
       {/* Presets bar (if provided) */}
       {presets && presets.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 mb-2.5 pb-2.5 border-b border-white/[0.06]">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-white/40 mr-1">
+        <div className="flex flex-wrap items-center gap-1.5 mb-2 pb-2 border-b border-white/[0.06]">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-white/40 mr-1">
             Быстро:
           </span>
           {presets.map((preset) => (
@@ -86,7 +86,7 @@ export default function TvKeyboard({
               key={preset}
               type="button"
               onClick={() => onInput(preset)}
-              className="py-1 px-2.5 rounded-[8px] bg-white/[0.06] hover:bg-white/[0.14] focus:bg-amber-400/25 focus:ring-2 focus:ring-amber-400 focus:scale-105 border border-white/[0.08] text-[12px] font-mono text-amber-200 transition-all outline-none cursor-pointer active:scale-95"
+              className="py-0.5 px-2 rounded-md bg-white/[0.05] hover:bg-white/[0.12] focus:bg-amber-400 focus:text-black focus:ring-2 focus:ring-amber-300 focus:scale-105 border border-white/[0.08] text-[11px] font-mono text-amber-300 transition-all outline-none cursor-pointer active:scale-95"
             >
               {preset}
             </button>
@@ -95,15 +95,15 @@ export default function TvKeyboard({
       )}
 
       {/* Main Keyboard Grid */}
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {/* Row 1: Numbers */}
-        <div className="flex justify-center gap-1 sm:gap-1.5">
+        <div className="flex justify-center gap-1">
           {numRow.map((n) => (
             <button
               key={n}
               type="button"
               onClick={() => handleKeyClick(n)}
-              className="h-10 sm:h-11 flex-1 max-w-[48px] rounded-[10px] bg-white/[0.05] hover:bg-white/[0.14] focus:bg-amber-400/30 focus:ring-2 focus:ring-amber-400 focus:border-amber-300 focus:scale-110 border border-white/[0.07] text-[15px] font-mono font-medium text-white transition-all outline-none cursor-pointer active:scale-95"
+              className="h-8 sm:h-8.5 flex-1 max-w-[40px] rounded-lg bg-white/[0.05] hover:bg-white/[0.12] focus:bg-amber-400 focus:text-black focus:border-amber-300 focus:ring-2 focus:ring-amber-300 focus:scale-110 border border-white/[0.07] text-xs sm:text-[13px] font-mono font-medium text-white transition-all outline-none cursor-pointer active:scale-95"
             >
               {n}
             </button>
@@ -112,7 +112,7 @@ export default function TvKeyboard({
 
         {/* Rows 2, 3, 4: Letters or Symbols */}
         {currentRows.map((row, rIdx) => (
-          <div key={rIdx} className="flex justify-center gap-1 sm:gap-1.5">
+          <div key={rIdx} className="flex justify-center gap-1">
             {row.map((char) => {
               const displayChar =
                 layout !== 'sym' && isShift ? char.toUpperCase() : char;
@@ -121,7 +121,7 @@ export default function TvKeyboard({
                   key={char}
                   type="button"
                   onClick={() => handleKeyClick(char)}
-                  className="h-10 sm:h-11 flex-1 max-w-[48px] rounded-[10px] bg-white/[0.05] hover:bg-white/[0.14] focus:bg-amber-400/30 focus:ring-2 focus:ring-amber-400 focus:border-amber-300 focus:scale-110 border border-white/[0.07] text-[15px] font-medium text-white transition-all outline-none cursor-pointer active:scale-95"
+                  className="h-8 sm:h-8.5 flex-1 max-w-[40px] rounded-lg bg-white/[0.05] hover:bg-white/[0.12] focus:bg-amber-400 focus:text-black focus:border-amber-300 focus:ring-2 focus:ring-amber-300 focus:scale-110 border border-white/[0.07] text-xs sm:text-[13px] font-medium text-white transition-all outline-none cursor-pointer active:scale-95"
                 >
                   {displayChar}
                 </button>
@@ -131,15 +131,15 @@ export default function TvKeyboard({
         ))}
 
         {/* Bottom Actions Row */}
-        <div className="flex items-center justify-center gap-1.5 pt-1">
+        <div className="flex items-center justify-center gap-1 pt-0.5">
           {/* Shift */}
           <button
             type="button"
             onClick={() => setIsShift(!isShift)}
-            className={`h-10 sm:h-11 px-3 rounded-[10px] text-[13px] font-semibold transition-all outline-none cursor-pointer active:scale-95 focus:ring-2 focus:ring-amber-400 focus:scale-105 border ${
+            className={`h-8 sm:h-8.5 px-2.5 rounded-lg text-xs font-semibold transition-all outline-none cursor-pointer active:scale-95 focus:ring-2 focus:ring-amber-300 focus:scale-105 border ${
               isShift
-                ? 'bg-amber-400 text-black border-amber-300 shadow-md shadow-amber-400/20'
-                : 'bg-white/[0.07] text-white/90 border-white/[0.08] hover:bg-white/[0.14]'
+                ? 'bg-amber-400 text-black border-amber-300 shadow-sm shadow-amber-400/20'
+                : 'bg-white/[0.06] text-white/80 border-white/[0.08] hover:bg-white/[0.12]'
             }`}
           >
             ⇧ CAPS
@@ -149,9 +149,9 @@ export default function TvKeyboard({
           <button
             type="button"
             onClick={toggleLanguage}
-            className="h-10 sm:h-11 px-3 rounded-[10px] bg-white/[0.07] hover:bg-white/[0.14] focus:bg-amber-400/25 focus:ring-2 focus:ring-amber-400 focus:scale-105 border border-white/[0.08] text-[12px] font-semibold text-amber-300 flex items-center gap-1 transition-all outline-none cursor-pointer active:scale-95"
+            className="h-8 sm:h-8.5 px-2.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] focus:bg-amber-400 focus:text-black focus:ring-2 focus:ring-amber-300 focus:scale-105 border border-white/[0.08] text-xs font-semibold text-amber-300 flex items-center gap-1 transition-all outline-none cursor-pointer active:scale-95"
           >
-            <Globe className="h-3.5 w-3.5 text-amber-300" />
+            <Globe className="h-3 w-3" />
             <span>{layout === 'ru' ? 'RU' : 'EN'}</span>
           </button>
 
@@ -159,10 +159,10 @@ export default function TvKeyboard({
           <button
             type="button"
             onClick={toggleSymbols}
-            className={`h-10 sm:h-11 px-3 rounded-[10px] text-[12px] font-semibold transition-all outline-none cursor-pointer active:scale-95 focus:ring-2 focus:ring-amber-400 focus:scale-105 border ${
+            className={`h-8 sm:h-8.5 px-2.5 rounded-lg text-xs font-semibold transition-all outline-none cursor-pointer active:scale-95 focus:ring-2 focus:ring-amber-300 focus:scale-105 border ${
               layout === 'sym'
                 ? 'bg-amber-400 text-black border-amber-300'
-                : 'bg-white/[0.07] text-white/90 border-white/[0.08] hover:bg-white/[0.14]'
+                : 'bg-white/[0.06] text-white/80 border-white/[0.08] hover:bg-white/[0.12]'
             }`}
           >
             {layout === 'sym' ? 'ABC' : '?123'}
@@ -172,7 +172,7 @@ export default function TvKeyboard({
           <button
             type="button"
             onClick={() => onInput(' ')}
-            className="h-10 sm:h-11 flex-1 max-w-[160px] rounded-[10px] bg-white/[0.06] hover:bg-white/[0.14] focus:bg-amber-400/25 focus:ring-2 focus:ring-amber-400 focus:scale-105 border border-white/[0.08] text-[12px] font-medium text-white/70 transition-all outline-none cursor-pointer active:scale-95"
+            className="h-8 sm:h-8.5 flex-1 max-w-[130px] rounded-lg bg-white/[0.05] hover:bg-white/[0.12] focus:bg-amber-400 focus:text-black focus:ring-2 focus:ring-amber-300 focus:scale-105 border border-white/[0.08] text-xs font-medium text-white/70 transition-all outline-none cursor-pointer active:scale-95"
           >
             Пробел
           </button>
@@ -181,11 +181,11 @@ export default function TvKeyboard({
           <button
             type="button"
             onClick={onBackspace}
-            className="h-10 sm:h-11 px-3.5 rounded-[10px] bg-white/[0.08] hover:bg-white/[0.16] focus:bg-amber-400/25 focus:ring-2 focus:ring-amber-400 focus:scale-105 border border-white/[0.08] text-amber-300 transition-all outline-none cursor-pointer active:scale-95"
+            className="h-8 sm:h-8.5 px-3 rounded-lg bg-white/[0.07] hover:bg-white/[0.14] focus:bg-amber-400 focus:text-black focus:ring-2 focus:ring-amber-300 focus:scale-105 border border-white/[0.08] text-amber-300 transition-all outline-none cursor-pointer active:scale-95"
             title="Стереть символ"
             aria-label="Стереть"
           >
-            <Delete className="h-4 w-4 pointer-events-none" />
+            <Delete className="h-3.5 w-3.5 pointer-events-none" />
           </button>
 
           {/* Clear */}
@@ -193,11 +193,11 @@ export default function TvKeyboard({
             <button
               type="button"
               onClick={onClear}
-              className="h-10 sm:h-11 px-3 rounded-[10px] bg-white/[0.06] hover:bg-red-500/20 focus:ring-2 focus:ring-red-400 focus:scale-105 border border-white/[0.08] text-white/50 hover:text-red-300 transition-all outline-none cursor-pointer active:scale-95"
+              className="h-8 sm:h-8.5 px-2.5 rounded-lg bg-white/[0.05] hover:bg-red-500/20 focus:ring-2 focus:ring-red-400 focus:scale-105 border border-white/[0.08] text-white/50 hover:text-red-300 transition-all outline-none cursor-pointer active:scale-95"
               title="Очистить всё"
               aria-label="Очистить всё"
             >
-              <X className="h-4 w-4 pointer-events-none" />
+              <X className="h-3.5 w-3.5 pointer-events-none" />
             </button>
           )}
 
@@ -206,9 +206,9 @@ export default function TvKeyboard({
             <button
               type="button"
               onClick={onSubmit}
-              className="h-10 sm:h-11 px-4 rounded-[10px] bg-gradient-to-r from-amber-400 to-amber-500 text-black font-semibold text-[13px] flex items-center gap-1.5 transition-all outline-none cursor-pointer active:scale-95 focus:ring-4 focus:ring-amber-300"
+              className="h-8 sm:h-8.5 px-3.5 rounded-lg bg-gradient-to-r from-amber-400 to-amber-500 text-black font-bold text-xs flex items-center gap-1 transition-all outline-none cursor-pointer active:scale-95 focus:ring-2 focus:ring-amber-300 shadow-sm shadow-amber-400/20"
             >
-              <CornerDownLeft className="h-3.5 w-3.5 text-black" />
+              <CornerDownLeft className="h-3 w-3 text-black" />
               <span>{submitLabel || 'Ввод'}</span>
             </button>
           )}
