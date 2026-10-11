@@ -329,14 +329,10 @@ class SyncClient {
       const data = getScopedItem('iptv_playlists');
       if (data) {
         const parsed = JSON.parse(data);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+        if (Array.isArray(parsed)) return parsed;
       }
     } catch {}
-    const defaultPlaylists: IPTVPlaylist[] = [
-      { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }
-    ];
-    this.saveLocalIptvPlaylists(defaultPlaylists);
-    return defaultPlaylists;
+    return [];
   }
 
   saveLocalIptvPlaylists(playlists: IPTVPlaylist[]) {
@@ -434,9 +430,7 @@ class SyncClient {
     if (serverPlaylists.length > 0) {
       effectivePlaylists = serverPlaylists;
     } else {
-      effectivePlaylists = localIptv.length > 0 ? localIptv : [
-        { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }
-      ];
+      effectivePlaylists = localIptv;
     }
     this.saveLocalIptvPlaylists(effectivePlaylists);
   }

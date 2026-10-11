@@ -7,6 +7,7 @@ import type { Title } from '@/api/client';
 import { isTV } from '@/hooks/usePlatform';
 import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
 import { syncClient, getScopedItem, setScopedItem, removeScopedItem } from '@/api/sync';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface IPTVChannel {
   id: string;
@@ -34,10 +35,7 @@ interface IPTVViewProps {
 const IPTV_STORAGE_KEY = 'iptv_playlists';
 const FAVORITES_STORAGE_KEY = 'iptv_favorites';
 
-const DEFAULT_PLAYLISTS = [
-  { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: 'https://iptvx.one/epg/epg_lite.xml.gz' },
-  { name: 'Общероссийские (iptv-org)', url: 'https://iptv-org.github.io/iptv/countries/ru.m3u', epgUrl: '' },
-];
+const DEFAULT_PLAYLISTS: Array<{ name: string; url: string; epgUrl?: string }> = [];
 
 export const KNOWN_CHANNEL_LOGOS: Record<string, string> = {
   'первый канал': 'pervy',
@@ -152,7 +150,7 @@ function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string
       }
     }
   } catch {}
-  return DEFAULT_PLAYLISTS;
+  return [];
 }
 
 function savePlaylists(playlists: Array<{ name: string; url: string; epgUrl?: string }>) {
@@ -469,22 +467,39 @@ function MultiViewModal({
 export default function IPTVView({ onPlay }: IPTVViewProps) {
   const isTvMode = isTV();
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const userId = user?.id;
   const initialPlaylists = getSavedPlaylists();
   console.log('[IPTV] initial playlists from localStorage:', initialPlaylists.length);
   const [playlists, setPlaylists] = useState<Array<{ name: string; url: string; epgUrl?: string }>>(initialPlaylists);
 
-  // Load IPTV playlists from sync API
+  // Load IPTV playlists from sync API whenever user changes
   useEffect(() => {
     let active = true;
+
+    // Reset local state to current user's scoped storage immediately
+    const currentSaved = getSavedPlaylists();
+    setPlaylists(currentSaved);
+    if (currentSaved.length === 0) {
+      setChannels([]);
+      setGroups([]);
+      setSelectedPlaylist(null);
+    }
 
     const loadFromSync = async () => {
       try {
         const res = await serverFetch('/api/sync');
         if (!res.ok) return;
         const data = await res.json();
-        if (active && data.iptvPlaylists && data.iptvPlaylists.length > 0) {
-          setScopedItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
-          setPlaylists([...data.iptvPlaylists]);
+        if (active) {
+          const list = Array.isArray(data.iptvPlaylists) ? data.iptvPlaylists : [];
+          setScopedItem(IPTV_STORAGE_KEY, JSON.stringify(list));
+          setPlaylists([...list]);
+          if (list.length === 0) {
+            setChannels([]);
+            setGroups([]);
+            setSelectedPlaylist(null);
+          }
         }
       } catch (e) {
         console.warn('[IPTV] Sync load error:', e);
@@ -495,7 +510,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
     return () => {
       active = false;
     };
-  }, []);
+  }, [userId]);
   const [channels, setChannels] = useState<IPTVChannel[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
   const [selectedGroup, setSelectedGroup] = useState('All');

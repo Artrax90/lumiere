@@ -38,20 +38,8 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
       );
 
       let iptvRows = iptvResult.rows;
-      if (iptvRows.length === 0) {
-        const defaultPl = {
-          name: 'Основной',
-          url: 'https://loganettv.github.io/playlists/all.m3u',
-          epg_url: ''
-        };
-        try {
-          await db.query(
-            `INSERT INTO iptv_playlists (user_id, name, url, epg_url, updated_at)
-             VALUES ($1, $2, $3, $4, NOW())`,
-            [userId, defaultPl.name, defaultPl.url, defaultPl.epg_url]
-          );
-        } catch {}
-        iptvRows = [defaultPl];
+      if (userId !== 1) {
+        iptvRows = iptvRows.filter(r => !r.url?.includes('loganettv'));
       }
 
       return {
@@ -206,7 +194,11 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
       // Upsert IPTV playlists (and prune removed playlists for this user)
       if (Array.isArray(iptvPlaylists)) {
-        const keepUrls = iptvPlaylists.map(item => item.url).filter(Boolean);
+        let validPlaylists = iptvPlaylists;
+        if (userId !== 1) {
+          validPlaylists = validPlaylists.filter(item => !item.url?.includes('loganettv'));
+        }
+        const keepUrls = validPlaylists.map(item => item.url).filter(Boolean);
         if (keepUrls.length > 0) {
           await client.query(
             `DELETE FROM iptv_playlists WHERE user_id = $1 AND NOT (url = ANY($2::text[]))`,
@@ -215,7 +207,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
         } else {
           await client.query(`DELETE FROM iptv_playlists WHERE user_id = $1`, [userId]);
         }
-        for (const item of iptvPlaylists) {
+        for (const item of validPlaylists) {
           if (!item.url) continue;
           await client.query(
             `INSERT INTO iptv_playlists (user_id, name, url, epg_url, updated_at)

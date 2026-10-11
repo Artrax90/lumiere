@@ -871,6 +871,12 @@
 
       localStorage.setItem(TOKEN_KEY, data.accessToken);
       state.user = data.user;
+      if (typeof iptvState !== 'undefined') {
+        iptvState.playlists = [];
+        iptvState.channels = [];
+        iptvState.groups = [];
+        iptvState.selectedPlaylistIndex = -1;
+      }
       try { localStorage.setItem('lumiere_user', JSON.stringify(data.user)); } catch(se) {}
       updateTvUserBadge();
       loadAndApplyHomeShelves();
@@ -2911,9 +2917,6 @@
         playlists = (playlists || []).filter(function(pl) {
           return pl && pl.url && pl.url.indexOf('test/') === -1 && pl.url.indexOf('https://test') === -1;
         });
-        if (playlists.length === 0) {
-          playlists = [{ name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }];
-        }
         iptvState.playlists = playlists;
         try { setStorageItem('lumiere_iptv', JSON.stringify(playlists)); } catch(e) {}
 
@@ -2932,6 +2935,11 @@
 
   function loadAllPlaylists(playlists, activeIdx, callback) {
     if (!playlists || playlists.length === 0) {
+      iptvState.playlists = [];
+      iptvState.channels = [];
+      iptvState.groups = [];
+      iptvState.selectedPlaylistIndex = -1;
+      renderIptv();
       if (typeof callback === 'function') callback(null);
       return;
     }
@@ -8531,6 +8539,12 @@
         var keys = ['lumiere_iptv', 'iptv_playlists', 'lumiere_active_iptv_playlist', 'lumiere_iptv_fav', 'playback_positions', 'last_torrents'];
         for (var i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
       } catch(e) {}
+      if (typeof iptvState !== 'undefined') {
+        iptvState.playlists = [];
+        iptvState.channels = [];
+        iptvState.groups = [];
+        iptvState.selectedPlaylistIndex = -1;
+      }
     }
 
     var switchProfileBtn = document.getElementById('btn-switch-profile');
