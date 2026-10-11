@@ -164,10 +164,18 @@ export async function sendTelegramPhoto(
   if (!config) return false;
 
   try {
-    if (photoUrl && photoUrl.startsWith('http')) {
+    let realPhoto = (photoUrl || '').trim();
+    if (realPhoto.includes('url=')) {
+      try {
+        const u = realPhoto.split('url=')[1];
+        if (u) realPhoto = decodeURIComponent(u.split('&')[0]);
+      } catch {}
+    }
+
+    if (realPhoto && realPhoto.startsWith('http')) {
       await sendTelegramApi(config.botToken, 'sendPhoto', {
         chat_id: config.chatId,
-        photo: photoUrl,
+        photo: realPhoto,
         caption,
         parse_mode: parseMode,
         reply_markup: replyMarkup,

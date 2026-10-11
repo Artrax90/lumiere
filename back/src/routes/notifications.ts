@@ -153,7 +153,34 @@ async function detectLatestRelease(title: string, tmdbId: number, tmdbProvider?:
   let latestSeason = 0;
   let latestEpisode = 0;
 
-  // Build expanded queries for Russian franchise titles (e.g. Comedy Club <-> Новый Comedy Club)
+  // 1. Check TMDB details for authentic air date / last episode to air & max seasons
+  let details: any = null;
+  let maxKnownSeason = 99;
+  if (tmdbProvider && tmdbId) {
+    try {
+      details = await tmdbProvider.details(tmdbId, 'tv', 'ru');
+      if (details?.seasons && Array.isArray(details.seasons)) {
+        maxKnownSeason = Math.max(...details.seasons.map((s: any) => s.season_number || 0));
+      }
+      if (details?.last_episode_to_air) {
+        const lastAired = details.last_episode_to_air;
+        const s = lastAired.season_number || 0;
+        const e = lastAired.episode_number || 0;
+        let isAired = true;
+        if (lastAired.air_date) {
+          const airTime = new Date(lastAired.air_date).getTime();
+          const now = Date.now() + 24 * 60 * 60 * 1000;
+          isAired = airTime <= now;
+        }
+        if (isAired && s > 0 && e > 0) {
+          latestSeason = s;
+          latestEpisode = e;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Build expanded queries for Russian franchise titles (e.g. Comedy Club <-> Новый Comedy Club)
   const queriesToSearch = [title];
   if (/comedy\s*club|камеди\s*клаб/i.test(title)) {
     queriesToSearch.unshift('Новый Comedy Club');
@@ -164,34 +191,26 @@ async function detectLatestRelease(title: string, tmdbId: number, tmdbProvider?:
     queriesToSearch.push(cleanTitle);
   }
 
-  // 1. Check JacRed torrents across queries
+  // 3. Check JacRed torrents across queries
   for (const q of queriesToSearch) {
     try {
       const torrents = await fetchJacRedReleases(q);
       for (const item of torrents) {
         const parsed = parseTorrentReleaseInfo(item.title);
+        // Ignore seasons exceeding TMDB max season + 1 (filters out bogus releases like Звёзды 10x01)
+        if (maxKnownSeason > 0 && parsed.season > maxKnownSeason + 1) continue;
+
+        // Ignore episodes drastically exceeding season count if known
+        if (details?.seasons) {
+          const seasonMeta = details.seasons.find((s: any) => s.season_number === parsed.season);
+          if (seasonMeta && seasonMeta.episode_count && parsed.episode > seasonMeta.episode_count + 5) {
+            continue;
+          }
+        }
+
         if (parsed.season > latestSeason || (parsed.season === latestSeason && parsed.episode > latestEpisode)) {
           latestSeason = parsed.season;
           latestEpisode = parsed.episode;
-        }
-      }
-    } catch {}
-  }
-
-  // 2. Check TMDB details
-  if (tmdbProvider && tmdbId) {
-    try {
-      const details: any = await tmdbProvider.details(tmdbId, 'tv', 'ru');
-      if (details && details.seasons) {
-        for (const s of details.seasons) {
-          const sNum = s.season_number || 0;
-          const eNum = s.episode_count || 1;
-          if (sNum > 0) {
-            if (sNum > latestSeason || (sNum === latestSeason && eNum > latestEpisode)) {
-              latestSeason = sNum;
-              latestEpisode = eNum;
-            }
-          }
         }
       }
     } catch {}
@@ -334,8 +353,16 @@ export async function checkNewEpisodes(targetUserId?: number, tmdbProvider?: Tmd
         const latestSeasonNum = detected.season;
         const latestEpisodeNum = detected.episode;
 
-        const prevSeason = sub.last_season || 0;
-        const prevEpisode = sub.last_episode || 0;
+        let prevSeason = sub.last_season || 0;
+        let prevEpisode = sub.last_episode || 0;
+
+        // Auto-correct poisoned baselines (e.g. from the previous bug where planned season episode_count was saved)
+        if (latestSeasonNum > 0 && latestEpisodeNum > 0) {
+          if (prevSeason > latestSeasonNum || (prevSeason === latestSeasonNum && prevEpisode > latestEpisodeNum)) {
+            prevEpisode = Math.max(0, latestEpisodeNum - 1);
+            prevSeason = latestSeasonNum;
+          }
+        }
 
         const isNewEpisode =
           (latestSeasonNum > prevSeason) ||
