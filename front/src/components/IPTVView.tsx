@@ -6,7 +6,7 @@ import { Capacitor } from '@capacitor/core';
 import type { Title } from '@/api/client';
 import { isTV } from '@/hooks/usePlatform';
 import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
-import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
+import { syncClient, getScopedItem, setScopedItem, removeScopedItem } from '@/api/sync';
 
 interface IPTVChannel {
   id: string;
@@ -139,7 +139,7 @@ function normalizeChannelName(name: string): string {
 
 function getSavedPlaylists(): Array<{ name: string; url: string; epgUrl?: string }> {
   try {
-    const data = getScopedItem(IPTV_STORAGE_KEY) || getScopedItem('lumiere_iptv');
+    const data = getScopedItem(IPTV_STORAGE_KEY);
     if (data) {
       const parsed = JSON.parse(data);
       if (Array.isArray(parsed) && parsed.length > 0) {
@@ -483,7 +483,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         if (!res.ok) return;
         const data = await res.json();
         if (active && data.iptvPlaylists && data.iptvPlaylists.length > 0) {
-          localStorage.setItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
+          setScopedItem(IPTV_STORAGE_KEY, JSON.stringify(data.iptvPlaylists));
           setPlaylists([...data.iptvPlaylists]);
         }
       } catch (e) {
@@ -723,7 +723,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
       setChannels([]);
       setGroups([]);
       setSelectedChannel(null);
-      localStorage.removeItem('lumiere_iptv_last');
+      removeScopedItem('lumiere_iptv_last');
+      removeScopedItem('iptv_last');
     }
   };
 

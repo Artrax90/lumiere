@@ -204,9 +204,19 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
         }
       }
 
-      // Upsert IPTV playlists
-      if (iptvPlaylists && iptvPlaylists.length > 0) {
+      // Upsert IPTV playlists (and prune removed playlists for this user)
+      if (Array.isArray(iptvPlaylists)) {
+        const keepUrls = iptvPlaylists.map(item => item.url).filter(Boolean);
+        if (keepUrls.length > 0) {
+          await client.query(
+            `DELETE FROM iptv_playlists WHERE user_id = $1 AND NOT (url = ANY($2::text[]))`,
+            [userId, keepUrls]
+          );
+        } else {
+          await client.query(`DELETE FROM iptv_playlists WHERE user_id = $1`, [userId]);
+        }
         for (const item of iptvPlaylists) {
+          if (!item.url) continue;
           await client.query(
             `INSERT INTO iptv_playlists (user_id, name, url, epg_url, updated_at)
              VALUES ($1, $2, $3, $4, NOW())
@@ -215,7 +225,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
                name = EXCLUDED.name,
                epg_url = EXCLUDED.epg_url,
                updated_at = NOW()`,
-            [userId, item.name, item.url, item.epgUrl || '']
+            [userId, item.name || 'Плейлист', item.url, item.epgUrl || '']
           );
         }
       }

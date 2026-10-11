@@ -44,12 +44,27 @@
     var scopedKey = getUserStorageKey(key);
     var val = localStorage.getItem(scopedKey);
     if (val === null && scopedKey !== key) {
-      val = localStorage.getItem(key);
-      if (val !== null) {
+      var uid = (state && state.user && state.user.id) || 0;
+      if (!uid) {
         try {
-          localStorage.setItem(scopedKey, val);
+          var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+          if (u && u.id) uid = u.id;
+        } catch(e) {}
+      }
+      var migKey = 'mig_' + key;
+      if (uid === 1 && !localStorage.getItem(migKey)) {
+        val = localStorage.getItem(key);
+        if (val !== null) {
+          try {
+            localStorage.setItem(scopedKey, val);
+          } catch(e) {}
+        }
+        try {
+          localStorage.setItem(migKey, '1');
           localStorage.removeItem(key);
         } catch(e) {}
+      } else {
+        try { localStorage.removeItem(key); } catch(e) {}
       }
     }
     return val;
@@ -2891,7 +2906,7 @@
       apiFetch('/api/sync/pull', function(err, data) {
         var playlists = (data && data.iptvPlaylists && data.iptvPlaylists.length > 0) ? data.iptvPlaylists : [];
         if (playlists.length === 0) {
-          try { playlists = JSON.parse(localStorage.getItem('lumiere_iptv') || localStorage.getItem('iptv_playlists') || '[]'); } catch(e) {}
+          try { playlists = JSON.parse(getStorageItem('lumiere_iptv') || '[]'); } catch(e) {}
         }
         playlists = (playlists || []).filter(function(pl) {
           return pl && pl.url && pl.url.indexOf('test/') === -1 && pl.url.indexOf('https://test') === -1;
@@ -2900,11 +2915,11 @@
           playlists = [{ name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }];
         }
         iptvState.playlists = playlists;
-        try { localStorage.setItem('lumiere_iptv', JSON.stringify(playlists)); } catch(e) {}
+        try { setStorageItem('lumiere_iptv', JSON.stringify(playlists)); } catch(e) {}
 
         var activeIdx = -1;
         try {
-          var savedPl = localStorage.getItem('lumiere_active_iptv_playlist');
+          var savedPl = getStorageItem('lumiere_active_iptv_playlist');
           if (savedPl !== null && savedPl !== undefined && savedPl !== '') activeIdx = parseInt(savedPl, 10);
         } catch(e) {}
         if (isNaN(activeIdx) || activeIdx >= playlists.length) activeIdx = -1;
@@ -2979,7 +2994,7 @@
 
   function applyActivePlaylist(plIdx) {
     iptvState.selectedPlaylistIndex = plIdx;
-    try { localStorage.setItem('lumiere_active_iptv_playlist', String(plIdx)); } catch(e) {}
+    try { setStorageItem('lumiere_active_iptv_playlist', String(plIdx)); } catch(e) {}
 
     var allChs = [];
     var allGrps = [];
@@ -3005,7 +3020,7 @@
     if (!iptvState.selectedGroup || iptvState.selectedGroup === 'All') {
       iptvState.selectedGroup = 'Все';
     }
-    try { iptvState.favorites = JSON.parse(localStorage.getItem('lumiere_iptv_fav') || '{}'); } catch(e) {}
+    try { iptvState.favorites = JSON.parse(getStorageItem('lumiere_iptv_fav') || '{}'); } catch(e) {}
     renderIptv();
   }
 
@@ -3892,7 +3907,7 @@
     iptvLocked = true;
     if (iptvState.favorites[chId]) delete iptvState.favorites[chId];
     else iptvState.favorites[chId] = true;
-    try { localStorage.setItem('lumiere_iptv_fav', JSON.stringify(iptvState.favorites)); } catch(e) {}
+    try { setStorageItem('lumiere_iptv_fav', JSON.stringify(iptvState.favorites)); } catch(e) {}
     renderIptv();
     showToast(iptvState.favorites[chId] ? '★ Канал добавлен в избранное' : '☆ Канал удалён из избранного');
     setTimeout(function() { iptvLocked = false; }, 300);
@@ -8511,10 +8526,18 @@
       });
     }
 
+    function clearUnscopedCaches() {
+      try {
+        var keys = ['lumiere_iptv', 'iptv_playlists', 'lumiere_active_iptv_playlist', 'lumiere_iptv_fav', 'playback_positions', 'last_torrents'];
+        for (var i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
+      } catch(e) {}
+    }
+
     var switchProfileBtn = document.getElementById('btn-switch-profile');
     if (switchProfileBtn) {
       switchProfileBtn.addEventListener('click', function() {
         localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
         state.user = null;
         if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
         if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
@@ -8526,6 +8549,7 @@
     if (profileSwitchBtn) {
       profileSwitchBtn.addEventListener('click', function() {
         localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
         state.user = null;
         if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
         if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
@@ -8537,6 +8561,7 @@
     if (profileLogoutBtn) {
       profileLogoutBtn.addEventListener('click', function() {
         localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
         window.location.reload();
       });
     }
@@ -8552,6 +8577,7 @@
     if (logoutBtn) {
       logoutBtn.addEventListener('click', function() {
         localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
         window.location.reload();
       });
     }

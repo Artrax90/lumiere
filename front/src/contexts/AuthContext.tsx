@@ -284,6 +284,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new CustomEvent('playback-positions-synced'));
   }, []);
 
+  const clearSharedUnscopedCaches = () => {
+    try {
+      [
+        'iptv_playlists',
+        'lumiere_iptv',
+        'lumiere_iptv_last',
+        'iptv_last',
+        'iptv_favorites',
+        'playback_positions',
+        'watch_history',
+        'favorites',
+      ].forEach(k => localStorage.removeItem(k));
+    } catch {}
+  };
+
   const logout = useCallback(async () => {
     const refreshToken = localStorage.getItem('lumiere_refresh');
     if (refreshToken) {
@@ -298,6 +313,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearTokens();
     localStorage.removeItem('lumiere_user');
     localStorage.removeItem('lumiere_active_profile');
+    clearSharedUnscopedCaches();
     setUser(null);
     window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     if (isLan) {
@@ -311,6 +327,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     clearTokens();
     localStorage.removeItem('lumiere_user');
     localStorage.removeItem('lumiere_active_profile');
+    clearSharedUnscopedCaches();
     setUser(null);
     window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     if (isLan) {

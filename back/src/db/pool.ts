@@ -472,6 +472,17 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
     saveFallbackDb(db);
     return { rows: [] };
   }
+  if (/DELETE FROM iptv_playlists WHERE user_id = \$1/i.test(cleanSql)) {
+    const uId = Number(params[0]);
+    if (/NOT \(url = ANY/i.test(cleanSql)) {
+      const keepUrls = Array.isArray(params[1]) ? params[1] : [];
+      db.iptv_playlists = (db.iptv_playlists || []).filter((p: any) => p.user_id !== uId || keepUrls.includes(p.url));
+    } else {
+      db.iptv_playlists = (db.iptv_playlists || []).filter((p: any) => p.user_id !== uId);
+    }
+    saveFallbackDb(db);
+    return { rows: [] };
+  }
 
   // 15. Notifications
   if (/SELECT COUNT\(\*\)::int AS count FROM notifications WHERE user_id = \$1 AND is_read = false/i.test(cleanSql)) {
@@ -838,7 +849,13 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
     return { rows: [item] };
   }
   if (/DELETE FROM iptv_playlists WHERE user_id = \$1/i.test(cleanSql)) {
-    db.iptv_playlists = db.iptv_playlists.filter((p) => p.user_id !== Number(params[0]));
+    const uId = Number(params[0]);
+    if (/NOT \(url = ANY/i.test(cleanSql)) {
+      const keepUrls = Array.isArray(params[1]) ? params[1] : [];
+      db.iptv_playlists = (db.iptv_playlists || []).filter((p: any) => p.user_id !== uId || keepUrls.includes(p.url));
+    } else {
+      db.iptv_playlists = (db.iptv_playlists || []).filter((p: any) => p.user_id !== uId);
+    }
     saveFallbackDb(db);
     return { rows: [] };
   }

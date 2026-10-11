@@ -51,14 +51,24 @@ export function getScopedItem(baseKey: string): string | null {
   const scopedKey = getUserStorageKey(baseKey);
   let val = localStorage.getItem(scopedKey);
   if (val === null && scopedKey !== baseKey) {
-    // One-time legacy migration for active user
-    const legacyVal = localStorage.getItem(baseKey);
-    if (legacyVal !== null) {
-      val = legacyVal;
+    const uid = getCurrentUserId();
+    const migrationMarker = `lumiere_migrated_${baseKey}`;
+    // Only allow one-time legacy migration for primary user (id 1) if not already migrated
+    if (uid === 1 && !localStorage.getItem(migrationMarker)) {
+      const legacyVal = localStorage.getItem(baseKey);
+      if (legacyVal !== null) {
+        val = legacyVal;
+        try {
+          localStorage.setItem(scopedKey, legacyVal);
+        } catch {}
+      }
       try {
-        localStorage.setItem(scopedKey, legacyVal);
+        localStorage.setItem(migrationMarker, '1');
         localStorage.removeItem(baseKey);
       } catch {}
+    } else {
+      // Remove any lingering unscoped legacy key so it never leaks to other accounts
+      try { localStorage.removeItem(baseKey); } catch {}
     }
   }
   return val;
@@ -417,23 +427,18 @@ class SyncClient {
       setScopedItem('favorites', JSON.stringify(Array.from(mergedFavorites.values())));
     }
 
-    // Merge IPTV playlists
+    // Merge IPTV playlists (server is authoritative when playlists exist)
     const localIptv = this.getLocalIptvPlaylists();
-    const mergedIptv = new Map<string, IPTVPlaylist>();
-    for (const item of localIptv) {
-      mergedIptv.set(item.url, item);
+    const serverPlaylists = serverData.iptvPlaylists || [];
+    let effectivePlaylists: IPTVPlaylist[];
+    if (serverPlaylists.length > 0) {
+      effectivePlaylists = serverPlaylists;
+    } else {
+      effectivePlaylists = localIptv.length > 0 ? localIptv : [
+        { name: 'Основной', url: 'https://loganettv.github.io/playlists/all.m3u', epgUrl: '' }
+      ];
     }
-    for (const item of serverData.iptvPlaylists || []) {
-      mergedIptv.set(item.url, item);
-    }
-    if (mergedIptv.size === 0) {
-      mergedIptv.set('https://loganettv.github.io/playlists/all.m3u', {
-        name: 'Основной',
-        url: 'https://loganettv.github.io/playlists/all.m3u',
-        epgUrl: '',
-      });
-    }
-    this.saveLocalIptvPlaylists(Array.from(mergedIptv.values()));
+    this.saveLocalIptvPlaylists(effectivePlaylists);
   }
 }
 
