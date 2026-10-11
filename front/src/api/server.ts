@@ -1,3 +1,5 @@
+import { isTV } from '@/hooks/usePlatform';
+
 const SERVER_URL_KEY = 'lumiere_server_url';
 export const DEFAULT_SERVER_URL = 'https://lumiere.artrax.net';
 
@@ -31,7 +33,9 @@ export function getServerUrl(): string {
   }
   // Web fallback: use current origin if loaded over HTTP(S) and not a local file
   if (typeof window !== 'undefined' && window.location.protocol.startsWith('http')) {
-    return window.location.origin;
+    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin;
+    }
   }
   const injected = typeof window !== 'undefined' ? (window as any).__DEFAULT_SERVER_URL__ : undefined;
   if (injected && typeof injected === 'string' && !injected.startsWith('file:') && !injected.startsWith('wgt-')) {
@@ -123,6 +127,10 @@ export async function serverFetch(path: string, init?: RequestInit): Promise<Res
   const headers = new Headers(init?.headers);
   if (token && !headers.has('Authorization')) {
     headers.set('Authorization', `Bearer ${token}`);
+  }
+  if (isTV()) {
+    headers.set('x-lumiere-tv', '1');
+    headers.set('x-lumiere-client', 'tv');
   }
   if (init?.body && !headers.has('Content-Type') && typeof init.body === 'string') {
     headers.set('Content-Type', 'application/json');

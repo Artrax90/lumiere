@@ -5,6 +5,7 @@ import type { Title } from '@/api/client';
 import { apiPost, apiDelete } from '@/api/client';
 import { serverFetch } from '@/api/server';
 import SafeImg from './SafeImg';
+import { isTV } from '@/hooks/usePlatform';
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 const typeLabel = (type: Title['type']) =>
@@ -66,6 +67,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
   const [inLibrary, setInLibrary] = useState<Record<string, boolean>>({});
   const [resuming, setResuming] = useState(false);
   const grade = moodGrade[current.mood || 'warm'];
+  const isTvMode = isTV();
 
   const typeLabel = (type: Title['type']) =>
     type === 'movie' ? t('movie.movie') : (type === 'show' || type === 'tv') ? t('movie.series') : type === 'anime' ? t('movie.anime') : t('movie.documentary');
@@ -170,27 +172,19 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden select-none"
+      className={`absolute left-0 right-0 top-0 z-20 ${
+        isTvMode ? 'h-[46vh] min-h-[250px] max-h-[340px]' : 'h-[72vh] min-h-[580px] max-h-[800px]'
+      } w-full overflow-hidden select-none`}
     >
 
       {/* ── Artwork layers — masked so the final 140px dissolves to
             transparency. No added background; the app surface shows
             through naturally. ── */}
-      <div
-        className="absolute inset-0"
-        style={{
-          maskImage: 'linear-gradient(to bottom, #000 0%, #000 calc(100% - 140px), transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, #000 0%, #000 calc(100% - 140px), transparent 100%)',
-        }}
-      >
-        {/* The single featured artwork — exists only inside the Hero */}
-        <div
-          className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/40 to-transparent"
-        />
+      <div className="absolute inset-0">
         <div
           className="absolute inset-0 transition-opacity duration-1000 ease-out"
           style={{
-            opacity: imgLoaded ? 1 : 0.7,
+            opacity: imgLoaded ? 1 : 0.8,
           }}
         >
           <SafeImg
@@ -204,17 +198,15 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
           />
         </div>
 
-        {/* Subtle color grade */}
-        <div
-          className="absolute inset-0 mix-blend-soft-light"
-          style={{ background: grade.grade, opacity: 0.45 }}
-        />
+        {/* Left and bottom gradients for maximum text legibility and smooth catalog blend */}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
+        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#08080a] via-[#08080a]/75 to-transparent pointer-events-none" />
 
-        {/* Left haze for text legibility */}
+        {/* Left haze for depth */}
         <div
-          className="absolute inset-0"
+          className="absolute inset-0 pointer-events-none"
           style={{
-            background: `linear-gradient(94deg, ${grade.haze}0.7) 0%, ${grade.haze}0.36) 26%, ${grade.haze}0.12) 50%, transparent 74%)`,
+            background: `linear-gradient(94deg, ${grade.haze}0.5) 0%, ${grade.haze}0.25) 30%, transparent 65%)`,
           }}
         />
 
@@ -243,22 +235,24 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
 
       {/* ── Content — transparent, sitting on the artwork ── */}
       <div className="absolute inset-0 flex items-end">
-        <div className="w-full max-w-[1600px] px-6 pb-28 sm:px-8 sm:pb-22 lg:px-16 lg:pb-18">
+        <div className={`w-full max-w-[1600px] px-6 ${isTvMode ? 'pb-6 lg:pb-8' : 'pb-28 sm:pb-22 lg:pb-18'} sm:px-8 lg:px-16`}>
           <div key={current.id} className="max-w-2xl">
             {/* Type label */}
-            <div className="mb-2.5 flex items-center gap-2.5 animate-fade-up" style={{ animationDelay: '0ms' }}>
-              <span className="text-[11px] font-semibold uppercase tracking-[0.24em] text-amber-200/80">
+            <div className="mb-2 flex items-center gap-2 animate-fade-up" style={{ animationDelay: '0ms' }}>
+              <span className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-200/80">
                 {typeLabel(current.type)}
               </span>
-              <span className="h-px w-5 bg-amber-200/25" />
-              <span className="text-[11px] font-medium uppercase tracking-[0.16em] text-white/45">
+              <span className="h-px w-4 bg-amber-200/25" />
+              <span className="text-[10px] font-medium uppercase tracking-[0.16em] text-white/45">
                 {current.genres[0]}
               </span>
             </div>
 
             {/* Title */}
             <h1
-              className="text-display text-balance text-[32px] font-medium leading-[1.06] tracking-tight text-white animate-fade-up md:text-[44px] lg:text-[52px]"
+              className={`text-display text-balance ${
+                isTvMode ? 'text-[22px] md:text-[26px]' : 'text-[32px] md:text-[44px] lg:text-[52px]'
+              } font-medium leading-[1.06] tracking-tight text-white animate-fade-up`}
               style={{
                 animationDelay: '100ms',
                 textShadow: '0 2px 24px rgba(0,0,0,0.5), 0 1px 3px rgba(0,0,0,0.3)',
@@ -268,9 +262,9 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
             </h1>
 
             {/* Metadata */}
-            <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[13px] animate-fade-up" style={{ animationDelay: '160ms' }}>
-              <span className="flex items-center gap-1.5 font-semibold text-amber-200/90">
-                <Star className="h-3.5 w-3.5" fill="currentColor" strokeWidth={0} />
+            <div className="mt-2 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] animate-fade-up" style={{ animationDelay: '160ms' }}>
+              <span className="flex items-center gap-1 font-semibold text-amber-200/90">
+                <Star className="h-3 w-3" fill="currentColor" strokeWidth={0} />
                 {current.score}
               </span>
               <span className="text-white/20">·</span>
@@ -280,13 +274,13 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
               {current.rating && (
                 <>
                   <span className="text-white/20">·</span>
-                  <span className="rounded-[5px] border border-white/15 px-2 py-[2px] text-[10px] font-medium text-white/50">
+                  <span className="rounded-[4px] border border-white/15 px-1.5 py-[1px] text-[9px] font-medium text-white/50">
                     {current.rating}
                   </span>
                 </>
               )}
               {(current.badges || []).slice(0, 2).map((b) => (
-                <span key={b} className="rounded-[5px] border border-white/[0.08] px-2 py-[2px] text-[10px] font-medium text-white/45">
+                <span key={b} className="rounded-[4px] border border-white/[0.08] px-1.5 py-[1px] text-[9px] font-medium text-white/45">
                   {b}
                 </span>
               ))}
@@ -294,37 +288,48 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
 
             {/* Description */}
             <p
-              className="mt-3 max-w-xl text-balance text-[14px] leading-[1.65] text-white/70 animate-fade-up line-clamp-3 sm:line-clamp-4 md:line-clamp-5 md:text-[15px]"
+              className={`mt-2 max-w-xl text-balance ${
+                isTvMode ? 'text-[12px] line-clamp-2 max-w-md leading-[1.45]' : 'text-[14px] leading-[1.65] line-clamp-3 sm:line-clamp-4 md:line-clamp-5 md:text-[15px]'
+              } text-white/70 animate-fade-up`}
               style={{ animationDelay: '220ms', textShadow: '0 1px 12px rgba(0,0,0,0.4)' }}
             >
               {current.description}
             </p>
 
             {/* Actions */}
-            <div className="mt-6 flex items-center gap-3 animate-fade-up" style={{ animationDelay: '280ms' }}>
+            <div className="mt-3.5 flex items-center gap-2.5 animate-fade-up" style={{ animationDelay: '280ms' }}>
               <button
+                type="button"
                 onClick={handleHeroWatch}
                 disabled={resuming}
-                className="group flex items-center gap-2.5 rounded-full bg-white px-7 py-3 text-[14px] font-semibold text-black transition-lux hover:scale-[1.03] active:scale-95 disabled:opacity-50"
+                className={`group flex items-center gap-2 rounded-full bg-white ${
+                  isTvMode ? 'px-4 py-1.5 text-[12px] h-[36px]' : 'px-7 py-3 text-[14px]'
+                } font-semibold text-black transition-all hover:scale-[1.03] focus:scale-[1.05] focus:ring-4 focus:ring-amber-300 active:scale-95 disabled:opacity-50 outline-none cursor-pointer`}
                 style={{ boxShadow: '0 6px 28px -8px rgba(255,255,255,0.28)' }}
               >
                 {resuming ? (
-                  <Loader2 className="h-[15px] w-[15px] animate-spin" />
+                  <Loader2 className="h-[14px] w-[14px] animate-spin" />
                 ) : (
-                  <Play className="h-[15px] w-[15px] fill-current" />
+                  <Play className="h-[14px] w-[14px] fill-current" />
                 )}
                 {savedTorrent ? t('common.continue') : t('common.watch')}
               </button>
               <button
+                type="button"
                 onClick={() => onSelect(current)}
-                className="flex items-center gap-2 rounded-full glass px-6 py-3 text-[14px] font-medium text-white/90 transition-lux hover:bg-white/[0.12] active:scale-95"
+                className={`flex items-center gap-1.5 rounded-full bg-white/10 border border-white/15 ${
+                  isTvMode ? 'px-3.5 py-1.5 text-[12px] h-[36px]' : 'px-6 py-3 text-[14px]'
+                } font-medium text-white transition-all hover:bg-white/[0.18] focus:scale-[1.05] focus:ring-4 focus:ring-amber-300 focus:bg-white/25 active:scale-95 outline-none cursor-pointer`}
               >
-                <Info className="h-[15px] w-[15px]" strokeWidth={1.5} />
+                <Info className="h-[14px] w-[14px]" strokeWidth={1.5} />
                 {t('common.details')}
               </button>
               <button
+                type="button"
                 onClick={toggleFavorite}
-                className="flex h-[46px] w-[46px] items-center justify-center rounded-full glass text-white/80 transition-lux hover:bg-white/[0.12] active:scale-95"
+                className={`flex ${
+                  isTvMode ? 'h-[36px] w-[36px]' : 'h-[46px] w-[46px]'
+                } items-center justify-center rounded-full bg-white/10 border border-white/15 text-white/80 transition-all hover:bg-white/[0.18] focus:scale-[1.05] focus:ring-4 focus:ring-amber-300 focus:bg-white/25 active:scale-95 outline-none cursor-pointer`}
                 aria-label="Add to library"
               >
                 {inLibrary[current.id] ? (

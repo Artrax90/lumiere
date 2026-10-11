@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Star, Play, Plus, Check } from 'lucide-react';
 import type { Title } from '@/api/client';
 import SafeImg from './SafeImg';
+import { isTV } from '@/hooks/usePlatform';
 
 interface Top10RowProps {
   label: string;
@@ -15,11 +16,15 @@ interface Top10RowProps {
 function RankNumber({ rank }: { rank: number }) {
   // SVG path definitions for numbers 1-10 with Netflix aesthetic
   const isTen = rank === 10;
+  const isTvMode = isTV();
 
   return (
     <div
-      className="pointer-events-none relative select-none flex items-center justify-end z-0 -mr-6 lg:-mr-8 transition-transform duration-500 group-hover/item:scale-105"
-      style={{ width: isTen ? 130 : 100, height: 180 }}
+      className="pointer-events-none relative select-none flex items-center justify-end z-0 -mr-5 lg:-mr-7 transition-transform duration-500 group-hover/item:scale-105"
+      style={{
+        width: isTvMode ? (isTen ? 85 : 65) : (isTen ? 130 : 100),
+        height: isTvMode ? 135 : 180,
+      }}
       aria-hidden="true"
     >
       <svg
@@ -37,9 +42,11 @@ function RankNumber({ rank }: { rank: number }) {
             <stop offset="40%" stopColor="#c5c5d0" stopOpacity="0.6" />
             <stop offset="100%" stopColor="#4a4a58" stopOpacity="0.4" />
           </linearGradient>
-          <filter id={`glow-${rank}`} x="-20%" y="-20%" width="140%" height="140%">
-            <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#000000" floodOpacity="0.8" />
-          </filter>
+          {!isTvMode && (
+            <filter id={`glow-${rank}`} x="-20%" y="-20%" width="140%" height="140%">
+              <feDropShadow dx="0" dy="6" stdDeviation="8" floodColor="#000000" floodOpacity="0.8" />
+            </filter>
+          )}
         </defs>
 
         <text
@@ -53,7 +60,7 @@ function RankNumber({ rank }: { rank: number }) {
           stroke={`url(#strokeGrad-${rank})`}
           strokeWidth="4.5"
           strokeLinejoin="round"
-          filter={`url(#glow-${rank})`}
+          filter={!isTvMode ? `url(#glow-${rank})` : undefined}
           letterSpacing="-0.08em"
         >
           {rank}
@@ -67,6 +74,7 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
+  const isTvMode = isTV();
 
   const top10 = titles.slice(0, 10);
 
@@ -98,19 +106,19 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
   if (top10.length === 0) return null;
 
   return (
-    <section className="group/row relative py-10 animate-row-reveal">
+    <section className={`group/row relative ${isTvMode ? 'py-4' : 'py-10'} animate-row-reveal`}>
       {/* Header */}
-      <div className="mb-6 flex items-end justify-between px-8 lg:px-14">
-        <div className="flex items-center gap-3">
-          <div className="flex h-7 w-7 items-center justify-center rounded-[8px] bg-gradient-to-br from-amber-400 to-amber-600 shadow-md shadow-amber-500/20">
-            <span className="text-[11px] font-black text-black">10</span>
+      <div className={`${isTvMode ? 'mb-3' : 'mb-6'} flex items-end justify-between px-8 lg:px-14`}>
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-6 w-6 items-center justify-center rounded-[6px] bg-gradient-to-br from-amber-400 to-amber-600 shadow-md shadow-amber-500/20">
+            <span className="text-[10px] font-black text-black">10</span>
           </div>
           <div>
-            <h2 className="text-display text-[21px] font-medium tracking-tight text-white/95 md:text-[23px]">
+            <h2 className={`text-display ${isTvMode ? 'text-[17px]' : 'text-[21px] md:text-[23px]'} font-medium tracking-tight text-white/95`}>
               {label}
             </h2>
             {subtitle && (
-              <p className="mt-0.5 text-[12px] text-white/40">{subtitle}</p>
+              <p className={`mt-0.5 ${isTvMode ? 'text-[11px]' : 'text-[12px]'} text-white/40`}>{subtitle}</p>
             )}
           </div>
         </div>
@@ -118,6 +126,7 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
         {/* Scroll Controls */}
         <div className="hidden items-center gap-1.5 md:flex">
           <button
+            tabIndex={-1}
             onClick={() => scroll(-1)}
             disabled={!canLeft}
             aria-label="Назад"
@@ -126,6 +135,7 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
             <ChevronLeft className="h-4 w-4" strokeWidth={2} />
           </button>
           <button
+            tabIndex={-1}
             onClick={() => scroll(1)}
             disabled={!canRight}
             aria-label="Вперёд"
@@ -139,8 +149,8 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
       {/* Scrollable Container */}
       <div
         ref={scrollRef}
-        className="no-scrollbar flex gap-2 overflow-x-auto px-8 lg:px-14 pb-4 pt-2"
-        style={{ scrollSnapType: 'x mandatory' }}
+        className="no-scrollbar flex gap-2 overflow-x-auto px-8 lg:px-14 pb-4 pt-3.5"
+        style={{ scrollSnapType: isTvMode ? 'none' : 'x mandatory' }}
       >
         {top10.map((title, i) => {
           const rank = i + 1;
@@ -150,19 +160,29 @@ export default function Top10Row({ label, subtitle, titles, onSelect, onPlay }: 
           return (
             <div
               key={title.id}
-              className="group/item relative flex shrink-0 items-center cursor-pointer"
+              role="button"
+              tabIndex={0}
+              data-tv-card="true"
+              className="group/item relative flex shrink-0 items-center cursor-pointer outline-none focus:outline-none focus:z-30"
               style={{ scrollSnapAlign: 'start' }}
               onClick={() => onSelect(title)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ' || (e as any).keyCode === 13) {
+                  e.preventDefault();
+                  onSelect(title);
+                }
+              }}
             >
               {/* Giant Stylized Rank Number */}
               <RankNumber rank={rank} />
 
               {/* Portrait Poster Card */}
               <div
-                className="relative z-10 w-[165px] md:w-[190px] lg:w-[210px] shrink-0 overflow-hidden rounded-[14px] card-edge transition-cinematic group-hover/item:card-edge-hover group-hover/item:scale-[1.04] group-hover/item:shadow-2xl group-hover/item:shadow-black/70"
+                className={`relative z-10 ${
+                  isTvMode ? 'w-[115px]' : 'w-[165px] md:w-[190px] lg:w-[210px]'
+                } shrink-0 overflow-hidden rounded-[12px] card-edge transition-all duration-300 group-hover/item:scale-[1.03] group-focus/item:scale-[1.03] group-focus/item:ring-2 group-focus/item:ring-amber-400 group-focus/item:ring-offset-2 group-focus/item:ring-offset-[#08080a] group-focus/item:shadow-xl`}
                 style={{
                   aspectRatio: '2/3',
-                  transition: 'transform 420ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 420ms cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
               >
                 <SafeImg

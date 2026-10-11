@@ -3,6 +3,7 @@ import { History, Bookmark, Heart, Trash2, Film } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
 import { getScopedItem, setScopedItem } from '@/api/sync';
+import { isTV } from '@/hooks/usePlatform';
 import Card from './Card';
 
 interface MyViewProps {
@@ -12,6 +13,7 @@ interface MyViewProps {
 type TabType = 'watched' | 'watchlist' | 'favorites';
 
 export default function MyView({ onSelect }: MyViewProps) {
+  const isTvMode = isTV();
   const [activeTab, setActiveTab] = useState<TabType>('watched');
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<Title[]>([]);
@@ -123,12 +125,12 @@ export default function MyView({ onSelect }: MyViewProps) {
   ];
 
   return (
-    <div className="min-h-screen w-full max-w-full overflow-x-hidden px-4 pt-20 pb-24 sm:px-6 md:px-8 lg:px-14">
+    <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'max-w-full overflow-x-hidden px-4 pt-20 pb-24 sm:px-6 md:px-8 lg:px-14'}`}>
       {/* Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+      <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 ${isTvMode ? 'mb-4' : 'mb-6'}`}>
         <div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-white sm:text-3xl md:text-4xl">Моё</h1>
-          <p className="mt-1 text-xs sm:text-sm text-white/50">Ваша персональная медиатека: история, планы к просмотру и закладки</p>
+          <h1 className={`font-extrabold tracking-tight text-white ${isTvMode ? 'text-xl' : 'text-2xl sm:text-3xl md:text-4xl'}`}>Моё</h1>
+          <p className={`text-white/50 ${isTvMode ? 'mt-0.5 text-xs' : 'mt-1 text-xs sm:text-sm'}`}>Ваша персональная медиатека: история, планы к просмотру и закладки</p>
         </div>
 
         {items.length > 0 && !loading && (
@@ -202,10 +204,10 @@ export default function MyView({ onSelect }: MyViewProps) {
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7">
+        <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7"}>
           {items.map((title) => (
             <div key={title.id} className="group relative">
-              <Card title={title} onSelect={isEditMode ? () => {} : onSelect} />
+              <Card title={title} onSelect={isEditMode ? () => {} : onSelect} fill={!isTvMode} />
               <button
                 onClick={(e) => handleRemove(e, title.id)}
                 title="Удалить из списка"

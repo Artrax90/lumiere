@@ -5,6 +5,7 @@ import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
 import { useTrending } from '@/hooks/useTrending';
 import { usePopular } from '@/hooks/usePopular';
+import { isTV } from '@/hooks/usePlatform';
 import SafeImg from './SafeImg';
 import Card from './Card';
 
@@ -231,6 +232,7 @@ export const curatedCollections: CollectionDef[] = [
 ];
 
 export default function CollectionsView({ onSelect, initialCollectionId, onCollectionChange }: CollectionsViewProps) {
+  const isTvMode = isTV();
   const { t } = useTranslation();
   const [selected, setSelected] = useState<CollectionDef | null>(() => {
     if (initialCollectionId) {
@@ -372,55 +374,72 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
     const backdrop = selected.bg || collectionTitles[0]?.backdrop || trending[0]?.backdrop || '';
 
     return (
-      <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-14 animate-fade-in">
+      <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'px-8 pt-28 pb-20 lg:px-14'} animate-fade-in`}>
         <div className="mx-auto max-w-[1500px]">
           <button
             onClick={() => handleSelectCollection(null)}
-            className="mb-8 flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/70 transition-cinematic hover:bg-white/10 hover:text-white"
+            data-tv-focusable="true"
+            className="mb-6 flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/70 transition-cinematic hover:bg-white/10 hover:text-white"
           >
             <ArrowLeft className="h-4 w-4" strokeWidth={1.5} />
             Все подборки
           </button>
 
           {/* Collection Hero Banner */}
-          <div className="relative mb-12 h-72 md:h-84 overflow-hidden rounded-[24px] animate-detail-rise">
-            {backdrop && (
-              <SafeImg
-                src={backdrop}
-                alt={selected.name}
-                className="absolute inset-0 h-full w-full object-cover"
-                style={{ filter: 'saturate(1.1) brightness(0.65)' }}
+          {!isTvMode && (
+            <div className="relative mb-12 h-72 md:h-84 overflow-hidden rounded-[24px] animate-detail-rise">
+              {backdrop && (
+                <SafeImg
+                  src={backdrop}
+                  alt={selected.name}
+                  className="absolute inset-0 h-full w-full object-cover"
+                  style={{ filter: 'saturate(1.1) brightness(0.65)' }}
+                />
+              )}
+              <div
+                className="absolute inset-0"
+                style={{ background: `linear-gradient(135deg, ${selected.accent} 0%, transparent 60%)` }}
               />
-            )}
-            <div
-              className="absolute inset-0"
-              style={{ background: `linear-gradient(135deg, ${selected.accent} 0%, transparent 60%)` }}
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-[#08080a]/50 to-transparent" />
+              <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-[#08080a]/50 to-transparent" />
 
-            <div className="absolute bottom-0 left-0 p-8 md:p-12 max-w-2xl">
-              <span
-                className="text-[12px] font-semibold uppercase tracking-[0.24em]"
-                style={{ color: '#e8c170' }}
-              >
-                {selected.subtitle}
-              </span>
-              <h1 className="mt-2 text-display text-[32px] font-medium tracking-tight text-white md:text-[44px]">
-                {selected.name}
-              </h1>
-              <p className="mt-3 text-[14px] leading-relaxed text-white/70 line-clamp-3">
-                {selected.description}
-              </p>
-              <div className="mt-4 flex items-center gap-2 text-[12px] text-white/45">
-                <Film className="h-3.5 w-3.5" />
-                <span>{collectionTitles.length} фильмов и сериалов в подборке</span>
+              <div className="absolute bottom-0 left-0 p-8 md:p-12 max-w-2xl">
+                <span
+                  className="text-[12px] font-semibold uppercase tracking-[0.24em]"
+                  style={{ color: '#e8c170' }}
+                >
+                  {selected.subtitle}
+                </span>
+                <h1 className="mt-2 text-display text-[32px] font-medium tracking-tight text-white md:text-[44px]">
+                  {selected.name}
+                </h1>
+                <p className="mt-3 text-[14px] leading-relaxed text-white/70 line-clamp-3">
+                  {selected.description}
+                </p>
+                <div className="mt-4 flex items-center gap-2 text-[12px] text-white/45">
+                  <Film className="h-3.5 w-3.5" />
+                  <span>{collectionTitles.length} фильмов и сериалов в подборке</span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {isTvMode && (
+            <div className="mb-4">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300">
+                {selected.subtitle}
+              </span>
+              <h1 className="text-display text-[22px] font-medium tracking-tight text-white/95">
+                {selected.name}
+              </h1>
+              <p className="mt-0.5 text-[12px] text-white/50">
+                {collectionTitles.length} тайтлов в подборке
+              </p>
+            </div>
+          )}
 
           {/* Grid of titles — fixed responsive CSS grid */}
           {loading ? (
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-5 lg:gap-6">
+            <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-5 lg:gap-6"}>
               {Array.from({ length: 18 }).map((_, i) => (
                 <div key={i} className="aspect-[2/3] w-full rounded-[14px] skeleton" />
               ))}
@@ -431,10 +450,10 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-5 lg:gap-6 animate-detail-rise">
+              <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3 animate-detail-rise" : "grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 sm:gap-5 lg:gap-6 animate-detail-rise"}>
                 {collectionTitles.map((t, i) => (
                   <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 30, 400)}ms` }}>
-                    <Card title={t} variant="portrait" onSelect={onSelect} fill />
+                    <Card title={t} variant="portrait" onSelect={onSelect} fill={!isTvMode} />
                   </div>
                 ))}
               </div>
@@ -472,33 +491,34 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
   const rest = curatedCollections.filter((c) => !c.featured);
 
   return (
-    <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-14">
+    <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'px-8 pt-28 pb-20 lg:px-14'}`}>
       <div className="mx-auto max-w-[1500px]">
         {/* Header */}
-        <div className="mb-10 animate-row-reveal">
-          <div className="flex items-center gap-2.5 mb-2">
-            <Sparkles className="h-5 w-5 text-amber-300/80" />
-            <span className="text-[12px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">
+        <div className={isTvMode ? 'mb-4' : 'mb-10 animate-row-reveal'}>
+          <div className="flex items-center gap-2 mb-1.5">
+            <Sparkles className="h-4 w-4 text-amber-300/80" />
+            <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-amber-300/80">
               Кураторские циклы
             </span>
           </div>
-          <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[46px]">
+          <h1 className={`text-display font-medium tracking-tight text-white/95 ${isTvMode ? 'text-[22px]' : 'text-[36px] md:text-[46px]'}`}>
             {t('nav.collections')}
           </h1>
-          <p className="mt-2 text-[15px] text-white/55">
+          <p className={`text-white/55 ${isTvMode ? 'mt-0.5 text-[12px]' : 'mt-2 text-[15px]'}`}>
             Кураторские подборки, жанровые коллекции и циклы киношедевров, отобранные по настроению и темам.
           </p>
         </div>
 
         {/* Featured collections — large editorial banners */}
-        <div className="mb-12 grid gap-6 md:grid-cols-2 animate-detail-rise">
+        <div className={`grid gap-4 ${isTvMode ? 'grid-cols-2 mb-6' : 'mb-12 md:grid-cols-2'} animate-detail-rise`}>
           {featured.map((col, i) => {
             const bg = col.bg || trending[i]?.backdrop || popular[i]?.backdrop || '';
             return (
               <button
                 key={col.id}
                 onClick={() => handleSelectCollection(col)}
-                className="group relative h-72 md:h-80 overflow-hidden rounded-[22px] text-left transition-all duration-500 ease-out animate-stagger-in card-edge hover:card-edge-hover"
+                data-tv-card="true"
+                className={`group relative overflow-hidden rounded-[20px] text-left transition-all duration-500 ease-out animate-stagger-in card-edge hover:card-edge-hover ${isTvMode ? 'h-44' : 'h-72 md:h-80'}`}
                 style={{ animationDelay: `${i * 100}ms` }}
               >
                 {bg && (
@@ -515,22 +535,22 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
                   style={{ background: `linear-gradient(135deg, ${col.accent} 0%, transparent 60%)` }}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#08080a]/95 via-[#08080a]/35 to-transparent" />
-                <div className="absolute bottom-0 left-0 p-8 md:p-9 max-w-lg">
+                <div className={`absolute bottom-0 left-0 max-w-lg ${isTvMode ? 'p-5' : 'p-8 md:p-9'}`}>
                   <div
                     className="text-[11px] font-semibold uppercase tracking-[0.2em]"
                     style={{ color: '#e8c170' }}
                   >
                     {col.subtitle}
                   </div>
-                  <h2 className="mt-2 text-display text-[26px] font-medium tracking-tight text-white md:text-[32px]">
+                  <h2 className={`text-display font-medium tracking-tight text-white ${isTvMode ? 'text-[20px] mt-1' : 'text-[26px] md:text-[32px] mt-2'}`}>
                     {col.name}
                   </h2>
-                  <p className="mt-2 text-[13px] leading-relaxed text-white/65 line-clamp-2">
+                  <p className={`leading-relaxed text-white/65 line-clamp-2 ${isTvMode ? 'text-[11px] mt-1' : 'text-[13px] mt-2'}`}>
                     {col.description}
                   </p>
-                  <div className="mt-4 flex items-center gap-1.5 text-[13px] font-medium text-white/80 transition-cinematic group-hover:text-amber-300">
+                  <div className={`flex items-center gap-1.5 font-medium text-white/80 transition-cinematic group-hover:text-amber-300 ${isTvMode ? 'text-[11px] mt-2' : 'text-[13px] mt-4'}`}>
                     Смотреть подборку
-                    <ChevronRight className="h-4 w-4 transition-cinematic group-hover:translate-x-1" strokeWidth={1.5} />
+                    <ChevronRight className="h-3.5 w-3.5 transition-cinematic group-hover:translate-x-1" strokeWidth={1.5} />
                   </div>
                 </div>
               </button>
@@ -540,17 +560,18 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
 
         {/* All collections & genres grid */}
         <div className="mb-6">
-          <h3 className="text-display text-[22px] font-medium text-white/90 mb-5">
+          <h3 className={`text-display font-medium text-white/90 ${isTvMode ? 'text-[16px] mb-3' : 'text-[22px] mb-5'}`}>
             Все жанры и категории
           </h3>
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 animate-detail-rise">
+          <div className={`grid ${isTvMode ? 'grid-cols-3 xl:grid-cols-4 gap-3' : 'gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4'} animate-detail-rise`}>
             {rest.map((col, i) => {
               const bg = col.bg || trending[4 + i]?.backdrop || popular[4 + i]?.backdrop || '';
               return (
                 <button
                   key={col.id}
                   onClick={() => handleSelectCollection(col)}
-                  className="group relative h-56 overflow-hidden rounded-[18px] text-left transition-all duration-500 ease-out animate-stagger-in card-edge hover:card-edge-hover"
+                  data-tv-card="true"
+                  className={`group relative overflow-hidden rounded-[16px] text-left transition-all duration-500 ease-out animate-stagger-in card-edge hover:card-edge-hover ${isTvMode ? 'h-36' : 'h-56'}`}
                   style={{ animationDelay: `${Math.min(i * 50, 400)}ms` }}
                 >
                   {bg && (

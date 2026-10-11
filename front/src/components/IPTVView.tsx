@@ -4,6 +4,7 @@ import { Tv, Search, Play, Star, Plus, Trash2, Loader2, Pencil, X, Columns2, Vol
 import Hls from 'hls.js';
 import { Capacitor } from '@capacitor/core';
 import type { Title } from '@/api/client';
+import { isTV } from '@/hooks/usePlatform';
 import { serverFetch, getServerUrl, serverUrl } from '@/api/server';
 import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
 
@@ -466,6 +467,7 @@ function MultiViewModal({
 }
 
 export default function IPTVView({ onPlay }: IPTVViewProps) {
+  const isTvMode = isTV();
   const { t } = useTranslation();
   const initialPlaylists = getSavedPlaylists();
   console.log('[IPTV] initial playlists from localStorage:', initialPlaylists.length);
@@ -985,20 +987,20 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
   };
 
   return (
-    <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
+    <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'px-8 pt-28 pb-20 lg:px-12'}`}>
       <div className="mx-auto max-w-[1500px]">
         {/* Header */}
-        <div className="mb-8 flex flex-wrap items-center justify-between gap-4 animate-row-reveal">
+        <div className={`flex flex-wrap items-center justify-between gap-4 ${isTvMode ? 'mb-4' : 'mb-8 animate-row-reveal'}`}>
           <div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2.5">
               <div className="flex h-2.5 w-2.5 items-center justify-center">
-                <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse-soft" />
+                <span className="h-2 w-2 rounded-full bg-red-500 animate-pulse-soft" />
               </div>
-              <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">
+              <h1 className={`text-display font-medium tracking-tight text-white/95 ${isTvMode ? 'text-[22px]' : 'text-[36px] md:text-[44px]'}`}>
                 IPTV
               </h1>
             </div>
-            <p className="mt-2 text-[15px] text-white/50">{t('iptv.subtitle')}</p>
+            <p className={`text-white/50 ${isTvMode ? 'mt-0.5 text-[12px]' : 'mt-2 text-[15px]'}`}>{t('iptv.subtitle')}</p>
           </div>
 
           {channels.length >= 2 && (
@@ -1236,7 +1238,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
         {!loading && channels.length > 0 && (
           <>
             {/* Now Playing preview (if channel selected) */}
-            {selectedChannel && (
+            {!isTvMode && selectedChannel && (
               <>
               <div className="mb-6 animate-detail-rise">
                 <div className="glass-panel overflow-hidden rounded-[20px]">
@@ -1287,7 +1289,6 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                 </div>
                 {(() => {
                   const progs = getPrograms(selectedChannel);
-                  console.log('[IPTV] Rendering programs:', progs.length);
                   return (
                     <div className="glass-panel rounded-[16px] p-4 max-h-[300px] overflow-y-auto">
                       {progs.length === 0 ? (
@@ -1309,7 +1310,7 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
             )}
 
             {/* Search */}
-            <div className="mb-6 animate-row-reveal">
+            <div className={`animate-row-reveal ${isTvMode ? 'mb-3' : 'mb-6'}`}>
               <div className="relative max-w-md">
                 <Search className="absolute left-4 top-1/2 -translate-y-1/2 h-4 w-4 text-white/30" />
                 <input
@@ -1317,17 +1318,18 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   placeholder={t('iptv.searchChannels')}
-                  className="w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 py-2.5 text-[13px] text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50"
+                  className={`w-full rounded-full bg-white/5 border border-white/10 pl-11 pr-4 text-white placeholder:text-white/30 focus:outline-none focus:border-amber-300/50 ${isTvMode ? 'py-2 text-[12px]' : 'py-2.5 text-[13px]'}`}
                 />
               </div>
             </div>
 
             {/* Channel group filters */}
-            <div className="mb-6 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
+            <div className={`no-scrollbar flex gap-2 overflow-x-auto ${isTvMode ? 'mb-3' : 'mb-6 animate-row-reveal'}`}>
               {/* Favorites first */}
               <button
                 onClick={() => { setShowFavorites(!showFavorites); setSelectedGroup('All'); }}
-                className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic flex items-center gap-1.5"
+                data-tv-focusable="true"
+                className={`shrink-0 rounded-full font-medium transition-cinematic flex items-center gap-1.5 ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
                 style={{
                   background: showFavorites ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                   color: showFavorites ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -1344,7 +1346,8 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <button
                     key={g}
                     onClick={() => { setSelectedGroup(g); setShowFavorites(false); }}
-                    className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic flex items-center gap-1.5"
+                    data-tv-focusable="true"
+                    className={`shrink-0 rounded-full font-medium transition-cinematic flex items-center gap-1.5 ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
                     style={{
                       background: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                       color: !showFavorites && selectedGroup === g ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -1358,34 +1361,31 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
               })}
             </div>
 
-            {/* EPG Grid - Full TV Guide */}
-            <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
-              <div className="overflow-x-auto">
-                {/* Time header */}
-                <div className="flex items-center border-b border-white/[0.06] min-w-[1100px]">
-                  <div className="w-64 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">{t('iptv.title')}</div>
-                  <div className="flex flex-1">
-                    {timeSlots.map((time) => (
-                      <div key={time} className="flex-1 px-2 py-3 text-center text-[11px] font-medium text-white/40">{time}</div>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Channels */}
-                {displayedChannels.map((ch, idx) => {
+            {/* Channels presentation: TV list or EPG Grid */}
+            {isTvMode ? (
+              <div className="space-y-1.5 animate-detail-rise">
+                {displayedChannels.map((ch) => {
                   const isFavorite = favorites.has(ch.id);
-                  const programs = getPrograms(ch);
+                  const prog = getCurrentProgram(ch);
 
                   return (
                     <div
                       key={ch.id}
+                      role="button"
+                      tabIndex={0}
+                      data-tv-card="true"
                       onClick={() => playChannel(ch)}
-                      className={`flex items-center min-w-[1100px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== displayedChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || (e as any).keyCode === 13) {
+                          e.preventDefault();
+                          playChannel(ch);
+                        }
+                      }}
+                      className="group flex items-center justify-between px-4 py-2.5 rounded-xl bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.08] focus:bg-amber-400/20 focus:border-amber-400/60 focus:ring-2 focus:ring-amber-400/50 transition-all cursor-pointer outline-none select-none"
                     >
-                      {/* Channel info */}
-                      <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
-                        <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/5 shrink-0 flex items-center justify-center">
-                          <div className={`absolute inset-0 flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[11px] tracking-wider ${getChannelColor(ch.name)}`}>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="relative h-9 w-9 overflow-hidden rounded-lg bg-white/5 shrink-0 flex items-center justify-center">
+                          <div className={`absolute inset-0 flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[10px] tracking-wider ${getChannelColor(ch.name)}`}>
                             {getChannelMonogram(ch.name)}
                           </div>
                           {getChannelLogo(ch) ? (
@@ -1399,60 +1399,132 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                             />
                           ) : null}
                         </div>
-                        <div className="min-w-0 flex-1">
+                        <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
-                            <span className="truncate text-[12px] font-medium text-white/90">{ch.name}</span>
+                            <span className="truncate text-[13px] font-medium text-white/95 group-focus:text-amber-200">{ch.name}</span>
                             {/\b4k\b/i.test(ch.name) && (
-                              <span className="shrink-0 rounded-[4px] bg-amber-400/20 px-1 py-0.5 text-[9px] font-bold text-amber-300">4K</span>
+                              <span className="shrink-0 rounded-[4px] bg-amber-400/20 px-1 py-0.5 text-[8px] font-bold text-amber-300">4K</span>
                             )}
                             {/\b(fhd|1080)\b/i.test(ch.name) && (
-                              <span className="shrink-0 rounded-[4px] bg-blue-400/20 px-1 py-0.5 text-[9px] font-bold text-blue-300">FHD</span>
+                              <span className="shrink-0 rounded-[4px] bg-blue-400/20 px-1 py-0.5 text-[8px] font-bold text-blue-300">FHD</span>
                             )}
                           </div>
+                          {prog && (
+                            <div className="truncate text-[11px] text-white/50 group-focus:text-white/70">
+                              <span className="text-amber-300/80 mr-1.5">{prog.startTime}</span>{prog.title}
+                            </div>
+                          )}
                         </div>
+                      </div>
+
+                      <div className="flex items-center gap-3 shrink-0 ml-4">
+                        <span className="text-[11px] text-white/40">{ch.group}</span>
                         <button
                           onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
-                          className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110"
+                          className="flex h-7 w-7 items-center justify-center rounded-full transition-transform hover:scale-110"
                           aria-label="Favorite"
                         >
                           <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/20 hover:text-white/50'}`} strokeWidth={1.5} />
                         </button>
                       </div>
-
-                      {/* Program slots */}
-                      <div className="flex flex-1 gap-px">
-                        {timeSlots.map((slotTime, slotIdx) => {
-                          // Find program that airs at this time slot
-                          const slotProgram = programs.find(p => p.startTime <= slotTime && p.stopTime > slotTime);
-                          const nextSlotTime = timeSlots[slotIdx + 1] || '24:00';
-                          // Check if program spans multiple slots
-                          const isCurrentSlot = slotProgram && slotIdx === 0;
-
-                          return (
-                            <div
-                              key={slotTime}
-                              className={`flex-1 px-2 py-2.5 min-h-[52px] ${
-                                isCurrentSlot
-                                  ? 'bg-amber-300/[0.06]'
-                                  : slotIdx % 2 === 0 ? 'bg-white/[0.01]' : ''
-                              }`}
-                            >
-                              {slotProgram ? (
-                                <div className={`text-[11px] leading-tight ${isCurrentSlot ? 'text-white/90 font-medium' : 'text-white/50'}`}>
-                                  <div className="truncate">{slotProgram.title}</div>
-                                  <div className="text-[9px] text-white/30 mt-0.5">{slotProgram.startTime}</div>
-                                </div>
-                              ) : (
-                                <div className="text-[10px] text-white/15">—</div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
                     </div>
                   );
                 })}
               </div>
+            ) : (
+              <div className="glass-panel overflow-hidden rounded-[20px] animate-detail-rise" style={{ animationDelay: '100ms' }}>
+                <div className="overflow-x-auto">
+                  {/* Time header */}
+                  <div className="flex items-center border-b border-white/[0.06] min-w-[1100px]">
+                    <div className="w-64 shrink-0 px-4 py-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">{t('iptv.title')}</div>
+                    <div className="flex flex-1">
+                      {timeSlots.map((time) => (
+                        <div key={time} className="flex-1 px-2 py-3 text-center text-[11px] font-medium text-white/40">{time}</div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Channels */}
+                  {displayedChannels.map((ch, idx) => {
+                    const isFavorite = favorites.has(ch.id);
+                    const programs = getPrograms(ch);
+
+                    return (
+                      <div
+                        key={ch.id}
+                        onClick={() => playChannel(ch)}
+                        className={`flex items-center min-w-[1100px] transition-cinematic hover:bg-white/[0.03] cursor-pointer ${selectedChannel?.id === ch.id ? 'bg-white/[0.04]' : ''} ${idx !== displayedChannels.length - 1 ? 'border-b border-white/[0.04]' : ''}`}
+                      >
+                        {/* Channel info */}
+                        <div className="w-64 shrink-0 flex items-center gap-3 px-4 py-3">
+                          <div className="relative h-10 w-10 overflow-hidden rounded-xl bg-white/5 shrink-0 flex items-center justify-center">
+                            <div className={`absolute inset-0 flex h-full w-full items-center justify-center bg-gradient-to-br border font-semibold text-[11px] tracking-wider ${getChannelColor(ch.name)}`}>
+                              {getChannelMonogram(ch.name)}
+                            </div>
+                            {getChannelLogo(ch) ? (
+                              <img
+                                src={getChannelLogo(ch)}
+                                alt={ch.name}
+                                className="absolute inset-0 h-full w-full object-contain p-1"
+                                loading="lazy"
+                                decoding="async"
+                                onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                              />
+                            ) : null}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-[12px] font-medium text-white/90">{ch.name}</span>
+                              {/\b4k\b/i.test(ch.name) && (
+                                <span className="shrink-0 rounded-[4px] bg-amber-400/20 px-1 py-0.5 text-[9px] font-bold text-amber-300">4K</span>
+                              )}
+                              {/\b(fhd|1080)\b/i.test(ch.name) && (
+                                <span className="shrink-0 rounded-[4px] bg-blue-400/20 px-1 py-0.5 text-[9px] font-bold text-blue-300">FHD</span>
+                              )}
+                            </div>
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); toggleFavorite(ch.id); }}
+                            className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full transition-transform hover:scale-110"
+                            aria-label="Favorite"
+                          >
+                            <Star className={`h-3.5 w-3.5 ${isFavorite ? 'fill-amber-300 text-amber-300' : 'text-white/20 hover:text-white/50'}`} strokeWidth={1.5} />
+                          </button>
+                        </div>
+
+                        {/* Program slots */}
+                        <div className="flex flex-1 gap-px">
+                          {timeSlots.map((slotTime, slotIdx) => {
+                            const slotProgram = programs.find(p => p.startTime <= slotTime && p.stopTime > slotTime);
+                            const isCurrentSlot = slotProgram && slotIdx === 0;
+
+                            return (
+                              <div
+                                key={slotTime}
+                                className={`flex-1 px-2 py-2.5 min-h-[52px] ${
+                                  isCurrentSlot
+                                    ? 'bg-amber-300/[0.06]'
+                                    : slotIdx % 2 === 0 ? 'bg-white/[0.01]' : ''
+                                }`}
+                              >
+                                {slotProgram ? (
+                                  <div className={`text-[11px] leading-tight ${isCurrentSlot ? 'text-white/90 font-medium' : 'text-white/50'}`}>
+                                    <div className="truncate">{slotProgram.title}</div>
+                                    <div className="text-[9px] text-white/30 mt-0.5">{slotProgram.startTime}</div>
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-white/15">—</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
               {/* Load more sentinel for smooth pagination */}
               {visibleCount < filteredChannels.length && (
@@ -1477,7 +1549,6 @@ export default function IPTVView({ onPlay }: IPTVViewProps) {
                   <p className="text-[12px] text-white/30 mt-1">{t('iptv.addToFavorites')}</p>
                 </div>
               )}
-            </div>
 
             {/* Channel count */}
             <div className="mt-6 text-center text-[12px] text-white/30">

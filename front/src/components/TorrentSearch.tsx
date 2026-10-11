@@ -348,7 +348,7 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
               </div>
               <button
                 onClick={() => playFile(file)}
-                className="flex items-center gap-2 rounded-full bg-amber-300/90 px-4 py-2 text-[12px] font-semibold text-black/80 transition-cinematic hover:bg-amber-200/90"
+                className="flex items-center gap-2 rounded-full bg-amber-300/90 px-4 py-2 text-[12px] font-semibold text-black/80 transition-all hover:bg-amber-200/90 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105"
               >
                 <Play className="h-3 w-3 fill-current" />{t('common.watch')}
               </button>
@@ -574,8 +574,16 @@ export default function TorrentSearch({ title, initialSeason, onPlay }: TorrentS
             return (
               <div
                 key={`${item.tracker}-${item.id}-${idx}`}
+                role="button"
+                tabIndex={0}
                 onClick={() => streamTorrent(item)}
-                className={`rounded-[12px] p-4 transition-cinematic cursor-pointer ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'} ${isStreaming ? 'opacity-50' : ''}`}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ' || (e as any).keyCode === 13) {
+                    e.preventDefault();
+                    streamTorrent(item);
+                  }
+                }}
+                className={`rounded-[12px] p-4 transition-all cursor-pointer outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-[1.01] ${isLastPlayed ? 'bg-amber-300/[0.06] border border-amber-300/20' : 'bg-white/[0.03] border border-white/[0.06]'} ${isStreaming ? 'opacity-50' : ''}`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">

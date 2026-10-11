@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import Card from './Card';
 import type { Title } from '@/api/client';
+import { isTV } from '@/hooks/usePlatform';
 
 type Personality = 'default' | 'trending' | 'awards' | 'hidden' | 'editorial';
 
@@ -29,6 +30,7 @@ export default function ContentRow({
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
+  const isTvMode = isTV();
 
   const updateScrollState = () => {
     const el = scrollRef.current;
@@ -70,20 +72,20 @@ export default function ContentRow({
       : 'text-white/35';
 
   return (
-    <section className="group/row relative py-12 animate-row-reveal">
+    <section className={`group/row relative ${isTvMode ? 'py-4' : 'py-12'} animate-row-reveal`}>
       {/* Section header */}
-      <div className="mb-6 flex items-end justify-between px-8 lg:px-14">
-        <div className="flex items-center gap-3">
+      <div className={`${isTvMode ? 'mb-2.5' : 'mb-6'} flex items-end justify-between px-8 lg:px-14`}>
+        <div className="flex items-center gap-2.5">
           {personality === 'awards' && (
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-amber-200/20 bg-amber-200/[0.06]">
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(232,193,112,0.7)' }}>
+            <div className="flex h-6 w-6 items-center justify-center rounded-full border border-amber-200/20 bg-amber-200/[0.06]">
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(232,193,112,0.7)' }}>
                 <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4-6.2-4.5-6.2 4.5 2.4-7.4L2 9.4h7.6z" />
               </svg>
             </div>
           )}
           {personality === 'hidden' && (
-            <div className="flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-white/[0.02]">
-              <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(180,180,190,0.5)' }}>
+            <div className="flex h-6 w-6 items-center justify-center rounded-full border border-white/8 bg-white/[0.02]">
+              <svg viewBox="0 0 24 24" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: 'rgba(180,180,190,0.5)' }}>
                 <circle cx="12" cy="12" r="9" />
                 <path d="M9 10c0-1.7 1.3-3 3-3s3 1.3 3 3-1.3 3-3 3" />
                 <path d="M12 13v3" />
@@ -92,13 +94,13 @@ export default function ContentRow({
           )}
           <div>
             <h2
-              className={`text-display text-[21px] font-medium tracking-tight ${headerAccent} md:text-[23px]`}
+              className={`text-display ${isTvMode ? 'text-[17px]' : 'text-[21px] md:text-[23px]'} font-medium tracking-tight ${headerAccent}`}
               style={{ letterSpacing: personality === 'editorial' ? '-0.01em' : '-0.02em' }}
             >
               {label}
             </h2>
             {subtitle && (
-              <p className={`mt-1.5 text-[13px] ${subtitleColor}`}>{subtitle}</p>
+              <p className={`mt-0.5 ${isTvMode ? 'text-[11px]' : 'text-[13px]'} ${subtitleColor}`}>{subtitle}</p>
             )}
           </div>
         </div>
@@ -109,6 +111,7 @@ export default function ContentRow({
           style={{ opacity: canLeft || canRight ? 1 : 0 }}
         >
           <button
+            tabIndex={-1}
             onClick={() => scrollBy(-1)}
             disabled={!canLeft}
             className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -117,6 +120,7 @@ export default function ContentRow({
             <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.5} />
           </button>
           <button
+            tabIndex={-1}
             onClick={() => scrollBy(1)}
             disabled={!canRight}
             className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -153,8 +157,9 @@ export default function ContentRow({
 
         <div
           ref={scrollRef}
-          className="no-scrollbar flex gap-5 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14"
-          style={{ scrollSnapType: 'x proximity' }}
+          data-tv-row="true"
+          className={`no-scrollbar flex ${isTvMode ? 'gap-3' : 'gap-5'} overflow-x-auto ${isTvMode ? '' : 'scroll-smooth'} px-8 pt-3.5 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14`}
+          style={{ scrollSnapType: isTvMode ? 'none' : 'x proximity' }}
         >
           {titles.map((title, i) => (
             <div

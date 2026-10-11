@@ -22,6 +22,7 @@ import type { Title } from '@/api/client';
 import { useSearch } from '@/hooks/useSearch';
 import { useGenres } from '@/hooks/useGenres';
 import { useTrending } from '@/hooks/useTrending';
+import { isTV } from '@/hooks/usePlatform';
 import Card from './Card';
 import { getScopedItem, setScopedItem, removeScopedItem } from '@/api/sync';
 
@@ -66,6 +67,7 @@ function clearAllRecentSearches() {
 }
 
 export default function SearchView({ onSelect, initialQuery = '' }: SearchViewProps) {
+  const isTvMode = isTV();
   const { t } = useTranslation();
   const [query, setQuery] = useState(initialQuery);
   const [focused, setFocused] = useState(false);
@@ -348,7 +350,7 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
 
             {/* Loading Skeletons */}
             {searchLoading ? (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6">
+              <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6"}>
                 {Array.from({ length: 12 }).map((_, i) => (
                   <div key={i} className="animate-pulse space-y-2.5">
                     <div className="aspect-[2/3] w-full rounded-[14px] bg-white/[0.04] border border-white/[0.06]" />
@@ -383,14 +385,14 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
               </div>
             ) : (
               /* Results Grid */
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6">
+              <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6"}>
                 {filteredResults.map((item, i) => (
                   <div
                     key={item.id}
                     className="animate-stagger-in"
                     style={{ animationDelay: `${Math.min(i * 30, 450)}ms` }}
                   >
-                    <Card title={item} variant="portrait" onSelect={onSelect} fill />
+                    <Card title={item} variant="portrait" onSelect={onSelect} fill={!isTvMode} />
                   </div>
                 ))}
               </div>
@@ -486,14 +488,14 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
                   </div>
                   <span className="text-[12px] text-white/40">Топ фильмов недели</span>
                 </div>
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6">
+                <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5 lg:gap-6"}>
                   {trendingTitles.slice(0, 12).map((item, idx) => (
                     <div
                       key={item.id}
                       className="animate-stagger-in"
                       style={{ animationDelay: `${Math.min(idx * 35, 450)}ms` }}
                     >
-                      <Card title={item} variant="portrait" onSelect={onSelect} fill />
+                      <Card title={item} variant="portrait" onSelect={onSelect} fill={!isTvMode} />
                     </div>
                   ))}
                 </div>

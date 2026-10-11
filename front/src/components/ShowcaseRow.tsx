@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, Play, Plus, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
 import SafeImg from './SafeImg';
+import { isTV } from '@/hooks/usePlatform';
 
 interface ShowcaseRowProps {
   label: string;
@@ -17,6 +18,7 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
   const [imgLoaded, setImgLoaded] = useState<Record<string, boolean>>({});
+  const isTvMode = isTV();
 
   const updateScrollState = () => {
     const el = scrollRef.current;
@@ -44,14 +46,15 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
   };
 
   return (
-    <section className="relative py-14 animate-row-reveal">
-      <div className="mb-7 flex items-end justify-between px-8 lg:px-14">
+    <section className={`relative ${isTvMode ? 'py-5' : 'py-14'} animate-row-reveal`}>
+      <div className={`${isTvMode ? 'mb-3.5' : 'mb-7'} flex items-end justify-between px-8 lg:px-14`}>
         <div>
-          <h2 className="text-display text-[23px] font-medium tracking-tight text-white/88 md:text-[26px]">{label}</h2>
-          {subtitle && <p className="mt-2 text-[13px] text-white/35">{subtitle}</p>}
+          <h2 className={`text-display ${isTvMode ? 'text-[17px]' : 'text-[23px] md:text-[26px]'} font-medium tracking-tight text-white/88`}>{label}</h2>
+          {subtitle && <p className={`mt-1 ${isTvMode ? 'text-[11px]' : 'text-[13px]'} text-white/35`}>{subtitle}</p>}
         </div>
         <div className="flex gap-1.5" style={{ opacity: canLeft || canRight ? 1 : 0 }}>
           <button
+            tabIndex={-1}
             onClick={() => scrollBy(-1)}
             disabled={!canLeft}
             className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -60,6 +63,7 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
             <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.5} />
           </button>
           <button
+            tabIndex={-1}
             onClick={() => scrollBy(1)}
             disabled={!canRight}
             className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -80,16 +84,21 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
           style={{ opacity: canRight ? 1 : 0, background: 'linear-gradient(to left, rgba(5,5,6,0.9) 0%, rgba(5,5,6,0.4) 50%, transparent 100%)' }}
         />
 
-        <div ref={scrollRef} className="no-scrollbar flex gap-6 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14">
+        <div ref={scrollRef} className={`no-scrollbar flex ${isTvMode ? 'gap-3.5' : 'gap-6'} overflow-x-auto ${isTvMode ? '' : 'scroll-smooth'} px-8 pt-3.5 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14`}>
           {titles.map((t, i) => {
             const isHovered = hovered === t.id;
             return (
               <button
                 key={t.id}
+                data-tv-card="true"
                 onMouseEnter={() => setHovered(t.id)}
                 onMouseLeave={() => setHovered(null)}
+                onFocus={() => {
+                  setHovered(t.id);
+                }}
+                onBlur={() => setHovered(null)}
                 onClick={() => onSelect(t)}
-                className="group relative w-[440px] shrink-0 text-left animate-stagger-in"
+                className={`group ${isHovered ? 'z-30' : 'z-10'} relative ${isTvMode ? 'w-[220px]' : 'w-[440px]'} shrink-0 text-left animate-stagger-in outline-none focus:outline-none rounded-[14px] transition-all duration-200 cursor-pointer`}
                 style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}
               >
                 {/* Ambient elevation */}
@@ -105,8 +114,8 @@ export default function ShowcaseRow({ label, subtitle, titles, onSelect, glow = 
                   }}
                 />
                 <div
-                  className={`relative aspect-[16/9] overflow-hidden rounded-[16px] transition-all duration-500 ease-out ${isHovered ? 'card-edge-hover' : 'card-edge'}`}
-                  style={{ transform: isHovered ? 'scale(1.025) translateY(-2px)' : 'scale(1)' }}
+                  className={`relative aspect-[16/9] overflow-hidden rounded-[16px] transition-all duration-300 ease-out ${isHovered ? 'ring-2 ring-amber-400 ring-offset-2 ring-offset-[#08080a] shadow-xl' : 'card-edge'}`}
+                  style={{ transform: isHovered ? (isTvMode ? 'scale(1.025)' : 'scale(1.025) translateY(-2px)') : 'scale(1)' }}
                 >
                   {!imgLoaded[t.id] && <div className="absolute inset-0 skeleton rounded-[16px]" />}
                   <SafeImg

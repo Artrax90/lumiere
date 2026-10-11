@@ -1866,9 +1866,9 @@ export function torrentRoutes(app: FastifyInstance) {
         '-probesize', '1000000',
         '-analyzeduration', '1000000',
       ];
-      // Input seek with -accurate_seek ensures exact second seeking without keyframe undershoot
+      // Input seek: use -noaccurate_seek for instant keyframe-aligned seek with zero audio delay
       if (seekTime > 0) {
-        ffmpegArgs.push('-accurate_seek', '-ss', String(Math.floor(seekTime)));
+        ffmpegArgs.push('-noaccurate_seek', '-ss', String(Math.floor(seekTime)));
       }
       ffmpegArgs.push('-i', streamUrl);
       ffmpegArgs.push(
@@ -1905,6 +1905,7 @@ export function torrentRoutes(app: FastifyInstance) {
         '-c:a', 'aac',
         '-b:a', '192k',
         '-ac', '2',
+        '-avoid_negative_ts', 'make_zero',
         '-g', '50',
         '-keyint_min', '25',
         '-force_key_frames', 'expr:gte(t,n_forced*3)',
@@ -2173,6 +2174,31 @@ export function torrentRoutes(app: FastifyInstance) {
   // Serve extracted subtitle as WebVTT (with caching)
   const subtitleCache = new Map<string, { data: string; expires: number }>();
 
+  // Helper: shift VTT timestamps by offset in seconds so seeked extraction outputs absolute timestamps
+  function shiftVttTimestamps(vtt: string, offsetSec: number): string {
+    if (!offsetSec || offsetSec <= 0) return vtt;
+    function fmtTime(sec: number): string {
+      const s = Math.max(0, sec);
+      const h = Math.floor(s / 3600);
+      const m = Math.floor((s % 3600) / 60);
+      const rem = (s % 60).toFixed(3);
+      const [ss, ms] = rem.split('.');
+      const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+      return `${pad(h)}:${pad(m)}:${pad(parseInt(ss, 10))}.${ms || '000'}`;
+    }
+    function parseTime(str: string): number {
+      const parts = str.trim().replace(',', '.').split(':');
+      if (parts.length === 3) return parseFloat(parts[0]) * 3600 + parseFloat(parts[1]) * 60 + parseFloat(parts[2]);
+      if (parts.length === 2) return parseFloat(parts[0]) * 60 + parseFloat(parts[1]);
+      return parseFloat(parts[0]) || 0;
+    }
+    return vtt.replace(/((?:\d{1,2}:)?\d{2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{2}:\d{2}[\.,]\d{3})/g, (_match, startStr, endStr) => {
+      const s = parseTime(startStr) + offsetSec;
+      const e = parseTime(endStr) + offsetSec;
+      return `${fmtTime(s)} --> ${fmtTime(e)}`;
+    });
+  }
+
   app.get('/api/torrents/subtitle/:trackId', async (req, reply) => {
     const { trackId } = req.params as { trackId: string };
     const { link, index, time } = req.query as { link?: string; index?: string; time?: string };
@@ -2181,11 +2207,12 @@ export function torrentRoutes(app: FastifyInstance) {
       return reply.code(400).send({ error: 'link required' });
     }
 
-    const seekSec = time && parseInt(time, 10) > 3 ? Math.max(0, parseInt(time, 10) - 2) : 0;
-    const cacheKey = `${link}-${index}-${trackId}-s${seekSec}`;
+    const seekSec = time ? Math.max(0, Math.floor(parseFloat(time))) : 0;
+    const windowBucket = Math.floor(seekSec / 60) * 60;
+    const cacheKey = `${link}-${index}-${trackId}-w${windowBucket}`;
     const cached = subtitleCache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
-      reply.header('Content-Type', 'text/vtt');
+      reply.header('Content-Type', 'text/vtt; charset=utf-8');
       reply.header('Access-Control-Allow-Origin', '*');
       return reply.send(cached.data);
     }
@@ -2195,7 +2222,7 @@ export function torrentRoutes(app: FastifyInstance) {
       const streamUrl = `${torrUrl}/stream?link=${encodeURIComponent(link)}&index=${index || 0}&play`;
       const { spawn: spawnSub } = await import('child_process');
 
-      // Extract subtitle as WebVTT using spawn with fast demuxing, -copyts, and idle detection
+      // Extract subtitle as WebVTT using spawn with -copyts for 100% accurate absolute movie timestamps
       const vtt = await new Promise<string>((resolve) => {
         const chunks: Buffer[] = [];
         let resolved = false;
@@ -2208,17 +2235,21 @@ export function torrentRoutes(app: FastifyInstance) {
           '-reconnect_streamed', '1',
           '-reconnect_delay_max', '5',
         ];
-        const startSec = seekSec > 0 ? Math.max(0, seekSec - 10) : 0;
-        if (startSec > 0) {
-          subArgs.push('-ss', String(startSec));
+        if (seekSec > 0) {
+          subArgs.push('-ss', String(seekSec), '-copyts');
         }
         subArgs.push(
           '-i', streamUrl,
           '-vn', '-an',
-          '-copyts',
           '-map', `0:s:${trackId}`,
           '-c:s', 'webvtt',
-          '-to', String(seekSec + 100),
+        );
+        if (seekSec > 0) {
+          subArgs.push('-to', String(seekSec + 120));
+        } else {
+          subArgs.push('-t', '120');
+        }
+        subArgs.push(
           '-f', 'webvtt',
           'pipe:1',
         );
@@ -2254,13 +2285,13 @@ export function torrentRoutes(app: FastifyInstance) {
 
         ffmpeg.stdout.on('data', (chunk: Buffer) => {
           chunks.push(chunk);
-          // If cues have already arrived and stdout goes silent for 1.2s, finish early to return data instantly
+          // If cues have already arrived and stdout goes silent for 1.5s, finish early to return data instantly
           if (idleTimer) clearTimeout(idleTimer);
           const currentText = Buffer.concat(chunks).toString('utf-8');
           if (currentText.includes('-->') && currentText.length > 300) {
             idleTimer = setTimeout(() => {
               finish();
-            }, 1200);
+            }, 1500);
           }
         });
         ffmpeg.stderr.on('data', (d: Buffer) => {
@@ -2277,24 +2308,24 @@ export function torrentRoutes(app: FastifyInstance) {
           finish();
         });
 
-        // 7-second timeout: stop FFmpeg if TorrServer takes too long
+        // 25-second timeout: allow sufficient time for TorrServer to fetch uncached torrent pieces from peers
         const timeoutId = setTimeout(() => {
-          console.warn('[Subtitle] Extraction timeout 7s reached, returning received chunks:', chunks.length);
+          console.warn('[Subtitle] Extraction timeout reached, returning received chunks:', chunks.length);
           finish();
-        }, 7000);
+        }, 25000);
       });
 
       // Cache for 1 hour only if valid cues were returned
-      if (vtt && vtt.includes('-->') && vtt.length > 200) {
+      if (vtt && vtt.includes('-->') && vtt.length > 50) {
         subtitleCache.set(cacheKey, { data: vtt, expires: Date.now() + 3600000 });
       }
 
-      reply.header('Content-Type', 'text/vtt');
+      reply.header('Content-Type', 'text/vtt; charset=utf-8');
       reply.header('Access-Control-Allow-Origin', '*');
       return reply.send(vtt);
     } catch (err: any) {
       console.error('Subtitle extract error:', err.message);
-      reply.header('Content-Type', 'text/vtt');
+      reply.header('Content-Type', 'text/vtt; charset=utf-8');
       reply.header('Access-Control-Allow-Origin', '*');
       return reply.send('WEBVTT\n\n');
     }

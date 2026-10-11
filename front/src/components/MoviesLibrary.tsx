@@ -4,6 +4,7 @@ import type { Title } from '@/api/client';
 import { apiFetch } from '@/api/client';
 import { usePopular } from '@/hooks/usePopular';
 import { useGenres } from '@/hooks/useGenres';
+import { isTV } from '@/hooks/usePlatform';
 import SafeImg from './SafeImg';
 import Card from './Card';
 
@@ -18,6 +19,7 @@ const sortOptions = [
 ];
 
 export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
+  const isTvMode = isTV();
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState('rating');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -75,16 +77,17 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
 
   const featured = filteredMovies[0];
   const rest = filteredMovies.slice(1);
+  const displayMovies = isTvMode ? filteredMovies : rest;
 
   return (
-    <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
+    <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'px-8 pt-28 pb-20 lg:px-12'}`}>
       <div className="mx-auto max-w-[1500px]">
-        <div className="mb-8 animate-row-reveal">
-          <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">Фильмы</h1>
-          <p className="mt-2 text-[15px] text-white/50">{filteredMovies.length} фильмов</p>
+        <div className={isTvMode ? 'mb-4' : 'mb-8 animate-row-reveal'}>
+          <h1 className={`text-display font-medium tracking-tight text-white/95 ${isTvMode ? 'text-[22px]' : 'text-[36px] md:text-[44px]'}`}>Фильмы</h1>
+          <p className={`text-white/50 ${isTvMode ? 'mt-0.5 text-[12px]' : 'mt-2 text-[15px]'}`}>{filteredMovies.length} фильмов</p>
         </div>
 
-        {featured && (
+        {!isTvMode && featured && (
           <div className="mb-12 animate-detail-rise">
             <div className="mb-4 flex items-center gap-2">
               <Star className="h-4 w-4 text-amber-300/70" fill="currentColor" strokeWidth={0} />
@@ -108,11 +111,12 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
           </div>
         )}
 
-        <div className="mb-8 flex flex-wrap items-center gap-3">
+        <div className={`flex flex-wrap items-center gap-3 ${isTvMode ? 'mb-4' : 'mb-8'}`}>
           <div className="no-scrollbar flex gap-2 overflow-x-auto">
             <button
               onClick={() => setActiveGenre(null)}
-              className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+              data-tv-focusable="true"
+              className={`shrink-0 rounded-full font-medium transition-cinematic ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
               style={{
                 background: !activeGenre ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                 color: !activeGenre ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -125,7 +129,8 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
               <button
                 key={g.id}
                 onClick={() => setActiveGenre(activeGenre === g.name ? null : g.name)}
-                className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+                data-tv-focusable="true"
+                className={`shrink-0 rounded-full font-medium transition-cinematic ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
                 style={{
                   background: activeGenre === g.name ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                   color: activeGenre === g.name ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -140,7 +145,8 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
           <div className="flex items-center gap-1.5 ml-auto">
             <button
               onClick={() => setSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
-              className="flex items-center justify-center h-8 w-8 rounded-full glass text-white/70 hover:text-white transition-cinematic active:scale-95"
+              data-tv-focusable="true"
+              className={`flex items-center justify-center rounded-full glass text-white/70 hover:text-white transition-cinematic active:scale-95 ${isTvMode ? 'h-7 w-7' : 'h-8 w-8'}`}
               title={sortOrder === 'desc' ? 'По убыванию (нажмите для переключения)' : 'По возрастанию (нажмите для переключения)'}
             >
               {sortOrder === 'desc' ? <ArrowDown className="h-3.5 w-3.5 text-amber-300" /> : <ArrowUp className="h-3.5 w-3.5 text-amber-300" />}
@@ -148,7 +154,8 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
             <div className="relative">
               <button
                 onClick={() => setShowSort(!showSort)}
-                className="flex items-center gap-2 rounded-full glass px-4 py-2 text-[13px] font-medium text-white/70 transition-cinematic hover:text-white"
+                data-tv-focusable="true"
+                className={`flex items-center gap-2 rounded-full glass font-medium text-white/70 transition-cinematic hover:text-white ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
               >
                 <ArrowUpDown className="h-3.5 w-3.5" strokeWidth={1.5} />
                 {sortOptions.find((s) => s.id === sortBy)?.label}
@@ -186,10 +193,10 @@ export default function MoviesLibrary({ onSelect }: MoviesLibraryProps) {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {rest.map((t, i) => (
-            <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 40, 600)}ms` }}>
-              <Card title={t} variant="portrait" onSelect={onSelect} fill />
+        <div className={isTvMode ? "grid grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8 gap-3" : "grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"}>
+          {displayMovies.map((t, i) => (
+            <div key={t.id} className="animate-stagger-in" style={{ animationDelay: `${Math.min(i * 30, 400)}ms` }}>
+              <Card title={t} variant="portrait" onSelect={onSelect} fill={!isTvMode} />
             </div>
           ))}
         </div>

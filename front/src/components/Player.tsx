@@ -5,6 +5,7 @@ import { Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, ChevronLeft, Maxi
 import type { Title } from '@/api/client';
 import { serverFetch, serverUrl } from '@/api/server';
 import { Capacitor } from '@capacitor/core';
+import { isTV } from '@/hooks/usePlatform';
 
 interface ExternalSub {
   id: number;
@@ -46,7 +47,29 @@ function getHlsPlayerConfig(overrides?: Partial<HlsConfig>): Partial<HlsConfig> 
   };
 }
 
+
+function parseVttTime(time: string): number {
+  const parts = time.split(':');
+  if (parts.length === 3) {
+    const h = parseInt(parts[0], 10);
+    const m = parseInt(parts[1], 10);
+    const s = parseFloat(parts[2].replace(',', '.'));
+    return h * 3600 + m * 60 + s;
+  } else if (parts.length === 2) {
+    const m = parseInt(parts[0], 10);
+    const s = parseFloat(parts[1].replace(',', '.'));
+    return m * 60 + s;
+  }
+  return 0;
+}
+
+function cleanSubText(text: string): string {
+  if (!text) return '';
+  return text.replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+}
+
 export default function Player({ title, onExit, initialTime, onTimeUpdate, externalSubs }: PlayerProps) {
+  const isTvMode = isTV();
   const { t } = useTranslation();
   const videoRef = useRef<HTMLVideoElement>(null);
   const hlsRef = useRef<Hls | null>(null);
@@ -60,7 +83,11 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   const [buffered, setBuffered] = useState(0);
   const [bufferedRange, setBufferedRange] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
   const [currentTime, setCurrentTime] = useState(initialTime || 0);
+  const currentTimeRef = useRef(initialTime || 0);
+  currentTimeRef.current = currentTime;
   const [duration, setDuration] = useState(0);
+  const durationRef = useRef(0);
+  durationRef.current = duration;
   const seekOffsetRef = useRef<number>(initialTime && initialTime > 30 && (title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || Boolean(title.hlsUrl)) ? Math.floor(initialTime) : 0);
   const [showControls, setShowControls] = useState(true);
   const showControlsRef = useRef(true);
@@ -150,7 +177,22 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     ) || (!canPlayDirect)
   );
 
+  // Show TV OSD then auto-hide in 3 seconds (1:1 with TvPlayer on wgt)
+  const showOsdBriefly = useCallback(() => {
+    setShowControls(true);
+    showControlsRef.current = true;
+    if (hideTimer.current) clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      setShowControls(false);
+      showControlsRef.current = false;
+    }, 3000);
+  }, []);
+
   const resetHideTimer = useCallback(() => {
+    if (isTvMode) {
+      showOsdBriefly();
+      return;
+    }
     setShowControls(true);
     showControlsRef.current = true;
     if (hideTimer.current) {
@@ -166,7 +208,622 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         }
       }, 3500);
     }
+  }, [isTvMode, showOsdBriefly]);
+
+  const togglePlayRef = useRef<() => void>(() => {});
+  const skipRef = useRef<(seconds: number) => void>(() => {});
+  const resetHideTimerRef = useRef<() => void>(resetHideTimer);
+  resetHideTimerRef.current = resetHideTimer;
+
+  const togglePlay = () => {
+    const video = videoRef.current;
+    if (!video) return;
+    playingRef.current ? video.pause() : video.play();
+    resetHideTimer();
+  };
+  togglePlayRef.current = togglePlay;
+
+  // Double-tap seek state
+  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
+  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [seekIndicator, setSeekIndicator] = useState<{ text: string; side: 'left' | 'right' } | null>(null);
+  const seekIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleVideoAreaClick = (e: React.MouseEvent) => {
+    if (isTvMode) {
+      showOsdBriefly();
+      return;
+    }
+    const now = Date.now();
+    const x = e.clientX;
+    const screenWidth = window.innerWidth;
+    const side = x < screenWidth / 2 ? 'left' : 'right';
+
+    // Double-tap detection (within 300ms, same half of screen)
+    if (now - lastTapRef.current.time < 300) {
+      const prevSide = lastTapRef.current.x < screenWidth / 2 ? 'left' : 'right';
+      if (side === prevSide) {
+        // Cancel pending single-tap
+        if (singleTapTimer.current) {
+          clearTimeout(singleTapTimer.current);
+          singleTapTimer.current = null;
+        }
+
+        // Double-tap confirmed → seek
+        const seconds = side === 'left' ? -10 : 10;
+        skip(seconds);
+
+        // Show indicator
+        setSeekIndicator({ text: `${seconds > 0 ? '+' : ''}${seconds}с`, side });
+        if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current);
+        seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 800);
+
+        lastTapRef.current = { time: 0, x: 0 };
+        return;
+      }
+    }
+
+    lastTapRef.current = { time: now, x };
+
+    // Capture controls visibility state at the exact moment of the tap
+    const wasVisible = showControlsRef.current;
+
+    // Delayed single-tap (wait for possible double-tap)
+    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
+    singleTapTimer.current = setTimeout(() => {
+      // If a settings menu is currently open, a tap on the video dismisses the modal first
+      if (settingsPanelRef.current !== 'none') {
+        setSettingsPanel('none');
+        resetHideTimer();
+        return;
+      }
+
+      if (!wasVisible) {
+        controlsJustOpenedRef.current = Date.now();
+        resetHideTimer();
+      } else {
+        setShowControls(false);
+        showControlsRef.current = false;
+        if (hideTimer.current) {
+          clearTimeout(hideTimer.current);
+          hideTimer.current = undefined;
+        }
+      }
+    }, 250);
+  };
+
+  const skip = (seconds: number) => {
+    const video = videoRef.current;
+    if (!video) return;
+    const offset = seekOffsetRef.current || 0;
+    const currentPos = offset + (isSeekingRef.current ? (currentTimeRef.current || 0) : video.currentTime);
+    const totalDur = (durationRef.current > 0)
+      ? durationRef.current
+      : (realDurationRef.current > 0 ? realDurationRef.current : (isFinite(video.duration) && video.duration > 0 ? video.duration : 0));
+    
+    const target = Math.max(0, totalDur > 0 ? Math.min(currentPos + seconds, totalDur) : currentPos + seconds);
+    
+    setSeekIndicator({
+      text: `${seconds > 0 ? '+' : ''}${seconds}с`,
+      side: seconds < 0 ? 'left' : 'right'
+    });
+    if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current);
+    seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 900);
+
+    if (totalDur > 0) {
+      seek(target / totalDur);
+    } else {
+      video.currentTime = Math.max(0, video.currentTime + seconds);
+    }
+  };
+  skipRef.current = skip;
+
+
+  const setQuality = (index: number) => {
+    if (hlsRef.current) {
+      hlsRef.current.currentLevel = index;
+      setCurrentQuality(index);
+    }
+    setSettingsPanel('none');
+  };
+
+  const setAudio = (id: number) => {
+    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || isTorrent);
+    if (!isTorrentHls) {
+      if (hlsRef.current) {
+        hlsRef.current.audioTrack = id;
+        setCurrentAudio(id);
+      }
+      setSettingsPanel('none');
+      return;
+    }
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    const saveTime = video.currentTime;
+    const wasPlaying = !video.paused;
+    audioSwitchRef.current = true;
+    setCurrentAudioIndex(id);
+    setCurrentAudio(id);
+    setSettingsPanel('none');
+    setLoading(true);
+
+    video.pause();
+
+    if (hlsRef.current) {
+      hlsRef.current.destroy();
+      hlsRef.current = null;
+    }
+
+    let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
+    if (!activeHlsSource && isTorrent) {
+      const sourceUrl = title.videoUrl || title.directUrl || '';
+      try {
+        const parsed = new URL(sourceUrl, 'http://localhost');
+        const link = parsed.searchParams.get('link') || '';
+        const index = parsed.searchParams.get('index') || '0';
+        const isAvi = sourceUrl.toLowerCase().includes('.avi');
+        activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+      } catch {}
+    }
+    if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
+
+    const fullUrl = serverUrl(activeHlsSource);
+    const urlObj = new URL(fullUrl, window.location.origin);
+    urlObj.searchParams.set('audio', String(id));
+    const effectiveCurTime = (seekOffsetRef.current || 0) + saveTime;
+    if (effectiveCurTime > 10) {
+      urlObj.searchParams.set('start', String(Math.floor(effectiveCurTime)));
+      seekOffsetRef.current = Math.floor(effectiveCurTime);
+    }
+    const newUrl = urlObj.toString();
+
+    const hls = new Hls(getHlsPlayerConfig());
+    hlsRef.current = hls;
+
+    hls.loadSource(newUrl);
+    hls.attachMedia(video);
+
+    hls.on(Hls.Events.MANIFEST_PARSED, () => {
+      setLoading(false);
+      if (wasPlaying) {
+        video.play().catch(() => {});
+      }
+      setTimeout(() => { audioSwitchRef.current = false; }, 1000);
+    });
+
+    hls.on(Hls.Events.ERROR, (_event, data) => {
+      if (data.fatal) {
+        console.error('HLS fatal error:', data);
+        setError('Ошибка загрузки видео');
+        setLoading(false);
+      }
+    });
+  };
+
+  const setSubtitle = async (id: number, targetSec?: number) => {
+    if (id < 0) {
+      if (subAbortControllerRef.current) {
+        subAbortControllerRef.current.abort();
+        subAbortControllerRef.current = null;
+      }
+      setCurrentSubtitle(-1);
+      subtitleCuesRef.current = [];
+      loadedRangesRef.current = [];
+      setSubtitleText('');
+      setSettingsPanel('none');
+      return;
+    }
+
+    const track = subtitleTracksRef.current.find(t => t.id === id);
+    if (!track) {
+      setCurrentSubtitle(id);
+      return;
+    }
+
+    if ((track as any).url) {
+      if (subAbortControllerRef.current) {
+        subAbortControllerRef.current.abort();
+      }
+      const abortController = new AbortController();
+      subAbortControllerRef.current = abortController;
+      subFetchingRef.current = true;
+
+      try {
+        const baseSubUrl = (track as any).url.replace(/&time=\d+/g, '');
+        const curSec = targetSec !== undefined
+          ? targetSec
+          : Math.floor((seekOffsetRef.current || 0) + (videoRef.current ? videoRef.current.currentTime : (initialTime || 0)));
+        const fetchSec = Math.max(0, curSec - 5);
+        const subUrl = (!(track as any).isExternal && fetchSec > 0)
+          ? `${baseSubUrl}&time=${fetchSec}`
+          : baseSubUrl;
+
+        const res = await serverFetch(subUrl, { signal: abortController.signal });
+        if (!res.ok) {
+          console.error('Subtitle fetch failed:', res.status, res.statusText);
+          setSettingsPanel('none');
+          return;
+        }
+        const vtt = await res.text();
+        console.log('Subtitle VTT received:', vtt.length, 'bytes');
+
+        const cues: Array<{ start: number; end: number; text: string }> = [];
+        const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const blocks = normalized.split(/\n\n+/);
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const block = blocks[bi];
+          const lines = block.trim().split('\n');
+          if (lines.length < 2) continue;
+          if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
+          let timeLineIndex = -1;
+          for (let i = 0; i < lines.length; i++) {
+            if (lines[i].includes('-->')) {
+              timeLineIndex = i;
+              break;
+            }
+          }
+          if (timeLineIndex === -1) continue;
+          const timeMatch = lines[timeLineIndex].match(/((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})/);
+          if (!timeMatch) continue;
+          const start = parseVttTime(timeMatch[1].replace(',', '.'));
+          const end = parseVttTime(timeMatch[2].replace(',', '.'));
+          const text = cleanSubText(lines.slice(timeLineIndex + 1).join('\n'));
+          if (text) cues.push({ start, end, text });
+        }
+        console.log('Parsed subtitle cues:', cues.length);
+
+        const newRange = { start: Math.max(0, fetchSec - 5), end: fetchSec + 90 };
+        if (targetSec === undefined) {
+          loadedRangesRef.current = [newRange];
+        } else {
+          loadedRangesRef.current.push(newRange);
+        }
+
+        if (cues.length > 0) {
+          const existing = (targetSec !== undefined ? subtitleCuesRef.current : []) || [];
+          const map = new Map<string, { start: number; end: number; text: string }>();
+          for (const c of existing) {
+            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
+          }
+          for (const c of cues) {
+            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
+          }
+          subtitleCuesRef.current = Array.from(map.values()).sort((a, b) => a.start - b.start);
+          const video = videoRef.current;
+          if (video) {
+            const curT = (seekOffsetRef.current || 0) + video.currentTime;
+            const match = subtitleCuesRef.current.find(c => curT >= c.start && curT <= c.end);
+            setSubtitleText(match?.text ? match.text.trim() : '');
+          }
+        }
+        setCurrentSubtitle(id);
+      } catch (err: any) {
+        if (err.name !== 'AbortError') {
+          console.error('Failed to load subtitles:', err);
+        }
+      } finally {
+        subFetchingRef.current = false;
+      }
+    } else if (hlsRef.current) {
+      hlsRef.current.subtitleTrack = id;
+      setCurrentSubtitle(id);
+    }
+
+    setSettingsPanel('none');
+  };
+
+  const seek = (fraction: number) => {
+    const video = videoRef.current;
+    const dur = durationRef.current > 0 ? durationRef.current : (realDurationRef.current > 0 ? realDurationRef.current : (video?.duration || 0));
+    if (!video || !isFinite(dur) || dur <= 0) return;
+
+    const targetTime = Math.max(0, Math.min(fraction * dur, dur));
+    setCurrentTime(targetTime);
+
+    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || isTorrent);
+    if (isTorrentHls) {
+      const offset = seekOffsetRef.current || 0;
+      const localTarget = targetTime - offset;
+      let isBuffered = false;
+
+      if (video.buffered && video.buffered.length > 0 && localTarget >= 0) {
+        for (let i = 0; i < video.buffered.length; i++) {
+          if (localTarget >= video.buffered.start(i) && localTarget <= video.buffered.end(i) - 0.5) {
+            isBuffered = true;
+            break;
+          }
+        }
+      }
+
+      if (isBuffered) {
+        if (seekDebounceTimer.current) {
+          clearTimeout(seekDebounceTimer.current);
+          seekDebounceTimer.current = undefined;
+        }
+        video.currentTime = localTarget;
+        video.play().catch(() => {});
+        if (currentSubtitleRef.current >= 0) {
+          const effTime = (seekOffsetRef.current || 0) + localTarget;
+          const isCovered = loadedRangesRef.current.some(r => effTime >= r.start && effTime <= r.end - 10);
+          if (!isCovered) {
+            setSubtitle(currentSubtitleRef.current, Math.floor(effTime));
+          } else {
+            const match = subtitleCuesRef.current.find(c => effTime >= c.start && effTime <= c.end);
+            setSubtitleText(match?.text ? match.text.trim() : '');
+          }
+        }
+        return;
+      }
+
+      // Outside buffer: debounce server seek to prevent swarm thrashing on rapid taps
+      const newOffset = Math.floor(targetTime);
+      seekOffsetRef.current = newOffset;
+      isSeekingRef.current = true;
+      setLoading(true);
+      setSubtitleText(''); // Instantly clear subtitle on seek to avoid ghost text
+
+      // Instantly start prefetching subtitles for the new target time if active!
+      if (currentSubtitleRef.current >= 0) {
+        const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+        if (!isCovered) {
+          setSubtitle(currentSubtitleRef.current, newOffset);
+        } else {
+          const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+          setSubtitleText(match?.text ? match.text.trim() : '');
+        }
+      }
+
+      // Update buffered range to start at the new position immediately
+      setBufferedRange({
+        start: Math.max(0, (newOffset / duration) * 100),
+        end: Math.max(0, (newOffset / duration) * 100),
+      });
+
+      if (seekDebounceTimer.current) {
+        clearTimeout(seekDebounceTimer.current);
+      }
+
+      seekDebounceTimer.current = setTimeout(() => {
+        let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
+        if (!activeHlsSource && isTorrent) {
+          const sourceUrl = title.videoUrl || title.directUrl || '';
+          try {
+            const parsed = new URL(sourceUrl, 'http://localhost');
+            const link = parsed.searchParams.get('link') || '';
+            const index = parsed.searchParams.get('index') || '0';
+            const isAvi = sourceUrl.toLowerCase().includes('.avi');
+            activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
+          } catch {}
+        }
+        if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
+
+        let cleanUrl = activeHlsSource.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+        const separator = cleanUrl.includes('?') ? '&' : '?';
+        const newSeekUrl = serverUrl(`${cleanUrl}${separator}start=${newOffset}&audio=${currentAudioIndex}`);
+
+        if (hlsRef.current) {
+          hlsRef.current.destroy();
+          hlsRef.current = null;
+        }
+
+        // Reset video.currentTime to 0 so browser doesn't stall waiting for old playhead
+        video.currentTime = 0;
+
+        if (isHls && Hls.isSupported()) {
+          const newHls = new Hls(getHlsPlayerConfig({ startPosition: 0 }));
+          hlsRef.current = newHls;
+
+          newHls.loadSource(newSeekUrl);
+          newHls.attachMedia(video);
+
+          newHls.on(Hls.Events.MANIFEST_PARSED, () => {
+            setLoading(false);
+            isSeekingRef.current = false;
+            video.currentTime = 0;
+            video.play().catch(() => {});
+
+            if (currentSubtitleRef.current >= 0) {
+              const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+              if (!isCovered) {
+                setSubtitle(currentSubtitleRef.current, newOffset);
+              } else {
+                const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+                setSubtitleText(match?.text ? match.text.trim() : '');
+              }
+            }
+          });
+
+          newHls.on(Hls.Events.ERROR, (_event, data) => {
+            if (data.fatal) {
+              console.error('HLS seek error:', data);
+              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                newHls.startLoad();
+              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                newHls.recoverMediaError();
+              }
+            }
+          });
+        } else {
+          video.src = newSeekUrl;
+          video.load();
+          video.play().catch(() => {});
+
+          if (currentSubtitleRef.current >= 0) {
+            const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
+            if (!isCovered) {
+              setSubtitle(currentSubtitleRef.current, newOffset);
+            } else {
+              const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
+              setSubtitleText(match?.text ? match.text.trim() : '');
+            }
+          }
+        }
+
+        // Safety fallback: allow timeupdate after 5s even if events are missed
+        setTimeout(() => {
+          isSeekingRef.current = false;
+        }, 5000);
+      }, 200);
+    } else {
+      video.currentTime = targetTime;
+    }
+  };
+
+  const toggleFullscreen = () => {
+    if (Capacitor.isNativePlatform()) {
+      // Android: app is always fullscreen (immersive mode in MainActivity)
+      // Toggle controls visibility instead
+      setShowControls(prev => !prev);
+    } else {
+      // Web: standard Fullscreen API
+      const container = containerRef.current;
+      if (!container) return;
+      if (document.fullscreenElement) {
+        document.exitFullscreen();
+      } else if (container.requestFullscreen) {
+        container.requestFullscreen();
+      }
+    }
+  };
+
+  const dragFractionRef = useRef<number>(0);
+  const rafIdRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+      }
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+    };
   }, []);
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    // Only primary mouse button or touch/pen
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    resetHideTimer();
+
+    setIsDragging(true);
+    isDraggingRef.current = true;
+    isSeekingRef.current = true;
+
+    // Prevent text selection during drag and show grabbing cursor
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'grabbing';
+
+    const getFraction = (clientX: number) => {
+      const rect = progressRef.current?.getBoundingClientRect();
+      if (!rect || rect.width <= 0) return 0;
+      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    };
+
+    const initialFraction = getFraction(e.clientX);
+    dragFractionRef.current = initialFraction;
+
+    // Direct synchronous DOM update for zero lag
+    if (playedBarRef.current) {
+      playedBarRef.current.style.width = `${initialFraction * 100}%`;
+    }
+    setDragFraction(initialFraction);
+    if (isFinite(duration) && duration > 0) {
+      setCurrentTime(initialFraction * duration);
+      setHoverTime(initialFraction * duration);
+    }
+    if (progressRef.current) {
+      const r = progressRef.current.getBoundingClientRect();
+      setHoverX(e.clientX - r.left);
+    }
+
+    const onPointerMove = (moveEvt: PointerEvent) => {
+      moveEvt.preventDefault();
+      moveEvt.stopPropagation();
+      resetHideTimer();
+
+      const fraction = getFraction(moveEvt.clientX);
+      dragFractionRef.current = fraction;
+
+      // Direct synchronous DOM update: thumb follows cursor IMMEDIATELY with 0ms lag
+      if (playedBarRef.current) {
+        playedBarRef.current.style.width = `${fraction * 100}%`;
+      }
+
+      // Throttle React state updates to 60fps via requestAnimationFrame
+      if (rafIdRef.current === null) {
+        rafIdRef.current = requestAnimationFrame(() => {
+          rafIdRef.current = null;
+          if (isDraggingRef.current) {
+            const currentFraction = dragFractionRef.current;
+            setDragFraction(currentFraction);
+            if (isFinite(duration) && duration > 0) {
+              setCurrentTime(currentFraction * duration);
+              setHoverTime(currentFraction * duration);
+            }
+            if (progressRef.current) {
+              const r = progressRef.current.getBoundingClientRect();
+              setHoverX(moveEvt.clientX - r.left);
+            }
+          }
+        });
+      }
+    };
+
+    const onPointerUp = (upEvt: PointerEvent) => {
+      upEvt.preventDefault();
+      upEvt.stopPropagation();
+      resetHideTimer();
+
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      window.removeEventListener('pointercancel', onPointerUp);
+
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+
+      if (rafIdRef.current !== null) {
+        cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
+
+      const finalFraction = getFraction(upEvt.clientX);
+      dragFractionRef.current = finalFraction;
+
+      if (playedBarRef.current) {
+        playedBarRef.current.style.width = `${finalFraction * 100}%`;
+      }
+
+      setIsDragging(false);
+      isDraggingRef.current = false;
+
+      // Seek video to final position
+      seek(finalFraction);
+
+      setHoverTime(null);
+
+      setTimeout(() => {
+        if (!isDraggingRef.current) {
+          setDragFraction(null);
+        }
+      }, 350);
+    };
+
+    window.addEventListener('pointermove', onPointerMove, { passive: false });
+    window.addEventListener('pointerup', onPointerUp, { passive: false });
+    window.addEventListener('pointercancel', onPointerUp, { passive: false });
+  };
+
+  const handleTimelineHover = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (isDraggingRef.current) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
+    setHoverX(e.clientX - rect.left);
+  };
 
   // When playback pauses or settings modal opens, keep controls visible without hiding
   useEffect(() => {
@@ -241,20 +898,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     };
   }, [title, onExit]);
 
-  const parseVttTime = (time: string): number => {
-    const parts = time.split(':');
-    if (parts.length === 3) {
-      const h = parseInt(parts[0]);
-      const m = parseInt(parts[1]);
-      const s = parseFloat(parts[2].replace(',', '.'));
-      return h * 3600 + m * 60 + s;
-    } else if (parts.length === 2) {
-      const m = parseInt(parts[0]);
-      const s = parseFloat(parts[1].replace(',', '.'));
-      return m * 60 + s;
-    }
-    return 0;
-  };
+
 
   // Load external subtitle files from torrent
   useEffect(() => {
@@ -783,59 +1427,273 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     };
   }, [isDragging, onTimeUpdate]);
 
-  // Keyboard controls
+
+
+  // Keyboard & TV Remote controls
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      resetHideTimer();
+      const key = e.key;
+      const keyCode = (e as any).keyCode;
       const video = videoRef.current;
       if (!video) return;
 
-      switch (e.key) {
-        case ' ':
-        case 'k':
+      const isPlayPause = key === ' ' || key === 'k' || key === 'Enter' || key === 'Select' || keyCode === 23 || keyCode === 66 || keyCode === 13 || keyCode === 85 || keyCode === 126 || keyCode === 127 || keyCode === 10252;
+      const isLeft = key === 'ArrowLeft' || keyCode === 21 || keyCode === 37 || keyCode === 89 || keyCode === 412;
+      const isRight = key === 'ArrowRight' || keyCode === 22 || keyCode === 39 || keyCode === 90 || keyCode === 417;
+      const isUp = key === 'ArrowUp' || keyCode === 19 || keyCode === 38;
+      const isDown = key === 'ArrowDown' || keyCode === 20 || keyCode === 40;
+      const isBack = key === 'Escape' || key === 'GoBack' || keyCode === 4 || keyCode === 10009 || keyCode === 27;
+
+      // TV Mode: 1:1 control with TvPlayer.tsx on wgt!
+      if (isTvMode) {
+        if (document.activeElement instanceof HTMLElement && document.activeElement !== document.body) {
+          document.activeElement.blur();
+        }
+
+        if (isBack) {
           e.preventDefault();
-          playing ? video.pause() : video.play();
-          break;
-        case 'ArrowLeft':
-          e.preventDefault();
-          skip(-10);
-          break;
-        case 'ArrowRight':
-          e.preventDefault();
-          skip(10);
-          break;
-        case 'ArrowUp':
-          e.preventDefault();
-          video.volume = Math.min(1, video.volume + 0.1);
-          setVolume(video.volume);
-          break;
-        case 'ArrowDown':
-          e.preventDefault();
-          video.volume = Math.max(0, video.volume - 0.1);
-          setVolume(video.volume);
-          break;
-        case 'm':
-          video.muted = !video.muted;
-          setMuted(video.muted);
-          break;
-        case 'f':
-          toggleFullscreen();
-          break;
-        case 'Escape':
-          if (settingsPanel !== 'none') {
-            setSettingsPanel('none');
-          } else if (isFullscreen) {
-            toggleFullscreen();
+          e.stopPropagation();
+          if (showControlsRef.current) {
+            setShowControls(false);
+            showControlsRef.current = false;
+            if (hideTimer.current) clearTimeout(hideTimer.current);
           } else {
             onExit();
           }
-          break;
+          return;
+        }
+
+        if (isLeft) {
+          e.preventDefault();
+          e.stopPropagation();
+          skip(-10);
+          showOsdBriefly();
+          return;
+        }
+
+        if (isRight) {
+          e.preventDefault();
+          e.stopPropagation();
+          skip(10);
+          showOsdBriefly();
+          return;
+        }
+
+        if (isUp) {
+          e.preventDefault();
+          e.stopPropagation();
+          skip(60);
+          showOsdBriefly();
+          return;
+        }
+
+        if (isDown) {
+          e.preventDefault();
+          e.stopPropagation();
+          skip(-60);
+          showOsdBriefly();
+          return;
+        }
+
+        if (isPlayPause) {
+          e.preventDefault();
+          e.stopPropagation();
+          togglePlay();
+          showOsdBriefly();
+          return;
+        }
+
+        if (keyCode === 82) { // KEYCODE_MENU
+          if (audioTracks.length > 1) {
+            e.preventDefault();
+            e.stopPropagation();
+            const nextAudio = (currentAudio + 1) % audioTracks.length;
+            setAudio(audioTracks[nextAudio].id);
+            showOsdBriefly();
+            return;
+          }
+        }
+
+        return;
+      }
+
+      // 1. BACK KEY (Desktop / Web)
+      if (isBack) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (settingsPanelRef.current !== 'none') {
+          setSettingsPanel('none');
+          resetHideTimer();
+          return;
+        }
+        if (showControlsRef.current) {
+          setShowControls(false);
+          showControlsRef.current = false;
+          return;
+        }
+        onExit();
+        return;
+      }
+
+      // 2. SETTINGS PANEL NAVIGATION
+      if (settingsPanelRef.current !== 'none') {
+        const modal = containerRef.current?.querySelector<HTMLElement>('.player-settings-modal');
+        const items = modal ? Array.from(modal.querySelectorAll<HTMLElement>('button:not([disabled])')) : [];
+        const activeIdx = items.indexOf(document.activeElement as HTMLElement);
+
+        if (isDown) {
+          e.preventDefault();
+          const next = items[activeIdx + 1] || items[0];
+          next?.focus();
+          return;
+        }
+        if (isUp) {
+          e.preventDefault();
+          const prev = items[activeIdx - 1] || items[items.length - 1];
+          prev?.focus();
+          return;
+        }
+        if (isLeft || isRight) {
+          e.preventDefault();
+          setSettingsPanel('none');
+          return;
+        }
+        if (isPlayPause) {
+          return;
+        }
+        return;
+      }
+
+      // 3. HARDWARE MEDIA PLAY/PAUSE
+      if (key === 'MediaPlayPause' || keyCode === 85 || keyCode === 126 || keyCode === 127) {
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+
+      const activeEl = document.activeElement as HTMLElement | null;
+      const isButtonFocused = activeEl && activeEl !== document.body && containerRef.current?.contains(activeEl) && activeEl.tagName === 'BUTTON';
+
+      // 4. WHEN CONTROLS ARE HIDDEN
+      if (!showControlsRef.current) {
+        if (isPlayPause) {
+          e.preventDefault();
+          togglePlay();
+          return;
+        }
+        if (isLeft) {
+          e.preventDefault();
+          skip(-10);
+          resetHideTimer();
+          return;
+        }
+        if (isRight) {
+          e.preventDefault();
+          skip(10);
+          resetHideTimer();
+          return;
+        }
+        if (isUp || isDown) {
+          e.preventDefault();
+          setShowControls(true);
+          showControlsRef.current = true;
+          resetHideTimer();
+          setTimeout(() => {
+            const bottomPlay = containerRef.current?.querySelector<HTMLElement>('.player-bottom-play-btn');
+            bottomPlay?.focus();
+          }, 50);
+          return;
+        }
+        return;
+      }
+
+      // 5. WHEN CONTROLS ARE VISIBLE AND A BUTTON IS FOCUSED
+      if (isButtonFocused) {
+        const bottomBar = containerRef.current?.querySelector<HTMLElement>('.player-bottom-controls');
+        const bottomBtns = bottomBar ? Array.from(bottomBar.querySelectorAll<HTMLElement>('button:not([disabled])')) : [];
+        const topBackBtn = containerRef.current?.querySelector<HTMLElement>('.player-back-btn');
+
+        if (isLeft || isRight) {
+          const curIdx = bottomBtns.indexOf(activeEl!);
+          if (curIdx !== -1) {
+            e.preventDefault();
+            resetHideTimer();
+            if (isLeft) {
+              if (curIdx > 0) {
+                bottomBtns[curIdx - 1]?.focus();
+              } else {
+                skip(-10);
+              }
+            } else {
+              if (curIdx < bottomBtns.length - 1) {
+                bottomBtns[curIdx + 1]?.focus();
+              } else {
+                skip(10);
+              }
+            }
+            return;
+          }
+        }
+
+        if (isUp) {
+          e.preventDefault();
+          resetHideTimer();
+          topBackBtn?.focus();
+          return;
+        }
+
+        if (isDown) {
+          e.preventDefault();
+          if (activeEl === topBackBtn) {
+            const bottomPlay = containerRef.current?.querySelector<HTMLElement>('.player-bottom-play-btn');
+            bottomPlay?.focus();
+            resetHideTimer();
+          } else {
+            setShowControls(false);
+            showControlsRef.current = false;
+          }
+          return;
+        }
+
+        if (isPlayPause) {
+          e.preventDefault();
+          activeEl!.click();
+          resetHideTimer();
+          return;
+        }
+        return;
+      }
+
+      // 6. WHEN CONTROLS ARE VISIBLE BUT NO BUTTON IS FOCUSED
+      if (isPlayPause) {
+        e.preventDefault();
+        togglePlay();
+        return;
+      }
+      if (isLeft) {
+        e.preventDefault();
+        skip(-10);
+        resetHideTimer();
+        return;
+      }
+      if (isRight) {
+        e.preventDefault();
+        skip(10);
+        resetHideTimer();
+        return;
+      }
+      if (isUp || isDown) {
+        e.preventDefault();
+        resetHideTimer();
+        const bottomPlay = containerRef.current?.querySelector<HTMLElement>('.player-bottom-play-btn');
+        bottomPlay?.focus();
+        return;
       }
     };
 
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [playing, isFullscreen, resetHideTimer, onExit, settingsPanel, duration]);
+    window.addEventListener('keydown', onKey, true);
+    return () => window.removeEventListener('keydown', onKey, true);
+  }, [onExit]);
 
   // Fullscreen change detection
   useEffect(() => {
@@ -848,617 +1706,10 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     };
   }, []);
 
-  const togglePlay = () => {
-    const video = videoRef.current;
-    if (!video) return;
-    playing ? video.pause() : video.play();
-    resetHideTimer();
-  };
 
-  // Double-tap seek state
-  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
-  const singleTapTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [seekIndicator, setSeekIndicator] = useState<{ text: string; side: 'left' | 'right' } | null>(null);
-  const seekIndicatorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const handleVideoAreaClick = (e: React.MouseEvent) => {
-    const now = Date.now();
-    const x = e.clientX;
-    const screenWidth = window.innerWidth;
-    const side = x < screenWidth / 2 ? 'left' : 'right';
 
-    // Double-tap detection (within 300ms, same half of screen)
-    if (now - lastTapRef.current.time < 300) {
-      const prevSide = lastTapRef.current.x < screenWidth / 2 ? 'left' : 'right';
-      if (side === prevSide) {
-        // Cancel pending single-tap
-        if (singleTapTimer.current) {
-          clearTimeout(singleTapTimer.current);
-          singleTapTimer.current = null;
-        }
-
-        // Double-tap confirmed → seek
-        const seconds = side === 'left' ? -10 : 10;
-        skip(seconds);
-
-        // Show indicator
-        setSeekIndicator({ text: `${seconds > 0 ? '+' : ''}${seconds}с`, side });
-        if (seekIndicatorTimer.current) clearTimeout(seekIndicatorTimer.current);
-        seekIndicatorTimer.current = setTimeout(() => setSeekIndicator(null), 800);
-
-        lastTapRef.current = { time: 0, x: 0 };
-        return;
-      }
-    }
-
-    lastTapRef.current = { time: now, x };
-
-    // Capture controls visibility state at the exact moment of the tap
-    const wasVisible = showControlsRef.current;
-
-    // Delayed single-tap (wait for possible double-tap)
-    if (singleTapTimer.current) clearTimeout(singleTapTimer.current);
-    singleTapTimer.current = setTimeout(() => {
-      // If a settings menu is currently open, a tap on the video dismisses the modal first
-      if (settingsPanelRef.current !== 'none') {
-        setSettingsPanel('none');
-        resetHideTimer();
-        return;
-      }
-
-      if (!wasVisible) {
-        controlsJustOpenedRef.current = Date.now();
-        resetHideTimer();
-      } else {
-        setShowControls(false);
-        showControlsRef.current = false;
-        if (hideTimer.current) {
-          clearTimeout(hideTimer.current);
-          hideTimer.current = undefined;
-        }
-      }
-    }, 250);
-  };
-
-  const skip = (seconds: number) => {
-    const video = videoRef.current;
-    if (!video) return;
-    const dur = duration > 0 ? duration : (isFinite(video.duration) ? video.duration : Infinity);
-    const target = Math.max(0, Math.min(currentTime + seconds, dur));
-    if (dur > 0 && isFinite(dur)) {
-      seek(target / dur);
-    } else {
-      video.currentTime = Math.max(0, video.currentTime + seconds);
-    }
-  };
-
-  const seek = (fraction: number) => {
-    const video = videoRef.current;
-    if (!video || !isFinite(duration) || duration <= 0) return;
-
-    const targetTime = Math.max(0, Math.min(fraction * duration, duration));
-    setCurrentTime(targetTime);
-
-    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || title.videoUrl?.includes('/api/downloads/server/hls') || isTorrent);
-    if (isTorrentHls) {
-      const offset = seekOffsetRef.current || 0;
-      const localTarget = targetTime - offset;
-      let isBuffered = false;
-
-      if (video.buffered && video.buffered.length > 0 && localTarget >= 0) {
-        for (let i = 0; i < video.buffered.length; i++) {
-          if (localTarget >= video.buffered.start(i) && localTarget <= video.buffered.end(i) - 0.5) {
-            isBuffered = true;
-            break;
-          }
-        }
-      }
-
-      if (isBuffered) {
-        if (seekDebounceTimer.current) {
-          clearTimeout(seekDebounceTimer.current);
-          seekDebounceTimer.current = undefined;
-        }
-        video.currentTime = localTarget;
-        video.play().catch(() => {});
-        if (currentSubtitleRef.current >= 0) {
-          const effTime = (seekOffsetRef.current || 0) + localTarget;
-          const isCovered = loadedRangesRef.current.some(r => effTime >= r.start && effTime <= r.end - 10);
-          if (!isCovered) {
-            setSubtitle(currentSubtitleRef.current, Math.floor(effTime));
-          } else {
-            const match = subtitleCuesRef.current.find(c => effTime >= c.start && effTime <= c.end);
-            setSubtitleText(match?.text ? match.text.trim() : '');
-          }
-        }
-        return;
-      }
-
-      // Outside buffer: debounce server seek to prevent swarm thrashing on rapid taps
-      const newOffset = Math.floor(targetTime);
-      seekOffsetRef.current = newOffset;
-      isSeekingRef.current = true;
-      setLoading(true);
-      setSubtitleText(''); // Instantly clear subtitle on seek to avoid ghost text
-
-      // Instantly start prefetching subtitles for the new target time if active!
-      if (currentSubtitleRef.current >= 0) {
-        const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
-        if (!isCovered) {
-          setSubtitle(currentSubtitleRef.current, newOffset);
-        } else {
-          const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
-          setSubtitleText(match?.text ? match.text.trim() : '');
-        }
-      }
-
-      // Update buffered range to start at the new position immediately
-      setBufferedRange({
-        start: Math.max(0, (newOffset / duration) * 100),
-        end: Math.max(0, (newOffset / duration) * 100),
-      });
-
-      if (seekDebounceTimer.current) {
-        clearTimeout(seekDebounceTimer.current);
-      }
-
-      seekDebounceTimer.current = setTimeout(() => {
-        let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
-        if (!activeHlsSource && isTorrent) {
-          const sourceUrl = title.videoUrl || title.directUrl || '';
-          try {
-            const parsed = new URL(sourceUrl, 'http://localhost');
-            const link = parsed.searchParams.get('link') || '';
-            const index = parsed.searchParams.get('index') || '0';
-            const isAvi = sourceUrl.toLowerCase().includes('.avi');
-            activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
-          } catch {}
-        }
-        if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
-
-        let cleanUrl = activeHlsSource.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
-        const separator = cleanUrl.includes('?') ? '&' : '?';
-        const newSeekUrl = serverUrl(`${cleanUrl}${separator}start=${newOffset}&audio=${currentAudioIndex}`);
-
-        if (hlsRef.current) {
-          hlsRef.current.destroy();
-          hlsRef.current = null;
-        }
-
-        // Reset video.currentTime to 0 so browser doesn't stall waiting for old playhead
-        video.currentTime = 0;
-
-        if (isHls && Hls.isSupported()) {
-          const newHls = new Hls(getHlsPlayerConfig({ startPosition: 0 }));
-          hlsRef.current = newHls;
-
-          newHls.loadSource(newSeekUrl);
-          newHls.attachMedia(video);
-
-          newHls.on(Hls.Events.MANIFEST_PARSED, () => {
-            setLoading(false);
-            isSeekingRef.current = false;
-            video.currentTime = 0;
-            video.play().catch(() => {});
-
-            if (currentSubtitleRef.current >= 0) {
-              const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
-              if (!isCovered) {
-                setSubtitle(currentSubtitleRef.current, newOffset);
-              } else {
-                const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
-                setSubtitleText(match?.text ? match.text.trim() : '');
-              }
-            }
-          });
-
-          newHls.on(Hls.Events.ERROR, (_event, data) => {
-            if (data.fatal) {
-              console.error('HLS seek error:', data);
-              if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-                newHls.startLoad();
-              } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                newHls.recoverMediaError();
-              }
-            }
-          });
-        } else {
-          video.src = newSeekUrl;
-          video.load();
-          video.play().catch(() => {});
-
-          if (currentSubtitleRef.current >= 0) {
-            const isCovered = loadedRangesRef.current.some(r => newOffset >= r.start && newOffset <= r.end - 10);
-            if (!isCovered) {
-              setSubtitle(currentSubtitleRef.current, newOffset);
-            } else {
-              const match = subtitleCuesRef.current.find(c => newOffset >= c.start && newOffset <= c.end);
-              setSubtitleText(match?.text ? match.text.trim() : '');
-            }
-          }
-        }
-
-        // Safety fallback: allow timeupdate after 5s even if events are missed
-        setTimeout(() => {
-          isSeekingRef.current = false;
-        }, 5000);
-      }, 200);
-    } else {
-      video.currentTime = targetTime;
-    }
-  };
-
-  const toggleFullscreen = () => {
-    if (Capacitor.isNativePlatform()) {
-      // Android: app is always fullscreen (immersive mode in MainActivity)
-      // Toggle controls visibility instead
-      setShowControls(prev => !prev);
-    } else {
-      // Web: standard Fullscreen API
-      const container = containerRef.current;
-      if (!container) return;
-      if (document.fullscreenElement) {
-        document.exitFullscreen();
-      } else if (container.requestFullscreen) {
-        container.requestFullscreen();
-      }
-    }
-  };
-
-  const dragFractionRef = useRef<number>(0);
-  const rafIdRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    return () => {
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-      }
-      document.body.style.removeProperty('user-select');
-      document.body.style.removeProperty('cursor');
-    };
-  }, []);
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    // Only primary mouse button or touch/pen
-    if (e.button !== 0) return;
-    e.stopPropagation();
-    e.preventDefault();
-    resetHideTimer();
-
-    setIsDragging(true);
-    isDraggingRef.current = true;
-    isSeekingRef.current = true;
-
-    // Prevent text selection during drag and show grabbing cursor
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'grabbing';
-
-    const getFraction = (clientX: number) => {
-      const rect = progressRef.current?.getBoundingClientRect();
-      if (!rect || rect.width <= 0) return 0;
-      return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    };
-
-    const initialFraction = getFraction(e.clientX);
-    dragFractionRef.current = initialFraction;
-
-    // Direct synchronous DOM update for zero lag
-    if (playedBarRef.current) {
-      playedBarRef.current.style.width = `${initialFraction * 100}%`;
-    }
-    setDragFraction(initialFraction);
-    if (isFinite(duration) && duration > 0) {
-      setCurrentTime(initialFraction * duration);
-      setHoverTime(initialFraction * duration);
-    }
-    if (progressRef.current) {
-      const r = progressRef.current.getBoundingClientRect();
-      setHoverX(e.clientX - r.left);
-    }
-
-    const onPointerMove = (moveEvt: PointerEvent) => {
-      moveEvt.preventDefault();
-      moveEvt.stopPropagation();
-      resetHideTimer();
-
-      const fraction = getFraction(moveEvt.clientX);
-      dragFractionRef.current = fraction;
-
-      // Direct synchronous DOM update: thumb follows cursor IMMEDIATELY with 0ms lag
-      if (playedBarRef.current) {
-        playedBarRef.current.style.width = `${fraction * 100}%`;
-      }
-
-      // Throttle React state updates to 60fps via requestAnimationFrame
-      if (rafIdRef.current === null) {
-        rafIdRef.current = requestAnimationFrame(() => {
-          rafIdRef.current = null;
-          if (isDraggingRef.current) {
-            const currentFraction = dragFractionRef.current;
-            setDragFraction(currentFraction);
-            if (isFinite(duration) && duration > 0) {
-              setCurrentTime(currentFraction * duration);
-              setHoverTime(currentFraction * duration);
-            }
-            if (progressRef.current) {
-              const r = progressRef.current.getBoundingClientRect();
-              setHoverX(moveEvt.clientX - r.left);
-            }
-          }
-        });
-      }
-    };
-
-    const onPointerUp = (upEvt: PointerEvent) => {
-      upEvt.preventDefault();
-      upEvt.stopPropagation();
-      resetHideTimer();
-
-      window.removeEventListener('pointermove', onPointerMove);
-      window.removeEventListener('pointerup', onPointerUp);
-      window.removeEventListener('pointercancel', onPointerUp);
-
-      document.body.style.removeProperty('user-select');
-      document.body.style.removeProperty('cursor');
-
-      if (rafIdRef.current !== null) {
-        cancelAnimationFrame(rafIdRef.current);
-        rafIdRef.current = null;
-      }
-
-      const finalFraction = getFraction(upEvt.clientX);
-      dragFractionRef.current = finalFraction;
-
-      if (playedBarRef.current) {
-        playedBarRef.current.style.width = `${finalFraction * 100}%`;
-      }
-
-      setIsDragging(false);
-      isDraggingRef.current = false;
-
-      // Seek video to final position
-      seek(finalFraction);
-
-      setHoverTime(null);
-
-      setTimeout(() => {
-        if (!isDraggingRef.current) {
-          setDragFraction(null);
-        }
-      }, 350);
-    };
-
-    window.addEventListener('pointermove', onPointerMove, { passive: false });
-    window.addEventListener('pointerup', onPointerUp, { passive: false });
-    window.addEventListener('pointercancel', onPointerUp, { passive: false });
-  };
-
-  const handleTimelineHover = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (isDraggingRef.current) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
-    setHoverX(e.clientX - rect.left);
-  };
-
-  const setQuality = (index: number) => {
-    if (hlsRef.current) {
-      hlsRef.current.currentLevel = index;
-      setCurrentQuality(index);
-    }
-    setSettingsPanel('none');
-  };
-
-  const setAudio = (id: number) => {
-    const isTorrentHls = isHls && (Boolean(title.hlsUrl) || title.videoUrl?.includes('/api/torrents/hls') || isTorrent);
-    if (!isTorrentHls) {
-      // For non-torrent HLS, use built-in switching
-      if (hlsRef.current) {
-        hlsRef.current.audioTrack = id;
-        setCurrentAudio(id);
-      }
-      setSettingsPanel('none');
-      return;
-    }
-
-    // For torrent HLS: reload with new audio track
-    const video = videoRef.current;
-    if (!video) return;
-
-    // Save current position and playing state
-    const saveTime = video.currentTime;
-    const wasPlaying = !video.paused;
-    audioSwitchRef.current = true;
-    setCurrentAudioIndex(id);
-    setCurrentAudio(id);
-    setSettingsPanel('none');
-    setLoading(true);
-
-    // Pause video during switch
-    video.pause();
-
-    // Destroy current HLS instance
-    if (hlsRef.current) {
-      hlsRef.current.destroy();
-      hlsRef.current = null;
-    }
-
-    let activeHlsSource = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/hls') ? title.videoUrl : '');
-    if (!activeHlsSource && isTorrent) {
-      const sourceUrl = title.videoUrl || title.directUrl || '';
-      try {
-        const parsed = new URL(sourceUrl, 'http://localhost');
-        const link = parsed.searchParams.get('link') || '';
-        const index = parsed.searchParams.get('index') || '0';
-        const isAvi = sourceUrl.toLowerCase().includes('.avi');
-        activeHlsSource = `/api/torrents/hls/stream.m3u8?link=${encodeURIComponent(link)}&index=${index}${isAvi ? '&vcodec=h264' : ''}`;
-      } catch {}
-    }
-    if (!activeHlsSource) activeHlsSource = title.videoUrl || '';
-
-    // Build new URL with audio parameter and current offset
-    const fullUrl = serverUrl(activeHlsSource);
-    const urlObj = new URL(fullUrl, window.location.origin);
-    urlObj.searchParams.set('audio', String(id));
-    const effectiveCurTime = (seekOffsetRef.current || 0) + saveTime;
-    if (effectiveCurTime > 10) {
-      urlObj.searchParams.set('start', String(Math.floor(effectiveCurTime)));
-      seekOffsetRef.current = Math.floor(effectiveCurTime);
-    }
-    const newUrl = urlObj.toString();
-
-    // Create new HLS instance
-    const hls = new Hls(getHlsPlayerConfig());
-    hlsRef.current = hls;
-
-    hls.loadSource(newUrl);
-    hls.attachMedia(video);
-
-    hls.on(Hls.Events.MANIFEST_PARSED, () => {
-      setLoading(false);
-      // Resume playback if it was playing before
-      if (wasPlaying) {
-        video.play().catch(() => {});
-      }
-      // Reset audio switch flag
-      setTimeout(() => { audioSwitchRef.current = false; }, 1000);
-    });
-
-    hls.on(Hls.Events.ERROR, (_event, data) => {
-      if (data.fatal) {
-        console.error('HLS fatal error:', data);
-        setError('Ошибка загрузки видео');
-        setLoading(false);
-      }
-    });
-  };
-
-  const cleanSubText = (text: string) => {
-    if (!text) return '';
-    return text.replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
-  };
-
-  const setSubtitle = async (id: number, targetSec?: number) => {
-    // 1. Explicitly turn off subtitles
-    if (id < 0) {
-      if (subAbortControllerRef.current) {
-        subAbortControllerRef.current.abort();
-        subAbortControllerRef.current = null;
-      }
-      setCurrentSubtitle(-1);
-      subtitleCuesRef.current = [];
-      loadedRangesRef.current = [];
-      setSubtitleText('');
-      setSettingsPanel('none');
-      return;
-    }
-
-    // 2. Look up track using ref to avoid stale state closure!
-    const track = subtitleTracksRef.current.find(t => t.id === id);
-    if (!track) {
-      // If tracks are still loading asynchronously, remember desired ID without resetting to -1!
-      setCurrentSubtitle(id);
-      return;
-    }
-
-    // 3. If external or backend-extracted subtitle, fetch and parse WebVTT
-    if ((track as any).url) {
-      // Abort previous in-flight fetch so TorrServer and network don't choke
-      if (subAbortControllerRef.current) {
-        subAbortControllerRef.current.abort();
-      }
-      const abortController = new AbortController();
-      subAbortControllerRef.current = abortController;
-      subFetchingRef.current = true;
-
-      try {
-        const baseSubUrl = (track as any).url.replace(/&time=\d+/g, '');
-        const curSec = targetSec !== undefined
-          ? targetSec
-          : Math.floor((seekOffsetRef.current || 0) + (videoRef.current ? videoRef.current.currentTime : (initialTime || 0)));
-        const fetchSec = Math.max(0, curSec - 5);
-        const subUrl = (!(track as any).isExternal && fetchSec > 0)
-          ? `${baseSubUrl}&time=${fetchSec}`
-          : baseSubUrl;
-
-        const res = await serverFetch(subUrl, { signal: abortController.signal });
-        if (!res.ok) {
-          console.error('Subtitle fetch failed:', res.status, res.statusText);
-          setSettingsPanel('none');
-          return;
-        }
-        const vtt = await res.text();
-        console.log('Subtitle VTT received:', vtt.length, 'bytes');
-
-        // Parse WebVTT cues — handle both \n and \r\n, skip WEBVTT header
-        const cues: Array<{ start: number; end: number; text: string }> = [];
-        const normalized = vtt.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-        const blocks = normalized.split(/\n\n+/);
-        for (let bi = 0; bi < blocks.length; bi++) {
-          const block = blocks[bi];
-          const lines = block.trim().split('\n');
-          if (lines.length < 2) continue;
-          if (lines[0].startsWith('WEBVTT') || lines[0].startsWith('NOTE')) continue;
-          let timeLineIndex = -1;
-          for (let i = 0; i < lines.length; i++) {
-            if (lines[i].includes('-->')) {
-              timeLineIndex = i;
-              break;
-            }
-          }
-          if (timeLineIndex === -1) continue;
-          const timeMatch = lines[timeLineIndex].match(/((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})\s*-->\s*((?:\d{1,2}:)?\d{1,2}:\d{2}[\.,]\d{3})/);
-          if (!timeMatch) continue;
-          const start = parseVttTime(timeMatch[1].replace(',', '.'));
-          const end = parseVttTime(timeMatch[2].replace(',', '.'));
-          const text = cleanSubText(lines.slice(timeLineIndex + 1).join('\n'));
-          if (text) cues.push({ start, end, text });
-        }
-        console.log('Parsed subtitle cues:', cues.length);
-
-        const newRange = { start: Math.max(0, fetchSec - 5), end: fetchSec + 90 };
-        if (targetSec === undefined) {
-          loadedRangesRef.current = [newRange];
-        } else {
-          loadedRangesRef.current.push(newRange);
-        }
-
-        if (cues.length > 0) {
-          const existing = (targetSec !== undefined ? subtitleCuesRef.current : []) || [];
-          const map = new Map<string, { start: number; end: number; text: string }>();
-          for (const c of existing) {
-            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
-          }
-          for (const c of cues) {
-            map.set(`${Math.round(c.start * 10)}_${c.text}`, c);
-          }
-          subtitleCuesRef.current = Array.from(map.values()).sort((a, b) => a.start - b.start);
-          const video = videoRef.current;
-          if (video) {
-            const curT = (seekOffsetRef.current || 0) + video.currentTime;
-            const match = subtitleCuesRef.current.find(c => curT >= c.start && curT <= c.end);
-            setSubtitleText(match?.text ? match.text.trim() : '');
-          }
-        }
-        setCurrentSubtitle(id);
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('Failed to load subtitles:', err);
-        }
-      } finally {
-        subFetchingRef.current = false;
-      }
-    } else if (hlsRef.current) {
-      // HLS embedded subtitle
-      hlsRef.current.subtitleTrack = id;
-      setCurrentSubtitle(id);
-    }
-
-    setSettingsPanel('none');
-  };
-
-  // Update subtitle display and throttled prefetch using loadedRangesRef
+  // Update subtitle display and throttled prefetch  // Update subtitle display and throttled prefetch using loadedRangesRef
   useEffect(() => {
     if (currentSubtitle < 0) {
       setSubtitleText('');
@@ -1503,7 +1754,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
   return (
     <div
       ref={containerRef}
-      className="fixed inset-0 z-[100] bg-black select-none"
+      className="fixed inset-0 z-[100] bg-black select-none player-view"
       onTouchStart={() => {
         lastTouchTimeRef.current = Date.now();
       }}
@@ -1564,7 +1815,67 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         </div>
       )}
 
-      {/* Top bar */}
+      {/* TV Mode: 1:1 with TvPlayer on wgt */}
+      {isTvMode && (
+        <>
+          {/* Pause indicator when paused */}
+          {!playing && !loading && (
+            <div className="absolute inset-0 flex items-center justify-center z-20 pointer-events-none">
+              <div className="h-20 w-20 rounded-full bg-black/60 backdrop-blur-md flex items-center justify-center text-white/90 shadow-2xl">
+                <Pause className="h-10 w-10 fill-current" />
+              </div>
+            </div>
+          )}
+
+          {/* OSD overlay */}
+          {showControls && (
+            <div className="absolute inset-0 flex flex-col justify-between pointer-events-none z-30 transition-opacity duration-300">
+              {/* Top bar */}
+              <div className="bg-gradient-to-b from-black/85 via-black/50 to-transparent p-8">
+                <h2 className="text-display text-[28px] font-medium text-white/95">{title.name}</h2>
+                {title.episode && <p className="text-[14px] text-amber-300/90 mt-1">{title.episode}</p>}
+                {(title.year || title.runtime) && (
+                  <p className="text-[12px] text-white/50 mt-0.5">
+                    {title.year ? `${title.year} · ` : ''}{title.runtime || ''}
+                  </p>
+                )}
+              </div>
+
+              {/* Bottom bar — progress */}
+              <div className="bg-gradient-to-t from-black/85 via-black/50 to-transparent p-8">
+                <div className="flex items-center gap-4">
+                  <span className="text-[14px] text-white/70 w-16 text-right font-mono">{fmtTime(currentTime)}</span>
+                  <div className="flex-1 h-1.5 bg-white/20 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-amber-300/90 rounded-full transition-all duration-200"
+                      style={{ width: duration > 0 ? `${Math.min(100, Math.max(0, (currentTime / duration) * 100))}%` : '0%' }}
+                    />
+                  </div>
+                  <span className="text-[14px] text-white/70 w-16 font-mono">{fmtTime(duration)}</span>
+                </div>
+                <div className="mt-3 flex items-center justify-between text-[13px] text-white/45">
+                  <div className="flex items-center gap-6">
+                    <span>◀ ▶ перемотка ±10с</span>
+                    <span>▲ ▼ перемотка ±60с</span>
+                    <span>⏸ пауза</span>
+                    <span>← назад</span>
+                  </div>
+                  {audioTracks.length > 1 && (
+                    <div className="text-amber-300/80 font-medium">
+                      <span>Аудио: {audioTracks.find(a => a.id === currentAudio)?.name || audioTracks[currentAudio]?.name || 'Основная'} (кнопка меню)</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Web & Mobile Controls */}
+      {!isTvMode && (
+        <>
+          {/* Top bar */}
       <div
         className="absolute inset-x-0 top-0 z-30 transition-all duration-300"
         style={{
@@ -1580,7 +1891,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         <div className="flex items-center justify-between px-6 py-4">
           <button
             onClick={onExit}
-            className="flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 text-[13px] font-medium text-white/85 hover:bg-white/20 transition"
+            tabIndex={0}
+            className="player-back-btn flex items-center gap-2 rounded-full bg-white/10 backdrop-blur-sm px-4 py-2 text-[13px] font-medium text-white/85 hover:bg-white/20 transition outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-110 focus:bg-white/25"
           >
             <ChevronLeft className="h-4 w-4" />{t('common.back')}
           </button>
@@ -1640,7 +1952,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               togglePlay();
             }}
             aria-label={playing ? "Пауза" : "Воспроизведение"}
-            className="h-20 w-20 rounded-full bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-2xl transition-all duration-200 active:scale-90 hover:scale-110"
+            tabIndex={0}
+            className="player-center-play-btn h-20 w-20 rounded-full bg-black/45 hover:bg-black/65 border border-white/20 backdrop-blur-md flex items-center justify-center text-white shadow-2xl transition-all duration-200 active:scale-90 hover:scale-110 outline-none focus:outline-none focus:ring-4 focus:ring-amber-400 focus:scale-115 focus:bg-black/80"
           >
             {playing ? (
               <Pause className="h-10 w-10 text-white" fill="currentColor" />
@@ -1723,15 +2036,27 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
         </div>
 
         {/* Controls row */}
-        <div className="flex items-center justify-between px-6 pb-4">
+        <div className="player-bottom-controls flex items-center justify-between px-6 pb-4">
           <div className="flex items-center gap-4">
-            <button onClick={() => skip(-10)} className="text-white/70 hover:text-white transition">
+            <button
+              onClick={() => skip(-10)}
+              tabIndex={0}
+              className="player-skip-back-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
+            >
               <SkipBack className="h-5 w-5" />
             </button>
-            <button onClick={togglePlay} className="text-white hover:scale-110 transition">
+            <button
+              onClick={togglePlay}
+              tabIndex={0}
+              className="player-bottom-play-btn text-white hover:scale-110 transition outline-none focus:outline-none focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
+            >
               {playing ? <Pause className="h-7 w-7" fill="currentColor" /> : <Play className="h-7 w-7" fill="currentColor" />}
             </button>
-            <button onClick={() => skip(10)} className="text-white/70 hover:text-white transition">
+            <button
+              onClick={() => skip(10)}
+              tabIndex={0}
+              className="player-skip-fwd-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
+            >
               <SkipForward className="h-5 w-5" />
             </button>
 
@@ -1742,7 +2067,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   const video = videoRef.current;
                   if (video) { video.muted = !video.muted; setMuted(video.muted); }
                 }}
-                className="text-white/70 hover:text-white transition"
+                className="text-white/70 hover:text-white transition outline-none focus:text-white focus:scale-125"
               >
                 {muted || volume === 0 ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
               </button>
@@ -1769,7 +2094,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             {/* Audio track button */}
             <button
               onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'audio' ? 'none' : 'audio'); }}
-              className="text-white/70 hover:text-white transition"
+              tabIndex={0}
+              className="player-audio-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
               title={t('common.audio')}
             >
               <Volume2 className="h-5 w-5" />
@@ -1779,7 +2105,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             {subtitleTracks.length > 0 && (
               <button
                 onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'subtitles' ? 'none' : 'subtitles'); }}
-                className={`text-white/70 hover:text-white transition ${currentSubtitle >= 0 ? 'text-amber-300' : ''}`}
+                tabIndex={0}
+                className={`player-sub-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1 ${currentSubtitle >= 0 ? 'text-amber-300' : ''}`}
                 title={t('common.subtitles')}
               >
                 <Subtitles className="h-5 w-5" />
@@ -1789,14 +2116,19 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             {/* Settings button */}
             <button
               onClick={(e) => { e.stopPropagation(); setSettingsPanel(settingsPanel === 'none' ? 'quality' : 'none'); }}
-              className="text-white/70 hover:text-white transition"
+              tabIndex={0}
+              className="player-settings-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
               title={t('common.quality')}
             >
               <Settings className="h-5 w-5" />
             </button>
 
             {/* Fullscreen */}
-            <button onClick={toggleFullscreen} className="text-white/70 hover:text-white transition">
+            <button
+              onClick={toggleFullscreen}
+              tabIndex={0}
+              className="player-fs-btn text-white/70 hover:text-white transition outline-none focus:outline-none focus:text-white focus:scale-125 focus:ring-2 focus:ring-amber-400 rounded-full p-1"
+            >
               {isFullscreen ? <Minimize2 className="h-5 w-5" /> : <Maximize2 className="h-5 w-5" />}
             </button>
           </div>
@@ -1806,7 +2138,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       {/* Settings panel */}
       {settingsPanel !== 'none' && (
         <div
-          className="absolute bottom-20 right-6 z-40 w-64 rounded-xl bg-black/90 backdrop-blur-md border border-white/10 overflow-hidden"
+          className="player-settings-modal absolute bottom-20 right-6 z-40 w-64 rounded-xl bg-black/90 backdrop-blur-md border border-white/10 overflow-hidden shadow-2xl"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Quality */}
@@ -1819,7 +2151,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               <div className="py-1">
                 <button
                   onClick={() => setQuality(-1)}
-                  className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
+                  tabIndex={0}
+                  className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 focus:bg-white/20 focus:text-white focus:ring-2 focus:ring-amber-400 outline-none flex items-center justify-between"
                 >
                   <span>{t('common.auto')}</span>
                   {currentQuality === -1 && <span className="text-amber-300">✓</span>}
@@ -1828,7 +2161,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   <button
                     key={level.index}
                     onClick={() => setQuality(level.index)}
-                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
+                    tabIndex={0}
+                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 focus:bg-white/20 focus:text-white focus:ring-2 focus:ring-amber-400 outline-none flex items-center justify-between"
                   >
                     <span>{level.height}p</span>
                     {currentQuality === level.index && <span className="text-amber-300">✓</span>}
@@ -1850,7 +2184,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   <button
                     key={track.id}
                     onClick={() => setAudio(track.id)}
-                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
+                    tabIndex={0}
+                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 focus:bg-white/20 focus:text-white focus:ring-2 focus:ring-amber-400 outline-none flex items-center justify-between"
                   >
                     <span>{track.name} ({track.lang})</span>
                     {currentAudio === track.id && <span className="text-amber-300">✓</span>}
@@ -1870,7 +2205,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               <div className="py-1">
                 <button
                   onClick={() => setSubtitle(-1)}
-                  className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
+                  tabIndex={0}
+                  className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 focus:bg-white/20 focus:text-white focus:ring-2 focus:ring-amber-400 outline-none flex items-center justify-between"
                 >
                   <span>{t('player.off')}</span>
                   {currentSubtitle === -1 && <span className="text-amber-300">✓</span>}
@@ -1879,7 +2215,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                   <button
                     key={track.id}
                     onClick={() => setSubtitle(track.id)}
-                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 flex items-center justify-between"
+                    tabIndex={0}
+                    className="w-full px-4 py-2.5 text-left text-[13px] text-white/80 hover:bg-white/10 focus:bg-white/20 focus:text-white focus:ring-2 focus:ring-amber-400 outline-none flex items-center justify-between"
                   >
                     <span>{track.name} ({track.lang})</span>
                     {currentSubtitle === track.id && <span className="text-amber-300">✓</span>}
@@ -1889,6 +2226,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
             </div>
           )}
         </div>
+      )}
+        </>
       )}
     </div>
   );

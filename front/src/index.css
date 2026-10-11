@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap');
+@import './tv-player.css';
 
 @tailwind base;
 @tailwind components;
@@ -222,3 +223,54 @@ html, body, #root {
     animation: none !important;
   }
 }
+
+/* TV Performance & Focus Styling (Mi TV Stick, Android TV, etc.) */
+.is-tv .glass,
+.is-tv .glass-strong,
+.is-tv .glass-panel,
+.is-tv [class*="backdrop-blur"] {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.is-tv .glass {
+  background: rgba(18, 18, 24, 0.94) !important;
+}
+
+.is-tv .glass-strong {
+  background: rgba(14, 14, 18, 0.97) !important;
+}
+
+.is-tv .glass-panel {
+  background: rgba(16, 16, 22, 0.96) !important;
+}
+
+/* GPU Hardware Layer Promotion for lag-free TV scrolling */
+.is-tv [data-tv-row],
+.is-tv .overflow-x-auto {
+  transform: translateZ(0);
+  -webkit-transform: translateZ(0);
+}
+
+/* Premium TV Focus Highlight (curves follow border radius, no crude rectangular boxes) */
+.is-tv button:focus,
+.is-tv a:focus,
+.is-tv [tabindex="0"]:not([data-tv-card="true"]):focus,
+.is-tv button:focus-visible,
+.is-tv a:focus-visible,
+.is-tv [tabindex="0"]:not([data-tv-card="true"]):focus-visible {
+  outline: none !important;
+  box-shadow: 0 0 0 2.5px #fbbf24, 0 0 16px rgba(251, 191, 36, 0.45) !important;
+}
+
+/* Card container itself does not draw a harsh square outline over text and poster */
+.is-tv [data-tv-card="true"]:focus,
+.is-tv [data-tv-card="true"]:focus-visible,
+.is-tv [data-tv-card="true"].focused {
+  outline: none !important;
+  box-shadow: none !important;
+  z-index: 40 !important;
+}
+
+
+

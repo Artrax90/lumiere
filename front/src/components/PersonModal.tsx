@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { X, Calendar, MapPin, Star, Film } from 'lucide-react';
 import { serverFetch } from '@/api/server';
 import type { Title } from '@/api/client';
@@ -36,6 +36,11 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
   const [data, setData] = useState<PersonDetails | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Fetch person data
   useEffect(() => {
     if (!personId) return;
     setLoading(true);
@@ -53,22 +58,143 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
       });
   }, [personId]);
 
+  // Autofocus: close button initially, then first card once loaded
   useEffect(() => {
     if (!personId) return;
+    if (loading) {
+      const t = setTimeout(() => {
+        closeBtnRef.current?.focus();
+      }, 50);
+      return () => clearTimeout(t);
+    } else {
+      const t = setTimeout(() => {
+        const firstCard = gridRef.current?.querySelector<HTMLElement>('[tabindex="0"]');
+        if (firstCard) {
+          firstCard.focus();
+          firstCard.scrollIntoView({ block: 'nearest' });
+        } else {
+          closeBtnRef.current?.focus();
+        }
+      }, 80);
+      return () => clearTimeout(t);
+    }
+  }, [personId, loading]);
+
+  // Capture-phase keydown handler for Back key and D-pad navigation
+  useEffect(() => {
+    if (!personId) return;
+
+    let lastArrowTime = 0;
+    let lastBackTime = 0;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.keyCode === 27 || e.keyCode === 10009) {
+      // 1. Back / Escape keys to close modal on TV remote or keyboard
+      if (e.key === 'Escape' || e.keyCode === 27 || e.keyCode === 10009 || e.keyCode === 4) {
         e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        const now = Date.now();
+        if (now - lastBackTime < 200) return;
+        lastBackTime = now;
         onClose();
+        return;
+      }
+
+      // 2. D-pad arrow keys
+      const isUp = e.key === 'ArrowUp' || e.keyCode === 38 || e.keyCode === 19;
+      const isDown = e.key === 'ArrowDown' || e.keyCode === 40 || e.keyCode === 20;
+      const isLeft = e.key === 'ArrowLeft' || e.keyCode === 37 || e.keyCode === 21;
+      const isRight = e.key === 'ArrowRight' || e.keyCode === 39 || e.keyCode === 22;
+
+      if (!isUp && !isDown && !isLeft && !isRight) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      const now = Date.now();
+      if (now - lastArrowTime < 140) return;
+      lastArrowTime = now;
+
+      const cards = Array.from(gridRef.current?.querySelectorAll<HTMLElement>('[tabindex="0"]') || []);
+      const closeBtn = closeBtnRef.current;
+      const active = document.activeElement as HTMLElement | null;
+      const isCloseFocused = active === closeBtn;
+      const currentIndex = active ? cards.indexOf(active) : -1;
+
+      // If Close button is focused
+      if (isCloseFocused) {
+        if ((isDown || isLeft) && cards.length > 0) {
+          cards[0]?.focus();
+          cards[0]?.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+      }
+
+      // If neither close button nor cards have focus, focus first card or close button
+      if (currentIndex === -1) {
+        if (cards.length > 0) {
+          cards[0]?.focus();
+          cards[0]?.scrollIntoView({ block: 'nearest' });
+        } else {
+          closeBtn?.focus();
+        }
+        return;
+      }
+
+      // Dynamically compute column count by comparing offsetTop of cards
+      const firstTop = cards[0].offsetTop;
+      let cols = 1;
+      while (cols < cards.length && Math.abs(cards[cols].offsetTop - firstTop) < 12) {
+        cols++;
+      }
+      if (cols < 1) cols = 5;
+
+      let nextIndex = currentIndex;
+
+      if (isRight) {
+        if (currentIndex < cards.length - 1) {
+          nextIndex = currentIndex + 1;
+        }
+      } else if (isLeft) {
+        if (currentIndex > 0) {
+          nextIndex = currentIndex - 1;
+        }
+      } else if (isDown) {
+        if (currentIndex + cols < cards.length) {
+          nextIndex = currentIndex + cols;
+        } else if (Math.floor(currentIndex / cols) < Math.floor((cards.length - 1) / cols)) {
+          nextIndex = cards.length - 1;
+        }
+      } else if (isUp) {
+        if (currentIndex - cols >= 0) {
+          nextIndex = currentIndex - cols;
+        } else {
+          // Top row: navigate up to Close button
+          closeBtn?.focus();
+          return;
+        }
+      }
+
+      if (nextIndex !== currentIndex && cards[nextIndex]) {
+        cards[nextIndex].focus();
+        cards[nextIndex].scrollIntoView({ block: 'nearest' });
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    window.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => window.removeEventListener('keydown', handleKeyDown, { capture: true });
   }, [personId, onClose]);
 
   if (!personId) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 md:p-10">
+    <div
+      role="dialog"
+      aria-modal="true"
+      data-modal="true"
+      className="fixed inset-0 z-[130] flex items-center justify-center p-4 sm:p-6 md:p-10"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity"
@@ -81,15 +207,21 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
         <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
           <span className="text-xs font-bold uppercase tracking-wider text-amber-300">Персона</span>
           <button
+            ref={closeBtnRef}
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-all hover:bg-white/20 hover:text-white"
+            tabIndex={0}
+            className="flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white/80 transition-all hover:bg-white/20 hover:text-white outline-none focus:outline-none focus:ring-2 focus:ring-amber-400"
+            aria-label="Закрыть"
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
         {/* Body */}
-        <div className="overflow-y-auto px-6 py-6 sm:px-8">
+        <div
+          ref={scrollContainerRef}
+          className="flex-1 min-h-0 overflow-y-auto px-6 py-6 sm:px-8 scroll-smooth"
+        >
           {loading ? (
             <div className="flex h-64 items-center justify-center">
               <div className="h-8 w-8 animate-spin rounded-full border-2 border-amber-400 border-t-transparent" />
@@ -146,10 +278,15 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
                   </span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
+                <div
+                  ref={gridRef}
+                  className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5"
+                >
                   {data.credits?.map((credit) => (
                     <div
                       key={`${credit.type}-${credit.id}`}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
                         onClose();
                         onSelectMovie({
@@ -167,7 +304,30 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
                           logoText: credit.title,
                         });
                       }}
-                      className="group cursor-pointer flex flex-col rounded-xl overflow-hidden border border-white/10 bg-white/5 transition-all hover:scale-105 hover:border-amber-400/50 hover:bg-white/10 hover:shadow-lg hover:shadow-amber-400/10"
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onClose();
+                          onSelectMovie({
+                            id: credit.id,
+                            name: credit.title,
+                            type: credit.type,
+                            poster: credit.poster,
+                            backdrop: credit.backdrop || credit.poster,
+                            year: credit.year,
+                            score: credit.score,
+                            genres: [],
+                            runtime: '',
+                            rating: '',
+                            description: '',
+                            logoText: credit.title,
+                          });
+                        }
+                      }}
+                      onFocus={(e) => {
+                        e.currentTarget.scrollIntoView({ block: 'nearest' });
+                      }}
+                      className="group cursor-pointer flex flex-col rounded-xl overflow-hidden border border-white/10 bg-white/5 transition-all hover:scale-105 hover:border-amber-400/50 hover:bg-white/10 hover:shadow-lg hover:shadow-amber-400/10 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 focus:border-amber-400 text-left"
                     >
                       <div className="relative aspect-[2/3] w-full overflow-hidden bg-black/40">
                         <SafeImg

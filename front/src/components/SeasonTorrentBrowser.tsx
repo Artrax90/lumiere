@@ -638,10 +638,18 @@ export default function SeasonTorrentBrowser({
                   <div
                     key={ep.id || ep.episode}
                     id={`episode-${ep.id || ep.episode}`}
+                    role={isFuture ? undefined : 'button'}
+                    tabIndex={isFuture ? undefined : 0}
                     onClick={() => {
                       if (!isFuture) handlePlayEpisode(ep);
                     }}
-                    className={`group relative flex flex-col md:flex-row items-start md:items-center gap-5 p-3.5 md:p-4 rounded-2xl bg-white/[0.03] border transition-all duration-200 ${
+                    onKeyDown={(e) => {
+                      if (!isFuture && (e.key === 'Enter' || e.key === ' ' || (e as any).keyCode === 13)) {
+                        e.preventDefault();
+                        handlePlayEpisode(ep);
+                      }
+                    }}
+                    className={`group relative flex flex-col md:flex-row items-start md:items-center gap-5 p-3.5 md:p-4 rounded-2xl bg-white/[0.03] border transition-all duration-200 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-[1.01] ${
                       isFuture
                         ? 'border-white/[0.05] opacity-75'
                         : 'border-white/[0.08] hover:bg-[#e8c170]/[0.08] hover:border-[#e8c170]/40 cursor-pointer shadow-lg hover:shadow-2xl hover:translate-x-1'

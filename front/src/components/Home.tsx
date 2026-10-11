@@ -13,6 +13,7 @@ import NetflixRow from './NetflixRow';
 import { useTopRated, useNowPlaying, useGenreCatalog } from '@/hooks/useCatalog';
 import { getHomeShelves, syncHomeShelvesFromServer, type HomeShelfConfig } from '@/utils/homeShelves';
 import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
+import { isTV } from '@/hooks/usePlatform';
 
 // Get playback positions from user-scoped storage with timestamps and title info
 function getPlaybackPositions(): Record<number, { time: number; timestamp: number; title?: Title }> {
@@ -96,14 +97,19 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
   const current = availableHeroTitles[active] || availableHeroTitles[0] || null;
 
   useEffect(() => {
-    if (availableHeroTitles.length === 0) return;
+    if (isTV() || availableHeroTitles.length === 0) return;
     const timer = setInterval(() => {
+      const activeEl = document.activeElement;
+      const isInput = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA');
+      if (isInput) return;
+      if (window.scrollY > 600) return;
       setActive((prev) => (prev + 1) % availableHeroTitles.length);
-    }, ROTATION_MS);
+    }, 8000);
     return () => clearInterval(timer);
   }, [availableHeroTitles.length]);
 
   useEffect(() => {
+    if (isTV()) return;
     if (current) {
       onMoodChange('warm', serverUrl(current.backdrop));
     }
@@ -452,7 +458,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
   return (
     <div className="relative">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-0 overflow-hidden" style={{ height: '150vh' }}>
-        {current && (
+        {!isTV() && current && (
           <>
             <div
               className="absolute inset-0"
@@ -489,35 +495,38 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
         )}
       </div>
 
-      {current ? (
-        <Hero
-          current={current}
-          titles={availableHeroTitles}
-          active={active}
-          setActive={setActive}
-          onSelect={onSelect}
-          onPlay={onPlay}
-          imgLoaded={imgLoaded}
-        />
-      ) : (
-        <div className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden animate-pulse">
-          <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-white/[0.02] to-transparent" />
-          <div className="absolute inset-0 flex items-end">
-            <div className="w-full max-w-[1600px] px-6 pb-28 sm:px-8 sm:pb-22 lg:px-16 lg:pb-18 space-y-4">
-              <div className="h-4 w-32 rounded-full bg-white/10" />
-              <div className="h-10 w-96 max-w-full rounded-2xl bg-white/15" />
-              <div className="h-4 w-48 rounded-full bg-white/10" />
-              <div className="h-16 w-full max-w-lg rounded-2xl bg-white/10" />
-              <div className="flex gap-4 pt-2">
-                <div className="h-12 w-36 rounded-full bg-white/20" />
-                <div className="h-12 w-32 rounded-full bg-white/10" />
+      {/* On TV: Hero block removed per request; shelves start directly from the top */}
+      {!isTV() && (
+        current ? (
+          <Hero
+            current={current}
+            titles={availableHeroTitles}
+            active={active}
+            setActive={setActive}
+            onSelect={onSelect}
+            onPlay={onPlay}
+            imgLoaded={imgLoaded}
+          />
+        ) : (
+          <div className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden animate-pulse">
+            <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-white/[0.02] to-transparent" />
+            <div className="absolute inset-0 flex items-end">
+              <div className="w-full max-w-[1600px] px-6 pb-28 sm:pb-22 lg:pb-18 sm:px-8 lg:px-16 space-y-4">
+                <div className="h-4 w-32 rounded-full bg-white/10" />
+                <div className="h-10 w-96 max-w-full rounded-2xl bg-white/15" />
+                <div className="h-4 w-48 rounded-full bg-white/10" />
+                <div className="h-16 w-full max-w-lg rounded-2xl bg-white/10" />
+                <div className="flex gap-4 pt-2">
+                  <div className="h-12 w-36 rounded-full bg-white/20" />
+                  <div className="h-12 w-32 rounded-full bg-white/10" />
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )
       )}
 
-      <div className="relative z-10 pb-10" style={{ paddingTop: 'calc(min(72vh, 800px) - 60px)' }}>
+      <div className={`relative z-10 pb-10 ${isTV() ? 'pt-20' : ''}`} style={!isTV() ? { paddingTop: 'calc(min(72vh, 800px) - 60px)' } : undefined}>
         {shelves.filter((s) => s.enabled).map((s) => renderShelf(s.id))}
 
         <footer className="px-8 py-16 lg:px-14">

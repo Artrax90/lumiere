@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Star, Sparkles, TrendingUp, Award, Play } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { useSearch } from '@/hooks/useSearch';
+import { isTV } from '@/hooks/usePlatform';
 import SafeImg from './SafeImg';
 import Card from './Card';
 
@@ -12,6 +13,7 @@ interface AnimeViewProps {
 }
 
 export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
+  const isTvMode = isTV();
   const { t } = useTranslation();
   const [activeGenre, setActiveGenre] = useState<string | null>(null);
   const { data: anime } = useSearch(activeGenre || 'anime');
@@ -21,17 +23,17 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
   const featured = anime[0];
 
   return (
-    <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
+    <div className={`min-h-screen w-full ${isTvMode ? 'px-6 pt-16 pb-12' : 'px-8 pt-28 pb-20 lg:px-12'}`}>
       <div className="mx-auto max-w-[1500px]">
-        <div className="mb-10 animate-row-reveal">
-          <div className="flex items-center gap-3">
-            <Sparkles className="h-6 w-6 text-rose-300/70" strokeWidth={1.5} />
-            <h1 className="text-display text-[36px] font-medium tracking-tight text-white/95 md:text-[44px]">{t('anime.title')}</h1>
+        <div className={isTvMode ? 'mb-4' : 'mb-10 animate-row-reveal'}>
+          <div className="flex items-center gap-2.5">
+            <Sparkles className={`text-rose-300/70 ${isTvMode ? 'h-5 w-5' : 'h-6 w-6'}`} strokeWidth={1.5} />
+            <h1 className={`text-display font-medium tracking-tight text-white/95 ${isTvMode ? 'text-[22px]' : 'text-[36px] md:text-[44px]'}`}>{t('anime.title')}</h1>
           </div>
-          <p className="mt-2 text-[15px] text-white/50">{t('anime.subtitle')}</p>
+          <p className={`text-white/50 ${isTvMode ? 'mt-0.5 text-[12px]' : 'mt-2 text-[15px]'}`}>{t('anime.subtitle')}</p>
         </div>
 
-        {featured && (
+        {!isTvMode && featured && (
           <button
             onClick={() => onSelect(featured)}
             className="group relative mb-12 block h-64 w-full overflow-hidden rounded-[20px] text-left transition-cinematic hover:scale-[1.01] animate-detail-rise md:h-72"
@@ -56,10 +58,11 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
           </button>
         )}
 
-        <div className="mb-8 no-scrollbar flex gap-2 overflow-x-auto animate-row-reveal">
+        <div className={`no-scrollbar flex gap-2 overflow-x-auto ${isTvMode ? 'mb-4' : 'mb-8 animate-row-reveal'}`}>
           <button
             onClick={() => setActiveGenre(null)}
-            className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+            data-tv-focusable="true"
+            className={`shrink-0 rounded-full font-medium transition-cinematic ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
             style={{
               background: !activeGenre ? 'rgba(244,114,182,0.15)' : 'rgba(255,255,255,0.04)',
               color: !activeGenre ? 'rgba(244,180,210,0.95)' : 'rgba(255,255,255,0.6)',
@@ -72,7 +75,8 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
             <button
               key={g}
               onClick={() => setActiveGenre(activeGenre === g ? null : g)}
-              className="shrink-0 rounded-full px-4 py-2 text-[13px] font-medium transition-cinematic"
+              data-tv-focusable="true"
+              className={`shrink-0 rounded-full font-medium transition-cinematic ${isTvMode ? 'px-3 py-1.5 text-[12px]' : 'px-4 py-2 text-[13px]'}`}
               style={{
                 background: activeGenre === g ? 'rgba(244,114,182,0.15)' : 'rgba(255,255,255,0.04)',
                 color: activeGenre === g ? 'rgba(244,180,210,0.95)' : 'rgba(255,255,255,0.6)',
@@ -84,30 +88,32 @@ export default function AnimeView({ onSelect, onPlay }: AnimeViewProps) {
           ))}
         </div>
 
-        <section className="mb-12 animate-row-reveal">
-          <div className="mb-5 flex items-center gap-3">
+        <section className={isTvMode ? 'mb-6' : 'mb-12 animate-row-reveal'}>
+          <div className={`flex items-center gap-2.5 ${isTvMode ? 'mb-2.5' : 'mb-5'}`}>
             <TrendingUp className="h-4 w-4 text-rose-300/60" strokeWidth={1.5} />
-            <h2 className="text-display text-[21px] font-medium tracking-tight text-white/88">{t('anime.popular')}</h2>
+            <h2 className={`text-display font-medium tracking-tight text-white/88 ${isTvMode ? 'text-[16px]' : 'text-[21px]'}`}>{t('anime.popular')}</h2>
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
-          <div className="no-scrollbar flex gap-5 overflow-x-auto pb-4">
+          <div className={`no-scrollbar flex overflow-x-auto ${isTvMode ? 'gap-3 pb-2' : 'gap-5 pb-4'}`}>
             {anime.map((t, i) => (
-              <div key={t.id} className="shrink-0 animate-stagger-in" style={{ animationDelay: `${Math.min(i * 60, 600)}ms` }}>
+              <div key={t.id} className="shrink-0 animate-stagger-in" style={{ animationDelay: `${Math.min(i * 30, 400)}ms` }}>
                 <Card title={t} variant="portrait" onSelect={onSelect} rank={i + 1} />
               </div>
             ))}
           </div>
         </section>
 
-        <section className="mb-12 animate-row-reveal">
-          <div className="mb-5 flex items-center gap-3">
+        <section className={isTvMode ? 'mb-6' : 'mb-12 animate-row-reveal'}>
+          <div className={`flex items-center gap-2.5 ${isTvMode ? 'mb-2.5' : 'mb-5'}`}>
             <Award className="h-4 w-4 text-amber-300/60" strokeWidth={1.5} />
-            <h2 className="text-display text-[21px] font-medium tracking-tight text-white/88">{t('anime.topRated')}</h2>
+            <h2 className={`text-display font-medium tracking-tight text-white/88 ${isTvMode ? 'text-[16px]' : 'text-[21px]'}`}>{t('anime.topRated')}</h2>
             <div className="h-px flex-1 bg-white/[0.06]" />
           </div>
-          <div className="no-scrollbar flex gap-5 overflow-x-auto pb-4">
+          <div className={`no-scrollbar flex overflow-x-auto ${isTvMode ? 'gap-3 pb-2' : 'gap-5 pb-4'}`}>
             {anime.sort((a, b) => b.score - a.score).map((t) => (
-              <Card key={t.id} title={t} variant="portrait" onSelect={onSelect} />
+              <div key={t.id} className="shrink-0">
+                <Card title={t} variant="portrait" onSelect={onSelect} />
+              </div>
             ))}
           </div>
         </section>

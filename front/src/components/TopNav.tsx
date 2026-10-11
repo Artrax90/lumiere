@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import { Search, Settings, Film, Tv, Sparkles, Bell, Puzzle, Download, Grid3x3, Home, Radio, Bookmark } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { serverFetch } from '@/api/server';
+import { isTV } from '@/hooks/usePlatform';
 
 import { getSectionPath } from '@/hooks/useAppRoute';
 
@@ -14,6 +15,17 @@ interface TopNavProps {
 }
 
 const navItems = [
+  { id: 'home' as NavSection, labelKey: 'nav.home', icon: Film, path: '/' },
+  { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film, path: '/film' },
+  { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv, path: '/series' },
+  { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles, path: '/anime' },
+  { id: 'iptv' as NavSection, labelKey: 'nav.iptv', icon: Tv, path: '/iptv' },
+  { id: 'my' as NavSection, labelKey: 'nav.my', icon: Bookmark, path: '/my' },
+  { id: 'downloads' as NavSection, labelKey: 'nav.downloads', icon: Download, path: '/downloads' },
+  { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3, path: '/collections' },
+];
+
+const tvNavItems = [
   { id: 'home' as NavSection, labelKey: 'nav.home', icon: Film, path: '/' },
   { id: 'movies' as NavSection, labelKey: 'nav.movies', icon: Film, path: '/film' },
   { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv, path: '/series' },
@@ -97,45 +109,66 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
     }
   };
 
+  const isTvMode = isTV();
+
   return (
     <>
     <header
       className="fixed top-0 left-0 right-0 z-50 transition-all duration-500 ease-out"
       style={{
-        background: scrolled
-          ? 'linear-gradient(180deg, rgba(5,5,6,0.82) 0%, rgba(5,5,6,0.38) 72%, transparent 100%)'
-          : 'linear-gradient(180deg, rgba(5,5,6,0.52) 0%, transparent 100%)',
-        backdropFilter: scrolled ? 'blur(24px) saturate(145%)' : 'none',
-        WebkitBackdropFilter: scrolled ? 'blur(24px) saturate(145%)' : 'none',
+        background: isTvMode
+          ? (scrolled ? 'rgba(10, 10, 14, 0.98)' : 'linear-gradient(180deg, rgba(10,10,14,0.96) 0%, rgba(10,10,14,0.6) 80%, transparent 100%)')
+          : (scrolled
+            ? 'linear-gradient(180deg, rgba(5,5,6,0.85) 0%, rgba(5,5,6,0.5) 72%, transparent 100%)'
+            : 'linear-gradient(180deg, rgba(5,5,6,0.52) 0%, transparent 100%)'),
+        backdropFilter: isTvMode ? 'none' : (scrolled ? 'blur(24px) saturate(145%)' : 'none'),
+        WebkitBackdropFilter: isTvMode ? 'none' : (scrolled ? 'blur(24px) saturate(145%)' : 'none'),
+        borderBottom: (isTvMode && scrolled) ? '1px solid rgba(255,255,255,0.08)' : undefined,
       }}
     >
-      <nav className="mx-auto flex max-w-[1600px] items-center justify-between px-4 py-3 sm:px-6 md:px-8 md:py-4 lg:px-14">
+      <nav className={`mx-auto flex max-w-[1600px] items-center justify-between px-4 ${isTvMode ? 'py-1.5' : 'py-3 sm:px-6 md:px-8 md:py-4'} lg:px-14`}>
         {/* Brand — refined, quieter */}
         <a
           href="/"
+          role="button"
+          tabIndex={0}
           onClick={(e) => handleNavClick(e, 'home')}
-          className="group flex items-center gap-3 shrink-0"
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              onNavigate('home');
+            }
+          }}
+          className="group flex items-center gap-2.5 shrink-0 rounded-lg p-1 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400"
           aria-label="Lumiere home"
         >
-          <div className="relative flex h-7 w-7 items-center justify-center">
-            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-200/70 to-amber-600/35 blur-[5px] opacity-55 transition-opacity duration-500 group-hover:opacity-85" />
-            <div className="relative h-3 w-3 rounded-full bg-gradient-to-br from-amber-100 to-amber-500" />
+          <div className="relative flex h-6 w-6 items-center justify-center">
+            <div className="absolute inset-0 rounded-full bg-gradient-to-br from-amber-200/70 to-amber-600/35 blur-[4px] opacity-55 transition-opacity duration-500 group-hover:opacity-85" />
+            <div className="relative h-2.5 w-2.5 rounded-full bg-gradient-to-br from-amber-100 to-amber-500" />
           </div>
-          <span className="text-display text-[18px] font-medium tracking-tight text-white/92">
+          <span className={`text-display ${isTvMode ? 'text-[15px]' : 'text-[18px]'} font-medium tracking-tight text-white/92`}>
             Lumière
           </span>
         </a>
 
-        {/* Primary nav — centered, visible only on large screens to prevent collisions */}
-        <div className="absolute left-1/2 hidden -translate-x-1/2 items-center gap-0.5 xl:flex">
-          {navItems.map((item) => {
+        {/* Primary nav — centered, visible on large screens and always on TV */}
+        <div className={`items-center gap-1 ${isTvMode ? 'flex mx-auto' : 'absolute left-1/2 -translate-x-1/2 hidden xl:flex'}`}>
+          {(isTvMode ? tvNavItems : navItems).map((item) => {
             const isActive = active === item.id;
             return (
               <a
                 key={item.id}
                 href={item.path}
+                role="button"
+                tabIndex={0}
                 onClick={(e) => handleNavClick(e, item.id)}
-                className="group relative px-5 py-2 text-[14px] font-medium transition-lux"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    onNavigate(item.id);
+                  }
+                }}
+                className={`group relative ${isTvMode ? 'px-3 py-1 text-[12px]' : 'px-4 py-1.5 text-[14px]'} font-medium transition-all rounded-full outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10`}
                 style={{
                   color: isActive ? 'rgba(255,255,255,0.96)' : 'rgba(255,255,255,0.52)',
                 }}
@@ -164,16 +197,32 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
         <div className="flex items-center gap-1 sm:gap-1.5 shrink-0">
           <a
             href="/search"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'search')}
-            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('search');
+              }
+            }}
+            className={`group ${isTvMode ? 'flex' : 'hidden xl:flex'} h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]`}
             aria-label="Search"
           >
             <Search className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
           </a>
           <a
             href="/notifications"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'notifications')}
-            className="group relative flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('notifications');
+              }
+            }}
+            className="group relative flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
             aria-label="Notifications"
           >
             <Bell className="h-[17px] w-[17px] text-white/70 transition-colors duration-300 group-hover:text-white/95" strokeWidth={1.5} />
@@ -185,24 +234,48 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
           </a>
           <a
             href="/plugins"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'plugins')}
-            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('plugins');
+              }
+            }}
+            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
             aria-label="Plugin Store"
           >
             <Puzzle className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
           </a>
           <a
             href="/downloads"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'downloads')}
-            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('downloads');
+              }
+            }}
+            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
             aria-label="Downloads"
           >
             <Download className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
           </a>
           <a
             href="/settings"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'settings')}
-            className="group flex h-9 w-9 items-center justify-center rounded-full transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('settings');
+              }
+            }}
+            className="group flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
             aria-label="Settings"
           >
             <Settings className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
@@ -210,8 +283,16 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
           <div className="hidden sm:block mx-1.5 sm:mx-2.5 h-5 w-px bg-white/[0.08]" />
           <a
             href="/profile"
+            role="button"
+            tabIndex={0}
             onClick={(e) => handleNavClick(e, 'profile')}
-            className="group flex items-center gap-2 rounded-full py-1 pl-1 pr-2 sm:pr-3 transition-lux hover:bg-white/[0.07]"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onNavigate('profile');
+              }
+            }}
+            className="group flex items-center gap-2 rounded-full py-1 pl-1 pr-2 sm:pr-3 transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
             aria-label="Profile"
           >
             <div className="flex h-7 w-7 items-center justify-center rounded-full bg-gradient-to-br from-amber-200/85 to-amber-700/55 text-[11px] font-semibold text-black/65">
@@ -225,27 +306,29 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
       </nav>
     </header>
 
-    {/* Mobile & Tablet bottom navigation */}
-    <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] bg-[#0a0a0c]/90 backdrop-blur-xl xl:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-      <div className="flex items-center justify-between w-full max-w-lg mx-auto px-1 py-1">
-        {mobileNavItems.map((item) => {
-          const isActive = active === item.id;
-          const Icon = item.icon;
-          return (
-            <a
-              key={item.id}
-              href={item.path}
-              onClick={(e) => handleNavClick(e, item.id)}
-              className="flex flex-1 min-w-0 flex-col items-center justify-center py-1 px-0.5 transition-colors"
-              style={{ color: isActive ? '#e8c170' : 'rgba(255,255,255,0.4)' }}
-            >
-              <Icon className="h-5 w-5 shrink-0" strokeWidth={isActive ? 2 : 1.5} />
-              <span className="text-[10px] leading-tight font-medium tracking-tight truncate max-w-full text-center">{t(item.labelKey)}</span>
-            </a>
-          );
-        })}
-      </div>
-    </nav>
+    {/* Mobile & Tablet bottom navigation — explicitly excluded on TV */}
+    {!isTvMode && (
+      <nav className="fixed bottom-0 left-0 right-0 z-50 border-t border-white/[0.06] bg-[#0a0a0c]/90 backdrop-blur-xl xl:hidden" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+        <div className="flex items-center justify-between w-full max-w-lg mx-auto px-1 py-1">
+          {mobileNavItems.map((item) => {
+            const isActive = active === item.id;
+            const Icon = item.icon;
+            return (
+              <a
+                key={item.id}
+                href={item.path}
+                onClick={(e) => handleNavClick(e, item.id)}
+                className="flex flex-1 min-w-0 flex-col items-center justify-center py-1 px-0.5 transition-colors"
+                style={{ color: isActive ? '#e8c170' : 'rgba(255,255,255,0.4)' }}
+              >
+                <Icon className="h-5 w-5 shrink-0" strokeWidth={isActive ? 2 : 1.5} />
+                <span className="text-[10px] leading-tight font-medium tracking-tight truncate max-w-full text-center">{t(item.labelKey)}</span>
+              </a>
+            );
+          })}
+        </div>
+      </nav>
+    )}
     </>
   );
 }

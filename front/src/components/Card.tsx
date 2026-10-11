@@ -2,13 +2,16 @@ import { useState, useRef, useEffect } from 'react';
 import { Play, Info, Plus, Check, Star } from 'lucide-react';
 import type { Title } from '@/api/client';
 import SafeImg from './SafeImg';
+import { isTV } from '@/hooks/usePlatform';
 
 function CardMarqueeTitle({ name, featured, hovered }: { name: string; featured?: boolean; hovered?: boolean }) {
   const containerRef = useRef<HTMLHeadingElement>(null);
   const textRef = useRef<HTMLSpanElement>(null);
   const [shift, setShift] = useState(0);
+  const isTvMode = isTV();
 
   useEffect(() => {
+    if (isTvMode) return; // Zero-overhead CSS truncate on TV
     if (hovered && containerRef.current && textRef.current) {
       const overflow = textRef.current.scrollWidth - containerRef.current.clientWidth;
       if (overflow > 4) {
@@ -19,26 +22,24 @@ function CardMarqueeTitle({ name, featured, hovered }: { name: string; featured?
     } else {
       setShift(0);
     }
-  }, [hovered, name]);
-
-  const duration = Math.max(3.5, Math.min(10, (shift / 30) + 2));
+  }, [hovered, name, isTvMode]);
 
   return (
     <h3
       ref={containerRef}
-      className="mt-2.5 overflow-hidden whitespace-nowrap font-medium text-white/90"
+      className={`mt-1.5 overflow-hidden whitespace-nowrap font-medium ${hovered ? 'text-white' : 'text-white/90'}`}
       style={{
-        fontSize: featured ? 14 : 13,
-        textOverflow: shift > 0 ? 'clip' : 'ellipsis',
+        fontSize: isTvMode ? (featured ? 12 : 11) : (featured ? 14 : 13),
+        textOverflow: 'ellipsis',
       }}
       title={name}
     >
       <span
         ref={textRef}
-        className="inline-block transition-transform"
+        className="inline-block truncate max-w-full"
         style={{
-          transform: shift > 0 ? `translateX(-${shift}px)` : 'translateX(0)',
-          transition: shift > 0 ? `transform ${duration}s cubic-bezier(0.42, 0, 0.58, 1) 0.6s` : 'transform 0.3s ease-out',
+          transform: !isTvMode && shift > 0 ? `translateX(-${shift}px)` : 'translateX(0)',
+          transition: !isTvMode && shift > 0 ? 'transform 4s ease-in-out' : undefined,
         }}
       >
         {name}
@@ -64,6 +65,12 @@ const DEFAULT_WIDTHS = {
   collection: 380,
 };
 
+const TV_WIDTHS = {
+  portrait: 125,
+  landscape: 215,
+  collection: 215,
+};
+
 export default function Card({
   title,
   variant = 'portrait',
@@ -75,6 +82,7 @@ export default function Card({
 }: CardProps) {
   const [hovered, setHovered] = useState(false);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const isTvMode = isTV();
 
   const isPortrait = variant === 'portrait';
   const isCollection = variant === 'collection';
@@ -86,9 +94,12 @@ export default function Card({
     ? 'aspect-[16/9]'
     : 'aspect-[16/10]';
 
-  const baseWidth = width ?? DEFAULT_WIDTHS[variant];
-  const cardWidth = featured ? Math.round(baseWidth * 1.35) : baseWidth;
-  const radius = featured ? 'rounded-[16px]' : 'rounded-[12px]';
+  const widths = isTvMode ? TV_WIDTHS : DEFAULT_WIDTHS;
+  const baseWidth = width ?? widths[variant];
+  const cardWidth = featured ? Math.round(baseWidth * (isTvMode ? 1.25 : 1.35)) : baseWidth;
+  const radius = featured
+    ? (isTvMode ? 'rounded-[12px]' : 'rounded-[16px]')
+    : (isTvMode ? 'rounded-[10px]' : 'rounded-[12px]');
 
   const handleMouseEnter = () => {
     if (typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
@@ -102,18 +113,31 @@ export default function Card({
 
   return (
     <div
-      className={`group/card relative cursor-pointer active:scale-[0.98] transition-transform ${fill ? 'w-full' : 'shrink-0'}`}
+      role="button"
+      tabIndex={0}
+      data-tv-card="true"
+      className={`group/card ${hovered ? 'z-30' : 'z-10'} relative cursor-pointer outline-none focus:outline-none select-none transition-transform duration-200 ${fill ? 'w-full' : 'shrink-0'}`}
       style={fill ? undefined : { width: cardWidth }}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
+      onFocus={() => {
+        setHovered(true);
+      }}
+      onBlur={() => setHovered(false)}
       onClick={() => onSelect(title)}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ' || (e as any).keyCode === 13) {
+          e.preventDefault();
+          onSelect(title);
+        }
+      }}
     >
       {/* Rank numeral — oversized, sits behind the card for trending rows */}
       {rank != null && (
         <div
           className="pointer-events-none absolute -left-3 top-1/2 z-0 -translate-y-1/2 select-none text-display font-medium leading-none transition-all duration-500 ease-out"
           style={{
-            fontSize: 'clamp(80px, 11vw, 128px)',
+            fontSize: isTvMode ? 'clamp(44px, 5vw, 64px)' : 'clamp(80px, 11vw, 128px)',
             color: 'transparent',
             WebkitTextStroke: '1.5px rgba(255,255,255,0.14)',
             opacity: hovered ? 0.22 : 0.12,
@@ -142,11 +166,13 @@ export default function Card({
 
       {/* Artwork frame — a physical object with edges */}
       <div
-        className={`relative ${aspectClass} overflow-hidden ${radius} transition-all duration-500 ease-out ${hovered ? 'card-edge-hover' : 'card-edge'}`}
-        style={{
-          transform: hovered ? 'scale(1.05) translateY(-3px)' : 'scale(1) translateY(0)',
-          transition: 'transform 420ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 420ms cubic-bezier(0.16, 1, 0.3, 1)',
-        }}
+        className={`relative ${aspectClass} overflow-hidden ${radius} transition-all duration-200 ease-out ${
+          hovered
+            ? (isTvMode
+                ? 'scale-[1.04] ring-[2.5px] ring-amber-400 shadow-[0_12px_28px_rgba(0,0,0,0.8),0_0_16px_rgba(251,191,36,0.4)]'
+                : 'scale-[1.06] -translate-y-1 ring-4 ring-amber-400 shadow-2xl shadow-amber-400/30')
+            : 'card-edge'
+        }`}
       >
         {/* Skeleton */}
         {!imgLoaded && <div className={`absolute inset-0 skeleton ${radius}`} />}
@@ -176,21 +202,23 @@ export default function Card({
           }}
         />
 
-        {/* Light reflection sweep — travels diagonally on focus */}
-        <div
-          className="pointer-events-none absolute inset-0 overflow-hidden"
-          style={{ opacity: hovered ? 1 : 0, transition: 'opacity 300ms ease-out' }}
-        >
+        {/* Light reflection sweep — travels diagonally on focus for web only */}
+        {!isTvMode && (
           <div
-            className="absolute -inset-y-4 -left-1/2 w-1/2"
-            style={{
-              background:
-                'linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.0) 35%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.0) 65%, transparent 100%)',
-              transform: hovered ? 'translateX(260%)' : 'translateX(0%)',
-              transition: 'transform 900ms cubic-bezier(0.16, 1, 0.3, 1)',
-            }}
-          />
-        </div>
+            className="pointer-events-none absolute inset-0 overflow-hidden"
+            style={{ opacity: hovered ? 1 : 0, transition: 'opacity 300ms ease-out' }}
+          >
+            <div
+              className="absolute -inset-y-4 -left-1/2 w-1/2"
+              style={{
+                background:
+                  'linear-gradient(100deg, transparent 0%, rgba(255,255,255,0.0) 35%, rgba(255,255,255,0.14) 50%, rgba(255,255,255,0.0) 65%, transparent 100%)',
+                transform: hovered ? 'translateX(260%)' : 'translateX(0%)',
+                transition: 'transform 900ms cubic-bezier(0.16, 1, 0.3, 1)',
+              }}
+            />
+          </div>
+        )}
 
         {/* Gradient overlay — subtle, deepens on hover */}
         <div
@@ -250,34 +278,39 @@ export default function Card({
           </div>
         )}
 
-        {/* Hover action overlay — premium circular buttons */}
-        <div
-          className="absolute inset-0 flex items-end justify-center gap-2 p-4"
-          style={{ opacity: hovered ? 1 : 0, transition: 'opacity 300ms ease-out' }}
-        >
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all duration-300 hover:scale-105 active:scale-95"
-            style={{ boxShadow: '0 4px 16px -4px rgba(255,255,255,0.25)' }}
-            aria-label="Play"
-            onClick={(e) => { e.stopPropagation(); onSelect(title); }}
+        {/* Hover action overlay — only on mouse/desktop hover */}
+        {!isTvMode && (
+          <div
+            className="absolute inset-0 flex items-end justify-center gap-2 p-4"
+            style={{ opacity: hovered ? 1 : 0, transition: 'opacity 300ms ease-out' }}
           >
-            <Play className="h-[14px] w-[14px] fill-current" />
-          </button>
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-full glass text-white transition-all duration-300 hover:scale-105 active:scale-95"
-            aria-label="Add to library"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Plus className="h-[14px] w-[14px]" strokeWidth={1.5} />
-          </button>
-          <button
-            className="flex h-9 w-9 items-center justify-center rounded-full glass text-white transition-all duration-300 hover:scale-105 active:scale-95"
-            aria-label="More info"
-            onClick={(e) => { e.stopPropagation(); onSelect(title); }}
-          >
-            <Info className="h-[14px] w-[14px]" strokeWidth={1.5} />
-          </button>
-        </div>
+            <button
+              tabIndex={-1}
+              className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition-all duration-300 hover:scale-105 active:scale-95"
+              style={{ boxShadow: '0 4px 16px -4px rgba(255,255,255,0.25)' }}
+              aria-label="Play"
+              onClick={(e) => { e.stopPropagation(); onSelect(title); }}
+            >
+              <Play className="h-[14px] w-[14px] fill-current" />
+            </button>
+            <button
+              tabIndex={-1}
+              className="flex h-9 w-9 items-center justify-center rounded-full glass text-white transition-all duration-300 hover:scale-105 active:scale-95"
+              aria-label="Add to library"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <Plus className="h-[14px] w-[14px]" strokeWidth={1.5} />
+            </button>
+            <button
+              tabIndex={-1}
+              className="flex h-9 w-9 items-center justify-center rounded-full glass text-white transition-all duration-300 hover:scale-105 active:scale-95"
+              aria-label="More info"
+              onClick={(e) => { e.stopPropagation(); onSelect(title); }}
+            >
+              <Info className="h-[14px] w-[14px]" strokeWidth={1.5} />
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Metadata below card — quiet, calmer */}

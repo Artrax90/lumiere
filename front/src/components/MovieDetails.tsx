@@ -13,6 +13,7 @@ import SourceSelector from './SourceSelector';
 import TorrentSearch from './TorrentSearch';
 import SeasonTorrentBrowser from './SeasonTorrentBrowser';
 import PersonModal from './PersonModal';
+import { isTV } from '@/hooks/usePlatform';
 
 interface MovieDetailsProps {
   title: Title;
@@ -23,6 +24,7 @@ interface MovieDetailsProps {
 
 export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieDetailsProps) {
   const { t } = useTranslation();
+  const isTvMode = isTV();
   const [imgLoaded, setImgLoaded] = useState(false);
   const [favorited, setFavorited] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
@@ -45,7 +47,135 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   const trailerVideoRef = useRef<HTMLVideoElement>(null);
   const [selectedPersonId, setSelectedPersonId] = useState<number | null>(null);
   const [showAllCastModal, setShowAllCastModal] = useState(false);
+  const allCastTriggerRef = useRef<HTMLButtonElement>(null);
+  const allCastGridRef = useRef<HTMLDivElement>(null);
+  const allCastCloseBtnRef = useRef<HTMLButtonElement>(null);
   const [isLightBg, setIsLightBg] = useState(false);
+
+  useEffect(() => {
+    if (!showAllCastModal) return;
+
+    // Autofocus first actor card inside modal
+    const focusTimer = setTimeout(() => {
+      const firstFocusable = allCastGridRef.current?.querySelector<HTMLElement>('[tabindex="0"]');
+      if (firstFocusable) {
+        firstFocusable.focus();
+        firstFocusable.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    }, 60);
+
+    let lastArrowTime = 0;
+    let lastBackTime = 0;
+
+    // Handle Back / Escape keys and D-pad arrow keys to navigate cast grid without losing focus to background
+    const handleKey = (e: KeyboardEvent) => {
+      // If PersonModal is active on top, do not intercept any keys!
+      if (selectedPersonId) {
+        return;
+      }
+
+      // 1. Back / Escape keys to close modal on TV remote or keyboard
+      if (e.key === 'Escape' || e.keyCode === 27 || e.keyCode === 10009 || e.keyCode === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        const now = Date.now();
+        if (now - lastBackTime < 200) return;
+        lastBackTime = now;
+        setShowAllCastModal(false);
+        allCastTriggerRef.current?.focus();
+        return;
+      }
+
+      // 2. D-pad arrow keys
+      const isUp = e.key === 'ArrowUp' || e.keyCode === 38 || e.keyCode === 19;
+      const isDown = e.key === 'ArrowDown' || e.keyCode === 40 || e.keyCode === 20;
+      const isLeft = e.key === 'ArrowLeft' || e.keyCode === 37 || e.keyCode === 21;
+      const isRight = e.key === 'ArrowRight' || e.keyCode === 39 || e.keyCode === 22;
+
+      if (!isUp && !isDown && !isLeft && !isRight) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      e.stopImmediatePropagation();
+
+      // Debounce hardware key repeat or double events from Android/remote to prevent skipping cells
+      const now = Date.now();
+      if (now - lastArrowTime < 140) {
+        return;
+      }
+      lastArrowTime = now;
+
+      const cards = Array.from(allCastGridRef.current?.querySelectorAll<HTMLElement>('[tabindex="0"]') || []);
+      if (cards.length === 0) return;
+
+      const active = document.activeElement as HTMLElement | null;
+      const closeBtn = allCastCloseBtnRef.current;
+      const isCloseFocused = active === closeBtn;
+      const currentIndex = active ? cards.indexOf(active) : -1;
+
+      // If Close button is focused
+      if (isCloseFocused) {
+        if (isDown || isLeft) {
+          cards[0]?.focus();
+          cards[0]?.scrollIntoView({ block: 'nearest' });
+        }
+        return;
+      }
+
+      // If no card or close button is focused (e.g. background element had focus), pull focus into modal
+      if (currentIndex === -1) {
+        cards[0]?.focus();
+        cards[0]?.scrollIntoView({ block: 'nearest' });
+        return;
+      }
+
+      // Compute number of columns dynamically with subpixel tolerance
+      const firstTop = cards[0].offsetTop;
+      let cols = 1;
+      while (cols < cards.length && Math.abs(cards[cols].offsetTop - firstTop) < 12) {
+        cols++;
+      }
+      if (cols < 1) cols = 5;
+
+      let nextIndex = currentIndex;
+
+      if (isRight) {
+        if (currentIndex < cards.length - 1) {
+          nextIndex = currentIndex + 1;
+        }
+      } else if (isLeft) {
+        if (currentIndex > 0) {
+          nextIndex = currentIndex - 1;
+        }
+      } else if (isDown) {
+        if (currentIndex + cols < cards.length) {
+          nextIndex = currentIndex + cols;
+        } else if (Math.floor(currentIndex / cols) < Math.floor((cards.length - 1) / cols)) {
+          nextIndex = cards.length - 1;
+        }
+      } else if (isUp) {
+        if (currentIndex - cols >= 0) {
+          nextIndex = currentIndex - cols;
+        } else {
+          // Reached top row: move to close button
+          closeBtn?.focus();
+          return;
+        }
+      }
+
+      if (nextIndex !== currentIndex && cards[nextIndex]) {
+        cards[nextIndex].focus();
+        cards[nextIndex].scrollIntoView({ block: 'nearest' });
+      }
+    };
+
+    window.addEventListener('keydown', handleKey, { capture: true });
+    return () => {
+      clearTimeout(focusTimer);
+      window.removeEventListener('keydown', handleKey, { capture: true });
+    };
+  }, [showAllCastModal, selectedPersonId]);
 
   const typeLabel = (type: Title['type']) =>
     type === 'movie' ? t('movie.movie') : (type === 'tv' || type === 'show') ? t('movie.series') : type === 'anime' ? t('movie.anime') : t('movie.documentary');
@@ -106,6 +236,21 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
     setTrailerStream(null);
     setTrailerError(null);
   };
+
+  // Close trailer on Back / Escape key
+  useEffect(() => {
+    if (!showTrailer) return;
+    const handleTrailerKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.keyCode === 27 || e.keyCode === 10009 || e.keyCode === 4) {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        handleCloseTrailer();
+      }
+    };
+    window.addEventListener('keydown', handleTrailerKey, { capture: true });
+    return () => window.removeEventListener('keydown', handleTrailerKey, { capture: true });
+  }, [showTrailer]);
 
   useEffect(() => {
     if (!trailerStream || !trailerVideoRef.current) return;
@@ -291,7 +436,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   return (
     <div className="min-h-screen w-full animate-fade-in">
       {/* Hero with backdrop */}
-      <div className="relative w-full overflow-hidden pb-10 pt-20 md:pt-24">
+      <div className={`relative w-full overflow-hidden ${isTvMode ? 'pb-1 pt-3 max-h-[300px]' : 'pb-10 pt-20 md:pt-24'}`}>
         <div className="absolute inset-0 -z-10">
           {!imgLoaded && <div className="absolute inset-0 skeleton" />}
           <SafeImg
@@ -306,28 +451,28 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               transition: 'opacity 800ms ease-out, transform 8s ease-out',
             }}
           />
-          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(5,5,6,0.85) 0%, rgba(5,5,6,0.35) 45%, transparent 80%)' }} />
+          <div className="absolute inset-0" style={{ background: 'linear-gradient(90deg, rgba(5,5,6,0.88) 0%, rgba(5,5,6,0.45) 50%, transparent 85%)' }} />
           <div className="absolute inset-0" style={{ background: 'linear-gradient(0deg, rgba(5,5,6,1) 0%, rgba(5,5,6,0.5) 50%, transparent 100%)' }} />
           <div className="absolute inset-x-0 top-0 h-28" style={{ background: 'linear-gradient(180deg, rgba(5,5,6,0.6) 0%, transparent 100%)' }} />
         </div>
 
-        {/* Upper Hero Grid: Left side (Back, Title, Badges, Actions, Synopsis) & Right side (Cast Header, 4x2 Grid of 8 Actor Cards) */}
-        <div className="relative z-10 mx-auto max-w-[1400px] px-6 lg:px-12 pt-2 md:pt-4">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-start">
+        {/* Upper Hero Grid: Left side (Back, Title, Badges, Actions, Synopsis) & Right side (Cast Header, Actor Cards) */}
+        <div className={`relative z-10 mx-auto max-w-[1400px] ${isTvMode ? 'px-4 lg:px-6 pt-1' : 'px-6 lg:px-12 pt-2 md:pt-4'}`}>
+          <div className={`grid ${isTvMode ? 'grid-cols-12 gap-4' : 'grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12'} items-start`}>
             
-            {/* Left Column (col-span-12 lg:col-span-7) */}
-            <div className="lg:col-span-7 flex flex-col animate-detail-rise" style={{ animationDelay: '100ms' }}>
+            {/* Left Column (col-span-7 on TV, lg:col-span-7 on web) */}
+            <div className={`${isTvMode ? 'col-span-7' : 'lg:col-span-7'} flex flex-col animate-detail-rise`} style={{ animationDelay: '100ms' }}>
               {/* Back button */}
               <button
                 onClick={onBack}
-                className="inline-flex items-center gap-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-1.5 text-xs font-medium text-white/90 backdrop-blur-md transition-all self-start mb-6"
+                className={`back-btn inline-flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 ${isTvMode ? 'px-2.5 py-0.5 text-[10px] mb-1.5' : 'px-3.5 py-1 text-xs mb-6'} font-medium text-white/90 backdrop-blur-md transition-all self-start outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 cursor-pointer`}
               >
-                <ChevronLeft className="h-3.5 w-3.5" strokeWidth={2} />
+                <ChevronLeft className="h-3 w-3" strokeWidth={2} />
                 <span>{t('common.back')}</span>
               </button>
 
               {/* Category & Genre */}
-              <div className="mb-2 flex items-center gap-2.5 text-xs">
+              <div className={`flex items-center gap-2 ${isTvMode ? 'mb-0.5 text-[10px]' : 'mb-2 text-xs'}`}>
                 <span className="font-bold uppercase tracking-[0.16em] text-amber-400">{typeLabel(displayTitle.type)}</span>
                 <span className="text-white/30">—</span>
                 <span className="font-medium uppercase tracking-[0.12em] text-white/50">{displayTitle.genres?.[0] || ''}</span>
@@ -335,17 +480,17 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               
               {/* Display Title */}
               <h1
-                className="font-serif text-3xl sm:text-4xl md:text-5xl lg:text-[52px] font-bold text-white tracking-tight leading-[1.1] mb-3 text-balance"
+                className={`font-serif ${isTvMode ? 'text-xl md:text-2xl mb-1' : 'text-3xl sm:text-4xl md:text-5xl lg:text-[52px] mb-3'} font-bold text-white tracking-tight leading-[1.1] text-balance`}
                 style={{ textShadow: '0 4px 28px rgba(0,0,0,0.6)' }}
               >
                 {displayTitle.logoText || displayTitle.name}
               </h1>
 
               {/* Meta row */}
-              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs sm:text-sm text-white/80 mb-6 font-medium">
+              <div className={`flex flex-wrap items-center gap-x-2 gap-y-1 ${isTvMode ? 'text-[11px] mb-2' : 'text-xs sm:text-sm mb-6'} text-white/80 font-medium`}>
                 {displayTitle.score && (
                   <span className="flex items-center gap-1 font-bold text-amber-400">
-                    <Star className="h-3.5 w-3.5 fill-amber-400 text-amber-400" strokeWidth={0} />
+                    <Star className="h-3 w-3 fill-amber-400 text-amber-400" strokeWidth={0} />
                     <span>{displayTitle.score}</span>
                   </span>
                 )}
@@ -374,7 +519,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               </div>
 
               {/* Action Buttons */}
-              <div className="flex flex-wrap items-center gap-3 mb-6">
+              <div className={`flex flex-wrap items-center ${isTvMode ? 'gap-2 mb-2' : 'gap-3 mb-6'}`}>
                 {/* Primary Play/Resume CTA */}
                 {hasSavedProgress ? (
                   <button
@@ -398,12 +543,12 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       }
                     }}
                     disabled={resumingTorrent}
-                    className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all disabled:opacity-50"
+                    className={`flex items-center justify-center gap-1.5 rounded-full bg-white ${isTvMode ? 'px-4 py-1.5 text-xs' : 'px-7 py-2.5 text-sm'} font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all disabled:opacity-50 outline-none focus:outline-none focus:ring-4 focus:ring-amber-400 focus:scale-105`}
                   >
                     {resumingTorrent ? (
-                      <Loader2 className="h-4.5 w-4.5 animate-spin" />
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     ) : (
-                      <Play className="h-4.5 w-4.5 fill-current" />
+                      <Play className="h-3.5 w-3.5 fill-current" />
                     )}
                     <span>{t('common.continue')}</span>
                   </button>
@@ -413,30 +558,36 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       setActiveTab('torrents');
                       setTimeout(() => {
                         const el = document.getElementById('media-watch-section') || document.getElementById('episodes-section');
-                        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        if (el) {
+                          el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                          setTimeout(() => {
+                            const firstFocusable = el.querySelector<HTMLElement>('[tabindex="0"]:not([tabindex="-1"]), button:not([tabindex="-1"]), input');
+                            if (firstFocusable) firstFocusable.focus();
+                          }, 150);
+                        }
                       }, 50);
                     }}
-                    className="flex items-center justify-center gap-2.5 rounded-full bg-white px-7 py-2.5 text-sm font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all"
+                    className={`flex items-center justify-center gap-1.5 rounded-full bg-white ${isTvMode ? 'px-4 py-1.5 text-xs' : 'px-7 py-2.5 text-sm'} font-bold text-black shadow-xl hover:bg-white/95 active:scale-95 transition-all outline-none focus:outline-none focus:ring-4 focus:ring-amber-400 focus:scale-105`}
                   >
-                    <Play className="h-4.5 w-4.5 fill-current" />
+                    <Play className="h-3.5 w-3.5 fill-current" />
                     <span>{t('common.watch')}</span>
                   </button>
                 )}
 
                 {/* Secondary Actions Cluster */}
-                <div className="flex items-center gap-2 sm:gap-2.5 flex-wrap">
+                <div className={`flex items-center ${isTvMode ? 'gap-1.5' : 'gap-2 sm:gap-2.5'} flex-wrap`}>
 
                 {/* Watchlist [+] circular button */}
                 <button
                   onClick={toggleLibrary}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
+                  className={`flex ${isTvMode ? 'h-7 w-7' : 'h-10 w-10'} items-center justify-center rounded-full transition-all active:scale-95 shadow-md outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 ${
                     inLibrary
                       ? 'bg-amber-400 text-black border border-amber-300'
                       : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/15'
                   }`}
                   title={inLibrary ? "Удалить из списка к просмотру" : "Буду смотреть"}
                 >
-                  {inLibrary ? <Check className="h-4 w-4" strokeWidth={2.5} /> : <Plus className="h-4 w-4" strokeWidth={2} />}
+                  {inLibrary ? <Check className="h-3.5 w-3.5" strokeWidth={2.5} /> : <Plus className="h-3.5 w-3.5" strokeWidth={2} />}
                 </button>
 
                 {/* Favorites [♡] circular button */}
@@ -459,73 +610,77 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       console.error('Favorite error:', err);
                     }
                   }}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
+                  className={`flex ${isTvMode ? 'h-7 w-7' : 'h-10 w-10'} items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
                     favorited
                       ? 'bg-rose-500/25 text-rose-400 border border-rose-500/50'
                       : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/15'
                   }`}
                   title={favorited ? "Удалить из закладок" : "В закладки"}
                 >
-                  <Heart className={`h-4 w-4 ${favorited ? 'fill-rose-400 text-rose-400' : ''}`} strokeWidth={1.8} />
+                  <Heart className={`${isTvMode ? 'h-3.5 w-3.5' : 'h-4 w-4'} ${favorited ? 'fill-rose-400 text-rose-400' : ''}`} strokeWidth={1.8} />
                 </button>
 
-                {/* Download [📥] circular button */}
-                <button
-                  onClick={async () => {
-                    const lastTorrent = (() => {
-                      try {
-                        const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
-                        return last[displayTitle.id] || null;
-                      } catch { return null; }
-                    })();
+                {/* Download [📥] circular button — desktop only */}
+                {!isTvMode && (
+                  <button
+                    onClick={async () => {
+                      const lastTorrent = (() => {
+                        try {
+                          const last = JSON.parse(localStorage.getItem('last_torrents') || '{}');
+                          return last[displayTitle.id] || null;
+                        } catch { return null; }
+                      })();
 
-                    if (!lastTorrent?.magnet) {
-                      setActiveTab('torrents');
-                      return;
-                    }
-
-                    try {
-                      const res = await serverFetch('/api/torrents/stream', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ magnet: lastTorrent.magnet, title: lastTorrent.title }),
-                      });
-                      const data = await res.json();
-                      if (data.files?.length > 0) {
-                        const file = data.files[0];
-                        const link = document.createElement('a');
-                        link.href = `/api/torrents/proxy?link=${encodeURIComponent(lastTorrent.magnet)}&index=${file.id}`;
-                        link.download = file.name;
-                        link.click();
+                      if (!lastTorrent?.magnet) {
+                        setActiveTab('torrents');
+                        return;
                       }
-                    } catch (err) {
-                      console.error('Download error:', err);
-                    }
-                  }}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/90 border border-white/15 transition-all active:scale-95 shadow-md"
-                  aria-label="Download"
-                  title="Скачать через торрент"
-                >
-                  <Download className="h-4 w-4" strokeWidth={1.8} />
-                </button>
 
-                {/* Share [↗] circular button */}
-                <button
-                  onClick={handleShare}
-                  className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/90 border border-white/15 transition-all active:scale-95 shadow-md"
-                  aria-label="Share"
-                  title="Поделиться ссылкой"
-                >
-                  <Share2 className="h-4 w-4" strokeWidth={1.8} />
-                </button>
+                      try {
+                        const res = await serverFetch('/api/torrents/stream', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ magnet: lastTorrent.magnet, title: lastTorrent.title }),
+                        });
+                        const data = await res.json();
+                        if (data.files?.length > 0) {
+                          const file = data.files[0];
+                          const link = document.createElement('a');
+                          link.href = `/api/torrents/proxy?link=${encodeURIComponent(lastTorrent.magnet)}&index=${file.id}`;
+                          link.download = file.name;
+                          link.click();
+                        }
+                      } catch (err) {
+                        console.error('Download error:', err);
+                      }
+                    }}
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/90 border border-white/15 transition-all active:scale-95 shadow-md"
+                    aria-label="Download"
+                    title="Скачать через торрент"
+                  >
+                    <Download className="h-4 w-4" strokeWidth={1.8} />
+                  </button>
+                )}
+
+                {/* Share [↗] circular button — desktop only */}
+                {!isTvMode && (
+                  <button
+                    onClick={handleShare}
+                    className="flex h-10 w-10 items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/90 border border-white/15 transition-all active:scale-95 shadow-md"
+                    aria-label="Share"
+                    title="Поделиться ссылкой"
+                  >
+                    <Share2 className="h-4 w-4" strokeWidth={1.8} />
+                  </button>
+                )}
 
                 {/* Trailer pill button */}
                 <button
                   onClick={handleOpenTrailer}
-                  className="flex items-center gap-2 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 px-4 py-2 text-xs font-semibold text-white backdrop-blur-md transition-all active:scale-95 shadow-md"
+                  className={`flex items-center gap-1.5 rounded-full bg-white/10 hover:bg-white/20 border border-white/15 ${isTvMode ? 'px-2.5 py-1 text-[10px]' : 'px-4 py-2 text-xs'} font-semibold text-white backdrop-blur-md transition-all active:scale-95 shadow-md`}
                   title="Смотреть трейлер"
                 >
-                  <Film className="h-3.5 w-3.5 text-amber-400" strokeWidth={2} />
+                  <Film className={`${isTvMode ? 'h-3 w-3' : 'h-3.5 w-3.5'} text-amber-400`} strokeWidth={2} />
                   <span>Трейлер</span>
                 </button>
 
@@ -577,7 +732,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                       console.error('Subscription error:', e);
                     }
                   }}
-                  className={`flex h-10 w-10 items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
+                  className={`flex ${isTvMode ? 'h-7 w-7' : 'h-10 w-10'} items-center justify-center rounded-full transition-all active:scale-95 shadow-md ${
                     isSubscribed
                       ? 'bg-amber-400/25 text-amber-300 border border-amber-400/50'
                       : 'bg-white/10 hover:bg-white/20 text-white/90 border border-white/15'
@@ -590,18 +745,18 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                         : "Следить за цифровым релизом"
                   }
                 >
-                  <Bell className={`h-4 w-4 ${isSubscribed ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.8} />
+                  <Bell className={`${isTvMode ? 'h-3.5 w-3.5' : 'h-4 w-4'} ${isSubscribed ? 'fill-amber-300 text-amber-300' : ''}`} strokeWidth={1.8} />
                 </button>
                 </div>
               </div>
 
               {/* Description / Synopsis below actions */}
               {displayTitle.description && (
-                <div className="max-w-2xl text-white/75 text-sm leading-relaxed">
-                  <p className={expanded ? '' : 'line-clamp-3'}>
+                <div className={`max-w-2xl text-white/75 ${isTvMode ? 'text-xs mb-1.5' : 'text-sm mb-4'} leading-relaxed`}>
+                  <p className={expanded ? '' : (isTvMode ? 'line-clamp-2' : 'line-clamp-3')}>
                     {displayTitle.description}
                   </p>
-                  {displayTitle.description.length > 180 && (
+                  {!isTvMode && displayTitle.description.length > 180 && (
                     <button
                       onClick={() => setExpanded(!expanded)}
                       className="mt-1.5 text-xs font-semibold text-amber-300/90 hover:text-amber-200 transition-colors"
@@ -612,84 +767,119 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                 </div>
               )}
 
-              {/* Detailed Specs Block ("О фильме") - perfectly balances the right column */}
-              <div className="rounded-2xl p-4 sm:p-5 bg-[#10141f]/35 border border-white/10 shadow-xl backdrop-blur-md max-w-2xl">
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
-                  <h3 className="font-serif text-base sm:text-lg font-medium text-amber-300/90 tracking-tight">
-                    {displayTitle.type === 'tv' ? 'О сериале' : 'О фильме'}
-                  </h3>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 text-xs sm:text-sm">
+              {/* Detailed Specs Block ("О фильме") - on TV compact 1-line, on desktop full box */}
+              {isTvMode ? (
+                <div className="flex flex-wrap items-center gap-x-2.5 gap-y-0.5 text-[11px] text-white/50 mb-1 max-w-2xl">
+                  {displayTitle.countries && displayTitle.countries.length > 0 && (
+                    <span>{displayTitle.countries.join(', ')}</span>
+                  )}
                   {displayTitle.director && (
-                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
-                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Режиссёр</span>
-                      <span className="text-white/90 font-medium truncate">{displayTitle.director}</span>
-                    </div>
-                  )}
-                  {(displayTitle.countries && displayTitle.countries.length > 0) && (
-                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
-                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Страна</span>
-                      <span className="text-white/90 font-medium truncate">{displayTitle.countries.join(', ')}</span>
-                    </div>
-                  )}
-                  {displayTitle.originalTitle && displayTitle.originalTitle !== displayTitle.name && (
-                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
-                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Оригинал</span>
-                      <span className="text-white/80 italic truncate">{displayTitle.originalTitle}</span>
-                    </div>
-                  )}
-                  {(displayTitle.releaseDate || displayTitle.year) && (
-                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
-                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Премьера</span>
-                      <span className="text-white/90 font-medium">{displayTitle.releaseDate || displayTitle.year}</span>
-                    </div>
+                    <>
+                      <span className="text-white/20">·</span>
+                      <span>Реж. {displayTitle.director}</span>
+                    </>
                   )}
                   {displayTitle.type === 'tv' && displayTitle.seasonsCount && (
-                    <div className="flex items-baseline justify-between sm:justify-start gap-3">
-                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Сезоны</span>
-                      <span className="text-white/90 font-medium">{displayTitle.seasonsCount} {displayTitle.seasonsCount === 1 ? 'сезон' : (displayTitle.seasonsCount < 5 ? 'сезона' : 'сезонов')}</span>
-                    </div>
+                    <>
+                      <span className="text-white/20">·</span>
+                      <span>{displayTitle.seasonsCount} {displayTitle.seasonsCount === 1 ? 'сезон' : (displayTitle.seasonsCount < 5 ? 'сезона' : 'сезонов')}</span>
+                    </>
                   )}
-                  <div className="sm:col-span-2 flex items-center justify-between sm:justify-start gap-3 pt-1">
-                    <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Форматы</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-amber-400/10 text-amber-300 border border-amber-400/30">4K UHD</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-blue-400/10 text-blue-300 border border-blue-400/30">DOLBY VISION</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-white/10 text-white/80 border border-white/15">HDR10+</span>
-                      <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-purple-400/10 text-purple-300 border border-purple-400/30">DOLBY ATMOS</span>
+                  {displayTitle.originalTitle && displayTitle.originalTitle !== displayTitle.name && (
+                    <>
+                      <span className="text-white/20">·</span>
+                      <span className="italic">{displayTitle.originalTitle}</span>
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl p-4 sm:p-5 bg-[#10141f]/35 border border-white/10 shadow-xl backdrop-blur-md max-w-2xl">
+                  <div className="flex items-center gap-2 mb-3 pb-2 border-b border-white/10">
+                    <h3 className="font-serif text-base sm:text-lg font-medium text-amber-300/90 tracking-tight">
+                      {displayTitle.type === 'tv' ? 'О сериале' : 'О фильме'}
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5 text-xs sm:text-sm">
+                    {displayTitle.director && (
+                      <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                        <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Режиссёр</span>
+                        <span className="text-white/90 font-medium truncate">{displayTitle.director}</span>
+                      </div>
+                    )}
+                    {(displayTitle.countries && displayTitle.countries.length > 0) && (
+                      <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                        <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Страна</span>
+                        <span className="text-white/90 font-medium truncate">{displayTitle.countries.join(', ')}</span>
+                      </div>
+                    )}
+                    {displayTitle.originalTitle && displayTitle.originalTitle !== displayTitle.name && (
+                      <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                        <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Оригинал</span>
+                        <span className="text-white/80 italic truncate">{displayTitle.originalTitle}</span>
+                      </div>
+                    )}
+                    {(displayTitle.releaseDate || displayTitle.year) && (
+                      <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                        <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Премьера</span>
+                        <span className="text-white/90 font-medium">{displayTitle.releaseDate || displayTitle.year}</span>
+                      </div>
+                    )}
+                    {displayTitle.type === 'tv' && displayTitle.seasonsCount && (
+                      <div className="flex items-baseline justify-between sm:justify-start gap-3">
+                        <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Сезоны</span>
+                        <span className="text-white/90 font-medium">{displayTitle.seasonsCount} {displayTitle.seasonsCount === 1 ? 'сезон' : (displayTitle.seasonsCount < 5 ? 'сезона' : 'сезонов')}</span>
+                      </div>
+                    )}
+                    <div className="sm:col-span-2 flex items-center justify-between sm:justify-start gap-3 pt-1">
+                      <span className="text-white/40 uppercase text-[11px] font-semibold tracking-wider shrink-0 w-24">Форматы</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-amber-400/10 text-amber-300 border border-amber-400/30">4K UHD</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-blue-400/10 text-blue-300 border border-blue-400/30">DOLBY VISION</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-white/10 text-white/80 border border-white/15">HDR10+</span>
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold tracking-wider bg-purple-400/10 text-purple-300 border border-purple-400/30">DOLBY ATMOS</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
 
-            {/* Right Column: Cast Section with 4x2 Grid of 8 Actor Cards (col-span-12 lg:col-span-5) */}
-            <div className="lg:col-span-5 w-full animate-detail-rise" style={{ animationDelay: '150ms' }}>
+            {/* Right Column: Cast Section with 4 Actor Cards on TV (col-span-5 on TV, lg:col-span-5 on web) */}
+            <div className={`${isTvMode ? 'col-span-5' : 'lg:col-span-5'} w-full animate-detail-rise`} style={{ animationDelay: '150ms' }}>
               {displayTitle.cast && displayTitle.cast.length > 0 && (
                 <div>
-                  <div className="flex items-center justify-between mb-3 px-0.5">
-                    <h2 className="font-serif text-xl sm:text-2xl font-medium text-white tracking-tight">В главных ролях</h2>
-                    {displayTitle.cast.length > 8 && (
+                  <div className={`flex items-center justify-between ${isTvMode ? 'mb-1 px-0.5' : 'mb-3 px-0.5'}`}>
+                    <h2 className={`font-serif ${isTvMode ? 'text-xs font-semibold' : 'text-xl sm:text-2xl font-medium'} text-white tracking-tight`}>В главных ролях</h2>
+                    {displayTitle.cast.length > (isTvMode ? 4 : 8) && (
                       <button
+                        ref={allCastTriggerRef}
                         onClick={() => setShowAllCastModal(true)}
-                        className="text-xs sm:text-sm text-white/50 hover:text-white flex items-center gap-1 transition-colors"
+                        className={`${isTvMode ? 'text-[10px] px-2 py-0.5 rounded-full' : 'text-xs sm:text-sm'} text-white/50 hover:text-white flex items-center gap-1 transition-colors outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10`}
                       >
                         <span>Все актеры</span>
-                        <ChevronRight className="w-3.5 h-3.5" />
+                        <ChevronRight className="w-3 h-3" />
                       </button>
                     )}
                   </div>
 
-                  {/* 4 columns x 2 rows = 8 cards */}
-                  <div className="grid grid-cols-4 gap-2.5 sm:gap-3">
-                    {displayTitle.cast.slice(0, 8).map((actor) => (
+                  {/* 4 columns mini cards */}
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {displayTitle.cast.slice(0, isTvMode ? 4 : 8).map((actor) => (
                       <div
                         key={actor.name}
+                        role="button"
+                        tabIndex={0}
                         onClick={() => actor.id && setSelectedPersonId(actor.id)}
-                        className="group flex flex-col rounded-2xl p-2.5 bg-[#10141f]/35 hover:bg-[#181e2e]/75 border border-white/10 hover:border-amber-400/40 transition-all duration-200 cursor-pointer text-left shadow-xl backdrop-blur-md"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            if (actor.id) setSelectedPersonId(actor.id);
+                          }
+                        }}
+                        className={`group flex flex-col ${isTvMode ? 'rounded-md p-1' : 'rounded-2xl p-2.5'} bg-[#10141f]/35 hover:bg-[#181e2e]/75 focus:bg-[#181e2e]/90 border border-white/10 hover:border-amber-400/40 focus:border-amber-400 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 transition-all duration-200 cursor-pointer text-left shadow-xl backdrop-blur-md`}
                         title="Посмотреть фильмографию"
                       >
-                        <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-black/40 mb-2 relative">
+                        <div className={`w-full ${isTvMode ? 'aspect-[4/3] rounded mb-1' : 'aspect-[4/5] rounded-xl mb-2'} overflow-hidden bg-black/40 relative`}>
                           <SafeImg
                             src={actor.image}
                             alt={actor.name}
@@ -697,10 +887,10 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
                             loading="lazy"
                           />
                         </div>
-                        <div className="text-xs font-bold text-white truncate leading-snug drop-shadow-sm">
+                        <div className={`${isTvMode ? 'text-[10px]' : 'text-xs'} font-bold text-white truncate leading-tight drop-shadow-sm`}>
                           {actor.name}
                         </div>
-                        <div className="text-[11px] text-white/60 truncate leading-snug mt-0.5">
+                        <div className={`${isTvMode ? 'text-[9px]' : 'text-[11px]'} text-white/50 truncate leading-tight mt-0.5`}>
                           {actor.role ? actor.role.split('/')[0].trim() : '—'}
                         </div>
                       </div>
@@ -714,7 +904,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
         </div>
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1400px] px-6 lg:px-12">
+      <div className={`relative z-10 mx-auto max-w-[1400px] ${isTvMode ? 'px-4 lg:px-6' : 'px-6 lg:px-12'}`}>
         {copiedToast && (
           <div className="fixed bottom-8 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 rounded-full bg-amber-400 px-5 py-2.5 text-[13px] font-semibold text-black shadow-2xl animate-fade-in">
             <Check className="h-4 w-4 text-black" strokeWidth={2.5} />
@@ -724,18 +914,18 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
         {/* Full-width streaming section: For TV shows use unified TV-style Series Browser */}
         {(displayTitle.type === 'tv' || displayTitle.type === 'show') ? (
-          <div id="episodes-section" className="mt-8 animate-detail-rise scroll-mt-20" style={{ animationDelay: '180ms' }}>
+          <div id="episodes-section" className={`${isTvMode ? 'mt-4' : 'mt-8'} animate-detail-rise scroll-mt-20`} style={{ animationDelay: '180ms' }}>
             <SeasonTorrentBrowser
               show={displayTitle}
               onPlay={onPlay}
             />
           </div>
         ) : (
-          <div id="media-watch-section" className="mt-6 animate-detail-rise scroll-mt-20" style={{ animationDelay: '180ms' }}>
-            <div className="flex gap-1 mb-6">
+          <div id="media-watch-section" className={`${isTvMode ? 'mt-3' : 'mt-6'} animate-detail-rise scroll-mt-20`} style={{ animationDelay: '180ms' }}>
+            <div className={`flex gap-1 ${isTvMode ? 'mb-3' : 'mb-6'}`}>
               <button
                 onClick={() => setActiveTab('sources')}
-                className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
+                className={`rounded-full ${isTvMode ? 'px-4 py-1.5 text-xs' : 'px-5 py-2.5 text-[13px]'} font-medium transition-cinematic outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 cursor-pointer`}
                 style={{
                   background: activeTab === 'sources' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                   color: activeTab === 'sources' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -746,7 +936,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
               </button>
               <button
                 onClick={() => setActiveTab('torrents')}
-                className="rounded-full px-5 py-2.5 text-[13px] font-medium transition-cinematic"
+                className={`rounded-full ${isTvMode ? 'px-4 py-1.5 text-xs' : 'px-5 py-2.5 text-[13px]'} font-medium transition-cinematic outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 cursor-pointer`}
                 style={{
                   background: activeTab === 'torrents' ? 'rgba(232,193,112,0.15)' : 'rgba(255,255,255,0.04)',
                   color: activeTab === 'torrents' ? 'rgba(232,193,112,0.95)' : 'rgba(255,255,255,0.6)',
@@ -792,6 +982,9 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
       {showTrailer && (
         <div
+          role="dialog"
+          aria-modal="true"
+          data-modal="true"
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/85 p-4 backdrop-blur-md animate-fade-in"
           onClick={handleCloseTrailer}
         >
@@ -844,47 +1037,79 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
       {/* Person Filmography Modal */}
       <PersonModal
         personId={selectedPersonId}
-        onClose={() => setSelectedPersonId(null)}
+        onClose={() => {
+          setSelectedPersonId(null);
+          setTimeout(() => {
+            allCastTriggerRef.current?.focus();
+          }, 60);
+        }}
         onSelectMovie={onSelect}
       />
 
       {/* All Cast Modal */}
       {showAllCastModal && displayTitle.cast && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
-          onClick={() => setShowAllCastModal(false)}
+          role="dialog"
+          aria-modal="true"
+          data-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md animate-fade-in"
+          onClick={() => {
+            setShowAllCastModal(false);
+            allCastTriggerRef.current?.focus();
+          }}
         >
           <div
-            className="relative flex flex-col w-full max-w-4xl max-h-[85vh] rounded-3xl bg-[#10121a]/95 border border-white/15 shadow-2xl overflow-hidden backdrop-blur-2xl"
+            className={`relative flex flex-col w-full ${isTvMode ? 'max-w-5xl max-h-[82vh] rounded-2xl' : 'max-w-4xl max-h-[85vh] rounded-3xl'} bg-[#10121a]/95 border border-white/15 shadow-2xl overflow-hidden backdrop-blur-2xl`}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-white/10 px-6 py-4">
+            <div className={`flex items-center justify-between border-b border-white/10 ${isTvMode ? 'px-5 py-3' : 'px-6 py-4'}`}>
               <div className="flex items-center gap-2">
-                <span className="font-serif text-lg font-medium text-white">В главных ролях</span>
+                <span className={`font-serif ${isTvMode ? 'text-base font-semibold' : 'text-lg font-medium'} text-white`}>В главных ролях</span>
                 <span className="text-xs text-white/40">({displayTitle.cast.length})</span>
               </div>
               <button
-                onClick={() => setShowAllCastModal(false)}
-                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/80 hover:bg-white/20 hover:text-white transition-all"
+                ref={allCastCloseBtnRef}
+                tabIndex={0}
+                onClick={() => {
+                  setShowAllCastModal(false);
+                  allCastTriggerRef.current?.focus();
+                }}
+                className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white/80 hover:bg-white/20 hover:text-white outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 transition-all"
+                aria-label="Закрыть"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-6 overflow-y-auto">
+            <div
+              ref={allCastGridRef}
+              className={`flex-1 min-h-0 grid ${isTvMode ? 'grid-cols-4 sm:grid-cols-5 gap-2.5 p-4' : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 p-6'} overflow-y-auto scroll-smooth`}
+            >
               {displayTitle.cast.map((actor) => (
                 <div
                   key={actor.name}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => {
                     setShowAllCastModal(false);
                     if (actor.id) setSelectedPersonId(actor.id);
                   }}
-                  className="group flex flex-col rounded-2xl p-2 bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] hover:border-white/20 transition-all cursor-pointer text-left shadow-md"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setShowAllCastModal(false);
+                      if (actor.id) setSelectedPersonId(actor.id);
+                    }
+                  }}
+                  onFocus={(e) => {
+                    e.currentTarget.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+                  }}
+                  className={`group flex flex-col ${isTvMode ? 'rounded-xl p-1.5' : 'rounded-2xl p-2'} bg-white/[0.04] hover:bg-white/[0.08] focus:bg-white/[0.15] border border-white/[0.08] hover:border-white/20 focus:border-amber-400 focus:ring-2 focus:ring-amber-400 focus:scale-[1.03] outline-none transition-all cursor-pointer text-left shadow-md`}
                 >
-                  <div className="w-full aspect-[4/5] rounded-xl overflow-hidden bg-white/5 mb-2 relative">
+                  <div className={`w-full ${isTvMode ? 'aspect-[4/3] rounded-lg' : 'aspect-[4/5] rounded-xl'} overflow-hidden bg-white/5 mb-1.5 relative`}>
                     <SafeImg src={actor.image} alt={actor.name} className="w-full h-full object-cover transition-transform group-hover:scale-105" loading="lazy" />
                   </div>
-                  <div className="text-xs font-semibold text-white truncate leading-snug">{actor.name}</div>
-                  <div className="text-[11px] text-white/50 truncate leading-snug mt-0.5">{actor.role || '—'}</div>
+                  <div className={`${isTvMode ? 'text-[11px]' : 'text-xs'} font-semibold text-white truncate leading-snug`}>{actor.name}</div>
+                  <div className={`${isTvMode ? 'text-[9px]' : 'text-[11px]'} text-white/50 truncate leading-snug mt-0.5`}>{actor.role || '—'}</div>
                 </div>
               ))}
             </div>

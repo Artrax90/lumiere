@@ -51,4 +51,4 @@ bot/__pycache__/
 # OS metadata
 .DS_Store
 Thumbs.db
-
+last_messages.txt

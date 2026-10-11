@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Film, Tv, Search, Radio, Settings, Sparkles, Grid3x3 } from 'lucide-react';
+import { Film, Tv, Search, Radio, Settings, Sparkles, Grid3x3, Download } from 'lucide-react';
 import type { NavSection } from '@/components/TopNav';
 import Focusable from './Focusable';
 
@@ -15,6 +15,7 @@ const tvNavItems = [
   { id: 'shows' as NavSection, labelKey: 'nav.tv', icon: Tv },
   { id: 'anime' as NavSection, labelKey: 'nav.anime', icon: Sparkles },
   { id: 'iptv' as NavSection, labelKey: 'IPTV', icon: Radio },
+  { id: 'downloads' as NavSection, labelKey: 'nav.downloads', icon: Download },
   { id: 'collections' as NavSection, labelKey: 'nav.collections', icon: Grid3x3 },
   { id: 'search' as NavSection, labelKey: 'nav.search', icon: Search },
   { id: 'settings' as NavSection, labelKey: 'nav.settings', icon: Settings },

@@ -15,7 +15,34 @@ export function isAndroid(): boolean {
 }
 
 export function isTV(): boolean {
-  return isTizen();
+  if (typeof window === 'undefined') return false;
+  if ((window as any).__IS_TV__ !== undefined) return (window as any).__IS_TV__;
+
+  // 1. Explicit user toggle or saved preference
+  try {
+    const pref = localStorage.getItem('lumiere_device_mode');
+    if (pref === 'tv') return true;
+    if (pref === 'mobile') return false;
+  } catch {}
+
+  // 2. Tizen TV is always TV
+  if (isTizen()) return true;
+
+  // 3. Known TV User-Agent identifiers
+  if (/Android.*TV|GoogleTV|Large Screen|MiTV|AFTT|BRAVIA|SmartTV|Android.*Box|Nexus Player|SHIELD|Chromecast|ATV|box|tv|CrKey|AppleTV/i.test(navigator.userAgent)) {
+    return true;
+  }
+
+  // 4. Android native app running in landscape widescreen (TV stick / Android TV / Box)
+  if (isAndroid()) {
+    const isLandscape = window.screen.width > window.screen.height || window.innerWidth > window.innerHeight;
+    const isWideScreen = Math.max(window.screen.width, window.innerWidth) >= 900;
+    if (isLandscape && isWideScreen) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 export function isMobile(): boolean {

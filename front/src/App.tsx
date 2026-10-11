@@ -7,13 +7,14 @@ import { syncClient, getScopedItem, setScopedItem } from '@/api/sync';
 import { useGlobalDragScroll } from '@/hooks/useGlobalDragScroll';
 import { serverFetch } from '@/api/server';
 import ServerSetup from '@/components/ServerSetup';
-import { isTizen } from '@/hooks/usePlatform';
+import { isTizen, isTV } from '@/hooks/usePlatform';
 import TvNav from '@/tv/TvNav';
 import TvHome from '@/tv/TvHome';
 import TvPlayer from '@/tv/TvPlayer';
 import { useFocus, type FocusableElement } from '@/tv/useFocus';
 
 const tv = isTizen();
+const isTvDevice = isTV();
 
 // Save playback position to user-scoped localStorage with timestamp and title info
 function savePlaybackPosition(titleId: number, time: number, title?: Title) {
@@ -118,12 +119,20 @@ import MyView from '@/components/MyView';
 import { useAppRoute, type AppRoute } from '@/hooks/useAppRoute';
 import { apiFetch } from '@/api/client';
 import { isWeb } from '@/hooks/usePlatform';
+import { useTvSpatialNav } from '@/hooks/useTvSpatialNav';
 
 type Mood = 'warm' | 'cool' | 'neutral' | 'tension' | 'playful' | 'organic';
 
 export default function App() {
   useGlobalDragScroll();
+  useTvSpatialNav();
   const { user, loading, needsSetup, serverReady, connectionError, confirmServer } = useAuth();
+
+  useEffect(() => {
+    if (isTV()) {
+      document.documentElement.classList.add('is-tv');
+    }
+  }, []);
 
   const handleRoutePopState = useCallback((newRoute: AppRoute) => {
     setSection(newRoute.section);
@@ -362,8 +371,44 @@ export default function App() {
     import('@capacitor/app').then(({ App: CapApp }) => {
       CapApp.addListener('backButton', ({ canGoBack }) => {
         if (playing) {
-          handlePlayerExit();
-        } else if (selectedEpisode) {
+          const evt = new CustomEvent('player-back', { cancelable: true });
+          const handled = !window.dispatchEvent(evt);
+          if (!handled) {
+            handlePlayerExit();
+          }
+          return;
+        }
+
+        // Check if any modal / dialog / overlay is open in the DOM
+        const openModals = Array.from(document.querySelectorAll<HTMLElement>('[data-modal="true"], [role="dialog"], [aria-modal="true"]'));
+        if (openModals.length > 0) {
+          // Dispatch synthetic Escape / Back keydown event so the topmost modal's key listener closes it
+          const backEvt = new KeyboardEvent('keydown', {
+            key: 'Escape',
+            code: 'Escape',
+            keyCode: 27,
+            which: 27,
+            bubbles: true,
+            cancelable: true
+          });
+          const handled = !window.dispatchEvent(backEvt);
+          if (handled) {
+            return;
+          }
+
+          // If event wasn't prevented, find close button of the topmost modal and click it
+          const topModal = openModals[openModals.length - 1];
+          const closeBtn = topModal.querySelector<HTMLElement>(
+            'button[aria-label="Закрыть"], button[aria-label="Close"], button[aria-label="Назад"], button.close-modal-btn'
+          );
+          if (closeBtn) {
+            closeBtn.click();
+            return;
+          }
+          return;
+        }
+
+        if (selectedEpisode) {
           setSelectedEpisode(null);
           setSection('shows');
         } else if (selectedShow) {
@@ -427,17 +472,20 @@ export default function App() {
       {tv ? (
         <TvNav active={section} focusedId={tvNavFocused} onNavigate={handleNavigate} />
       ) : (
-        <TopNav active={section} onNavigate={handleNavigate} />
+        (!isTvDevice || (!selectedTitle && !selectedEpisode && !playing)) && (
+          <TopNav active={section} onNavigate={handleNavigate} />
+        )
       )}
 
-      <main className="pb-20 xl:pb-0">
+      <main className={isTvDevice ? '' : 'pb-20 xl:pb-0'}>
         {playing ? (
-          tv ? (
+          (tv || isTvDevice) ? (
             <TvPlayer
               title={playing}
               onExit={handlePlayerExit}
               initialTime={getPlaybackPosition(playing.id)}
               onTimeUpdate={handleTimeUpdate}
+              externalSubs={playingExternalSubs}
             />
           ) : (
             <Player

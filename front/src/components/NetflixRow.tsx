@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, Flame, Trophy } from 'lucide-react';
 import Card from './Card';
 import type { Title } from '@/api/client';
 import { useNetflixCatalog } from '@/hooks/useCatalog';
+import { isTV } from '@/hooks/usePlatform';
 
 interface NetflixRowProps {
   type: 'movie' | 'tv';
@@ -15,6 +16,7 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [canLeft, setCanLeft] = useState(false);
   const [canRight, setCanRight] = useState(true);
+  const isTvMode = isTV();
 
   const isTv = type === 'tv';
   const label = isTv ? 'Топ сериалы Netflix' : 'Топ фильмы Netflix';
@@ -65,7 +67,7 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
   }
 
   return (
-    <section className="group/row relative py-12 animate-row-reveal overflow-hidden">
+    <section data-shelf-section="true" className={`group/row relative ${isTvMode ? 'py-4' : 'py-12'} animate-row-reveal overflow-hidden`}>
       {/* Subtle Netflix ambient red glow */}
       <div
         className="pointer-events-none absolute -top-12 left-10 h-36 w-96 rounded-full blur-3xl transition-opacity duration-700"
@@ -75,11 +77,11 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
       />
 
       {/* Section header */}
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4 px-8 lg:px-14">
+      <div className={`${isTvMode ? 'mb-2.5' : 'mb-6'} flex flex-wrap items-end justify-between gap-4 px-8 lg:px-14`}>
         {/* Left: Netflix Badge + Title + Subtitle */}
-        <div className="flex items-center gap-3.5">
+        <div className="flex items-center gap-3">
           <div
-            className="flex h-7 px-2.5 items-center justify-center rounded-md font-black tracking-wider text-[11px] text-white shadow-lg transition-transform duration-300 hover:scale-105 select-none"
+            className={`flex ${isTvMode ? 'h-6 px-2 text-[10px]' : 'h-7 px-2.5 text-[11px]'} items-center justify-center rounded-md font-black tracking-wider text-white shadow-lg transition-transform duration-300 hover:scale-105 select-none`}
             style={{
               backgroundColor: '#E50914',
               boxShadow: '0 4px 14px rgba(229, 9, 20, 0.4)',
@@ -89,10 +91,10 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
             NETFLIX
           </div>
           <div>
-            <h2 className="text-display text-[21px] font-medium tracking-tight text-white/90 md:text-[23px]">
+            <h2 className={`text-display ${isTvMode ? 'text-[17px]' : 'text-[21px] md:text-[23px]'} font-medium tracking-tight text-white/90`}>
               {label}
             </h2>
-            <p className="mt-1.5 text-[13px] text-white/40 transition-colors duration-300">
+            <p className={`mt-0.5 ${isTvMode ? 'text-[11px]' : 'text-[13px]'} text-white/40 transition-colors duration-300`}>
               {subtitle}
             </p>
           </div>
@@ -101,10 +103,14 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
         {/* Right: Interactive Pill Switcher + Scroll Arrows */}
         <div className="flex items-center gap-3">
           {/* Option 2: Pill Tabs */}
-          <div className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1 backdrop-blur-md shadow-inner">
+          <div
+            data-tv-pills="true"
+            className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1 shadow-inner"
+          >
             <button
+              tabIndex={0}
               onClick={() => handlePeriodChange('week')}
-              className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-300 ${
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 cursor-pointer ${
                 period === 'week'
                   ? 'bg-[#E50914] text-white shadow-md shadow-[#E50914]/40 font-semibold'
                   : 'text-white/60 hover:bg-white/[0.06] hover:text-white'
@@ -114,8 +120,9 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
               <span>На этой неделе</span>
             </button>
             <button
+              tabIndex={0}
               onClick={() => handlePeriodChange('all_time')}
-              className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-xs font-medium transition-all duration-300 ${
+              className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200 outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:scale-105 cursor-pointer ${
                 period === 'all_time'
                   ? 'bg-[#E50914] text-white shadow-md shadow-[#E50914]/40 font-semibold'
                   : 'text-white/60 hover:bg-white/[0.06] hover:text-white'
@@ -132,6 +139,7 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
             style={{ opacity: canLeft || canRight ? 1 : 0 }}
           >
             <button
+              tabIndex={-1}
               onClick={() => scrollBy(-1)}
               disabled={!canLeft}
               className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -140,6 +148,7 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
               <ChevronLeft className="h-[15px] w-[15px]" strokeWidth={1.5} />
             </button>
             <button
+              tabIndex={-1}
               onClick={() => scrollBy(1)}
               disabled={!canRight}
               className="flex h-8 w-8 items-center justify-center rounded-full glass text-white/55 transition-lux hover:text-white/90 disabled:opacity-15 disabled:hover:text-white/55"
@@ -171,10 +180,11 @@ export default function NetflixRow({ type, onSelect }: NetflixRowProps) {
 
         <div
           ref={scrollRef}
-          className={`no-scrollbar flex gap-5 overflow-x-auto scroll-smooth px-8 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14 transition-opacity duration-300 ${
+          data-tv-row="true"
+          className={`no-scrollbar flex ${isTvMode ? 'gap-3' : 'gap-5'} overflow-x-auto ${isTvMode ? '' : 'scroll-smooth'} px-8 pt-3.5 pb-4 lg:px-14 scroll-pl-8 lg:scroll-pl-14 transition-opacity duration-300 ${
             loading ? 'opacity-40 pointer-events-none' : 'opacity-100'
           }`}
-          style={{ scrollSnapType: 'x proximity' }}
+          style={{ scrollSnapType: isTvMode ? 'none' : 'x proximity' }}
         >
           {titles.map((title, i) => (
             <div
