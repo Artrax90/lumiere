@@ -182,38 +182,43 @@ export function useTvSpatialNav() {
       const curCx = curRect.left + curRect.width / 2;
       const curCy = curRect.top + curRect.height / 2;
 
-      // 4. SECTION-INTERNAL VERTICAL NAVIGATION (e.g. NetflixRow pills above cards)
-      const sectionEl = activeEl.closest<HTMLElement>('section, [data-shelf-section="true"]');
-      if (sectionEl) {
-        if (isUp && activeEl.closest('.overflow-x-auto, [data-tv-card="true"]')) {
-          const headerControls = Array.from(sectionEl.querySelectorAll<HTMLElement>(selector))
-            .filter(c => c !== activeEl && isVisible(c) && !c.closest('.overflow-x-auto, [data-tv-card="true"]') && (c.getBoundingClientRect().bottom <= curRect.bottom - 4));
-          if (headerControls.length > 0) {
-            headerControls.sort((a, b) => {
-              const ra = a.getBoundingClientRect();
-              const rb = b.getBoundingClientRect();
-              return Math.abs((ra.left + ra.width / 2) - curCx) - Math.abs((rb.left + rb.width / 2) - curCx);
-            });
-            e.preventDefault();
-            const target = headerControls[0];
-            target.focus();
-            target.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
-            return;
-          }
-        } else if (isDown && !activeEl.closest('.overflow-x-auto, [data-tv-card="true"]')) {
-          const rowCards = Array.from(sectionEl.querySelectorAll<HTMLElement>('.overflow-x-auto ' + selector + ', [data-tv-card="true"]'))
-            .filter(c => c !== activeEl && isVisible(c));
-          if (rowCards.length > 0) {
-            rowCards.sort((a, b) => {
-              const ra = a.getBoundingClientRect();
-              const rb = b.getBoundingClientRect();
-              return Math.abs((ra.left + ra.width / 2) - curCx) - Math.abs((rb.left + rb.width / 2) - curCx);
-            });
-            e.preventDefault();
-            const target = rowCards[0];
-            target.focus();
-            target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
-            return;
+      // 4. SHELF-INTERNAL VERTICAL NAVIGATION (e.g. NetflixRow pills above carousel)
+      const shelfSectionEl = activeEl.closest<HTMLElement>('[data-shelf-section="true"]');
+      if (shelfSectionEl) {
+        const carousel = shelfSectionEl.querySelector<HTMLElement>('.overflow-x-auto');
+        const pillsContainer = shelfSectionEl.querySelector<HTMLElement>('[data-tv-pills="true"]');
+
+        if (pillsContainer && carousel) {
+          if (isDown && activeEl.closest('[data-tv-pills="true"]')) {
+            const rowCards = Array.from(carousel.querySelectorAll<HTMLElement>(selector))
+              .filter(c => c !== activeEl && isVisible(c) && (c.getBoundingClientRect().top >= curRect.bottom - 4));
+            if (rowCards.length > 0) {
+              rowCards.sort((a, b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                return Math.abs((ra.left + ra.width / 2) - curCx) - Math.abs((rb.left + rb.width / 2) - curCx);
+              });
+              e.preventDefault();
+              const target = rowCards[0];
+              target.focus();
+              target.scrollIntoView({ behavior: 'auto', block: 'center', inline: 'center' });
+              return;
+            }
+          } else if (isUp && activeEl.closest('.overflow-x-auto')) {
+            const pills = Array.from(pillsContainer.querySelectorAll<HTMLElement>(selector))
+              .filter(c => c !== activeEl && isVisible(c) && (c.getBoundingClientRect().bottom <= curRect.top + 4));
+            if (pills.length > 0) {
+              pills.sort((a, b) => {
+                const ra = a.getBoundingClientRect();
+                const rb = b.getBoundingClientRect();
+                return Math.abs((ra.left + ra.width / 2) - curCx) - Math.abs((rb.left + rb.width / 2) - curCx);
+              });
+              e.preventDefault();
+              const target = pills[0];
+              target.focus();
+              target.scrollIntoView({ behavior: 'auto', block: 'nearest', inline: 'center' });
+              return;
+            }
           }
         }
       }
