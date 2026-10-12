@@ -38,7 +38,7 @@ from aiogram.types import (
 from aiogram.client.session.aiohttp import AiohttpSession
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:3500")
-WEB_URL = os.getenv("WEB_URL", "https://lumiere.artrax.net")
+WEB_URL = os.getenv("WEB_URL", "http://localhost:3500")
 
 # Global registry of allowed chat IDs per bot token: { token: {chat_id, ...} }
 BOT_ALLOWED_CHATS: Dict[str, Set[int]] = {}

@@ -1,7 +1,7 @@
 import { isTV } from '@/hooks/usePlatform';
 
 const SERVER_URL_KEY = 'lumiere_server_url';
-export const DEFAULT_SERVER_URL = 'https://lumiere.artrax.net';
+export const DEFAULT_SERVER_URL = '';
 
 // Auto-sanitize legacy dead addresses from localStorage on load
 if (typeof window !== 'undefined') {
@@ -69,7 +69,8 @@ export function hasServerUrl(): boolean {
     stored !== 'null' &&
     stored !== 'undefined' &&
     !stored.startsWith('file:') &&
-    !stored.startsWith('wgt-')
+    !stored.startsWith('wgt-') &&
+    stored.trim() !== ''
   );
 }
 

@@ -25,7 +25,7 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
         return stripped;
       }
     }
-    return '192.168.1.196:3500';
+    return '';
   });
   const [testing, setTesting] = useState(false);
   const [error, setError] = useState(initialError || '');
@@ -39,13 +39,22 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
     }
   }, [initialError]);
 
-  // Auto-scan known server candidates on mount
+  // Auto-scan current server origin if running in a web browser
   useEffect(() => {
     let cancelled = false;
-    const candidates: DiscoveredServer[] = [
-      { label: 'Локальный ПК (LAN)', raw: '192.168.1.196:3500', url: 'http://192.168.1.196:3500' },
-      { label: 'Облачный сервер', raw: 'lumiere.artrax.net', url: 'https://lumiere.artrax.net' },
-    ];
+    const candidates: DiscoveredServer[] = [];
+
+    if (typeof window !== 'undefined' && window.location.protocol.startsWith('http') && window.location.origin && window.location.origin !== 'null') {
+      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+        candidates.push({
+          label: 'Текущий сервер',
+          raw: window.location.host,
+          url: window.location.origin
+        });
+      }
+    }
+
+    if (candidates.length === 0) return;
 
     const probe = async () => {
       for (const c of candidates) {
@@ -190,7 +199,7 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
                   value={url}
                   onChange={(e) => { setUrl(e.target.value); setError(''); }}
                   onKeyDown={(e) => e.key === 'Enter' && testAndSave()}
-                  placeholder="192.168.1.196:3500"
+                  placeholder="192.168.1.100:3500 или myserver.com"
                   autoCapitalize="none"
                   autoCorrect="off"
                   autoComplete="off"
@@ -248,7 +257,7 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
               onClear={handleClear}
               onSubmit={() => testAndSave()}
               submitLabel="Подключиться"
-              presets={['192.168.1.196:3500', '192.168.1.', ':3500', 'lumiere.artrax.net']}
+              presets={['192.168.', '10.0.0.', ':3500', ':8080']}
             />
           </div>
         </div>

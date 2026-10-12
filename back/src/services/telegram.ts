@@ -283,7 +283,7 @@ export async function notifyDownloadFinished(
     `💾 Размер: <b>${sizeFormatted}</b>\n` +
     `📍 Сохранено на сервере. Доступно для мгновенного офлайн-просмотра без буферизации!`;
 
-  const webBaseUrl = (process.env.WEB_URL || 'https://lumiere.artrax.net').replace(/\/+$/, '');
+  const webBaseUrl = (process.env.WEB_URL || '').replace(/\/+$/, '');
   const replyMarkup = {
     inline_keyboard: [
       [

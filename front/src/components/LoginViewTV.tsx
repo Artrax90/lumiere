@@ -197,7 +197,7 @@ export default function LoginViewTV() {
             title="Сменить медиасервер"
           >
             <Server className="h-3 w-3 text-amber-300/80" />
-            <span className="font-mono text-[11px] text-white/80">{getServerUrl().replace(/^https?:\/\//, '')}</span>
+            <span className="font-mono text-[11px] text-white/80">{getServerUrl().replace(/^https?:\/\//, '') || 'Сервер не выбран'}</span>
             <span className="text-[10px] text-amber-300/70 font-semibold ml-0.5">Сменить</span>
           </button>
         </div>

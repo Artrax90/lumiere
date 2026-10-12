@@ -511,13 +511,13 @@
     console.log('[Lumiere] Init starting');
     try {
       var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
-      // If legacy port 3000 was saved in previous versions, or old PC IP, or broken domain
-      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1 || savedServer.indexOf('lumiere.artrax.net') !== -1)) {
-        savedServer = 'http://192.168.1.196:3500';
+      // If legacy port 3000 was saved in previous versions, or old PC IP, or old domain
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1)) {
+        savedServer = '';
         try {
-          localStorage.setItem(SERVER_KEY, savedServer);
-          localStorage.setItem('lumiere_server_url', savedServer);
-          localStorage.setItem('lumiere_tv_server', savedServer);
+          localStorage.removeItem(SERVER_KEY);
+          localStorage.removeItem('lumiere_server_url');
+          localStorage.removeItem('lumiere_tv_server');
         } catch(e) {}
       }
       var isHttpOrigin = window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -528,8 +528,7 @@
         } else if (isHttpOrigin) {
           server = window.location.origin;
         } else {
-          // Pre-populate default local server candidate if in native app container
-          server = 'http://192.168.1.196:3500';
+          server = '';
         }
       }
       if (server) {
@@ -1595,7 +1594,7 @@
         candidates.push(with3500);
       }
     } else {
-      // Domain name without port (e.g. lumiere.artrax.net)
+      // Domain name without port (e.g. myserver.com)
       var cleanDomain = rawUrl.replace(/^https?:\/\//i, '');
       var isPageHttps = (window.location && window.location.protocol === 'https:');
       if (isPageHttps || !/^(?:\d{1,3}\.){3}\d{1,3}/.test(cleanDomain)) {
