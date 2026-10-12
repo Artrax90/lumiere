@@ -101,12 +101,16 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
       const raw = getScopedItem('playback_positions');
       const positions = raw ? JSON.parse(raw) : {};
       let watchedCount = 0;
+      let totalPositionSeconds = 0;
       const genreCounts: Record<string, number> = {};
 
       for (const val of Object.values(positions)) {
         const time = typeof val === 'object' && val !== null ? (val as any).time || 0 : Number(val || 0);
-        // Only count as finished/watched title if watched for at least 15 minutes (900s)
-        if (time >= 900) {
+        if (time > 0) {
+          totalPositionSeconds += Math.min(Math.floor(time), 10800);
+        }
+        // Count as watched if user watched for at least 1 minute (60s)
+        if (time >= 60) {
           watchedCount++;
         }
 
@@ -137,15 +141,33 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           pct: arr[0] ? Math.round((count / arr[0][1]) * 100) : 100,
         }));
 
+      // Effective watch time: use tracked continuous watch time, or fallback to saved playback progress if zero
+      const effectiveSec = actualWatchSeconds > 0 ? actualWatchSeconds : totalPositionSeconds;
+
+      // Auto-heal: if actual_watch_seconds was zero but playback positions exist, persist it
+      if (actualWatchSeconds === 0 && totalPositionSeconds > 0) {
+        try {
+          setScopedItem('actual_watch_seconds', String(totalPositionSeconds));
+          serverFetch('/api/user/preferences', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ preferences: { actual_watch_seconds: totalPositionSeconds } }),
+          }).catch(() => {});
+        } catch {}
+      }
+
       // Format accurate real watch time
       let watchTimeValue: string | number = 0;
       let watchTimeSuffix = 'мин';
-      if (actualWatchSeconds >= 3600) {
-        const hrs = (actualWatchSeconds / 3600).toFixed(1);
+      if (effectiveSec >= 3600) {
+        const hrs = (effectiveSec / 3600).toFixed(1);
         watchTimeValue = hrs.endsWith('.0') ? parseInt(hrs, 10) : hrs;
         watchTimeSuffix = 'ч';
-      } else if (actualWatchSeconds >= 60) {
-        watchTimeValue = Math.round(actualWatchSeconds / 60);
+      } else if (effectiveSec >= 60) {
+        watchTimeValue = Math.round(effectiveSec / 60);
+        watchTimeSuffix = 'мин';
+      } else if (effectiveSec > 0) {
+        watchTimeValue = 1;
         watchTimeSuffix = 'мин';
       } else {
         watchTimeValue = 0;
@@ -167,7 +189,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
     { id: 'a1', name: 'Первый сеанс', desc: 'Запустили первый фильм или серию', icon: '🎬', unlocked: stats.watchedCount >= 1 || actualWatchSeconds >= 60 },
     { id: 'a2', name: 'Киноман', desc: 'Посмотрели более 3 фильмов или серий', icon: '🍿', unlocked: stats.watchedCount >= 3 },
     { id: 'a3', name: 'Марафонец', desc: 'Провели более 10 часов за просмотром', icon: '⏱️', unlocked: actualWatchSeconds >= 36000 },
-    { id: 'a4', name: 'Коллекционер', desc: 'Добавили тайтлы в избранное', icon: '⭐', unlocked: favorites.length > 0 },
+    { id: 'a4', name: 'Коллекционер', desc: 'Добавили фильмы или сериалы в избранное', icon: '⭐', unlocked: favorites.length > 0 },
     { id: 'a5', name: 'Знаток IPTV', desc: 'Подключили собственный плейлист каналов', icon: '📡', unlocked: !!localStorage.getItem('lumiere_iptv') },
   ], [stats.watchedCount, actualWatchSeconds, favorites.length]);
 
@@ -221,7 +243,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
         {/* Stats Grid */}
         <div className="mb-10 grid grid-cols-2 gap-4 md:grid-cols-4 animate-row-reveal">
           <StatCard label="Время просмотра" value={stats.watchTimeValue} suffix={stats.watchTimeSuffix} />
-          <StatCard label="Просмотрено тайтлов" value={stats.watchedCount} />
+          <StatCard label="Фильмов и сериалов" value={stats.watchedCount} />
           <StatCard label="В избранном" value={favorites.length} />
           <StatCard label="Достижения" value={achievements.filter((a) => a.unlocked).length} suffix={`/${achievements.length}`} />
         </div>

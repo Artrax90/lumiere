@@ -274,7 +274,7 @@ export default function PersonModal({ personId, onClose, onSelectMovie }: Person
                     Фильмография
                   </h3>
                   <span className="rounded-full bg-amber-400/20 px-3 py-0.5 text-xs font-semibold text-amber-300">
-                    {data.credits?.length || 0} тайтлов
+                    {data.credits?.length || 0} работ
                   </span>
                 </div>
 

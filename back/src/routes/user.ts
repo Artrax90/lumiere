@@ -103,14 +103,18 @@ export function userRoutes(app: FastifyInstance) {
     const prefData = preferences || {};
 
     try {
+      const cur = await pool.query('SELECT preferences FROM user_preferences WHERE user_id = $1', [userId]);
+      const existing = (cur.rows.length > 0 && cur.rows[0].preferences) ? cur.rows[0].preferences : {};
+      const merged = { ...existing, ...prefData };
+
       await pool.query(
         `INSERT INTO user_preferences (user_id, preferences, updated_at)
          VALUES ($1, $2, NOW())
          ON CONFLICT (user_id)
-         DO UPDATE SET preferences = EXCLUDED.preferences, updated_at = NOW()`,
-        [userId, JSON.stringify(prefData)]
+         DO UPDATE SET preferences = $2, updated_at = NOW()`,
+        [userId, JSON.stringify(merged)]
       );
-      return { success: true, preferences: prefData };
+      return { success: true, preferences: merged };
     } catch (err: any) {
       console.error('Error saving preferences:', err.message);
       return { error: 'Failed to save preferences' };

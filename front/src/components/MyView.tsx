@@ -200,7 +200,7 @@ export default function MyView({ onSelect }: MyViewProps) {
           <p className="mt-1.5 max-w-sm text-sm text-white/50">
             {activeTab === 'watched' && 'Фильмы и серии, которые вы начнёте смотреть, автоматически появятся здесь.'}
             {activeTab === 'watchlist' && 'Добавляйте фильмы и сериалы кнопкой «Буду смотреть» в карточке фильма.'}
-            {activeTab === 'favorites' && 'Отмечайте любимые тайтлы сердечком в карточке фильма.'}
+            {activeTab === 'favorites' && 'Отмечайте понравившиеся фильмы и сериалы сердечком на карточке.'}
           </p>
         </div>
       ) : (

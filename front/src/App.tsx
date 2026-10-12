@@ -315,9 +315,16 @@ export default function App() {
   }, [pushRoute, replaceRoute]);
 
   const lastSavedTime = useRef(0);
-  const watchTrackerRef = useRef<{ lastVideoTime: number; lastClock: number }>({
+  const watchTrackerRef = useRef<{
+    lastVideoTime: number;
+    lastClock: number;
+    accumulatedSeconds: number;
+    lastServerSyncTime: number;
+  }>({
     lastVideoTime: -1,
     lastClock: 0,
+    accumulatedSeconds: 0,
+    lastServerSyncTime: 0,
   });
 
   const handlePlay = useCallback((title: Title, externalSubs?: any[]) => {
@@ -328,7 +335,12 @@ export default function App() {
     setPlaying(title);
     setPlayingExternalSubs(externalSubs || []);
     lastSavedTime.current = 0;
-    watchTrackerRef.current = { lastVideoTime: -1, lastClock: 0 };
+    watchTrackerRef.current = {
+      lastVideoTime: -1,
+      lastClock: 0,
+      accumulatedSeconds: 0,
+      lastServerSyncTime: Date.now(),
+    };
 
     // Report activity to server
     serverFetch('/api/user/activity', {
@@ -344,22 +356,49 @@ export default function App() {
 
   const handleTimeUpdate = useCallback((time: number) => {
     const now = Date.now();
-    // Track actual continuous playback time (ignoring seek jumps)
-    if (watchTrackerRef.current.lastVideoTime >= 0 && watchTrackerRef.current.lastClock > 0) {
-      const videoDelta = time - watchTrackerRef.current.lastVideoTime;
-      const clockDelta = (now - watchTrackerRef.current.lastClock) / 1000;
-      // Natural forward playback: progress between 0.5s and 10s matching real clock time
-      if (videoDelta > 0.5 && videoDelta <= 10 && clockDelta >= 0.5 && clockDelta <= 10) {
-        try {
-          const prev = Number(getScopedItem('actual_watch_seconds') || 0);
-          const next = Math.round(prev + videoDelta);
-          setScopedItem('actual_watch_seconds', String(next));
-          window.dispatchEvent(new CustomEvent('actual-watch-time-updated', { detail: next }));
-        } catch {}
+    const tracker = watchTrackerRef.current;
+
+    // Track actual continuous playback time (ignoring seek jumps & pause intervals)
+    if (tracker.lastVideoTime >= 0 && tracker.lastClock > 0) {
+      const videoDelta = time - tracker.lastVideoTime;
+      const clockDelta = (now - tracker.lastClock) / 1000;
+
+      // Realistic playback:
+      // Browser timeupdate fires every ~200-250ms (videoDelta ~ 0.20-0.25s).
+      // Accept delta between 0.05s and 4.0s, ensuring video progress matches real clock within 2.0s.
+      if (
+        videoDelta > 0.05 &&
+        videoDelta <= 4.0 &&
+        clockDelta > 0.05 &&
+        clockDelta <= 4.0 &&
+        Math.abs(videoDelta - clockDelta) < 2.0
+      ) {
+        tracker.accumulatedSeconds += videoDelta;
+        if (tracker.accumulatedSeconds >= 1.0) {
+          const wholeSec = Math.floor(tracker.accumulatedSeconds);
+          tracker.accumulatedSeconds -= wholeSec;
+
+          try {
+            const prev = Number(getScopedItem('actual_watch_seconds') || 0);
+            const next = prev + wholeSec;
+            setScopedItem('actual_watch_seconds', String(next));
+            window.dispatchEvent(new CustomEvent('actual-watch-time-updated', { detail: next }));
+
+            // Periodically sync to server every 60 seconds of playback
+            if (now - tracker.lastServerSyncTime >= 60000) {
+              tracker.lastServerSyncTime = now;
+              serverFetch('/api/user/preferences', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ preferences: { actual_watch_seconds: next } }),
+              }).catch(() => {});
+            }
+          } catch {}
+        }
       }
     }
-    watchTrackerRef.current.lastVideoTime = time;
-    watchTrackerRef.current.lastClock = now;
+    tracker.lastVideoTime = time;
+    tracker.lastClock = now;
 
     // Save position every 5 seconds
     if (playing && Math.abs(time - lastSavedTime.current) > 5) {
@@ -382,7 +421,20 @@ export default function App() {
     if (playing) {
       savePlaybackPosition(playing.id, lastSavedTime.current, playing);
     }
-    watchTrackerRef.current = { lastVideoTime: -1, lastClock: 0 };
+
+    const tracker = watchTrackerRef.current;
+    if (tracker.accumulatedSeconds >= 0.5) {
+      try {
+        const prev = Number(getScopedItem('actual_watch_seconds') || 0);
+        const next = prev + 1;
+        setScopedItem('actual_watch_seconds', String(next));
+        window.dispatchEvent(new CustomEvent('actual-watch-time-updated', { detail: next }));
+      } catch {}
+    }
+    tracker.lastVideoTime = -1;
+    tracker.lastClock = 0;
+    tracker.accumulatedSeconds = 0;
+
     // Sync actual watch time to server preferences
     try {
       const totalSec = Number(getScopedItem('actual_watch_seconds') || 0);

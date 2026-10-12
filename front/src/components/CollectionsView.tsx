@@ -432,7 +432,7 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
                 {selected.name}
               </h1>
               <p className="mt-0.5 text-[12px] text-white/50">
-                {collectionTitles.length} тайтлов в подборке
+                {collectionTitles.length} фильмов и сериалов в подборке
               </p>
             </div>
           )}
@@ -446,7 +446,7 @@ export default function CollectionsView({ onSelect, initialCollectionId, onColle
             </div>
           ) : collectionTitles.length === 0 ? (
             <div className="rounded-[20px] glass-panel p-12 text-center text-white/50">
-              В этой подборке пока нет доступных тайтлов.
+              В этой подборке пока нет доступных фильмов и сериалов.
             </div>
           ) : (
             <>
