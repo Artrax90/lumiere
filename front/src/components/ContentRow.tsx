@@ -72,7 +72,7 @@ export default function ContentRow({
       : 'text-white/35';
 
   return (
-    <section className={`group/row relative ${isTvMode ? 'py-4' : 'py-12'} animate-row-reveal`}>
+    <section className={`group/row relative ${isTvMode ? 'py-4' : 'py-6 sm:py-8 md:py-10'} animate-row-reveal`}>
       {/* Section header */}
       <div className={`${isTvMode ? 'mb-2.5' : 'mb-6'} flex items-end justify-between px-8 lg:px-14`}>
         <div className="flex items-center gap-2.5">

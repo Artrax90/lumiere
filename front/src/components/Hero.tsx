@@ -172,8 +172,8 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
     <div
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className={`absolute left-0 right-0 top-0 z-20 ${
-        isTvMode ? 'h-[46vh] min-h-[250px] max-h-[340px]' : 'h-[72vh] min-h-[580px] max-h-[800px]'
+      className={`relative z-10 ${
+        isTvMode ? 'h-[46vh] min-h-[250px] max-h-[340px]' : 'min-h-[520px] sm:min-h-[560px] lg:h-[76vh] lg:max-h-[780px]'
       } w-full overflow-hidden select-none`}
     >
 
@@ -200,7 +200,7 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
 
         {/* Left and bottom gradients for maximum text legibility and smooth catalog blend */}
         <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/45 to-transparent" />
-        <div className="absolute inset-x-0 bottom-0 h-48 bg-gradient-to-t from-[#08080a] via-[#08080a]/75 to-transparent pointer-events-none" />
+        <div className="absolute inset-x-0 bottom-0 h-44 bg-gradient-to-t from-[#08080a] via-[#08080a]/80 to-transparent pointer-events-none" />
 
         {/* Left haze for depth */}
         <div
@@ -234,8 +234,8 @@ export default function Hero({ current, titles, active, setActive, onSelect, onP
       </div>
 
       {/* ── Content — transparent, sitting on the artwork ── */}
-      <div className="absolute inset-0 flex items-end">
-        <div className={`w-full max-w-[1600px] px-6 ${isTvMode ? 'pb-6 lg:pb-8' : 'pb-28 sm:pb-22 lg:pb-18'} sm:px-8 lg:px-16`}>
+      <div className="relative min-h-[520px] sm:min-h-[560px] lg:h-[76vh] lg:max-h-[780px] flex items-end pt-24 sm:pt-28">
+        <div className={`w-full max-w-[1600px] px-6 ${isTvMode ? 'pb-6 lg:pb-8' : 'pb-8 sm:pb-12 lg:pb-14'} sm:px-8 lg:px-16`}>
           <div key={current.id} className="max-w-2xl">
             {/* Type label */}
             <div className="mb-2 flex items-center gap-2 animate-fade-up" style={{ animationDelay: '0ms' }}>

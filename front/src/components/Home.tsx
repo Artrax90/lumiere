@@ -508,10 +508,10 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
             imgLoaded={imgLoaded}
           />
         ) : (
-          <div className="absolute left-0 right-0 top-0 z-20 h-[72vh] min-h-[580px] max-h-[800px] w-full overflow-hidden animate-pulse">
+          <div className="relative z-10 min-h-[520px] sm:min-h-[560px] lg:h-[76vh] lg:max-h-[780px] w-full overflow-hidden animate-pulse">
             <div className="absolute inset-0 bg-gradient-to-t from-[#08080a] via-white/[0.02] to-transparent" />
-            <div className="absolute inset-0 flex items-end">
-              <div className="w-full max-w-[1600px] px-6 pb-28 sm:pb-22 lg:pb-18 sm:px-8 lg:px-16 space-y-4">
+            <div className="relative min-h-[520px] sm:min-h-[560px] lg:h-[76vh] lg:max-h-[780px] flex items-end pt-24 sm:pt-28">
+              <div className="w-full max-w-[1600px] px-6 pb-8 sm:pb-12 lg:pb-14 sm:px-8 lg:px-16 space-y-4">
                 <div className="h-4 w-32 rounded-full bg-white/10" />
                 <div className="h-10 w-96 max-w-full rounded-2xl bg-white/15" />
                 <div className="h-4 w-48 rounded-full bg-white/10" />
@@ -526,7 +526,7 @@ export default function Home({ heroTitles, onSelect, onPlay, onSelectCollection,
         )
       )}
 
-      <div className={`relative z-10 pb-10 ${isTV() ? 'pt-20' : ''}`} style={!isTV() ? { paddingTop: 'calc(min(72vh, 800px) - 60px)' } : undefined}>
+      <div className={`relative z-20 pb-10 ${isTV() ? 'pt-20' : 'pt-2 sm:pt-4'}`}>
         {shelves.filter((s) => s.enabled).map((s) => renderShelf(s.id))}
 
         <footer className="px-8 py-16 lg:px-14">
