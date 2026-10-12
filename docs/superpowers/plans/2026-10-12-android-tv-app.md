@@ -36,15 +36,15 @@
 - Consumes: Java 17/21 from `C:\Program Files\Android\Android Studio\jbr`, Android SDK from `C:\Users\Artrax\AppData\Local\Android\Sdk`.
 - Produces: Compilable Gradle project with `:core` and `:tv` modules.
 
-- [ ] **Step 1: Create Gradle root and module build scripts**
+- [x] **Step 1: Create Gradle root and module build scripts**
   Configure root `settings.gradle.kts` including `:core` and `:tv`. Configure `build.gradle.kts` with Kotlin and Android Gradle Plugin 8.7+. Configure `gradle.properties` with AndroidX and Compose compiler flags.
-- [ ] **Step 2: Install Gradle Wrapper 8.9+ in `android/`**
+- [x] **Step 2: Install Gradle Wrapper 8.9+ in `android/`**
   Run Gradle wrapper setup using bundled Java and verify wrapper files exist.
-- [ ] **Step 3: Add dependencies in `core/build.gradle.kts` and `tv/build.gradle.kts`**
+- [x] **Step 3: Add dependencies in `core/build.gradle.kts` and `tv/build.gradle.kts`**
   Add Retrofit, OkHttp, KotlinX Serialization, Media3, Compose for TV, and Coil dependencies.
-- [ ] **Step 4: Verify initial build**
+- [x] **Step 4: Verify initial build**
   Run: `cd android && ./gradlew :tv:tasks` and verify build config succeeds without errors.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/
   git commit -m "feat(android): scaffold multi-module project structure with Gradle wrapper"
