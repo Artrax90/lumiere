@@ -1800,7 +1800,7 @@ export function torrentRoutes(app: FastifyInstance) {
     const playlistPath = join(hlsDir, 'playlist.m3u8');
 
     // Build absolute URL prefix for segments so Tizen/AVPlay/WebKit never fail on relative paths
-    const host = req.headers.host || '192.168.1.196:3500';
+    const host = req.headers.host || '127.0.0.1:3500';
     const proto = req.headers['x-forwarded-proto'] || 'http';
     const segBase = `${proto}://${host}/api/torrents/hls-seg?session=${sessionId}&id=`;
 

@@ -952,7 +952,7 @@
 
       var isAvplay = (typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined) || (typeof tizen !== 'undefined');
       var torrPort = '8590';
-      var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
+      var torrHost = API ? API.replace(/:\d+$/, ':' + torrPort) : ('http://' + (window.location.hostname || 'localhost') + ':' + torrPort);
       var streamUrl = '';
       if (isAvplay) {
         var torrFileName = nextFile.name || 'video.mkv';
@@ -1705,7 +1705,8 @@
     var index = (indexMatch ? indexMatch[1] : '') || (torrentFileIndex >= 0 ? String(torrentFileIndex) : '0');
     if (!link) return;
 
-    var apiBase = API || (typeof getBaseUrl === 'function' ? getBaseUrl() : '') || 'http://192.168.1.196:3500';
+    var apiBase = API || (typeof getBaseUrl === 'function' ? getBaseUrl() : '');
+    if (!apiBase) return;
     var xhr = new XMLHttpRequest();
     xhr.open('GET', apiBase + '/api/torrents/tracks?link=' + encodeURIComponent(link) + '&index=' + index, true);
     xhr.timeout = 10000;

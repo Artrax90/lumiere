@@ -511,13 +511,13 @@
     console.log('[Lumiere] Init starting');
     try {
       var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
-      // If legacy port 3000 was saved in previous versions, or old PC IP, or broken domain
-      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1 || savedServer.indexOf('lumiere.artrax.net') !== -1)) {
-        savedServer = 'http://192.168.1.196:3500';
+      // If legacy port 3000 was saved in previous versions, or old PC IP, or old domain
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1)) {
+        savedServer = '';
         try {
-          localStorage.setItem(SERVER_KEY, savedServer);
-          localStorage.setItem('lumiere_server_url', savedServer);
-          localStorage.setItem('lumiere_tv_server', savedServer);
+          localStorage.removeItem(SERVER_KEY);
+          localStorage.removeItem('lumiere_server_url');
+          localStorage.removeItem('lumiere_tv_server');
         } catch(e) {}
       }
       var isHttpOrigin = window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
@@ -528,8 +528,7 @@
         } else if (isHttpOrigin) {
           server = window.location.origin;
         } else {
-          // Pre-populate default local server candidate if in native app container
-          server = 'http://192.168.1.196:3500';
+          server = '';
         }
       }
       if (server) {
@@ -1063,7 +1062,7 @@
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
-      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
+      var sUrl = serverUrl || API || '';
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
           '<span>✓</span><span>Сервер найден и подключен!</span>' +
@@ -1101,7 +1100,7 @@
     if (el) {
       el.classList.remove('hidden');
       el.style.display = 'flex';
-      var sUrl = serverUrl || API || 'http://192.168.1.196:3500';
+      var sUrl = serverUrl || API || '';
       el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
         '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
           '<span>✓</span><span>Сервер подключен</span>' +
@@ -1378,7 +1377,7 @@
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
 
-    var currentServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
+    var currentServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : '');
     var input = document.getElementById('tv-server-input');
     if (input) {
       input.value = currentServer;
@@ -1487,7 +1486,16 @@
   function appendServerInputText(txt) {
     var input = document.getElementById('tv-server-input');
     if (!input) return;
-    input.value = (input.value || '') + txt;
+    var val = input.value || '';
+    if (txt === 'https://' || txt === 'http://') {
+      val = val.replace(/^https?:\/\//i, '');
+      input.value = txt + val;
+    } else {
+      input.value = val + txt;
+    }
+    while (/^https?:\/\/(https?:\/\/)/i.test(input.value)) {
+      input.value = input.value.replace(/^https?:\/\//i, '');
+    }
     serverModalState.failedUrl = null;
     showServerModalStatus('', '');
   }
@@ -1524,7 +1532,7 @@
     } else if (action === 'curhost') {
       var cur = (window.location && window.location.hostname && window.location.hostname !== 'localhost') ?
         ((window.location.protocol || 'http:') + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '')) :
-        'http://';
+        '';
       var input = document.getElementById('tv-server-input');
       if (input) {
         input.value = cur;
@@ -1532,7 +1540,7 @@
         showServerModalStatus('', '');
       }
     } else if (action === 'default') {
-      var def = window.__DEFAULT_SERVER_URL__ || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'http://');
+      var def = window.__DEFAULT_SERVER_URL__ || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : '');
       var input = document.getElementById('tv-server-input');
       if (input) {
         input.value = def;
@@ -1554,6 +1562,11 @@
       return;
     }
 
+    // Strip doubled or nested protocols like "http://https://" or "https://http://"
+    while (/^https?:\/\/(https?:\/\/)/i.test(rawUrl)) {
+      rawUrl = rawUrl.replace(/^https?:\/\//i, '');
+    }
+
     // Strip trailing slashes
     rawUrl = rawUrl.replace(/\/+$/, '');
 
@@ -1563,8 +1576,7 @@
       var forced = rawUrl;
       if (!/^https?:\/\//i.test(forced)) {
         var isDomain = !/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(forced);
-        var curProto = (window.location && window.location.protocol === 'https:') ? 'https://' : 'http://';
-        forced = (isDomain ? curProto : 'http://') + forced;
+        forced = (isDomain ? 'https://' : 'http://') + forced;
       }
       applyNewServer(forced);
       return;
@@ -1572,41 +1584,27 @@
 
     // Prepare candidate URLs
     var candidates = [];
-    var isIpWithoutPort = /^(?:https?:\/\/)?(?:\d{1,3}\.){3}\d{1,3}$/.test(rawUrl);
-    var hasPort = /:\d+$/.test(rawUrl);
+    var cleanHost = rawUrl.replace(/^https?:\/\//i, '');
+    var isRawIpWithoutPort = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(cleanHost);
+    var isIp = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(cleanHost);
 
-    if (isIpWithoutPort) {
-      // User entered raw IP (e.g. 192.168.1.77) -> default to port 3500!
-      var cleanIp = rawUrl.replace(/^https?:\/\//i, '');
-      candidates.push('http://' + cleanIp + ':3500');
-      candidates.push('http://' + cleanIp);
-      candidates.push('https://' + cleanIp);
-    } else if (hasPort) {
-      // User entered an address with a port, e.g. "192.168.1.77:3000"
-      var clean = rawUrl;
-      if (!/^https?:\/\//i.test(clean)) clean = 'http://' + clean;
-      candidates.push(clean);
-      if (clean.indexOf('http://') === 0) candidates.push(clean.replace('http://', 'https://'));
-      else candidates.push(clean.replace('https://', 'http://'));
-
-      // If user typed a non-standard port like :3000, ALSO probe standard port :3500!
-      if (!/:3500$/.test(clean)) {
-        var with3500 = clean.replace(/:\d+$/, ':3500');
-        candidates.push(with3500);
-      }
+    if (isRawIpWithoutPort) {
+      candidates.push('http://' + cleanHost + ':3500');
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
+    } else if (/^https:\/\//i.test(rawUrl)) {
+      candidates.push('https://' + cleanHost);
+      candidates.push('http://' + cleanHost);
+    } else if (/^http:\/\//i.test(rawUrl)) {
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
+    } else if (isIp) {
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
     } else {
-      // Domain name without port (e.g. lumiere.artrax.net)
-      var cleanDomain = rawUrl.replace(/^https?:\/\//i, '');
-      var isPageHttps = (window.location && window.location.protocol === 'https:');
-      if (isPageHttps || !/^(?:\d{1,3}\.){3}\d{1,3}/.test(cleanDomain)) {
-        candidates.push('https://' + cleanDomain);
-        candidates.push('http://' + cleanDomain);
-        candidates.push('http://' + cleanDomain + ':3500');
-      } else {
-        candidates.push('http://' + cleanDomain + ':3500');
-        candidates.push('http://' + cleanDomain);
-        candidates.push('https://' + cleanDomain);
-      }
+      // Domain name without protocol: HTTPS first, then HTTP
+      candidates.push('https://' + cleanHost);
+      candidates.push('http://' + cleanHost);
     }
 
     showServerModalStatus('Проверка подключения...', 'loading');
@@ -1615,7 +1613,8 @@
     function tryNextCandidate() {
       if (cIndex >= candidates.length) {
         serverModalState.failedUrl = rawUrl;
-        showServerModalStatus('Не удалось подключиться к ' + rawUrl + '. Нажмите «Подключиться» ещё раз для принудительного сохранения.', 'warning');
+        var displayUrl = candidates[0] || rawUrl;
+        showServerModalStatus('Не удалось подключиться к ' + displayUrl + '. Нажмите «Подключиться» ещё раз для принудительного сохранения.', 'warning');
         return;
       }
 
@@ -7715,7 +7714,7 @@
       if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
         if (!API || API.indexOf('https:') !== 0) {
           var torrPort = '8590';
-          var torrHost = API ? (API.replace(/:\d+$/, '') + ':' + torrPort) : ('http://' + (window.location.hostname || '192.168.1.196') + ':' + torrPort);
+          var torrHost = API ? (API.replace(/:\d+$/, '') + ':' + torrPort) : ('http://' + (window.location.hostname || 'localhost') + ':' + torrPort);
           var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
           if (proxyMatch) {
             var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
@@ -8928,7 +8927,7 @@
           };
         });
         myState.watchlist = titles;
-        renderMyGrid(titles, '🔖', 'Список «Буду смотреть» пуст', 'Добавляйте фильмы и сериалы кнопкой «Буду смотреть» в карточке тайтла');
+        renderMyGrid(titles, '🔖', 'Список «Буду смотреть» пуст', 'Добавляйте фильмы и сериалы кнопкой «Буду смотреть» в карточке фильма');
       });
     } else if (myState.activeTab === 'favorites') {
       apiFetch('/api/user/favorites', function(err, data) {
@@ -8944,7 +8943,7 @@
           };
         });
         myState.favorites = titles;
-        renderMyGrid(titles, '❤️', 'В закладках пока ничего нет', 'Добавляйте тайтлы в закладки кнопкой «В закладки» (сердечко)');
+        renderMyGrid(titles, '❤️', 'В закладках пока ничего нет', 'Добавляйте фильмы и сериалы в закладки кнопкой «В закладки» (сердечко)');
       });
     }
   }

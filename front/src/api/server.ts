@@ -46,8 +46,13 @@ export function getServerUrl(): string {
 
 export function setServerUrl(url: string) {
   let clean = url.trim().replace(/\/+$/, '');
-  if (!clean.startsWith('http://') && !clean.startsWith('https://')) {
-    clean = `http://${clean}`;
+  // Strip doubled/nested protocols like "http://https://" or "https://http://"
+  while (/^https?:\/\/(https?:\/\/)/i.test(clean)) {
+    clean = clean.replace(/^https?:\/\//i, '');
+  }
+  if (!/^https?:\/\//i.test(clean)) {
+    const isIp = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(clean);
+    clean = isIp ? `http://${clean}` : `https://${clean}`;
   }
   localStorage.setItem(SERVER_URL_KEY, clean);
   if (typeof window !== 'undefined') {

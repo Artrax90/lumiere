@@ -79,7 +79,18 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
   }, []);
 
   const handleAppend = (char: string) => {
-    setUrl((prev) => prev + char);
+    setUrl((prev) => {
+      let val = prev;
+      if (char === 'https://' || char === 'http://') {
+        val = val.replace(/^https?:\/\//i, '');
+        return char + val;
+      }
+      let next = val + char;
+      while (/^https?:\/\/(https?:\/\/)/i.test(next)) {
+        next = next.replace(/^https?:\/\//i, '');
+      }
+      return next;
+    });
     setError('');
   };
 
@@ -94,39 +105,67 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
   };
 
   const testAndSave = async (target?: string) => {
-    const raw = (target !== undefined ? target : url).trim();
+    let raw = (target !== undefined ? target : url).trim();
     if (!raw) return;
+
+    // Strip doubled or nested protocols like "http://https://" or "https://http://"
+    while (/^https?:\/\/(https?:\/\/)/i.test(raw)) {
+      raw = raw.replace(/^https?:\/\//i, '');
+    }
 
     setTesting(true);
     setError('');
 
-    let serverUrl = raw;
-    if (!serverUrl.startsWith('http://') && !serverUrl.startsWith('https://')) {
-      serverUrl = `http://${serverUrl}`;
-    }
-    serverUrl = serverUrl.replace(/\/+$/, '');
-
-    try {
-      const res = await fetch(`${serverUrl}/api/health`, { signal: AbortSignal.timeout(4000) });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data = await res.json();
-      if (data.status === 'ok') {
-        localStorage.removeItem('lumiere_access');
-        localStorage.removeItem('lumiere_refresh');
-        localStorage.removeItem('lumiere_user');
-        localStorage.removeItem('lumiere_active_profile');
-
-        setServerUrl(serverUrl);
-        onConnected();
+    // Generate smart candidates: if user entered https://, try https then http.
+    // If http://, try http then https.
+    // If no scheme: for domain try https first, for IP try http first.
+    const candidates: string[] = [];
+    if (/^https:\/\//i.test(raw)) {
+      const stripped = raw.replace(/^https:\/\//i, '').replace(/\/+$/, '');
+      candidates.push(`https://${stripped}`);
+      candidates.push(`http://${stripped}`);
+    } else if (/^http:\/\//i.test(raw)) {
+      const stripped = raw.replace(/^http:\/\//i, '').replace(/\/+$/, '');
+      candidates.push(`http://${stripped}`);
+      candidates.push(`https://${stripped}`);
+    } else {
+      const stripped = raw.replace(/\/+$/, '');
+      const isIp = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(stripped);
+      if (isIp) {
+        candidates.push(`http://${stripped}`);
+        candidates.push(`https://${stripped}`);
       } else {
-        setError('Сервер ответил с ошибкой');
+        candidates.push(`https://${stripped}`);
+        candidates.push(`http://${stripped}`);
       }
-    } catch (err: any) {
-      setError(`Не удалось подключиться к ${serverUrl}`);
-    } finally {
-      setTesting(false);
     }
+
+    let connectedUrl = '';
+    for (const testUrl of candidates) {
+      try {
+        const res = await fetch(`${testUrl}/api/health`, { signal: AbortSignal.timeout(3500) });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.status === 'ok') {
+            connectedUrl = testUrl;
+            break;
+          }
+        }
+      } catch {}
+    }
+
+    if (connectedUrl) {
+      localStorage.removeItem('lumiere_access');
+      localStorage.removeItem('lumiere_refresh');
+      localStorage.removeItem('lumiere_user');
+      localStorage.removeItem('lumiere_active_profile');
+
+      setServerUrl(connectedUrl);
+      onConnected();
+    } else {
+      setError(`Не удалось подключиться к ${candidates[0]}`);
+    }
+    setTesting(false);
   };
 
   return (
@@ -197,9 +236,16 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
                   ref={inputRef}
                   type="text"
                   value={url}
-                  onChange={(e) => { setUrl(e.target.value); setError(''); }}
+                  onChange={(e) => {
+                    let val = e.target.value;
+                    while (/^https?:\/\/(https?:\/\/)/i.test(val)) {
+                      val = val.replace(/^https?:\/\//i, '');
+                    }
+                    setUrl(val);
+                    setError('');
+                  }}
                   onKeyDown={(e) => e.key === 'Enter' && testAndSave()}
-                  placeholder="192.168.1.100:3500 или myserver.com"
+                  placeholder="myserver.com или 192.168.1.100:3500"
                   autoCapitalize="none"
                   autoCorrect="off"
                   autoComplete="off"
@@ -257,7 +303,7 @@ export default function ServerSetup({ onConnected, initialError }: Props) {
               onClear={handleClear}
               onSubmit={() => testAndSave()}
               submitLabel="Подключиться"
-              presets={['192.168.', '10.0.0.', ':3500', ':8080']}
+              presets={['https://', 'http://', '192.168.', ':3500']}
             />
           </div>
         </div>
