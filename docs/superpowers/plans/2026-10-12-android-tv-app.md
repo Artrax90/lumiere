@@ -155,17 +155,17 @@
 - Consumes: `/api/movies/trending`, `/api/history`, `/api/movies`, `/api/tv`.
 - Produces: Main interactive catalog browse UI.
 
-- [ ] **Step 1: Implement `MediaCard` with TV focus scale**
+- [x] **Step 1: Implement `MediaCard` with TV focus scale**
   16:9 or 2:3 card with Coil image loading, title, rating badge, and 1.06x focus scale with gold outline.
-- [ ] **Step 2: Implement `HeroBanner`**
+- [x] **Step 2: Implement `HeroBanner`**
   Full-bleed top banner with backdrop image, title, genres, rating, and "Watch" / "Details" action buttons.
-- [ ] **Step 3: Implement `MediaRow`**
+- [x] **Step 3: Implement `MediaRow`**
   Horizontal scrolling `LazyRow` with `TvLazyRow` optimizing D-pad focus transition.
-- [ ] **Step 4: Implement `HomeScreen` and `HomeViewModel`**
+- [x] **Step 4: Implement `HomeScreen` and `HomeViewModel`**
   Assemble Hero Banner, Continue Watching row with percent bar, Trending Movies, New Series, Top of Week.
-- [ ] **Step 5: Verify build**
+- [x] **Step 5: Verify build**
   Run: `cd android && ./gradlew :tv:assembleDebug`.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/ui/home/ android/tv/src/main/java/com/lumiere/tv/ui/components/
   git commit -m "feat(tv): implement TV home screen with hero banner and horizontal media carousels"

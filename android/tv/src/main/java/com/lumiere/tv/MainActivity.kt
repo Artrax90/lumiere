@@ -18,6 +18,7 @@ import com.lumiere.tv.navigation.Screen
 import com.lumiere.tv.theme.BackgroundDark
 import com.lumiere.tv.theme.LumiereTvTheme
 import com.lumiere.tv.ui.connect.ConnectScreen
+import com.lumiere.tv.ui.home.HomeScreen
 import com.lumiere.tv.ui.profiles.ProfilesScreen
 
 class MainActivity : ComponentActivity() {
@@ -74,7 +75,20 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Screen.Home.route) {
-                            // Implemented in Task 5
+                            HomeScreen(
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                },
+                                onSearchClick = {
+                                    navController.navigate(Screen.Search.route)
+                                },
+                                onIptvClick = {
+                                    navController.navigate(Screen.Iptv.route)
+                                },
+                                onProfileClick = {
+                                    navController.navigate(Screen.Profiles.route)
+                                }
+                            )
                         }
                         composable(Screen.Search.route) {
                             // Implemented in Task 9
