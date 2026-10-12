@@ -65,17 +65,17 @@
 - Consumes: Fastify backend endpoints at `/api/health`, `/api/profiles`, `/api/movies`, `/api/tv`, `/api/torrents`, `/api/iptv`.
 - Produces: `LumiereApiService` Retrofit client, `ServerDiscovery.discoverLocalServer()` returning server base URL.
 
-- [ ] **Step 1: Write unit tests for API serialization**
+- [x] **Step 1: Write unit tests for API serialization**
   Test JSON parsing of `Profile`, `Movie`, `Series`, `Torrent`, `IptvChannel` against actual mock responses from Lumiere backend.
-- [ ] **Step 2: Implement data models in `Models.kt`**
+- [x] **Step 2: Implement data models in `Models.kt`**
   Create `@Serializable` data classes matching backend schema.
-- [ ] **Step 3: Implement `LumiereApiService` in Retrofit**
+- [x] **Step 3: Implement `LumiereApiService` in Retrofit**
   Define endpoints for profiles, catalog, torrents, sessions heartbeat, history, and IPTV.
-- [ ] **Step 4: Implement `ServerDiscovery`**
+- [x] **Step 4: Implement `ServerDiscovery`**
   Scan local subnet `/24` on port `3500` with 300ms parallel health check probe.
-- [ ] **Step 5: Run unit tests**
+- [x] **Step 5: Run unit tests**
   Run: `cd android && ./gradlew :core:test` and ensure all tests pass.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   ```bash
   git add android/core/
   git commit -m "feat(core): implement domain models, Retrofit API service and local server discovery"
