@@ -126,15 +126,15 @@
 - Consumes: `ServerDiscovery`, `LumiereApiService.getProfiles()`, `verifyPin()`.
 - Produces: Profile selection and server connection routes.
 
-- [ ] **Step 1: Implement `ConnectScreen` and `ConnectViewModel`**
+- [x] **Step 1: Implement `ConnectScreen` and `ConnectViewModel`**
   Display scanning pulse indicator. If server detected, show one-click connect button. Fallback to D-pad IP/port editor.
-- [ ] **Step 2: Implement `ProfilesScreen` and `ProfilesViewModel`**
+- [x] **Step 2: Implement `ProfilesScreen` and `ProfilesViewModel`**
   Fetch `/api/profiles`. Render animated TV profile cards with golden glow on D-pad focus.
-- [ ] **Step 3: Implement `PinDialog` for TV**
+- [x] **Step 3: Implement `PinDialog` for TV**
   Modal 4-digit PIN pad with numeric buttons, error shake animation, and auto-submit on 4th digit.
-- [ ] **Step 4: Verify compilation & layout**
+- [x] **Step 4: Verify compilation & layout**
   Run: `cd android && ./gradlew :tv:compileDebugKotlin`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/ui/connect android/tv/src/main/java/com/lumiere/tv/ui/profiles android/tv/src/main/java/com/lumiere/tv/ui/components
   git commit -m "feat(tv): implement server connect screen and profile picker with PIN dialog"

@@ -17,6 +17,8 @@ import com.lumiere.core.storage.AppPreferences
 import com.lumiere.tv.navigation.Screen
 import com.lumiere.tv.theme.BackgroundDark
 import com.lumiere.tv.theme.LumiereTvTheme
+import com.lumiere.tv.ui.connect.ConnectScreen
+import com.lumiere.tv.ui.profiles.ProfilesScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -49,10 +51,27 @@ class MainActivity : ComponentActivity() {
                         startDestination = startDestination
                     ) {
                         composable(Screen.Connect.route) {
-                            // Implemented in Task 4
+                            ConnectScreen(
+                                onConnected = {
+                                    navController.navigate(Screen.Profiles.route) {
+                                        popUpTo(Screen.Connect.route) { inclusive = true }
+                                    }
+                                }
+                            )
                         }
                         composable(Screen.Profiles.route) {
-                            // Implemented in Task 4
+                            ProfilesScreen(
+                                onProfileChosen = {
+                                    navController.navigate(Screen.Home.route) {
+                                        popUpTo(Screen.Profiles.route) { inclusive = true }
+                                    }
+                                },
+                                onChangeServer = {
+                                    navController.navigate(Screen.Connect.route) {
+                                        popUpTo(0)
+                                    }
+                                }
+                            )
                         }
                         composable(Screen.Home.route) {
                             // Implemented in Task 5
