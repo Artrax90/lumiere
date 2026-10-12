@@ -17,10 +17,58 @@ const tabs = [
   { id: 'devices', label: 'Устройства', icon: Monitor },
 ];
 
+const KNOWN_TITLE_GENRES: Record<string, string[]> = {
+  'Человек-паук': ['Боевик', 'Фантастика', 'Приключения'],
+  'Сплит': ['Триллер', 'Ужасы'],
+  'Голодные игры': ['Фантастика', 'Приключения', 'Боевик'],
+  'Камеди Клаб': ['Комедия'],
+  'Теория большого взрыва': ['Комедия'],
+  'Аанг': ['Мультфильм', 'Фэнтези', 'Приключения'],
+  'Доктор Хаус': ['Драма', 'Детектив'],
+  'Убить Билла': ['Боевик', 'Триллер', 'Криминал'],
+  'Симпсоны': ['Мультфильм', 'Комедия'],
+  'Шепот за окном': ['Триллер', 'Ужасы'],
+  'Форрест Гамп': ['Драма', 'Мелодрама'],
+  'Любовь, смерть и роботы': ['Фантастика', 'Мультфильм'],
+  'Matchbox': ['Боевик'],
+  'Гипотеза любви': ['Мелодрама', 'Комедия'],
+  'Хитрый Койот': ['Мультфильм', 'Комедия'],
+  'Бегущая': ['Триллер', 'Боевик'],
+  'В чужой шкуре': ['Фантастика', 'Триллер'],
+};
+
 export default function ProfileView({ onSelect }: ProfileViewProps) {
   const [activeTab, setActiveTab] = useState('overview');
   const { user, logout } = useAuth();
   const [favorites, setFavorites] = useState<Title[]>([]);
+
+  // Real-time actual continuous watch seconds (wall-clock playback time)
+  const [actualWatchSeconds, setActualWatchSeconds] = useState(() => {
+    return Number(getScopedItem('actual_watch_seconds') || 0);
+  });
+
+  useEffect(() => {
+    // 1. Listen for local actual watch time updates from player
+    const handleUpdate = (e: any) => {
+      setActualWatchSeconds(Number(e.detail ?? getScopedItem('actual_watch_seconds') ?? 0));
+    };
+    window.addEventListener('actual-watch-time-updated', handleUpdate);
+
+    // 2. Sync from server preferences if available
+    serverFetch('/api/user/preferences')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.preferences?.actual_watch_seconds !== undefined) {
+          const remote = Number(data.preferences.actual_watch_seconds);
+          if (remote > 0) {
+            setActualWatchSeconds((prev) => Math.max(prev, remote));
+          }
+        }
+      })
+      .catch(() => {});
+
+    return () => window.removeEventListener('actual-watch-time-updated', handleUpdate);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -52,25 +100,34 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
     try {
       const raw = getScopedItem('playback_positions');
       const positions = raw ? JSON.parse(raw) : {};
-      let totalSeconds = 0;
       let watchedCount = 0;
       const genreCounts: Record<string, number> = {};
 
       for (const val of Object.values(positions)) {
         const time = typeof val === 'object' && val !== null ? (val as any).time || 0 : Number(val || 0);
-        if (time > 30) {
-          totalSeconds += time;
+        // Only count as finished/watched title if watched for at least 15 minutes (900s)
+        if (time >= 900) {
           watchedCount++;
-          const t = typeof val === 'object' && val !== null ? (val as any).title : null;
-          if (t && Array.isArray(t.genres)) {
-            for (const g of t.genres) {
-              genreCounts[g] = (genreCounts[g] || 0) + 1;
+        }
+
+        const t = typeof val === 'object' && val !== null ? (val as any).title : null;
+        let itemGenres: string[] = [];
+        if (t && Array.isArray(t.genres) && t.genres.length > 0) {
+          itemGenres = t.genres;
+        } else if (t?.name) {
+          for (const [key, gList] of Object.entries(KNOWN_TITLE_GENRES)) {
+            if (t.name.toLowerCase().includes(key.toLowerCase())) {
+              itemGenres = gList;
+              break;
             }
           }
         }
+
+        for (const g of itemGenres) {
+          genreCounts[g] = (genreCounts[g] || 0) + 1;
+        }
       }
 
-      const totalHours = Math.round(totalSeconds / 3600);
       const topGenres = Object.entries(genreCounts)
         .sort(([, a], [, b]) => b - a)
         .slice(0, 5)
@@ -80,23 +137,39 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           pct: arr[0] ? Math.round((count / arr[0][1]) * 100) : 100,
         }));
 
+      // Format accurate real watch time
+      let watchTimeValue: string | number = 0;
+      let watchTimeSuffix = 'мин';
+      if (actualWatchSeconds >= 3600) {
+        const hrs = (actualWatchSeconds / 3600).toFixed(1);
+        watchTimeValue = hrs.endsWith('.0') ? parseInt(hrs, 10) : hrs;
+        watchTimeSuffix = 'ч';
+      } else if (actualWatchSeconds >= 60) {
+        watchTimeValue = Math.round(actualWatchSeconds / 60);
+        watchTimeSuffix = 'мин';
+      } else {
+        watchTimeValue = 0;
+        watchTimeSuffix = 'мин';
+      }
+
       return {
-        totalHours,
+        watchTimeValue,
+        watchTimeSuffix,
         watchedCount,
         topGenres,
       };
     } catch {
-      return { totalHours: 0, watchedCount: 0, topGenres: [] };
+      return { watchTimeValue: 0, watchTimeSuffix: 'мин', watchedCount: 0, topGenres: [] };
     }
-  }, []);
+  }, [actualWatchSeconds]);
 
   const achievements = useMemo(() => [
-    { id: 'a1', name: 'Первый сеанс', desc: 'Запустили первый фильм или серию', icon: '🎬', unlocked: stats.watchedCount >= 1 },
-    { id: 'a2', name: 'Киноман', desc: 'Посмотрели более 5 фильмов или серий', icon: '🍿', unlocked: stats.watchedCount >= 5 },
-    { id: 'a3', name: 'Марафонец', desc: 'Провели более 10 часов за просмотром', icon: '⏱️', unlocked: stats.totalHours >= 10 },
+    { id: 'a1', name: 'Первый сеанс', desc: 'Запустили первый фильм или серию', icon: '🎬', unlocked: stats.watchedCount >= 1 || actualWatchSeconds >= 60 },
+    { id: 'a2', name: 'Киноман', desc: 'Посмотрели более 3 фильмов или серий', icon: '🍿', unlocked: stats.watchedCount >= 3 },
+    { id: 'a3', name: 'Марафонец', desc: 'Провели более 10 часов за просмотром', icon: '⏱️', unlocked: actualWatchSeconds >= 36000 },
     { id: 'a4', name: 'Коллекционер', desc: 'Добавили тайтлы в избранное', icon: '⭐', unlocked: favorites.length > 0 },
     { id: 'a5', name: 'Знаток IPTV', desc: 'Подключили собственный плейлист каналов', icon: '📡', unlocked: !!localStorage.getItem('lumiere_iptv') },
-  ], [stats, favorites.length]);
+  ], [stats.watchedCount, actualWatchSeconds, favorites.length]);
 
   const devices = useMemo(() => [
     {
@@ -115,6 +188,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
   return (
     <div className="min-h-screen w-full px-8 pt-28 pb-20 lg:px-12">
       <div className="mx-auto max-w-[1300px]">
+        {/* User Card */}
         <div className="mb-10 animate-row-reveal">
           <div className="flex items-center gap-4">
             <div className="relative shrink-0">
@@ -136,7 +210,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
             <div className="shrink-0">
               <button
                 onClick={logout}
-                className="flex items-center gap-2 rounded-full glass px-3 py-2 text-[12px] font-medium text-white/60 transition-cinematic hover:text-white/90 hover:bg-white/[0.08] md:px-4 md:text-[13px]"
+                className="flex items-center gap-2 rounded-full glass px-3 py-2 text-[12px] font-medium text-white/60 transition-cinematic hover:text-white/90 hover:bg-white/[0.08] md:px-4 md:text-[13px] cursor-pointer"
               >
                 <LogOut className="h-4 w-4" strokeWidth={1.5} /><span className="hidden md:inline">Выйти</span>
               </button>
@@ -144,13 +218,15 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           </div>
         </div>
 
+        {/* Stats Grid */}
         <div className="mb-10 grid grid-cols-2 gap-4 md:grid-cols-4 animate-row-reveal">
-          <StatCard label="Часов просмотрено" value={stats.totalHours} suffix="ч" />
+          <StatCard label="Время просмотра" value={stats.watchTimeValue} suffix={stats.watchTimeSuffix} />
           <StatCard label="Просмотрено тайтлов" value={stats.watchedCount} />
           <StatCard label="В избранном" value={favorites.length} />
           <StatCard label="Достижения" value={achievements.filter((a) => a.unlocked).length} suffix={`/${achievements.length}`} />
         </div>
 
+        {/* Tabs Bar */}
         <div className="mb-8 flex gap-1 overflow-x-auto border-b border-white/[0.06] animate-row-reveal no-scrollbar">
           {tabs.map((t) => {
             const TIcon = t.icon;
@@ -158,7 +234,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
               <button
                 key={t.id}
                 onClick={() => setActiveTab(t.id)}
-                className="flex shrink-0 items-center gap-2 px-4 py-3 text-[13px] font-medium transition-cinematic whitespace-nowrap"
+                className="flex shrink-0 items-center gap-2 px-4 py-3 text-[13px] font-medium transition-cinematic whitespace-nowrap cursor-pointer"
                 style={{
                   color: activeTab === t.id ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.45)',
                   borderBottom: activeTab === t.id ? '2px solid rgba(232,193,112,0.65)' : '2px solid transparent',
@@ -170,6 +246,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           })}
         </div>
 
+        {/* Tab Content: Overview */}
         {activeTab === 'overview' && (
           <div className="space-y-12 animate-fade-in">
             <section>
@@ -181,7 +258,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
                 <div className="space-y-3">
                   {stats.topGenres.map((g) => (
                     <div key={g.name} className="flex items-center gap-4">
-                      <div className="w-24 text-[13px] font-medium text-white/70">{g.name}</div>
+                      <div className="w-28 text-[13px] font-medium text-white/70">{g.name}</div>
                       <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
                         <div className="h-full rounded-full" style={{ width: `${g.pct}%`, background: 'linear-gradient(90deg, rgba(232,193,112,0.6), rgba(232,193,112,0.9))' }} />
                       </div>
@@ -191,13 +268,14 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
                 </div>
               ) : (
                 <div className="py-8 text-center text-white/35 text-[13px]">
-                  История просмотров пуста. Смотрите фильмы и сериалы, чтобы формировать статистику жанров.
+                  История просмотров формируется. Запускайте фильмы и сериалы, чтобы видеть статистику любимых жанров.
                 </div>
               )}
             </section>
           </div>
         )}
 
+        {/* Tab Content: Favorites */}
         {activeTab === 'favorites' && (
           favorites.length > 0 ? (
             <div className="grid grid-cols-2 gap-5 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 animate-fade-in">
@@ -217,6 +295,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           )
         )}
 
+        {/* Tab Content: Achievements */}
         {activeTab === 'achievements' && (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 animate-fade-in">
             {achievements.map((a, i) => (
@@ -238,6 +317,7 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
           </div>
         )}
 
+        {/* Tab Content: Devices */}
         {activeTab === 'devices' && (
           <div className="space-y-3 animate-fade-in">
             {devices.map((d, i) => (
@@ -261,12 +341,12 @@ export default function ProfileView({ onSelect }: ProfileViewProps) {
   );
 }
 
-function StatCard({ label, value, suffix }: { label: string; value: number; suffix?: string }) {
+function StatCard({ label, value, suffix }: { label: string; value: string | number; suffix?: string }) {
   return (
     <div className="glass-panel rounded-[16px] p-5">
       <div className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/40">{label}</div>
       <div className="mt-2 text-display text-[32px] font-medium text-white/95">
-        {value}<span className="text-[18px] text-white/40">{suffix}</span>
+        {value}<span className="text-[18px] text-white/40 ml-0.5">{suffix}</span>
       </div>
     </div>
   );

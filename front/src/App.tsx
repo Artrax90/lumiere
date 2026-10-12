@@ -33,6 +33,7 @@ function savePlaybackPosition(titleId: number, time: number, title?: Title) {
         backdrop: title.backdrop,
         year: title.year,
         type: title.type,
+        genres: title.genres || [],
         season: sNum,
         episode: eNum,
       };
@@ -188,6 +189,23 @@ export default function App() {
     }
   }, []);
 
+  // Synchronize actual watch time from server preferences on startup
+  useEffect(() => {
+    serverFetch('/api/user/preferences')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data?.preferences?.actual_watch_seconds !== undefined) {
+          const remoteSec = Number(data.preferences.actual_watch_seconds);
+          const localSec = Number(getScopedItem('actual_watch_seconds') || 0);
+          if (remoteSec > localSec) {
+            setScopedItem('actual_watch_seconds', String(remoteSec));
+            window.dispatchEvent(new CustomEvent('actual-watch-time-updated', { detail: remoteSec }));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const { data: trendingMovies } = useTrending('movie');
 
   const handleNavigate = useCallback((s: NavSection, collectionId?: string) => {
@@ -297,6 +315,10 @@ export default function App() {
   }, [pushRoute, replaceRoute]);
 
   const lastSavedTime = useRef(0);
+  const watchTrackerRef = useRef<{ lastVideoTime: number; lastClock: number }>({
+    lastVideoTime: -1,
+    lastClock: 0,
+  });
 
   const handlePlay = useCallback((title: Title, externalSubs?: any[]) => {
     if (!title.videoUrl) {
@@ -306,6 +328,7 @@ export default function App() {
     setPlaying(title);
     setPlayingExternalSubs(externalSubs || []);
     lastSavedTime.current = 0;
+    watchTrackerRef.current = { lastVideoTime: -1, lastClock: 0 };
 
     // Report activity to server
     serverFetch('/api/user/activity', {
@@ -320,6 +343,24 @@ export default function App() {
   }, [handleSelect]);
 
   const handleTimeUpdate = useCallback((time: number) => {
+    const now = Date.now();
+    // Track actual continuous playback time (ignoring seek jumps)
+    if (watchTrackerRef.current.lastVideoTime >= 0 && watchTrackerRef.current.lastClock > 0) {
+      const videoDelta = time - watchTrackerRef.current.lastVideoTime;
+      const clockDelta = (now - watchTrackerRef.current.lastClock) / 1000;
+      // Natural forward playback: progress between 0.5s and 10s matching real clock time
+      if (videoDelta > 0.5 && videoDelta <= 10 && clockDelta >= 0.5 && clockDelta <= 10) {
+        try {
+          const prev = Number(getScopedItem('actual_watch_seconds') || 0);
+          const next = Math.round(prev + videoDelta);
+          setScopedItem('actual_watch_seconds', String(next));
+          window.dispatchEvent(new CustomEvent('actual-watch-time-updated', { detail: next }));
+        } catch {}
+      }
+    }
+    watchTrackerRef.current.lastVideoTime = time;
+    watchTrackerRef.current.lastClock = now;
+
     // Save position every 5 seconds
     if (playing && Math.abs(time - lastSavedTime.current) > 5) {
       savePlaybackPosition(playing.id, time, playing);
@@ -341,6 +382,19 @@ export default function App() {
     if (playing) {
       savePlaybackPosition(playing.id, lastSavedTime.current, playing);
     }
+    watchTrackerRef.current = { lastVideoTime: -1, lastClock: 0 };
+    // Sync actual watch time to server preferences
+    try {
+      const totalSec = Number(getScopedItem('actual_watch_seconds') || 0);
+      if (totalSec > 0) {
+        serverFetch('/api/user/preferences', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ preferences: { actual_watch_seconds: totalSec } }),
+        }).catch(() => {});
+      }
+    } catch {}
+
     const isShow = playing?.type === 'tv' || playing?.type === 'anime' || Boolean((playing as any)?.episode);
     setPlaying(null);
     // Return directly to the series view with the current season & active episode highlighted
