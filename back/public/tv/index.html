@@ -409,7 +409,6 @@
             <div id="iptv-preview-desc" class="iptv-preview-desc"></div>
             <div id="iptv-preview-actions" class="iptv-preview-actions">
               <button id="iptv-btn-play" class="iptv-action-btn primary" tabindex="0">▶ Смотреть во весь экран</button>
-              <button id="iptv-btn-multi" class="iptv-action-btn" tabindex="0">⊞ Мультискрин 50/50</button>
               <button id="iptv-btn-fav" class="iptv-action-btn" tabindex="0">★ В избранное</button>
             </div>
             <div id="iptv-epg-schedule" class="iptv-epg-schedule"></div>
@@ -622,90 +621,35 @@
 
   <!-- TV IPTV 50/50 Multi-View Modal -->
   <div id="tv-iptv-multiview" class="tv-modal hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9500;background:rgba(0,0,0,0.96);flex-direction:column;">
-    <div style="display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid rgba(255,255,255,0.1);background:#07090e;flex-shrink:0;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 48px;border-bottom:1px solid rgba(255,255,255,0.1);background:#07090e;">
       <div style="display:flex;align-items:center;gap:16px;">
         <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;"></span>
-        <h2 style="font-size:24px;font-weight:700;color:#ffffff;margin:0;">Мультискрин 50/50</h2>
-        <span style="font-size:15px;color:rgba(255,255,255,0.6);margin-left:12px;">◄ / ► звук • ▲ / ▼ переключить канал • OK список каналов • Назад выход</span>
+        <h2 style="font-size:26px;font-weight:700;color:#ffffff;margin:0;">Мультискрин 50/50</h2>
+        <span style="font-size:16px;color:rgba(255,255,255,0.6);margin-left:12px;">Пульт: ◄ / ► переключение фокуса звука • Назад (Выход)</span>
       </div>
-      <div id="tv-multiview-audio-indicator" style="font-size:17px;font-weight:700;color:#e8c170;background:rgba(232,193,112,0.15);border:1px solid rgba(232,193,112,0.3);padding:8px 24px;border-radius:20px;">
+      <div id="tv-multiview-audio-indicator" style="font-size:18px;font-weight:700;color:#e8c170;background:rgba(232,193,112,0.15);border:1px solid rgba(232,193,112,0.3);padding:8px 20px;border-radius:20px;">
         🔊 Звук: Экран 1 (Слева)
       </div>
     </div>
-    <div style="display:flex;gap:24px;padding:24px 48px;flex:1;min-height:0;box-sizing:border-box;position:relative;">
-      <!-- Single Background 50/50 Mosaic Video Element -->
-      <div id="tv-multi-video-wrap" style="position:absolute;top:24px;left:48px;right:48px;bottom:24px;border-radius:20px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;z-index:1;">
-        <video id="tv-multi-video" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline webkit-playsinline></video>
+    <div style="display:flex;gap:24px;padding:24px 48px;flex:1;min-height:0;box-sizing:border-box;">
+      <!-- Left 50% Screen -->
+      <div id="tv-multi-left" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid #e8c170;position:relative;display:flex;flex-direction:column;box-shadow:0 0 30px rgba(232,193,112,0.3);">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:#e8c170;color:#000;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 1</span>
+          <span id="tv-multi-title-left" style="color:#fff;font-size:18px;font-weight:700;">Канал 1</span>
+          <span id="tv-multi-audio-badge-left" style="color:#6ee7b7;font-weight:700;font-size:15px;">🔊 Звук активен</span>
+        </div>
+        <video id="tv-multi-video-left" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline></video>
       </div>
 
-      <!-- Left 50% Screen Overlay -->
-      <div id="tv-multi-left" class="tv-multi-pane active" tabindex="0">
-        <div class="tv-multi-overlay-bar">
-          <div style="display:flex;align-items:center;gap:12px;max-width:70%;">
-            <span class="tv-multi-screen-tag" id="tv-multi-tag-left">ЭКРАН 1</span>
-            <img id="tv-multi-logo-left" src="" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.4);display:none;" />
-            <div class="tv-multi-channel-meta">
-              <div id="tv-multi-title-left" class="tv-multi-title">Канал 1</div>
-              <div id="tv-multi-epg-left" class="tv-multi-epg"></div>
-            </div>
-          </div>
-          <div id="tv-multi-audio-badge-left" class="tv-multi-audio-badge active">🔊 Звук активен</div>
+      <!-- Right 50% Screen -->
+      <div id="tv-multi-right" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid rgba(255,255,255,0.15);position:relative;display:flex;flex-direction:column;">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 2</span>
+          <span id="tv-multi-title-right" style="color:#fff;font-size:18px;font-weight:700;">Канал 2</span>
+          <span id="tv-multi-audio-badge-right" style="color:rgba(255,255,255,0.4);font-weight:700;font-size:15px;">🔇 Без звука</span>
         </div>
-      </div>
-
-      <!-- Right 50% Screen Overlay -->
-      <div id="tv-multi-right" class="tv-multi-pane" tabindex="0">
-        <div class="tv-multi-overlay-bar">
-          <div style="display:flex;align-items:center;gap:12px;max-width:70%;">
-            <span class="tv-multi-screen-tag inactive" id="tv-multi-tag-right">ЭКРАН 2</span>
-            <img id="tv-multi-logo-right" src="" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.4);display:none;" />
-            <div class="tv-multi-channel-meta">
-              <div id="tv-multi-title-right" class="tv-multi-title">Канал 2</div>
-              <div id="tv-multi-epg-right" class="tv-multi-epg"></div>
-            </div>
-          </div>
-          <div id="tv-multi-audio-badge-right" class="tv-multi-audio-badge inactive">🔇 Без звука</div>
-        </div>
-      </div>
-
-      <!-- Channel Picker Popup Overlay inside Multiview -->
-      <div id="tv-multi-picker-overlay" class="tv-multi-picker-overlay hidden">
-        <div class="tv-multi-picker-box">
-          <div class="tv-multi-picker-header">
-            <div>
-              <div id="tv-multi-picker-badge" style="display:inline-block;padding:3px 10px;background:#e8c170;color:#000;font-size:12px;font-weight:800;border-radius:6px;margin-bottom:6px;">ЭКРАН 1 (СЛЕВА)</div>
-              <h3 id="tv-multi-picker-title" style="margin:0;color:#fff;font-size:22px;font-weight:700;">Выберите канал</h3>
-            </div>
-            <div id="tv-multi-picker-counter" style="color:rgba(255,255,255,0.6);font-size:15px;font-weight:600;">0 каналов</div>
-          </div>
-
-          <!-- Search Bar -->
-          <div class="tv-multi-picker-search-bar" id="tv-multi-picker-search-bar" tabindex="0">
-            <span style="font-size:18px;">🔍</span>
-            <span id="tv-multi-picker-search-text" class="tv-multi-search-placeholder">Поиск канала (нажмите OK для ввода)...</span>
-            <button type="button" id="tv-multi-picker-search-clear" style="display:none;background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:50%;width:24px;height:24px;font-size:13px;cursor:pointer;margin-left:auto;">✕</button>
-          </div>
-
-          <!-- Category Pills Row -->
-          <div id="tv-multi-picker-cats" class="tv-multi-picker-cats"></div>
-
-          <!-- Channels List -->
-          <div id="tv-multi-picker-list" class="tv-multi-picker-list"></div>
-
-          <!-- Virtual Keyboard for Search (OSK) inside Picker -->
-          <div id="tv-multi-picker-osk" class="tv-multi-picker-osk hidden">
-            <div class="iptv-osk-bar">
-              <span class="iptv-osk-query">Поиск: <span id="tv-multi-osk-query-text" style="color:#e8c170;"></span></span>
-              <button type="button" id="tv-multi-osk-done-btn" class="iptv-osk-close-btn" tabindex="0">Готово (↵ к каналам)</button>
-            </div>
-            <div id="tv-multi-osk-keyboard" class="tv-keyboard"></div>
-          </div>
-
-          <!-- Footer Hints -->
-          <div class="tv-multi-picker-footer" id="tv-multi-picker-footer">
-            <span>◄ / ► категории • ▲ / ▼ каналы • OK включить • Назад назад</span>
-          </div>
-        </div>
+        <video id="tv-multi-video-right" style="width:100%;height:100%;object-fit:contain;background:#000;" muted playsinline></video>
       </div>
     </div>
   </div>
