@@ -2671,8 +2671,22 @@
   var tvMultiChannelLeft = null;
   var tvMultiChannelRight = null;
   var tvMultiPickerActive = false;
-  var tvMultiPickerIndex = 0;
-  var tvMultiPickerTarget = 'left';
+  var tvMultiPickerState = {
+    targetSide: 'left',
+    focusSection: 'channels',
+    selectedCategory: 'Все',
+    searchQuery: '',
+    catIndex: 0,
+    channelIndex: 0,
+    categories: ['Все'],
+    filteredChannels: [],
+    renderLimit: 50,
+    osk: {
+      lang: 'ru',
+      row: 0,
+      col: 0
+    }
+  };
 
   function openTvMultiView(channelA, channelB) {
     var modal = document.getElementById('tv-iptv-multiview');
@@ -2760,13 +2774,25 @@
       if (streamUrl.indexOf('/') === 0) {
         streamUrl = (typeof getBaseUrl === 'function' ? getBaseUrl() : '') + streamUrl;
       }
-      try { video.pause(); } catch(e) {}
+      try {
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
+      } catch(e) {}
+
+      video.onerror = function() {
+        console.error('[TV MultiView] Error loading stream on ' + side + ':', channel.name);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'multiview', 'Stream error on ' + side + ': ' + channel.name);
+        }
+      };
+
       video.src = streamUrl;
       video.muted = (tvMultiViewFocus !== side);
       var p = video.play();
       if (p && typeof p.catch === 'function') {
         p.catch(function(err) {
-          console.log('[TV MultiView] Play error (' + side + '):', err);
+          console.error('[TV MultiView] Play error (' + side + '):', err);
         });
       }
     }
@@ -2874,69 +2900,465 @@
     }, 2000);
   }
 
+  // ====================================================
+  // Multiview Channel Picker (with Search, Categories & OSK)
+  // ====================================================
+  function getMultiPickerCategories() {
+    var cats = ['Все'];
+    if (iptvState && iptvState.favorites && Object.keys(iptvState.favorites).length > 0) {
+      cats.push('Избранное');
+    }
+    var groups = typeof buildCategories === 'function' ? buildCategories() : [];
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (g !== 'Все' && g !== 'Избранное' && cats.indexOf(g) === -1) {
+        cats.push(g);
+      }
+    }
+    return cats;
+  }
+
+  function getMultiPickerFilteredChannels() {
+    var allChannels = (iptvState && iptvState.channels) || [];
+    var cat = tvMultiPickerState.selectedCategory;
+    var list = allChannels;
+
+    if (cat === 'Избранное') {
+      list = allChannels.filter(function(ch) {
+        return iptvState && iptvState.favorites && !!iptvState.favorites[ch.id];
+      });
+    } else if (cat && cat !== 'Все') {
+      list = allChannels.filter(function(ch) {
+        return ch.group === cat;
+      });
+    }
+
+    if (tvMultiPickerState.searchQuery && tvMultiPickerState.searchQuery.length > 0) {
+      var q = tvMultiPickerState.searchQuery.toLowerCase();
+      list = list.filter(function(ch) {
+        return (ch.name && ch.name.toLowerCase().indexOf(q) >= 0) ||
+               (ch.group && ch.group.toLowerCase().indexOf(q) >= 0);
+      });
+    }
+
+    return list;
+  }
+
   function openMultiPicker(targetSide) {
     tvMultiPickerActive = true;
-    tvMultiPickerTarget = targetSide;
+    tvMultiPickerState.targetSide = targetSide || tvMultiViewFocus || 'left';
+    tvMultiPickerState.categories = getMultiPickerCategories();
+    tvMultiPickerState.searchQuery = '';
+    tvMultiPickerState.selectedCategory = 'Все';
+    tvMultiPickerState.catIndex = 0;
+    tvMultiPickerState.renderLimit = 50;
+    tvMultiPickerState.filteredChannels = getMultiPickerFilteredChannels();
+
+    var currentCh = (tvMultiPickerState.targetSide === 'left') ? tvMultiChannelLeft : tvMultiChannelRight;
+    var curIdx = tvMultiPickerState.filteredChannels.findIndex(function(c) {
+      return currentCh && (c.id === currentCh.id || c.url === currentCh.url);
+    });
+    tvMultiPickerState.channelIndex = (curIdx >= 0) ? curIdx : 0;
+    tvMultiPickerState.focusSection = tvMultiPickerState.filteredChannels.length > 0 ? 'channels' : 'search';
 
     var overlay = document.getElementById('tv-multi-picker-overlay');
     var badge = document.getElementById('tv-multi-picker-badge');
-    var list = document.getElementById('tv-multi-picker-list');
-    if (!overlay || !list) return;
+    var title = document.getElementById('tv-multi-picker-title');
+    var counter = document.getElementById('tv-multi-picker-counter');
+    var searchBar = document.getElementById('tv-multi-picker-search-bar');
+    var searchText = document.getElementById('tv-multi-picker-search-text');
+    var searchClear = document.getElementById('tv-multi-picker-search-clear');
+    var oskEl = document.getElementById('tv-multi-picker-osk');
 
     if (badge) {
-      badge.textContent = targetSide === 'left' ? 'ЭКРАН 1 (СЛЕВА)' : 'ЭКРАН 2 (СПРАВА)';
+      badge.textContent = (tvMultiPickerState.targetSide === 'left') ? 'ЭКРАН 1 (СЛЕВА)' : 'ЭКРАН 2 (СПРАВА)';
+    }
+    if (title) {
+      title.textContent = 'Выберите канал (' + (tvMultiPickerState.targetSide === 'left' ? 'Экран 1' : 'Экран 2') + ')';
+    }
+    if (counter) {
+      counter.textContent = tvMultiPickerState.filteredChannels.length + ' каналов';
+    }
+    if (searchText) {
+      searchText.textContent = 'Поиск канала (нажмите OK для ввода)...';
+      searchText.className = 'tv-multi-search-placeholder';
+    }
+    if (searchClear) searchClear.style.display = 'none';
+
+    if (searchBar && !searchBar._boundClick) {
+      searchBar._boundClick = true;
+      searchBar.addEventListener('click', function(e) {
+        e.stopPropagation();
+        tvMultiPickerState.focusSection = 'osk';
+        updateMultiPickerFocusUI();
+      });
+    }
+    if (searchClear && !searchClear._boundClick) {
+      searchClear._boundClick = true;
+      searchClear.addEventListener('click', function(e) {
+        e.stopPropagation();
+        tvMultiPickerState.searchQuery = '';
+        if (searchText) {
+          searchText.textContent = 'Поиск канала (нажмите OK для ввода)...';
+          searchText.className = 'tv-multi-search-placeholder';
+        }
+        searchClear.style.display = 'none';
+        tvMultiPickerState.filteredChannels = getMultiPickerFilteredChannels();
+        if (counter) counter.textContent = tvMultiPickerState.filteredChannels.length + ' каналов';
+        renderMultiPickerChannels(false);
+        updateMultiPickerFocusUI();
+      });
     }
 
-    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
-    var currentCh = targetSide === 'left' ? tvMultiChannelLeft : tvMultiChannelRight;
-    var curIdx = allChannels.findIndex(function(c) { return currentCh && (c.id === currentCh.id || c.url === currentCh.url); });
-    tvMultiPickerIndex = curIdx >= 0 ? curIdx : 0;
+    if (oskEl) {
+      oskEl.classList.add('hidden');
+      oskEl.style.display = 'none';
+    }
 
+    renderMultiPickerCategories();
+    renderMultiPickerChannels(false);
+
+    if (overlay) {
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+    }
+
+    updateMultiPickerFocusUI();
+  }
+
+  function renderMultiPickerCategories() {
+    var container = document.getElementById('tv-multi-picker-cats');
+    if (!container) return;
+
+    var cats = tvMultiPickerState.categories;
     var html = '';
-    for (var i = 0; i < allChannels.length; i++) {
-      var ch = allChannels[i];
-      var isCur = (ch === currentCh);
-      var isFoc = (i === tvMultiPickerIndex);
-      var cls = 'tv-multi-picker-item' + (isCur ? ' active' : '') + (isFoc ? ' focused' : '');
-      var logo = typeof getChannelLogo === 'function' ? getChannelLogo(ch) : null;
-      var logoHtml = logo ? ('<img src="' + esc(logo) + '" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.5);" onerror="this.style.display=\'none\'">') : '<div style="width:36px;height:36px;border-radius:6px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:rgba(255,255,255,0.5);">TV</div>';
-      var num = '<span style="font-size:14px;color:rgba(255,255,255,0.4);font-family:monospace;width:32px;">' + (i + 1) + '</span>';
-      var activeBadge = isCur ? '<span style="margin-left:auto;font-size:13px;color:#e8c170;font-weight:700;">● Текущий</span>' : '';
-      html += '<div class="' + cls + '" data-idx="' + i + '">' +
-        num + logoHtml + '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(ch.name) + '</span>' + activeBadge +
-      '</div>';
+    for (var i = 0; i < cats.length; i++) {
+      var cat = cats[i];
+      var isActive = (cat === tvMultiPickerState.selectedCategory);
+      var isFocused = (tvMultiPickerState.focusSection === 'categories' && i === tvMultiPickerState.catIndex);
+      var cls = 'tv-multi-picker-cat-pill' + (isActive ? ' active' : '') + (isFocused ? ' focused' : '');
+      html += '<div class="' + cls + '" data-cat-idx="' + i + '">' + esc(cat) + '</div>';
     }
-    list.innerHTML = html;
+    container.innerHTML = html;
 
-    // Attach click events on picker items
-    var items = list.querySelectorAll('.tv-multi-picker-item');
-    for (var k = 0; k < items.length; k++) {
+    var pills = container.querySelectorAll('.tv-multi-picker-cat-pill');
+    for (var k = 0; k < pills.length; k++) {
       (function(idx) {
-        items[idx].addEventListener('click', function() {
-          tvMultiPickerIndex = idx;
-          var selectedCh = allChannels[idx];
-          if (selectedCh) {
-            if (tvMultiPickerTarget === 'left') {
-              tvMultiChannelLeft = selectedCh;
-            } else {
-              tvMultiChannelRight = selectedCh;
-            }
-            startMultiStream(tvMultiPickerTarget, selectedCh);
-            showMultiToast((tvMultiPickerTarget === 'left' ? 'Экран 1: ' : 'Экран 2: ') + selectedCh.name);
-          }
-          closeMultiPicker();
+        pills[idx].addEventListener('click', function(e) {
+          e.stopPropagation();
+          onSelectMultiPickerCategory(idx);
         });
       })(k);
     }
+  }
 
-    overlay.classList.remove('hidden');
-    overlay.style.display = 'flex';
+  function onSelectMultiPickerCategory(idx) {
+    if (idx < 0 || idx >= tvMultiPickerState.categories.length) return;
+    tvMultiPickerState.catIndex = idx;
+    tvMultiPickerState.selectedCategory = tvMultiPickerState.categories[idx];
+    tvMultiPickerState.filteredChannels = getMultiPickerFilteredChannels();
+    tvMultiPickerState.channelIndex = 0;
+    tvMultiPickerState.renderLimit = 50;
 
-    scrollMultiPickerFocus();
+    var counter = document.getElementById('tv-multi-picker-counter');
+    if (counter) counter.textContent = tvMultiPickerState.filteredChannels.length + ' каналов';
+
+    renderMultiPickerCategories();
+    renderMultiPickerChannels(false);
+    updateMultiPickerFocusUI();
+  }
+
+  function renderMultiPickerChannels(appendOnly) {
+    var container = document.getElementById('tv-multi-picker-list');
+    if (!container) return;
+
+    var channels = tvMultiPickerState.filteredChannels;
+    if (channels.length === 0) {
+      container.innerHTML = '<div style="padding:32px;color:rgba(255,255,255,0.4);text-align:center;font-size:18px;">Каналы не найдены</div>';
+      return;
+    }
+
+    var startIdx = 0;
+    if (appendOnly) {
+      startIdx = container.querySelectorAll('.tv-multi-picker-item').length;
+    } else {
+      container.innerHTML = '';
+    }
+
+    var endIdx = Math.min(channels.length, tvMultiPickerState.renderLimit);
+    if (startIdx >= endIdx) return;
+
+    var currentCh = (tvMultiPickerState.targetSide === 'left') ? tvMultiChannelLeft : tvMultiChannelRight;
+    var frag = document.createDocumentFragment();
+
+    for (var i = startIdx; i < endIdx; i++) {
+      var ch = channels[i];
+      var isCur = currentCh && (ch.id === currentCh.id || ch.url === currentCh.url);
+      var isFoc = (tvMultiPickerState.focusSection === 'channels' && i === tvMultiPickerState.channelIndex);
+
+      var itemEl = document.createElement('div');
+      itemEl.className = 'tv-multi-picker-item' + (isCur ? ' active' : '') + (isFoc ? ' focused' : '');
+      itemEl.setAttribute('data-idx', i);
+
+      var numHtml = '<span style="font-size:14px;color:rgba(255,255,255,0.35);font-family:monospace;width:32px;">' + (i + 1) + '</span>';
+      var logo = typeof getChannelLogo === 'function' ? getChannelLogo(ch) : null;
+      var logoHtml = logo
+        ? ('<img src="' + esc(logo) + '" loading="lazy" style="width:34px;height:34px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.5);" onerror="this.style.display=\'none\'">')
+        : '<div style="width:34px;height:34px;border-radius:6px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;color:rgba(255,255,255,0.5);">TV</div>';
+
+      var epgId = typeof findEpgId === 'function' ? findEpgId(ch) : null;
+      var progs = (epgId && iptvState && iptvState.epgData && iptvState.epgData[epgId]) ? iptvState.epgData[epgId] : null;
+      var curProg = typeof getCurrentProgram === 'function' ? getCurrentProgram(progs) : null;
+      var epgText = curProg ? curProg.title : (ch.group || '');
+
+      var contentHtml = '<div style="flex:1;min-width:0;display:flex;flex-direction:column;">' +
+        '<div style="font-size:18px;font-weight:600;color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(ch.name) + '</div>' +
+        (epgText ? ('<div style="font-size:13px;color:rgba(255,255,255,0.55);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">' + esc(epgText) + '</div>') : '') +
+      '</div>';
+
+      var badgeHtml = isCur ? '<span style="font-size:13px;color:#e8c170;font-weight:700;margin-left:auto;">● Текущий</span>' : '';
+
+      itemEl.innerHTML = numHtml + logoHtml + contentHtml + badgeHtml;
+
+      (function(channelObj) {
+        itemEl.addEventListener('click', function(e) {
+          e.stopPropagation();
+          onSelectMultiPickerChannel(channelObj);
+        });
+      })(ch);
+
+      frag.appendChild(itemEl);
+    }
+
+    container.appendChild(frag);
+  }
+
+  function onSelectMultiPickerChannel(ch) {
+    if (!ch) return;
+    if (tvMultiPickerState.targetSide === 'left') {
+      tvMultiChannelLeft = ch;
+    } else {
+      tvMultiChannelRight = ch;
+    }
+    startMultiStream(tvMultiPickerState.targetSide, ch);
+    showMultiToast((tvMultiPickerState.targetSide === 'left' ? 'Экран 1: ' : 'Экран 2: ') + ch.name);
+    closeMultiPicker();
+  }
+
+  function scrollMultiPickerItemIntoView(el, container) {
+    if (!el || !container) return;
+    var itemTop = el.offsetTop;
+    var itemHeight = el.offsetHeight || 50;
+    var containerHeight = container.clientHeight || 450;
+    var curScroll = container.scrollTop;
+
+    if (itemTop < curScroll + 40) {
+      container.scrollTop = Math.max(0, itemTop - 40);
+    } else if (itemTop + itemHeight > curScroll + containerHeight - 40) {
+      container.scrollTop = itemTop + itemHeight - containerHeight + 40;
+    }
+  }
+
+  function updateMultiPickerFocusUI() {
+    var searchBar = document.getElementById('tv-multi-picker-search-bar');
+    var catContainer = document.getElementById('tv-multi-picker-cats');
+    var listContainer = document.getElementById('tv-multi-picker-list');
+    var oskEl = document.getElementById('tv-multi-picker-osk');
+
+    if (searchBar) {
+      if (tvMultiPickerState.focusSection === 'search') {
+        searchBar.classList.add('focused');
+      } else {
+        searchBar.classList.remove('focused');
+      }
+    }
+
+    if (catContainer) {
+      var pills = catContainer.querySelectorAll('.tv-multi-picker-cat-pill');
+      for (var i = 0; i < pills.length; i++) {
+        if (tvMultiPickerState.focusSection === 'categories' && i === tvMultiPickerState.catIndex) {
+          pills[i].classList.add('focused');
+          try {
+            if (pills[i].scrollIntoViewIfNeeded) pills[i].scrollIntoViewIfNeeded(false);
+            else pills[i].scrollIntoView({ block: 'nearest', inline: 'nearest' });
+          } catch(e) {}
+        } else {
+          pills[i].classList.remove('focused');
+        }
+      }
+    }
+
+    if (listContainer) {
+      var items = listContainer.querySelectorAll('.tv-multi-picker-item');
+      for (var j = 0; j < items.length; j++) {
+        var idx = parseInt(items[j].getAttribute('data-idx'));
+        if (tvMultiPickerState.focusSection === 'channels' && idx === tvMultiPickerState.channelIndex) {
+          items[j].classList.add('focused');
+          scrollMultiPickerItemIntoView(items[j], listContainer);
+        } else {
+          items[j].classList.remove('focused');
+        }
+      }
+    }
+
+    if (tvMultiPickerState.focusSection === 'osk') {
+      if (oskEl) {
+        oskEl.classList.remove('hidden');
+        oskEl.style.display = 'flex';
+      }
+      renderMultiPickerOsk();
+      focusMultiPickerOskKey(tvMultiPickerState.osk.row, tvMultiPickerState.osk.col);
+    } else {
+      if (oskEl) {
+        oskEl.classList.add('hidden');
+        oskEl.style.display = 'none';
+      }
+    }
+  }
+
+  function updateChannelSelectionInList() {
+    var list = document.getElementById('tv-multi-picker-list');
+    if (!list) return;
+
+    var curFoc = list.querySelector('.tv-multi-picker-item.focused');
+    if (curFoc) curFoc.classList.remove('focused');
+
+    var newTarget = list.querySelector('.tv-multi-picker-item[data-idx="' + tvMultiPickerState.channelIndex + '"]');
+    if (newTarget) {
+      newTarget.classList.add('focused');
+      scrollMultiPickerItemIntoView(newTarget, list);
+    }
+  }
+
+  function renderMultiPickerOsk() {
+    var kbEl = document.getElementById('tv-multi-osk-keyboard');
+    var queryText = document.getElementById('tv-multi-osk-query-text');
+    var doneBtn = document.getElementById('tv-multi-osk-done-btn');
+    if (!kbEl) return;
+
+    if (queryText) {
+      queryText.textContent = tvMultiPickerState.searchQuery || '(пусто)';
+    }
+
+    var lang = tvMultiPickerState.osk.lang || 'ru';
+    var rows = OSK_LAYOUTS[lang] || OSK_LAYOUTS.ru;
+    var html = '';
+
+    for (var r = 0; r < rows.length; r++) {
+      html += '<div class="tv-keyboard-row">';
+      for (var c = 0; c < rows[r].length; c++) {
+        var k = rows[r][c];
+        var isFoc = (tvMultiPickerState.focusSection === 'osk' && r === tvMultiPickerState.osk.row && c === tvMultiPickerState.osk.col && (!doneBtn || !doneBtn.classList.contains('focused')));
+        var cls = 'iptv-osk-key tv-keyboard-key' + (k.cls ? (' ' + k.cls) : '') + (isFoc ? ' focused' : '');
+        html += '<button type="button" class="' + cls + '" data-r="' + r + '" data-c="' + c + '" data-action="' + k.action + '"' +
+          (k.char ? (' data-char="' + esc(k.char) + '"') : '') + ' tabindex="0">' + esc(k.label) + '</button>';
+      }
+      html += '</div>';
+    }
+
+    kbEl.innerHTML = html;
+
+    var keys = kbEl.querySelectorAll('.iptv-osk-key');
+    for (var i = 0; i < keys.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          triggerMultiPickerOskKey(btn);
+        });
+      })(keys[i]);
+    }
+
+    if (doneBtn && !doneBtn._boundClick) {
+      doneBtn._boundClick = true;
+      doneBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        closeMultiPickerOsk();
+      });
+    }
+  }
+
+  function focusMultiPickerOskKey(r, c) {
+    tvMultiPickerState.osk.row = r;
+    tvMultiPickerState.osk.col = c;
+    var doneBtn = document.getElementById('tv-multi-osk-done-btn');
+    if (doneBtn) doneBtn.classList.remove('focused');
+
+    var keys = document.querySelectorAll('#tv-multi-osk-keyboard .iptv-osk-key');
+    for (var i = 0; i < keys.length; i++) keys[i].classList.remove('focused');
+
+    var target = document.querySelector('#tv-multi-osk-keyboard .iptv-osk-key[data-r="' + r + '"][data-c="' + c + '"]');
+    if (target) {
+      target.classList.add('focused');
+    }
+  }
+
+  function triggerMultiPickerOskKey(btn) {
+    if (!btn) {
+      btn = document.querySelector('#tv-multi-osk-keyboard .iptv-osk-key[data-r="' + tvMultiPickerState.osk.row + '"][data-c="' + tvMultiPickerState.osk.col + '"]');
+    }
+    if (!btn) return;
+
+    var action = btn.getAttribute('data-action');
+    var charVal = btn.getAttribute('data-char');
+
+    if (action === 'char') {
+      tvMultiPickerState.searchQuery = (tvMultiPickerState.searchQuery || '') + charVal.toLowerCase();
+    } else if (action === 'space') {
+      tvMultiPickerState.searchQuery = (tvMultiPickerState.searchQuery || '') + ' ';
+    } else if (action === 'backspace') {
+      if (tvMultiPickerState.searchQuery && tvMultiPickerState.searchQuery.length > 0) {
+        tvMultiPickerState.searchQuery = tvMultiPickerState.searchQuery.substring(0, tvMultiPickerState.searchQuery.length - 1);
+      }
+    } else if (action === 'clear') {
+      tvMultiPickerState.searchQuery = '';
+    } else if (action === 'lang') {
+      tvMultiPickerState.osk.lang = (tvMultiPickerState.osk.lang === 'ru') ? 'en' : 'ru';
+      renderMultiPickerOsk();
+      focusMultiPickerOskKey(tvMultiPickerState.osk.row, tvMultiPickerState.osk.col);
+      return;
+    }
+
+    var qText = document.getElementById('tv-multi-osk-query-text');
+    if (qText) qText.textContent = tvMultiPickerState.searchQuery || '(пусто)';
+
+    var sText = document.getElementById('tv-multi-picker-search-text');
+    var sClear = document.getElementById('tv-multi-picker-search-clear');
+    if (sText) {
+      if (tvMultiPickerState.searchQuery) {
+        sText.textContent = 'Поиск: "' + tvMultiPickerState.searchQuery + '"';
+        sText.className = 'tv-multi-search-text';
+        if (sClear) sClear.style.display = 'block';
+      } else {
+        sText.textContent = 'Поиск канала (нажмите OK для ввода)...';
+        sText.className = 'tv-multi-search-placeholder';
+        if (sClear) sClear.style.display = 'none';
+      }
+    }
+
+    // Live update filtered channels
+    tvMultiPickerState.filteredChannels = getMultiPickerFilteredChannels();
+    tvMultiPickerState.channelIndex = 0;
+    tvMultiPickerState.renderLimit = 50;
+
+    var counter = document.getElementById('tv-multi-picker-counter');
+    if (counter) counter.textContent = tvMultiPickerState.filteredChannels.length + ' каналов';
+
+    renderMultiPickerChannels(false);
+  }
+
+  function closeMultiPickerOsk() {
+    tvMultiPickerState.focusSection = tvMultiPickerState.filteredChannels.length > 0 ? 'channels' : 'search';
+    var oskEl = document.getElementById('tv-multi-picker-osk');
+    if (oskEl) {
+      oskEl.classList.add('hidden');
+      oskEl.style.display = 'none';
+    }
+    updateMultiPickerFocusUI();
   }
 
   function closeMultiPicker() {
     tvMultiPickerActive = false;
+    tvMultiPickerState.isOpen = false;
     var overlay = document.getElementById('tv-multi-picker-overlay');
     if (overlay) {
       overlay.classList.add('hidden');
@@ -2944,72 +3366,200 @@
     }
   }
 
-  function scrollMultiPickerFocus() {
-    var list = document.getElementById('tv-multi-picker-list');
-    if (!list) return;
-    var items = list.querySelectorAll('.tv-multi-picker-item');
-    for (var i = 0; i < items.length; i++) {
-      if (i === tvMultiPickerIndex) {
-        items[i].classList.add('focused');
-        try {
-          if (items[i].scrollIntoViewIfNeeded) {
-            items[i].scrollIntoViewIfNeeded(false);
-          } else {
-            items[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          }
-        } catch(e) {}
-      } else {
-        items[i].classList.remove('focused');
-      }
-    }
-  }
-
   function handleMultiPickerKey(code, key, e) {
-    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
-    if (allChannels.length === 0) return;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
 
-    if (code === 38 || key === 'ArrowUp' || key === 'Up') {
-      if (tvMultiPickerIndex > 0) {
-        tvMultiPickerIndex--;
-        scrollMultiPickerFocus();
+    // 1. Handled in OSK
+    if (tvMultiPickerState.focusSection === 'osk') {
+      if (isBack) {
+        closeMultiPickerOsk();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
       }
-      if (e && e.preventDefault) e.preventDefault();
-      return;
-    }
-    if (code === 40 || key === 'ArrowDown' || key === 'Down') {
-      if (tvMultiPickerIndex < allChannels.length - 1) {
-        tvMultiPickerIndex++;
-        scrollMultiPickerFocus();
-      }
-      if (e && e.preventDefault) e.preventDefault();
-      return;
-    }
-    if (code === 13 || code === 29443 || code === 65385 || key === 'Enter') {
-      var selectedCh = allChannels[tvMultiPickerIndex];
-      if (selectedCh) {
-        if (tvMultiPickerTarget === 'left') {
-          tvMultiChannelLeft = selectedCh;
-        } else {
-          tvMultiChannelRight = selectedCh;
+
+      var rows = OSK_LAYOUTS[tvMultiPickerState.osk.lang] || OSK_LAYOUTS.ru;
+      var curRowLen = rows[tvMultiPickerState.osk.row].length;
+      var doneBtn = document.getElementById('tv-multi-osk-done-btn');
+      var isDoneFocused = doneBtn && doneBtn.classList.contains('focused');
+
+      if (isDoneFocused) {
+        if (isDown) {
+          doneBtn.classList.remove('focused');
+          focusMultiPickerOskKey(0, 0);
+        } else if (isEnter) {
+          closeMultiPickerOsk();
         }
-        startMultiStream(tvMultiPickerTarget, selectedCh);
-        showMultiToast((tvMultiPickerTarget === 'left' ? 'Экран 1: ' : 'Экран 2: ') + selectedCh.name);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
       }
-      closeMultiPicker();
+
+      if (isLeft) {
+        if (tvMultiPickerState.osk.col > 0) {
+          focusMultiPickerOskKey(tvMultiPickerState.osk.row, tvMultiPickerState.osk.col - 1);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isRight) {
+        if (tvMultiPickerState.osk.col < curRowLen - 1) {
+          focusMultiPickerOskKey(tvMultiPickerState.osk.row, tvMultiPickerState.osk.col + 1);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isUp) {
+        if (tvMultiPickerState.osk.row > 0) {
+          var prevLen = rows[tvMultiPickerState.osk.row - 1].length;
+          var tCol = Math.min(prevLen - 1, Math.round(tvMultiPickerState.osk.col * (prevLen / curRowLen)));
+          focusMultiPickerOskKey(tvMultiPickerState.osk.row - 1, tCol);
+        } else {
+          var keys = document.querySelectorAll('#tv-multi-osk-keyboard .iptv-osk-key');
+          for (var i = 0; i < keys.length; i++) keys[i].classList.remove('focused');
+          if (doneBtn) doneBtn.classList.add('focused');
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isDown) {
+        if (tvMultiPickerState.osk.row < rows.length - 1) {
+          var nextLen = rows[tvMultiPickerState.osk.row + 1].length;
+          var tCol2 = Math.min(nextLen - 1, Math.round(tvMultiPickerState.osk.col * (nextLen / curRowLen)));
+          focusMultiPickerOskKey(tvMultiPickerState.osk.row + 1, tCol2);
+        } else {
+          closeMultiPickerOsk();
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isEnter) {
+        triggerMultiPickerOskKey();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      return;
+    }
+
+    // 2. Back key outside OSK
+    if (isBack) {
+      if (tvMultiPickerState.searchQuery) {
+        tvMultiPickerState.searchQuery = '';
+        var sTextB = document.getElementById('tv-multi-picker-search-text');
+        var sClearB = document.getElementById('tv-multi-picker-search-clear');
+        if (sTextB) {
+          sTextB.textContent = 'Поиск канала (нажмите OK для ввода)...';
+          sTextB.className = 'tv-multi-search-placeholder';
+        }
+        if (sClearB) sClearB.style.display = 'none';
+        tvMultiPickerState.filteredChannels = getMultiPickerFilteredChannels();
+        var counterB = document.getElementById('tv-multi-picker-counter');
+        if (counterB) counterB.textContent = tvMultiPickerState.filteredChannels.length + ' каналов';
+        renderMultiPickerChannels(false);
+        updateMultiPickerFocusUI();
+      } else {
+        closeMultiPicker();
+      }
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
-    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
-      closeMultiPicker();
+
+    // 3. Search Bar focused
+    if (tvMultiPickerState.focusSection === 'search') {
+      if (isEnter) {
+        tvMultiPickerState.focusSection = 'osk';
+        updateMultiPickerFocusUI();
+      } else if (isDown) {
+        tvMultiPickerState.focusSection = 'categories';
+        updateMultiPickerFocusUI();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    // 4. Categories row focused
+    if (tvMultiPickerState.focusSection === 'categories') {
+      if (isLeft) {
+        if (tvMultiPickerState.catIndex > 0) {
+          onSelectMultiPickerCategory(tvMultiPickerState.catIndex - 1);
+        }
+      } else if (isRight) {
+        if (tvMultiPickerState.catIndex < tvMultiPickerState.categories.length - 1) {
+          onSelectMultiPickerCategory(tvMultiPickerState.catIndex + 1);
+        }
+      } else if (isUp) {
+        tvMultiPickerState.focusSection = 'search';
+        updateMultiPickerFocusUI();
+      } else if (isDown || isEnter) {
+        if (tvMultiPickerState.filteredChannels.length > 0) {
+          tvMultiPickerState.focusSection = 'channels';
+          tvMultiPickerState.channelIndex = 0;
+          updateMultiPickerFocusUI();
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    // 5. Channel List focused
+    if (tvMultiPickerState.focusSection === 'channels') {
+      var channels = tvMultiPickerState.filteredChannels;
+      if (channels.length === 0) {
+        tvMultiPickerState.focusSection = 'search';
+        updateMultiPickerFocusUI();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      if (isUp) {
+        if (tvMultiPickerState.channelIndex > 0) {
+          tvMultiPickerState.channelIndex--;
+          updateChannelSelectionInList();
+        } else {
+          tvMultiPickerState.focusSection = 'categories';
+          updateMultiPickerFocusUI();
+        }
+      } else if (isDown) {
+        if (tvMultiPickerState.channelIndex < channels.length - 1) {
+          tvMultiPickerState.channelIndex++;
+          if (tvMultiPickerState.channelIndex >= tvMultiPickerState.renderLimit - 15 && tvMultiPickerState.renderLimit < channels.length) {
+            tvMultiPickerState.renderLimit = Math.min(channels.length, tvMultiPickerState.renderLimit + 50);
+            renderMultiPickerChannels(true);
+          }
+          updateChannelSelectionInList();
+        }
+      } else if (isLeft) {
+        // Jump up 8 items
+        var prevJump = Math.max(0, tvMultiPickerState.channelIndex - 8);
+        tvMultiPickerState.channelIndex = prevJump;
+        updateChannelSelectionInList();
+      } else if (isRight) {
+        // Jump down 8 items
+        var nextJump = Math.min(channels.length - 1, tvMultiPickerState.channelIndex + 8);
+        tvMultiPickerState.channelIndex = nextJump;
+        if (tvMultiPickerState.channelIndex >= tvMultiPickerState.renderLimit - 15 && tvMultiPickerState.renderLimit < channels.length) {
+          tvMultiPickerState.renderLimit = Math.min(channels.length, tvMultiPickerState.renderLimit + 50);
+          renderMultiPickerChannels(true);
+        }
+        updateChannelSelectionInList();
+      } else if (isEnter) {
+        var ch = channels[tvMultiPickerState.channelIndex];
+        if (ch) {
+          onSelectMultiPickerChannel(ch);
+        }
+      }
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
   }
 
   function closeTvMultiView() {
-    var modal = document.getElementById('tv-iptv-multiview');
     closeMultiPicker();
     tvMultiViewActive = false;
+    var modal = document.getElementById('tv-iptv-multiview');
     if (modal) {
       modal.classList.add('hidden');
       modal.style.display = 'none';
@@ -3017,8 +3567,20 @@
 
     var videoLeft = document.getElementById('tv-multi-video-left');
     var videoRight = document.getElementById('tv-multi-video-right');
-    if (videoLeft) { try { videoLeft.pause(); } catch(e) {} videoLeft.src = ''; }
-    if (videoRight) { try { videoRight.pause(); } catch(e) {} videoRight.src = ''; }
+    if (videoLeft) {
+      try {
+        videoLeft.pause();
+        videoLeft.removeAttribute('src');
+        videoLeft.load();
+      } catch(e) {}
+    }
+    if (videoRight) {
+      try {
+        videoRight.pause();
+        videoRight.removeAttribute('src');
+        videoRight.load();
+      } catch(e) {}
+    }
 
     // Resume preview in main IPTV interface
     if (iptvState && iptvState.currentChannel && state && state.section === 'iptv') {

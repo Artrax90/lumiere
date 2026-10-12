@@ -673,9 +673,35 @@
               <div id="tv-multi-picker-badge" style="display:inline-block;padding:3px 10px;background:#e8c170;color:#000;font-size:12px;font-weight:800;border-radius:6px;margin-bottom:6px;">ЭКРАН 1 (СЛЕВА)</div>
               <h3 id="tv-multi-picker-title" style="margin:0;color:#fff;font-size:22px;font-weight:700;">Выберите канал</h3>
             </div>
-            <span style="color:rgba(255,255,255,0.5);font-size:15px;">▲ / ▼ выбор • OK включить • Назад отмена</span>
+            <div id="tv-multi-picker-counter" style="color:rgba(255,255,255,0.6);font-size:15px;font-weight:600;">0 каналов</div>
           </div>
+
+          <!-- Search Bar -->
+          <div class="tv-multi-picker-search-bar" id="tv-multi-picker-search-bar" tabindex="0">
+            <span style="font-size:18px;">🔍</span>
+            <span id="tv-multi-picker-search-text" class="tv-multi-search-placeholder">Поиск канала (нажмите OK для ввода)...</span>
+            <button type="button" id="tv-multi-picker-search-clear" style="display:none;background:rgba(255,255,255,0.15);border:none;color:#fff;border-radius:50%;width:24px;height:24px;font-size:13px;cursor:pointer;margin-left:auto;">✕</button>
+          </div>
+
+          <!-- Category Pills Row -->
+          <div id="tv-multi-picker-cats" class="tv-multi-picker-cats"></div>
+
+          <!-- Channels List -->
           <div id="tv-multi-picker-list" class="tv-multi-picker-list"></div>
+
+          <!-- Virtual Keyboard for Search (OSK) inside Picker -->
+          <div id="tv-multi-picker-osk" class="tv-multi-picker-osk hidden">
+            <div class="iptv-osk-bar">
+              <span class="iptv-osk-query">Поиск: <span id="tv-multi-osk-query-text" style="color:#e8c170;"></span></span>
+              <button type="button" id="tv-multi-osk-done-btn" class="iptv-osk-close-btn" tabindex="0">Готово (↵ к каналам)</button>
+            </div>
+            <div id="tv-multi-osk-keyboard" class="tv-keyboard"></div>
+          </div>
+
+          <!-- Footer Hints -->
+          <div class="tv-multi-picker-footer" id="tv-multi-picker-footer">
+            <span>◄ / ► категории • ▲ / ▼ каналы • OK включить • Назад назад</span>
+          </div>
         </div>
       </div>
     </div>
