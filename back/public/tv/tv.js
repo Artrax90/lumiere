@@ -28,6 +28,24 @@
     return '';
   }
 
+  // Remote TV error & diagnostic logging
+  window.sendTvLog = function(level, category, message, details) {
+    try {
+      var base = getBaseUrl();
+      if (!base) return;
+      var xhr = new XMLHttpRequest();
+      xhr.open('POST', base + '/api/tv/log', true);
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      var body = {
+        level: level || 'info',
+        category: category || 'tv',
+        message: String(message || ''),
+        details: (typeof details === 'object' && details !== null) ? JSON.stringify(details) : (details ? String(details) : '')
+      };
+      xhr.send(JSON.stringify(body));
+    } catch(e) {}
+  };
+
   // User-scoped storage isolation helpers (Point 8, 8.1, 10)
   function getUserStorageKey(baseKey) {
     var uid = (state && state.user && state.user.id) || 0;
@@ -2670,6 +2688,8 @@
   var tvMultiViewFocus = 'left'; // 'left' | 'right'
   var tvMultiChannelLeft = null;
   var tvMultiChannelRight = null;
+  var tvMultiHlsLeft = null;
+  var tvMultiHlsRight = null;
   var tvMultiPickerActive = false;
   var tvMultiPickerState = {
     targetSide: 'left',
@@ -2769,32 +2789,117 @@
       }
     }
 
-    if (video && channel.url) {
-      var streamUrl = channel.url;
-      if (streamUrl.indexOf('/') === 0) {
-        streamUrl = (typeof getBaseUrl === 'function' ? getBaseUrl() : '') + streamUrl;
+    if (!video || !channel.url) return;
+
+    // Clean up previous HLS instance on this side
+    if (side === 'left') {
+      if (tvMultiHlsLeft) {
+        try { tvMultiHlsLeft.destroy(); } catch(e) {}
+        tvMultiHlsLeft = null;
       }
+    } else {
+      if (tvMultiHlsRight) {
+        try { tvMultiHlsRight.destroy(); } catch(e) {}
+        tvMultiHlsRight = null;
+      }
+    }
+
+    try {
+      video.pause();
+      video.removeAttribute('src');
+      video.load();
+    } catch(e) {}
+
+    var rawUrl = (channel.url || '').trim();
+    var base = typeof getBaseUrl === 'function' ? getBaseUrl() : '';
+    var isExternal = rawUrl.indexOf('http://') === 0 || rawUrl.indexOf('https://') === 0;
+    var streamUrl = rawUrl;
+    if (isExternal) {
+      streamUrl = (base || '') + '/api/iptv/stream?url=' + encodeURIComponent(rawUrl);
+    } else if (rawUrl.indexOf('/') === 0) {
+      streamUrl = (base || '') + rawUrl;
+    }
+
+    video.muted = (tvMultiViewFocus !== side);
+
+    video.onerror = function() {
+      console.error('[TV MultiView] Error loading stream on ' + side + ':', channel.name);
+      if (typeof window.sendTvLog === 'function') {
+        window.sendTvLog('error', 'multiview', 'Video tag error on ' + side + ': ' + channel.name + ' (code ' + (video.error ? video.error.code : 'none') + ')');
+      }
+    };
+
+    if (typeof window.sendTvLog === 'function') {
+      window.sendTvLog('info', 'multiview', 'Starting ' + side + ' stream: ' + channel.name + ' via ' + (window.Hls && window.Hls.isSupported() ? 'Hls.js' : 'HTML5'));
+    }
+
+    if (window.Hls && window.Hls.isSupported()) {
       try {
-        video.pause();
-        video.removeAttribute('src');
-        video.load();
-      } catch(e) {}
-
-      video.onerror = function() {
-        console.error('[TV MultiView] Error loading stream on ' + side + ':', channel.name);
-        if (typeof window.sendTvLog === 'function') {
-          window.sendTvLog('error', 'multiview', 'Stream error on ' + side + ': ' + channel.name);
-        }
-      };
-
-      video.src = streamUrl;
-      video.muted = (tvMultiViewFocus !== side);
-      var p = video.play();
-      if (p && typeof p.catch === 'function') {
-        p.catch(function(err) {
-          console.error('[TV MultiView] Play error (' + side + '):', err);
+        var hls = new window.Hls({
+          enableWorker: false,
+          lowLatencyMode: true,
+          maxBufferLength: 4,
+          maxMaxBufferLength: 8,
+          maxBufferSize: 12 * 1024 * 1024,
+          backBufferLength: 0,
+          manifestLoadingTimeOut: 15000,
+          levelLoadingTimeOut: 15000,
+          fragLoadingTimeOut: 15000
         });
+
+        if (side === 'left') {
+          tvMultiHlsLeft = hls;
+        } else {
+          tvMultiHlsRight = hls;
+        }
+
+        hls.loadSource(streamUrl);
+        hls.attachMedia(video);
+
+        hls.on(window.Hls.Events.MANIFEST_PARSED, function() {
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('info', 'multiview', side + ' MANIFEST_PARSED for ' + channel.name);
+          }
+          var playPromise = video.play();
+          if (playPromise && typeof playPromise.catch === 'function') {
+            playPromise.catch(function(err) {
+              if (typeof window.sendTvLog === 'function') {
+                window.sendTvLog('warn', 'multiview', side + ' play() rejected: ' + (err ? err.message : err));
+              }
+            });
+          }
+        });
+
+        hls.on(window.Hls.Events.ERROR, function(event, data) {
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('error', 'multiview', side + ' HLS error: ' + (data ? (data.type + ' / ' + data.details + (data.fatal ? ' [FATAL]' : '')) : 'unknown'));
+          }
+          if (data && data.fatal) {
+            switch (data.type) {
+              case window.Hls.ErrorTypes.NETWORK_ERROR:
+                try { hls.startLoad(); } catch(e) {}
+                break;
+              case window.Hls.ErrorTypes.MEDIA_ERROR:
+                try { hls.recoverMediaError(); } catch(e) {}
+                break;
+              default:
+                try { hls.destroy(); } catch(e) {}
+                break;
+            }
+          }
+        });
+      } catch(hlsErr) {
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'multiview', side + ' Hls constructor error: ' + hlsErr.message);
+        }
+        video.src = streamUrl;
+        var p = video.play();
+        if (p && typeof p.catch === 'function') p.catch(function() {});
       }
+    } else {
+      video.src = streamUrl;
+      var p2 = video.play();
+      if (p2 && typeof p2.catch === 'function') p2.catch(function() {});
     }
   }
 
@@ -3563,6 +3668,15 @@
     if (modal) {
       modal.classList.add('hidden');
       modal.style.display = 'none';
+    }
+
+    if (tvMultiHlsLeft) {
+      try { tvMultiHlsLeft.destroy(); } catch(e) {}
+      tvMultiHlsLeft = null;
+    }
+    if (tvMultiHlsRight) {
+      try { tvMultiHlsRight.destroy(); } catch(e) {}
+      tvMultiHlsRight = null;
     }
 
     var videoLeft = document.getElementById('tv-multi-video-left');
