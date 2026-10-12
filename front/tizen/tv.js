@@ -2683,13 +2683,13 @@
   }
   window.renderServerDownloads = renderServerDownloads;
 
-  // ========== IPTV 50/50 Multi-View (Side-by-Side Dual Player) ==========
+  // ========== IPTV 50/50 Multi-View (Side-by-Side Dual Player via Mosaic) ==========
   var tvMultiViewActive = false;
   var tvMultiViewFocus = 'left'; // 'left' | 'right'
   var tvMultiChannelLeft = null;
   var tvMultiChannelRight = null;
-  var tvMultiHlsLeft = null;
-  var tvMultiHlsRight = null;
+  var tvMultiHls = null;
+  var tvMultiSessionId = null;
   var tvMultiPickerActive = false;
   var tvMultiPickerState = {
     targetSide: 'left',
@@ -2752,14 +2752,14 @@
       });
     }
 
-    startMultiStream('left', tvMultiChannelLeft);
-    startMultiStream('right', tvMultiChannelRight);
+    updateMultiOverlayMeta('left', tvMultiChannelLeft);
+    updateMultiOverlayMeta('right', tvMultiChannelRight);
     updateTvMultiViewFocusUI();
+    startMosaicPlayback();
   }
 
-  function startMultiStream(side, channel) {
+  function updateMultiOverlayMeta(side, channel) {
     if (!channel) return;
-    var video = document.getElementById(side === 'left' ? 'tv-multi-video-left' : 'tv-multi-video-right');
     var titleEl = document.getElementById(side === 'left' ? 'tv-multi-title-left' : 'tv-multi-title-right');
     var epgEl = document.getElementById(side === 'left' ? 'tv-multi-epg-left' : 'tv-multi-epg-right');
     var logoEl = document.getElementById(side === 'left' ? 'tv-multi-logo-left' : 'tv-multi-logo-right');
@@ -2788,119 +2788,131 @@
         logoEl.style.display = 'none';
       }
     }
+  }
 
-    if (!video || !channel.url) return;
+  var mosaicDebounceTimer = null;
+  function startMosaicPlayback() {
+    if (!tvMultiChannelLeft || !tvMultiChannelRight) return;
+    if (mosaicDebounceTimer) clearTimeout(mosaicDebounceTimer);
+    mosaicDebounceTimer = setTimeout(function() {
+      doStartMosaicPlayback();
+    }, 150);
+  }
 
-    // Clean up previous HLS instance on this side
-    if (side === 'left') {
-      if (tvMultiHlsLeft) {
-        try { tvMultiHlsLeft.destroy(); } catch(e) {}
-        tvMultiHlsLeft = null;
-      }
-    } else {
-      if (tvMultiHlsRight) {
-        try { tvMultiHlsRight.destroy(); } catch(e) {}
-        tvMultiHlsRight = null;
-      }
-    }
+  function doStartMosaicPlayback() {
+    var video = document.getElementById('tv-multi-video');
+    if (!video) return;
 
-    try {
-      video.pause();
-      video.removeAttribute('src');
-      video.load();
-    } catch(e) {}
-
-    var rawUrl = (channel.url || '').trim();
     var base = typeof getBaseUrl === 'function' ? getBaseUrl() : '';
-    var isExternal = rawUrl.indexOf('http://') === 0 || rawUrl.indexOf('https://') === 0;
-    var streamUrl = rawUrl;
-    if (isExternal) {
-      streamUrl = (base || '') + '/api/iptv/stream?url=' + encodeURIComponent(rawUrl);
-    } else if (rawUrl.indexOf('/') === 0) {
-      streamUrl = (base || '') + rawUrl;
-    }
+    var leftUrl = (tvMultiChannelLeft && tvMultiChannelLeft.url) || '';
+    var rightUrl = (tvMultiChannelRight && tvMultiChannelRight.url) || '';
+    if (!leftUrl || !rightUrl) return;
 
-    video.muted = (tvMultiViewFocus !== side);
+    showMultiToast('Запуск трансляций 50/50...');
 
-    video.onerror = function() {
-      console.error('[TV MultiView] Error loading stream on ' + side + ':', channel.name);
-      if (typeof window.sendTvLog === 'function') {
-        window.sendTvLog('error', 'multiview', 'Video tag error on ' + side + ': ' + channel.name + ' (code ' + (video.error ? video.error.code : 'none') + ')');
-      }
-    };
+    var sessionUrl = (base || '') + '/api/iptv/multiview/session?left=' + encodeURIComponent(leftUrl) + '&right=' + encodeURIComponent(rightUrl);
 
     if (typeof window.sendTvLog === 'function') {
-      window.sendTvLog('info', 'multiview', 'Starting ' + side + ' stream: ' + channel.name + ' via ' + (window.Hls && window.Hls.isSupported() ? 'Hls.js' : 'HTML5'));
+      window.sendTvLog('info', 'multiview', 'Requesting mosaic session for: ' + tvMultiChannelLeft.name + ' + ' + tvMultiChannelRight.name);
     }
 
-    if (window.Hls && window.Hls.isSupported()) {
-      try {
-        var hls = new window.Hls({
-          enableWorker: false,
-          lowLatencyMode: true,
-          maxBufferLength: 4,
-          maxMaxBufferLength: 8,
-          maxBufferSize: 12 * 1024 * 1024,
-          backBufferLength: 0,
-          manifestLoadingTimeOut: 15000,
-          levelLoadingTimeOut: 15000,
-          fragLoadingTimeOut: 15000
-        });
-
-        if (side === 'left') {
-          tvMultiHlsLeft = hls;
-        } else {
-          tvMultiHlsRight = hls;
+    fetch(sessionUrl)
+      .then(function(res) { return res.json(); })
+      .then(function(data) {
+        if (!tvMultiViewActive) return;
+        if (!data || !data.playlistUrl) {
+          throw new Error(data && data.error ? data.error : 'Не удалось получить поток мультискрина');
         }
 
-        hls.loadSource(streamUrl);
-        hls.attachMedia(video);
+        tvMultiSessionId = data.sessionId;
+        var fullPlaylistUrl = (base || '') + data.playlistUrl;
 
-        hls.on(window.Hls.Events.MANIFEST_PARSED, function() {
-          if (typeof window.sendTvLog === 'function') {
-            window.sendTvLog('info', 'multiview', side + ' MANIFEST_PARSED for ' + channel.name);
-          }
-          var playPromise = video.play();
-          if (playPromise && typeof playPromise.catch === 'function') {
-            playPromise.catch(function(err) {
-              if (typeof window.sendTvLog === 'function') {
-                window.sendTvLog('warn', 'multiview', side + ' play() rejected: ' + (err ? err.message : err));
-              }
-            });
-          }
-        });
+        // Clean up previous HLS
+        if (tvMultiHls) {
+          try { tvMultiHls.destroy(); } catch(e) {}
+          tvMultiHls = null;
+        }
 
-        hls.on(window.Hls.Events.ERROR, function(event, data) {
-          if (typeof window.sendTvLog === 'function') {
-            window.sendTvLog('error', 'multiview', side + ' HLS error: ' + (data ? (data.type + ' / ' + data.details + (data.fatal ? ' [FATAL]' : '')) : 'unknown'));
-          }
-          if (data && data.fatal) {
-            switch (data.type) {
-              case window.Hls.ErrorTypes.NETWORK_ERROR:
-                try { hls.startLoad(); } catch(e) {}
-                break;
-              case window.Hls.ErrorTypes.MEDIA_ERROR:
-                try { hls.recoverMediaError(); } catch(e) {}
-                break;
-              default:
-                try { hls.destroy(); } catch(e) {}
-                break;
+        try {
+          video.pause();
+          video.removeAttribute('src');
+          video.load();
+        } catch(e) {}
+
+        video.muted = false;
+
+        if (window.Hls && window.Hls.isSupported()) {
+          var hls = new window.Hls({
+            enableWorker: false,
+            lowLatencyMode: true,
+            maxBufferLength: 4,
+            maxMaxBufferLength: 8,
+            maxBufferSize: 15 * 1024 * 1024,
+            backBufferLength: 0,
+            manifestLoadingTimeOut: 15000,
+            levelLoadingTimeOut: 15000,
+            fragLoadingTimeOut: 15000
+          });
+          tvMultiHls = hls;
+
+          hls.loadSource(fullPlaylistUrl);
+          hls.attachMedia(video);
+
+          hls.on(window.Hls.Events.MANIFEST_PARSED, function() {
+            if (typeof window.sendTvLog === 'function') {
+              window.sendTvLog('info', 'multiview', 'Mosaic MANIFEST_PARSED, starting playback');
             }
-          }
-        });
-      } catch(hlsErr) {
-        if (typeof window.sendTvLog === 'function') {
-          window.sendTvLog('error', 'multiview', side + ' Hls constructor error: ' + hlsErr.message);
+            applyAudioTrack();
+            var p = video.play();
+            if (p && typeof p.catch === 'function') {
+              p.catch(function(err) {
+                if (typeof window.sendTvLog === 'function') {
+                  window.sendTvLog('warn', 'multiview', 'Mosaic play() error: ' + (err ? err.message : err));
+                }
+              });
+            }
+          });
+
+          hls.on(window.Hls.Events.ERROR, function(event, errData) {
+            if (typeof window.sendTvLog === 'function') {
+              window.sendTvLog('error', 'multiview', 'Mosaic HLS error: ' + (errData ? (errData.type + ' / ' + errData.details) : 'unknown'));
+            }
+            if (errData && errData.fatal) {
+              switch (errData.type) {
+                case window.Hls.ErrorTypes.NETWORK_ERROR:
+                  try { hls.startLoad(); } catch(e) {}
+                  break;
+                case window.Hls.ErrorTypes.MEDIA_ERROR:
+                  try { hls.recoverMediaError(); } catch(e) {}
+                  break;
+                default:
+                  try { hls.destroy(); } catch(e) {}
+                  break;
+              }
+            }
+          });
+        } else {
+          video.src = fullPlaylistUrl;
+          var p2 = video.play();
+          if (p2 && typeof p2.catch === 'function') p2.catch(function() {});
         }
-        video.src = streamUrl;
-        var p = video.play();
-        if (p && typeof p.catch === 'function') p.catch(function() {});
+      })
+      .catch(function(err) {
+        console.error('[MultiView] Mosaic session error:', err);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'multiview', 'Mosaic session fetch error: ' + (err ? err.message : err));
+        }
+        showMultiToast('Ошибка запуска: ' + (err ? err.message : ''));
+      });
+  }
+
+  function applyAudioTrack() {
+    if (!tvMultiHls) return;
+    try {
+      if (tvMultiHls.audioTracks && tvMultiHls.audioTracks.length > 1) {
+        tvMultiHls.audioTrack = (tvMultiViewFocus === 'left') ? 0 : 1;
       }
-    } else {
-      video.src = streamUrl;
-      var p2 = video.play();
-      if (p2 && typeof p2.catch === 'function') p2.catch(function() {});
-    }
+    } catch(e) {}
   }
 
   function updateTvMultiViewFocusUI() {
@@ -2911,8 +2923,6 @@
     var tagLeft = document.getElementById('tv-multi-tag-left');
     var tagRight = document.getElementById('tv-multi-tag-right');
     var indicator = document.getElementById('tv-multiview-audio-indicator');
-    var videoLeft = document.getElementById('tv-multi-video-left');
-    var videoRight = document.getElementById('tv-multi-video-right');
 
     if (tvMultiViewFocus === 'left') {
       if (paneLeft) {
@@ -2936,8 +2946,6 @@
         badgeRight.innerHTML = '🔇 Без звука';
       }
       if (indicator) indicator.innerHTML = '🔊 Звук: <strong style="color:#ffffff;">Экран 1 (Слева)</strong>';
-      if (videoLeft) videoLeft.muted = false;
-      if (videoRight) videoRight.muted = true;
     } else {
       if (paneRight) {
         paneRight.classList.add('active');
@@ -2960,9 +2968,9 @@
         badgeLeft.innerHTML = '🔇 Без звука';
       }
       if (indicator) indicator.innerHTML = '🔊 Звук: <strong style="color:#ffffff;">Экран 2 (Справа)</strong>';
-      if (videoLeft) videoLeft.muted = true;
-      if (videoRight) videoRight.muted = false;
     }
+
+    applyAudioTrack();
   }
 
   function changeMultiChannel(side, direction) {
@@ -2983,7 +2991,8 @@
     } else {
       tvMultiChannelRight = nextCh;
     }
-    startMultiStream(side, nextCh);
+    updateMultiOverlayMeta(side, nextCh);
+    startMosaicPlayback();
     showMultiToast((side === 'left' ? 'Экран 1: ' : 'Экран 2: ') + nextCh.name);
   }
 
@@ -3245,7 +3254,8 @@
     } else {
       tvMultiChannelRight = ch;
     }
-    startMultiStream(tvMultiPickerState.targetSide, ch);
+    updateMultiOverlayMeta(tvMultiPickerState.targetSide, ch);
+    startMosaicPlayback();
     showMultiToast((tvMultiPickerState.targetSide === 'left' ? 'Экран 1: ' : 'Экран 2: ') + ch.name);
     closeMultiPicker();
   }
@@ -3670,31 +3680,29 @@
       modal.style.display = 'none';
     }
 
-    if (tvMultiHlsLeft) {
-      try { tvMultiHlsLeft.destroy(); } catch(e) {}
-      tvMultiHlsLeft = null;
-    }
-    if (tvMultiHlsRight) {
-      try { tvMultiHlsRight.destroy(); } catch(e) {}
-      tvMultiHlsRight = null;
+    if (tvMultiHls) {
+      try { tvMultiHls.destroy(); } catch(e) {}
+      tvMultiHls = null;
     }
 
-    var videoLeft = document.getElementById('tv-multi-video-left');
-    var videoRight = document.getElementById('tv-multi-video-right');
-    if (videoLeft) {
+    var video = document.getElementById('tv-multi-video');
+    if (video) {
       try {
-        videoLeft.pause();
-        videoLeft.removeAttribute('src');
-        videoLeft.load();
+        video.pause();
+        video.removeAttribute('src');
+        video.load();
       } catch(e) {}
     }
-    if (videoRight) {
-      try {
-        videoRight.pause();
-        videoRight.removeAttribute('src');
-        videoRight.load();
-      } catch(e) {}
-    }
+
+    // Stop server multiview session
+    try {
+      var base = typeof getBaseUrl === 'function' ? getBaseUrl() : '';
+      if (base) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', base + '/api/iptv/multiview/stop', true);
+        xhr.send();
+      }
+    } catch(e) {}
 
     // Resume preview in main IPTV interface
     if (iptvState && iptvState.currentChannel && state && state.section === 'iptv') {

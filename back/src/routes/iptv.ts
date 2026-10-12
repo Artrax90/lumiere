@@ -1,8 +1,10 @@
 import type { FastifyInstance } from 'fastify';
 import { gunzipSync } from 'zlib';
-import { readFileSync, existsSync } from 'fs';
+import { readFileSync, existsSync, mkdirSync, rmSync, createReadStream } from 'fs';
 import { fileURLToPath, URL } from 'url';
 import { dirname, join } from 'path';
+import { spawn, ChildProcess } from 'child_process';
+import { tmpdir } from 'os';
 import axios from 'axios';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -536,6 +538,208 @@ export function iptvRoutes(app: FastifyInstance) {
         return reply.code(502).send({ error: `Ошибка прокси потока: ${err.message}` });
       }
     }
+  });
+
+  // ========== IPTV 50/50 Multi-View (Server-Side Mosaic Transcoding) ==========
+  interface MultiViewSession {
+    id: string;
+    leftUrl: string;
+    rightUrl: string;
+    dir: string;
+    ffmpeg: ChildProcess | null;
+    createdAt: number;
+    lastAccess: number;
+  }
+
+  let activeMultiViewSession: MultiViewSession | null = null;
+
+  function stopMultiViewSession(session: MultiViewSession | null) {
+    if (!session) return;
+    try {
+      if (session.ffmpeg && !session.ffmpeg.killed) {
+        session.ffmpeg.kill('SIGKILL');
+      }
+    } catch {}
+    try {
+      if (existsSync(session.dir)) {
+        rmSync(session.dir, { recursive: true, force: true });
+      }
+    } catch {}
+  }
+
+  // Inactivity watchdog: auto-close idle mosaic sessions after 30s
+  setInterval(() => {
+    if (activeMultiViewSession && Date.now() - activeMultiViewSession.lastAccess > 30000) {
+      console.log('[MultiView] Auto-closing idle FFmpeg multiview session:', activeMultiViewSession.id);
+      stopMultiViewSession(activeMultiViewSession);
+      activeMultiViewSession = null;
+    }
+  }, 10000);
+
+  // 1. Start or join 50/50 MultiView Session
+  app.get('/api/iptv/multiview/session', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    const { left, right } = req.query as { left?: string; right?: string };
+    if (!left || !right) {
+      return reply.code(400).send({ error: 'Missing left or right stream URL' });
+    }
+
+    const cleanLeft = left.trim();
+    const cleanRight = right.trim();
+
+    // Reuse existing session if URLs match and process is running
+    if (
+      activeMultiViewSession &&
+      activeMultiViewSession.leftUrl === cleanLeft &&
+      activeMultiViewSession.rightUrl === cleanRight &&
+      activeMultiViewSession.ffmpeg &&
+      !activeMultiViewSession.ffmpeg.killed
+    ) {
+      activeMultiViewSession.lastAccess = Date.now();
+      return {
+        success: true,
+        sessionId: activeMultiViewSession.id,
+        playlistUrl: `/api/iptv/multiview/${activeMultiViewSession.id}/stream.m3u8`,
+      };
+    }
+
+    // Stop previous session
+    if (activeMultiViewSession) {
+      stopMultiViewSession(activeMultiViewSession);
+      activeMultiViewSession = null;
+    }
+
+    const sessId = `mv_${Date.now()}`;
+    const sessDir = join(tmpdir(), 'lumiere_' + sessId);
+    mkdirSync(sessDir, { recursive: true });
+
+    console.log('[MultiView] Starting new FFmpeg 50/50 mosaic session:', sessId);
+
+    const ffmpegArgs = [
+      '-y',
+      '-thread_queue_size', '512',
+      '-i', cleanLeft,
+      '-thread_queue_size', '512',
+      '-i', cleanRight,
+      '-filter_complex',
+      '[0:v]scale=960:540,pad=960:1080:0:270:black,fps=25[v0]; [1:v]scale=960:540,pad=960:1080:0:270:black,fps=25[v1]; [v0][v1]hstack[v]; [0:a]aresample=48000[a0]; [1:a]aresample=48000[a1]',
+      '-map', '[v]',
+      '-map', '[a0]',
+      '-map', '[a1]',
+      '-c:v', 'libx264',
+      '-preset', 'ultrafast',
+      '-tune', 'zerolatency',
+      '-b:v', '3000k',
+      '-maxrate', '4000k',
+      '-bufsize', '1000k',
+      '-g', '25',
+      '-c:a', 'aac',
+      '-b:a', '128k',
+      '-f', 'hls',
+      '-hls_time', '1',
+      '-hls_list_size', '4',
+      '-hls_flags', 'delete_segments+split_by_time',
+      join(sessDir, 'stream.m3u8'),
+    ];
+
+    const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
+    proc.on('close', (code) => {
+      console.log(`[MultiView] FFmpeg session ${sessId} exited with code ${code}`);
+      if (activeMultiViewSession?.id === sessId) {
+        stopMultiViewSession(activeMultiViewSession);
+        activeMultiViewSession = null;
+      }
+    });
+
+    activeMultiViewSession = {
+      id: sessId,
+      leftUrl: cleanLeft,
+      rightUrl: cleanRight,
+      dir: sessDir,
+      ffmpeg: proc,
+      createdAt: Date.now(),
+      lastAccess: Date.now(),
+    };
+
+    // Wait for the first segment to be generated (max 4.5s)
+    const playlistFile = join(sessDir, 'stream.m3u8');
+    const waitStart = Date.now();
+    while (Date.now() - waitStart < 4500) {
+      if (existsSync(playlistFile)) {
+        try {
+          const content = readFileSync(playlistFile, 'utf8');
+          if (content.includes('.ts')) {
+            break;
+          }
+        } catch {}
+      }
+      await new Promise((r) => setTimeout(r, 120));
+    }
+
+    return {
+      success: true,
+      sessionId: sessId,
+      playlistUrl: `/api/iptv/multiview/${sessId}/stream.m3u8`,
+    };
+  });
+
+  // 2. Serve M3U8 playlist for multiview
+  app.get('/api/iptv/multiview/:sessId/stream.m3u8', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    reply.header('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+    reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+
+    const { sessId } = req.params as { sessId: string };
+    if (!activeMultiViewSession || activeMultiViewSession.id !== sessId) {
+      return reply.code(404).send('#EXTM3U\n#EXT-X-ERROR:SessionNotActive\n');
+    }
+
+    activeMultiViewSession.lastAccess = Date.now();
+    const playlistFile = join(activeMultiViewSession.dir, 'stream.m3u8');
+    if (!existsSync(playlistFile)) {
+      return reply.code(404).send('#EXTM3U\n#EXT-X-ERROR:WaitingForSegments\n');
+    }
+
+    try {
+      const content = readFileSync(playlistFile, 'utf8');
+      return reply.send(content);
+    } catch {
+      return reply.code(500).send('#EXTM3U\n');
+    }
+  });
+
+  // 3. Serve MPEG-TS segment for multiview
+  app.get('/api/iptv/multiview/:sessId/:segment', async (req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    reply.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    reply.header('Content-Type', 'video/mp2t');
+
+    const { sessId, segment } = req.params as { sessId: string; segment: string };
+    if (!activeMultiViewSession || activeMultiViewSession.id !== sessId) {
+      return reply.code(404).send();
+    }
+
+    activeMultiViewSession.lastAccess = Date.now();
+    const cleanSeg = segment.replace(/[^a-zA-Z0-9._-]/g, '');
+    const segFile = join(activeMultiViewSession.dir, cleanSeg);
+    if (!existsSync(segFile)) {
+      return reply.code(404).send();
+    }
+
+    return reply.send(createReadStream(segFile));
+  });
+
+  // 4. Stop multiview session
+  app.post('/api/iptv/multiview/stop', async (_req, reply) => {
+    reply.header('Access-Control-Allow-Origin', '*');
+    if (activeMultiViewSession) {
+      console.log('[MultiView] Client requested stop for session:', activeMultiViewSession.id);
+      stopMultiViewSession(activeMultiViewSession);
+      activeMultiViewSession = null;
+    }
+    return { success: true };
   });
 
   // Dedicated endpoint for default pre-bundled playlist

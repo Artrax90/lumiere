@@ -4541,13 +4541,14 @@ body.player-active .section {
   flex: 1;
   border-radius: 20px;
   overflow: hidden;
-  background: #05070a;
+  background: transparent;
   border: 3px solid rgba(255, 255, 255, 0.15);
   position: relative;
   display: flex;
   flex-direction: column;
   transition: border-color 0.2s, box-shadow 0.2s;
   cursor: pointer;
+  z-index: 2;
 }
 .tv-multi-pane.active {
   border-color: #e8c170 !important;

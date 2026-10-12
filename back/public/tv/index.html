@@ -633,7 +633,12 @@
       </div>
     </div>
     <div style="display:flex;gap:24px;padding:24px 48px;flex:1;min-height:0;box-sizing:border-box;position:relative;">
-      <!-- Left 50% Screen -->
+      <!-- Single Background 50/50 Mosaic Video Element -->
+      <div id="tv-multi-video-wrap" style="position:absolute;top:24px;left:48px;right:48px;bottom:24px;border-radius:20px;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;z-index:1;">
+        <video id="tv-multi-video" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline webkit-playsinline></video>
+      </div>
+
+      <!-- Left 50% Screen Overlay -->
       <div id="tv-multi-left" class="tv-multi-pane active" tabindex="0">
         <div class="tv-multi-overlay-bar">
           <div style="display:flex;align-items:center;gap:12px;max-width:70%;">
@@ -646,10 +651,9 @@
           </div>
           <div id="tv-multi-audio-badge-left" class="tv-multi-audio-badge active">🔊 Звук активен</div>
         </div>
-        <video id="tv-multi-video-left" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline webkit-playsinline></video>
       </div>
 
-      <!-- Right 50% Screen -->
+      <!-- Right 50% Screen Overlay -->
       <div id="tv-multi-right" class="tv-multi-pane" tabindex="0">
         <div class="tv-multi-overlay-bar">
           <div style="display:flex;align-items:center;gap:12px;max-width:70%;">
@@ -662,7 +666,6 @@
           </div>
           <div id="tv-multi-audio-badge-right" class="tv-multi-audio-badge inactive">🔇 Без звука</div>
         </div>
-        <video id="tv-multi-video-right" style="width:100%;height:100%;object-fit:contain;background:#000;" muted playsinline webkit-playsinline></video>
       </div>
 
       <!-- Channel Picker Popup Overlay inside Multiview -->
