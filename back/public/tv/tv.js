@@ -2667,38 +2667,109 @@
 
   // ========== IPTV 50/50 Multi-View (Side-by-Side Dual Player) ==========
   var tvMultiViewActive = false;
-  var tvMultiViewFocus = 'left';
+  var tvMultiViewFocus = 'left'; // 'left' | 'right'
+  var tvMultiChannelLeft = null;
+  var tvMultiChannelRight = null;
+  var tvMultiPickerActive = false;
+  var tvMultiPickerIndex = 0;
+  var tvMultiPickerTarget = 'left';
 
   function openTvMultiView(channelA, channelB) {
     var modal = document.getElementById('tv-iptv-multiview');
     if (!modal) return;
     if (typeof stopPreview === 'function') stopPreview();
 
+    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
+    if (!channelA) channelA = (iptvState && iptvState.currentChannel) || allChannels[0] || null;
+    if (!channelB) {
+      var chIdx = allChannels.findIndex(function(c) { return channelA && (c.id === channelA.id || c.url === channelA.url); });
+      if (chIdx !== -1 && chIdx + 1 < allChannels.length) {
+        channelB = allChannels[chIdx + 1];
+      } else if (allChannels.length > 1) {
+        channelB = allChannels[0] === channelA ? allChannels[1] : allChannels[0];
+      } else {
+        channelB = channelA;
+      }
+    }
+
+    tvMultiChannelLeft = channelA;
+    tvMultiChannelRight = channelB;
     tvMultiViewActive = true;
     tvMultiViewFocus = 'left';
+    tvMultiPickerActive = false;
+
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
 
-    var videoLeft = document.getElementById('tv-multi-video-left');
-    var videoRight = document.getElementById('tv-multi-video-right');
-    var titleLeft = document.getElementById('tv-multi-title-left');
-    var titleRight = document.getElementById('tv-multi-title-right');
-
-    if (titleLeft && channelA) titleLeft.textContent = channelA.name || 'Канал 1';
-    if (titleRight && channelB) titleRight.textContent = channelB.name || 'Канал 2';
-
-    if (videoLeft && channelA && channelA.url) {
-      videoLeft.src = channelA.url;
-      videoLeft.muted = false;
-      videoLeft.play().catch(function() {});
+    var paneLeft = document.getElementById('tv-multi-left');
+    var paneRight = document.getElementById('tv-multi-right');
+    if (paneLeft && !paneLeft._clickBound) {
+      paneLeft._clickBound = true;
+      paneLeft.addEventListener('click', function() {
+        tvMultiViewFocus = 'left';
+        updateTvMultiViewFocusUI();
+      });
     }
-    if (videoRight && channelB && channelB.url) {
-      videoRight.src = channelB.url;
-      videoRight.muted = true;
-      videoRight.play().catch(function() {});
+    if (paneRight && !paneRight._clickBound) {
+      paneRight._clickBound = true;
+      paneRight.addEventListener('click', function() {
+        tvMultiViewFocus = 'right';
+        updateTvMultiViewFocusUI();
+      });
     }
 
+    startMultiStream('left', tvMultiChannelLeft);
+    startMultiStream('right', tvMultiChannelRight);
     updateTvMultiViewFocusUI();
+  }
+
+  function startMultiStream(side, channel) {
+    if (!channel) return;
+    var video = document.getElementById(side === 'left' ? 'tv-multi-video-left' : 'tv-multi-video-right');
+    var titleEl = document.getElementById(side === 'left' ? 'tv-multi-title-left' : 'tv-multi-title-right');
+    var epgEl = document.getElementById(side === 'left' ? 'tv-multi-epg-left' : 'tv-multi-epg-right');
+    var logoEl = document.getElementById(side === 'left' ? 'tv-multi-logo-left' : 'tv-multi-logo-right');
+
+    if (titleEl) titleEl.textContent = channel.name || (side === 'left' ? 'Экран 1' : 'Экран 2');
+
+    if (epgEl) {
+      var epgId = typeof findEpgId === 'function' ? findEpgId(channel) : null;
+      var programs = (epgId && iptvState && iptvState.epgData && iptvState.epgData[epgId]) ? iptvState.epgData[epgId] : null;
+      var current = typeof getCurrentProgram === 'function' ? getCurrentProgram(programs) : null;
+      if (current && current.title) {
+        epgEl.textContent = current.title + (current.startTime ? (' (' + current.startTime + ' – ' + current.stopTime + ')') : '');
+        epgEl.style.display = 'block';
+      } else {
+        epgEl.textContent = channel.group ? ('Канал: ' + channel.group) : 'Прямой эфир';
+        epgEl.style.display = 'block';
+      }
+    }
+
+    if (logoEl) {
+      var logo = typeof getChannelLogo === 'function' ? getChannelLogo(channel) : null;
+      if (logo) {
+        logoEl.src = logo;
+        logoEl.style.display = 'inline-block';
+      } else {
+        logoEl.style.display = 'none';
+      }
+    }
+
+    if (video && channel.url) {
+      var streamUrl = channel.url;
+      if (streamUrl.indexOf('/') === 0) {
+        streamUrl = (typeof getBaseUrl === 'function' ? getBaseUrl() : '') + streamUrl;
+      }
+      try { video.pause(); } catch(e) {}
+      video.src = streamUrl;
+      video.muted = (tvMultiViewFocus !== side);
+      var p = video.play();
+      if (p && typeof p.catch === 'function') {
+        p.catch(function(err) {
+          console.log('[TV MultiView] Play error (' + side + '):', err);
+        });
+      }
+    }
   }
 
   function updateTvMultiViewFocusUI() {
@@ -2706,52 +2777,253 @@
     var paneRight = document.getElementById('tv-multi-right');
     var badgeLeft = document.getElementById('tv-multi-audio-badge-left');
     var badgeRight = document.getElementById('tv-multi-audio-badge-right');
+    var tagLeft = document.getElementById('tv-multi-tag-left');
+    var tagRight = document.getElementById('tv-multi-tag-right');
     var indicator = document.getElementById('tv-multiview-audio-indicator');
     var videoLeft = document.getElementById('tv-multi-video-left');
     var videoRight = document.getElementById('tv-multi-video-right');
 
     if (tvMultiViewFocus === 'left') {
       if (paneLeft) {
+        paneLeft.classList.add('active');
         paneLeft.style.borderColor = '#e8c170';
-        paneLeft.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+        paneLeft.style.boxShadow = '0 0 35px rgba(232,193,112,0.45)';
       }
       if (paneRight) {
+        paneRight.classList.remove('active');
         paneRight.style.borderColor = 'rgba(255,255,255,0.15)';
         paneRight.style.boxShadow = 'none';
       }
-      if (badgeLeft) { badgeLeft.textContent = '🔊 Звук активен'; badgeLeft.style.color = '#6ee7b7'; }
-      if (badgeRight) { badgeRight.textContent = '🔇 Без звука'; badgeRight.style.color = 'rgba(255,255,255,0.4)'; }
-      if (indicator) indicator.textContent = '🔊 Звук: Экран 1 (Слева)';
+      if (tagLeft) { tagLeft.className = 'tv-multi-screen-tag'; }
+      if (tagRight) { tagRight.className = 'tv-multi-screen-tag inactive'; }
+      if (badgeLeft) {
+        badgeLeft.className = 'tv-multi-audio-badge active';
+        badgeLeft.innerHTML = '🔊 Звук активен';
+      }
+      if (badgeRight) {
+        badgeRight.className = 'tv-multi-audio-badge inactive';
+        badgeRight.innerHTML = '🔇 Без звука';
+      }
+      if (indicator) indicator.innerHTML = '🔊 Звук: <strong style="color:#ffffff;">Экран 1 (Слева)</strong>';
       if (videoLeft) videoLeft.muted = false;
       if (videoRight) videoRight.muted = true;
     } else {
       if (paneRight) {
+        paneRight.classList.add('active');
         paneRight.style.borderColor = '#e8c170';
-        paneRight.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+        paneRight.style.boxShadow = '0 0 35px rgba(232,193,112,0.45)';
       }
       if (paneLeft) {
+        paneLeft.classList.remove('active');
         paneLeft.style.borderColor = 'rgba(255,255,255,0.15)';
         paneLeft.style.boxShadow = 'none';
       }
-      if (badgeRight) { badgeRight.textContent = '🔊 Звук активен'; badgeRight.style.color = '#6ee7b7'; }
-      if (badgeLeft) { badgeLeft.textContent = '🔇 Без звука'; badgeLeft.style.color = 'rgba(255,255,255,0.4)'; }
-      if (indicator) indicator.textContent = '🔊 Звук: Экран 2 (Справа)';
+      if (tagRight) { tagRight.className = 'tv-multi-screen-tag'; }
+      if (tagLeft) { tagLeft.className = 'tv-multi-screen-tag inactive'; }
+      if (badgeRight) {
+        badgeRight.className = 'tv-multi-audio-badge active';
+        badgeRight.innerHTML = '🔊 Звук активен';
+      }
+      if (badgeLeft) {
+        badgeLeft.className = 'tv-multi-audio-badge inactive';
+        badgeLeft.innerHTML = '🔇 Без звука';
+      }
+      if (indicator) indicator.innerHTML = '🔊 Звук: <strong style="color:#ffffff;">Экран 2 (Справа)</strong>';
       if (videoLeft) videoLeft.muted = true;
       if (videoRight) videoRight.muted = false;
     }
   }
 
+  function changeMultiChannel(side, direction) {
+    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
+    if (allChannels.length === 0) return;
+
+    var cur = (side === 'left') ? tvMultiChannelLeft : tvMultiChannelRight;
+    var idx = allChannels.findIndex(function(c) { return cur && (c.id === cur.id || c.url === cur.url); });
+    if (idx === -1) idx = 0;
+
+    var nextIdx = idx + direction;
+    if (nextIdx < 0) nextIdx = allChannels.length - 1;
+    if (nextIdx >= allChannels.length) nextIdx = 0;
+
+    var nextCh = allChannels[nextIdx];
+    if (side === 'left') {
+      tvMultiChannelLeft = nextCh;
+    } else {
+      tvMultiChannelRight = nextCh;
+    }
+    startMultiStream(side, nextCh);
+    showMultiToast((side === 'left' ? 'Экран 1: ' : 'Экран 2: ') + nextCh.name);
+  }
+
+  function showMultiToast(msg) {
+    var el = document.getElementById('tv-multi-toast');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'tv-multi-toast';
+      el.style.cssText = 'position:fixed;bottom:40px;left:50%;transform:translateX(-50%);background:rgba(10,13,20,0.95);border:1px solid #e8c170;color:#fff;padding:12px 28px;border-radius:14px;font-size:18px;font-weight:700;z-index:9700;box-shadow:0 0 25px rgba(0,0,0,0.8);pointer-events:none;transition:opacity 0.2s;';
+      document.body.appendChild(el);
+    }
+    el.textContent = msg;
+    el.style.opacity = '1';
+    el.style.display = 'block';
+    if (el._timer) clearTimeout(el._timer);
+    el._timer = setTimeout(function() {
+      el.style.opacity = '0';
+      setTimeout(function() { el.style.display = 'none'; }, 200);
+    }, 2000);
+  }
+
+  function openMultiPicker(targetSide) {
+    tvMultiPickerActive = true;
+    tvMultiPickerTarget = targetSide;
+
+    var overlay = document.getElementById('tv-multi-picker-overlay');
+    var badge = document.getElementById('tv-multi-picker-badge');
+    var list = document.getElementById('tv-multi-picker-list');
+    if (!overlay || !list) return;
+
+    if (badge) {
+      badge.textContent = targetSide === 'left' ? 'ЭКРАН 1 (СЛЕВА)' : 'ЭКРАН 2 (СПРАВА)';
+    }
+
+    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
+    var currentCh = targetSide === 'left' ? tvMultiChannelLeft : tvMultiChannelRight;
+    var curIdx = allChannels.findIndex(function(c) { return currentCh && (c.id === currentCh.id || c.url === currentCh.url); });
+    tvMultiPickerIndex = curIdx >= 0 ? curIdx : 0;
+
+    var html = '';
+    for (var i = 0; i < allChannels.length; i++) {
+      var ch = allChannels[i];
+      var isCur = (ch === currentCh);
+      var isFoc = (i === tvMultiPickerIndex);
+      var cls = 'tv-multi-picker-item' + (isCur ? ' active' : '') + (isFoc ? ' focused' : '');
+      var logo = typeof getChannelLogo === 'function' ? getChannelLogo(ch) : null;
+      var logoHtml = logo ? ('<img src="' + esc(logo) + '" style="width:36px;height:36px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,0.5);" onerror="this.style.display=\'none\'">') : '<div style="width:36px;height:36px;border-radius:6px;background:rgba(255,255,255,0.08);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:rgba(255,255,255,0.5);">TV</div>';
+      var num = '<span style="font-size:14px;color:rgba(255,255,255,0.4);font-family:monospace;width:32px;">' + (i + 1) + '</span>';
+      var activeBadge = isCur ? '<span style="margin-left:auto;font-size:13px;color:#e8c170;font-weight:700;">● Текущий</span>' : '';
+      html += '<div class="' + cls + '" data-idx="' + i + '">' +
+        num + logoHtml + '<span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' + esc(ch.name) + '</span>' + activeBadge +
+      '</div>';
+    }
+    list.innerHTML = html;
+
+    // Attach click events on picker items
+    var items = list.querySelectorAll('.tv-multi-picker-item');
+    for (var k = 0; k < items.length; k++) {
+      (function(idx) {
+        items[idx].addEventListener('click', function() {
+          tvMultiPickerIndex = idx;
+          var selectedCh = allChannels[idx];
+          if (selectedCh) {
+            if (tvMultiPickerTarget === 'left') {
+              tvMultiChannelLeft = selectedCh;
+            } else {
+              tvMultiChannelRight = selectedCh;
+            }
+            startMultiStream(tvMultiPickerTarget, selectedCh);
+            showMultiToast((tvMultiPickerTarget === 'left' ? 'Экран 1: ' : 'Экран 2: ') + selectedCh.name);
+          }
+          closeMultiPicker();
+        });
+      })(k);
+    }
+
+    overlay.classList.remove('hidden');
+    overlay.style.display = 'flex';
+
+    scrollMultiPickerFocus();
+  }
+
+  function closeMultiPicker() {
+    tvMultiPickerActive = false;
+    var overlay = document.getElementById('tv-multi-picker-overlay');
+    if (overlay) {
+      overlay.classList.add('hidden');
+      overlay.style.display = 'none';
+    }
+  }
+
+  function scrollMultiPickerFocus() {
+    var list = document.getElementById('tv-multi-picker-list');
+    if (!list) return;
+    var items = list.querySelectorAll('.tv-multi-picker-item');
+    for (var i = 0; i < items.length; i++) {
+      if (i === tvMultiPickerIndex) {
+        items[i].classList.add('focused');
+        try {
+          if (items[i].scrollIntoViewIfNeeded) {
+            items[i].scrollIntoViewIfNeeded(false);
+          } else {
+            items[i].scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }
+        } catch(e) {}
+      } else {
+        items[i].classList.remove('focused');
+      }
+    }
+  }
+
+  function handleMultiPickerKey(code, key, e) {
+    var allChannels = (typeof getFilteredChannels === 'function' ? getFilteredChannels() : []) || (iptvState && iptvState.channels) || [];
+    if (allChannels.length === 0) return;
+
+    if (code === 38 || key === 'ArrowUp' || key === 'Up') {
+      if (tvMultiPickerIndex > 0) {
+        tvMultiPickerIndex--;
+        scrollMultiPickerFocus();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+    if (code === 40 || key === 'ArrowDown' || key === 'Down') {
+      if (tvMultiPickerIndex < allChannels.length - 1) {
+        tvMultiPickerIndex++;
+        scrollMultiPickerFocus();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+    if (code === 13 || code === 29443 || code === 65385 || key === 'Enter') {
+      var selectedCh = allChannels[tvMultiPickerIndex];
+      if (selectedCh) {
+        if (tvMultiPickerTarget === 'left') {
+          tvMultiChannelLeft = selectedCh;
+        } else {
+          tvMultiChannelRight = selectedCh;
+        }
+        startMultiStream(tvMultiPickerTarget, selectedCh);
+        showMultiToast((tvMultiPickerTarget === 'left' ? 'Экран 1: ' : 'Экран 2: ') + selectedCh.name);
+      }
+      closeMultiPicker();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      closeMultiPicker();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
   function closeTvMultiView() {
     var modal = document.getElementById('tv-iptv-multiview');
-    if (!modal) return;
+    closeMultiPicker();
     tvMultiViewActive = false;
-    modal.classList.add('hidden');
-    modal.style.display = 'none';
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
 
     var videoLeft = document.getElementById('tv-multi-video-left');
     var videoRight = document.getElementById('tv-multi-video-right');
-    if (videoLeft) { videoLeft.pause(); videoLeft.src = ''; }
-    if (videoRight) { videoRight.pause(); videoRight.src = ''; }
+    if (videoLeft) { try { videoLeft.pause(); } catch(e) {} videoLeft.src = ''; }
+    if (videoRight) { try { videoRight.pause(); } catch(e) {} videoRight.src = ''; }
+
+    // Resume preview in main IPTV interface
+    if (iptvState && iptvState.currentChannel && state && state.section === 'iptv') {
+      startPreview(iptvState.currentChannel);
+    }
   }
   window.openTvMultiView = openTvMultiView;
   window.closeTvMultiView = closeTvMultiView;
@@ -3479,6 +3751,7 @@
             '<div id="iptv-preview-desc" class="iptv-preview-desc"></div>' +
             '<div id="iptv-preview-actions" class="iptv-preview-actions">' +
               '<button id="iptv-btn-play" class="iptv-action-btn primary" tabindex="0">▶ Смотреть во весь экран</button>' +
+              '<button id="iptv-btn-multi" class="iptv-action-btn" tabindex="0">⊞ Мультискрин 50/50</button>' +
               '<button id="iptv-btn-fav" class="iptv-action-btn" tabindex="0">★ В избранное</button>' +
             '</div>' +
             '<div id="iptv-epg-schedule" class="iptv-epg-schedule"></div>' +
@@ -3680,6 +3953,7 @@
     var progressFill = document.getElementById('iptv-preview-progress-fill');
     var metaEl = document.getElementById('iptv-preview-meta') || document.getElementById('iptv-preview-desc');
     var playBtn = document.getElementById('iptv-btn-play');
+    var multiBtn = document.getElementById('iptv-btn-multi');
     var favBtn = document.getElementById('iptv-btn-fav');
     var schedEl = document.getElementById('iptv-epg-schedule');
 
@@ -3731,6 +4005,15 @@
       var isFav = !!(ch && iptvState.favorites[ch.id]);
       favBtn.textContent = isFav ? '★ В избранном' : '☆ В избранное';
       favBtn.onclick = function() { if (ch) toggleFavorite(ch.id); };
+    }
+    if (multiBtn) {
+      multiBtn.onclick = function() {
+        if (!ch) return;
+        var channels = getFilteredChannels();
+        var chIdx = channels.findIndex(function(c) { return c.id === ch.id || c.url === ch.url; });
+        var nextCh = (chIdx !== -1 && chIdx + 1 < channels.length) ? channels[chIdx + 1] : (channels[0] !== ch ? channels[0] : (channels[1] || ch));
+        openTvMultiView(ch, nextCh);
+      };
     }
     if (playBtn) {
       playBtn.onclick = function() { if (ch) playChannel(ch); };
@@ -9985,23 +10268,51 @@
 
       // TV IPTV Multi-view handler
       if (tvMultiViewActive) {
+        if (tvMultiPickerActive) {
+          handleMultiPickerKey(code, key, e);
+          return;
+        }
+
+        // Left / '1' -> switch sound and focus to Left screen
         if (code === 37 || key === 'ArrowLeft' || key === 'Left' || code === 49) {
           tvMultiViewFocus = 'left';
           updateTvMultiViewFocusUI();
           if (e && e.preventDefault) e.preventDefault();
           return;
         }
+        // Right / '2' -> switch sound and focus to Right screen
         if (code === 39 || key === 'ArrowRight' || key === 'Right' || code === 50) {
           tvMultiViewFocus = 'right';
           updateTvMultiViewFocusUI();
           if (e && e.preventDefault) e.preventDefault();
           return;
         }
+        // Up / ChannelUp -> prev channel on active screen
+        if (code === 38 || key === 'ArrowUp' || key === 'Up' || code === 427) {
+          changeMultiChannel(tvMultiViewFocus, -1);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        // Down / ChannelDown -> next channel on active screen
+        if (code === 40 || key === 'ArrowDown' || key === 'Down' || code === 428) {
+          changeMultiChannel(tvMultiViewFocus, 1);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        // OK / Enter -> open channel picker for active screen
+        if (code === 13 || code === 29443 || code === 65385 || key === 'Enter') {
+          openMultiPicker(tvMultiViewFocus);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        // Back / Return -> close multiview
         if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
           closeTvMultiView();
           if (e && e.preventDefault) e.preventDefault();
           return;
         }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
       }
 
       // Detail view handler
@@ -10506,8 +10817,11 @@
           if (iptvState.focusedCat >= cats.length) iptvState.focusedCat = cats.length - 1;
           focusIptvCategory(iptvState.focusedCat);
         } else if (iptvState.focusedCol === 2) {
-          if (iptvState.focusedCol2Index === 1) {
-            // From Fav button to Play button
+          if (iptvState.focusedCol2Index === 2) {
+            // From Fav button to Multi button
+            focusIptvPreview(1);
+          } else if (iptvState.focusedCol2Index === 1) {
+            // From Multi button to Play button
             focusIptvPreview(0);
           } else {
             // From Play button or EPG items back to channels column
@@ -10537,8 +10851,11 @@
           focusIptvPreview(0);
         } else if (iptvState.focusedCol === 2) {
           if (iptvState.focusedCol2Index === 0) {
-            // From Play button to Fav button
+            // From Play button to Multi button
             focusIptvPreview(1);
+          } else if (iptvState.focusedCol2Index === 1) {
+            // From Multi button to Fav button
+            focusIptvPreview(2);
           }
         }
         e.preventDefault();
@@ -10581,12 +10898,12 @@
           }
         } else if (iptvState.focusedCol === 2) {
           // Column 2 Preview & EPG
-          if (iptvState.focusedCol2Index > 2) {
+          if (iptvState.focusedCol2Index > 3) {
             focusIptvPreview(iptvState.focusedCol2Index - 1);
-          } else if (iptvState.focusedCol2Index === 2) {
+          } else if (iptvState.focusedCol2Index === 3) {
             focusIptvPreview(0); // From first EPG item to Play button
           } else {
-            // From Play/Fav button go to top nav
+            // From Play/Multi/Fav button go to top nav
             iptvState.focusedCol = -1;
             clearIptvFocus();
             focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
@@ -10619,13 +10936,13 @@
         } else if (iptvState.focusedCol === 2) {
           // Column 2 Preview & EPG
           var epgListCount = document.querySelectorAll('#iptv-epg-schedule .iptv-epg-item').length;
-          if (iptvState.focusedCol2Index < 2) {
-            // From Play/Fav down to first EPG item (index 2) if exists
+          if (iptvState.focusedCol2Index < 3) {
+            // From Play/Multi/Fav down to first EPG item (index 3) if exists
             if (epgListCount > 0) {
-              focusIptvPreview(2);
+              focusIptvPreview(3);
             }
           } else {
-            var currentEpgSubIdx = iptvState.focusedCol2Index - 2;
+            var currentEpgSubIdx = iptvState.focusedCol2Index - 3;
             if (currentEpgSubIdx < epgListCount - 1) {
               focusIptvPreview(iptvState.focusedCol2Index + 1);
             }
@@ -10647,12 +10964,26 @@
             playChannel(channels[iptvState.focusedCh]);
           }
         } else if (iptvState.focusedCol === 2) {
-          if (iptvState.focusedCol2Index === 1 && iptvState.currentChannel) {
-            toggleFavorite(iptvState.currentChannel.id);
-          } else if (iptvState.focusedCol2Index === 0 && iptvState.currentChannel) {
+          if (iptvState.focusedCol2Index === 0 && iptvState.currentChannel) {
             playChannel(iptvState.currentChannel);
-          } else if (iptvState.focusedCol2Index >= 2 && iptvState.currentChannel) {
-            var epgIdx = iptvState.focusedCol2Index - 2;
+          } else if (iptvState.focusedCol2Index === 1 && iptvState.currentChannel) {
+            var allChs = getFilteredChannels();
+            var nextCh = null;
+            if (allChs && allChs.length > 1) {
+              var curPos = allChs.findIndex(function(c) { return c.id === iptvState.currentChannel.id || c.url === iptvState.currentChannel.url; });
+              if (curPos !== -1 && curPos + 1 < allChs.length) {
+                nextCh = allChs[curPos + 1];
+              } else if (curPos > 0) {
+                nextCh = allChs[curPos - 1];
+              } else {
+                nextCh = allChs[1];
+              }
+            }
+            openTvMultiView(iptvState.currentChannel, nextCh);
+          } else if (iptvState.focusedCol2Index === 2 && iptvState.currentChannel) {
+            toggleFavorite(iptvState.currentChannel.id);
+          } else if (iptvState.focusedCol2Index >= 3 && iptvState.currentChannel) {
+            var epgIdx = iptvState.focusedCol2Index - 3;
             var epgId = findEpgId(iptvState.currentChannel);
             var progs = epgId && iptvState.epgData[epgId] ? iptvState.epgData[epgId] : null;
             if (progs && progs[epgIdx]) {
@@ -10748,6 +11079,7 @@
     iptvState.focusedCol = 2;
     iptvState.focusedCol2Index = idx;
     var pBtn = document.getElementById('iptv-btn-play');
+    var mBtn = document.getElementById('iptv-btn-multi');
     var fBtn = document.getElementById('iptv-btn-fav');
     var epgItems = document.querySelectorAll('#iptv-epg-schedule .iptv-epg-item');
 
@@ -10757,12 +11089,17 @@
         try { pBtn.focus(); } catch(e) {}
       }
     } else if (idx === 1) {
+      if (mBtn) {
+        mBtn.classList.add('focused');
+        try { mBtn.focus(); } catch(e) {}
+      }
+    } else if (idx === 2) {
       if (fBtn) {
         fBtn.classList.add('focused');
         try { fBtn.focus(); } catch(e) {}
       }
     } else {
-      var epgIdx = idx - 2;
+      var epgIdx = idx - 3;
       if (epgItems && epgItems[epgIdx]) {
         var el = epgItems[epgIdx];
         el.classList.add('focused');
