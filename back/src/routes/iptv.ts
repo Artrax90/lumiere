@@ -551,9 +551,9 @@ export function iptvRoutes(app: FastifyInstance) {
     lastAccess: number;
   }
 
-  let activeMultiViewSession: MultiViewSession | null = null;
+  const multiViewSessions = new Map<string, MultiViewSession>();
 
-  function stopMultiViewSession(session: MultiViewSession | null) {
+  function stopMultiViewSession(session: MultiViewSession | null | undefined) {
     if (!session) return;
     try {
       if (session.ffmpeg && !session.ffmpeg.killed) {
@@ -567,12 +567,33 @@ export function iptvRoutes(app: FastifyInstance) {
     } catch {}
   }
 
-  // Inactivity watchdog: auto-close idle mosaic sessions after 30s
+  // Probe whether a stream URL is reachable within timeout
+  async function probeStream(url: string, timeoutMs: number = 2200): Promise<boolean> {
+    try {
+      const c = new AbortController();
+      const id = setTimeout(() => c.abort(), timeoutMs);
+      const res = await fetch(url, {
+        signal: c.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        },
+      });
+      clearTimeout(id);
+      return res.status < 400;
+    } catch {
+      return false;
+    }
+  }
+
+  // Inactivity watchdog: auto-close idle mosaic sessions after 35s
   setInterval(() => {
-    if (activeMultiViewSession && Date.now() - activeMultiViewSession.lastAccess > 30000) {
-      console.log('[MultiView] Auto-closing idle FFmpeg multiview session:', activeMultiViewSession.id);
-      stopMultiViewSession(activeMultiViewSession);
-      activeMultiViewSession = null;
+    const now = Date.now();
+    for (const [id, session] of multiViewSessions.entries()) {
+      if (now - session.lastAccess > 35000) {
+        console.log('[MultiView] Auto-closing idle FFmpeg multiview session:', id);
+        stopMultiViewSession(session);
+        multiViewSessions.delete(id);
+      }
     }
   }, 10000);
 
@@ -588,45 +609,125 @@ export function iptvRoutes(app: FastifyInstance) {
     const cleanLeft = left.trim();
     const cleanRight = right.trim();
 
-    // Reuse existing session if URLs match and process is running
-    if (
-      activeMultiViewSession &&
-      activeMultiViewSession.leftUrl === cleanLeft &&
-      activeMultiViewSession.rightUrl === cleanRight &&
-      activeMultiViewSession.ffmpeg &&
-      !activeMultiViewSession.ffmpeg.killed
-    ) {
-      activeMultiViewSession.lastAccess = Date.now();
-      return {
-        success: true,
-        sessionId: activeMultiViewSession.id,
-        playlistUrl: `/api/iptv/multiview/${activeMultiViewSession.id}/stream.m3u8`,
-      };
+    // Reuse existing session if URLs match and ffmpeg is still running
+    for (const session of multiViewSessions.values()) {
+      if (
+        session.leftUrl === cleanLeft &&
+        session.rightUrl === cleanRight &&
+        session.ffmpeg &&
+        !session.ffmpeg.killed
+      ) {
+        session.lastAccess = Date.now();
+        return {
+          success: true,
+          sessionId: session.id,
+          playlistUrl: `/api/iptv/multiview/${session.id}/stream.m3u8`,
+        };
+      }
     }
 
-    // Stop previous session
-    if (activeMultiViewSession) {
-      stopMultiViewSession(activeMultiViewSession);
-      activeMultiViewSession = null;
+    // Stop existing active sessions to prevent CPU overload
+    for (const [id, s] of multiViewSessions.entries()) {
+      stopMultiViewSession(s);
+      multiViewSessions.delete(id);
+    }
+
+    console.log('[MultiView] Probing streams:', { left: cleanLeft, right: cleanRight });
+    const [leftOk, rightOk] = await Promise.all([
+      probeStream(cleanLeft),
+      probeStream(cleanRight),
+    ]);
+    console.log('[MultiView] Probed streams status:', { leftOk, rightOk });
+
+    if (!leftOk && !rightOk) {
+      return reply.code(400).send({
+        error: 'Оба выбранных канала временно недоступны. Выберите другие каналы.',
+      });
     }
 
     const sessId = `mv_${Date.now()}`;
     const sessDir = join(tmpdir(), 'lumiere_' + sessId);
     mkdirSync(sessDir, { recursive: true });
 
-    console.log('[MultiView] Starting new FFmpeg 50/50 mosaic session:', sessId);
+    console.log('[MultiView] Starting FFmpeg 50/50 mosaic session:', sessId);
 
-    const ffmpegArgs = [
-      '-y',
-      '-thread_queue_size', '512',
-      '-i', cleanLeft,
-      '-thread_queue_size', '512',
-      '-i', cleanRight,
-      '-filter_complex',
-      '[0:v]scale=960:540,pad=960:1080:0:270:black,fps=25[v0]; [1:v]scale=960:540,pad=960:1080:0:270:black,fps=25[v1]; [v0][v1]hstack[v]; [0:a]aresample=48000[a0]; [1:a]aresample=48000[a1]',
-      '-map', '[v]',
-      '-map', '[a0]',
-      '-map', '[a1]',
+    // Build resilient FFmpeg arguments
+    const ffmpegArgs: string[] = ['-y'];
+
+    let filterComplex = '';
+    let mapVideo = '[v]';
+    let mapAudio0 = '[a0]';
+    let mapAudio1 = '[a1]';
+
+    if (leftOk && rightOk) {
+      // Both streams alive: 2 network inputs
+      ffmpegArgs.push(
+        '-rw_timeout', '10000000',
+        '-reconnect', '1',
+        '-reconnect_at_eof', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '2',
+        '-thread_queue_size', '1024',
+        '-i', cleanLeft,
+        '-rw_timeout', '10000000',
+        '-reconnect', '1',
+        '-reconnect_at_eof', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '2',
+        '-thread_queue_size', '1024',
+        '-i', cleanRight,
+      );
+      filterComplex =
+        '[0:v]scale=960:540:force_original_aspect_ratio=decrease,pad=960:1080:(ow-iw)/2:(oh-ih)/2:black,fps=25[v0]; ' +
+        '[1:v]scale=960:540:force_original_aspect_ratio=decrease,pad=960:1080:(ow-iw)/2:(oh-ih)/2:black,fps=25[v1]; ' +
+        '[v0][v1]hstack[v]; ' +
+        '[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0]; ' +
+        '[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1]';
+    } else if (leftOk && !rightOk) {
+      // Left alive, right fallback
+      ffmpegArgs.push(
+        '-rw_timeout', '10000000',
+        '-reconnect', '1',
+        '-reconnect_at_eof', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '2',
+        '-thread_queue_size', '1024',
+        '-i', cleanLeft,
+        '-f', 'lavfi', '-i', 'color=c=0x0a0c14:s=960x540:r=25',
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+      );
+      filterComplex =
+        '[0:v]scale=960:540:force_original_aspect_ratio=decrease,pad=960:1080:(ow-iw)/2:(oh-ih)/2:black,fps=25[v0]; ' +
+        '[1:v]pad=960:1080:0:270:black,fps=25[v1]; ' +
+        '[v0][v1]hstack[v]; ' +
+        '[0:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0]; ' +
+        '[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1]';
+    } else {
+      // Left fallback, right alive
+      ffmpegArgs.push(
+        '-f', 'lavfi', '-i', 'color=c=0x0a0c14:s=960x540:r=25',
+        '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=stereo',
+        '-rw_timeout', '10000000',
+        '-reconnect', '1',
+        '-reconnect_at_eof', '1',
+        '-reconnect_streamed', '1',
+        '-reconnect_delay_max', '2',
+        '-thread_queue_size', '1024',
+        '-i', cleanRight,
+      );
+      filterComplex =
+        '[0:v]pad=960:1080:0:270:black,fps=25[v0]; ' +
+        '[2:v]scale=960:540:force_original_aspect_ratio=decrease,pad=960:1080:(ow-iw)/2:(oh-ih)/2:black,fps=25[v1]; ' +
+        '[v0][v1]hstack[v]; ' +
+        '[1:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a0]; ' +
+        '[2:a]aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo[a1]';
+    }
+
+    ffmpegArgs.push(
+      '-filter_complex', filterComplex,
+      '-map', mapVideo,
+      '-map', mapAudio0,
+      '-map', mapAudio1,
       '-c:v', 'libx264',
       '-preset', 'ultrafast',
       '-tune', 'zerolatency',
@@ -638,21 +739,29 @@ export function iptvRoutes(app: FastifyInstance) {
       '-b:a', '128k',
       '-f', 'hls',
       '-hls_time', '1',
-      '-hls_list_size', '4',
+      '-hls_list_size', '6',
       '-hls_flags', 'delete_segments+split_by_time',
       join(sessDir, 'stream.m3u8'),
-    ];
+    );
 
     const proc = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'ignore', 'pipe'] });
-    proc.on('close', (code) => {
-      console.log(`[MultiView] FFmpeg session ${sessId} exited with code ${code}`);
-      if (activeMultiViewSession?.id === sessId) {
-        stopMultiViewSession(activeMultiViewSession);
-        activeMultiViewSession = null;
+    proc.stderr?.on('data', (d: Buffer) => {
+      const text = d.toString();
+      if (text.includes('Error') || text.includes('failed') || text.includes('fatal')) {
+        console.warn(`[MultiView ${sessId}] FFmpeg warning:`, text.trim().slice(0, 200));
       }
     });
 
-    activeMultiViewSession = {
+    proc.on('close', (code) => {
+      console.log(`[MultiView] FFmpeg session ${sessId} exited with code ${code}`);
+      const s = multiViewSessions.get(sessId);
+      if (s) {
+        stopMultiViewSession(s);
+        multiViewSessions.delete(sessId);
+      }
+    });
+
+    const session: MultiViewSession = {
       id: sessId,
       leftUrl: cleanLeft,
       rightUrl: cleanRight,
@@ -661,11 +770,12 @@ export function iptvRoutes(app: FastifyInstance) {
       createdAt: Date.now(),
       lastAccess: Date.now(),
     };
+    multiViewSessions.set(sessId, session);
 
-    // Wait for the first segment to be generated (max 4.5s)
+    // Wait for the first segment to be generated (up to 7.5s)
     const playlistFile = join(sessDir, 'stream.m3u8');
     const waitStart = Date.now();
-    while (Date.now() - waitStart < 4500) {
+    while (Date.now() - waitStart < 7500) {
       if (existsSync(playlistFile)) {
         try {
           const content = readFileSync(playlistFile, 'utf8');
@@ -674,13 +784,15 @@ export function iptvRoutes(app: FastifyInstance) {
           }
         } catch {}
       }
-      await new Promise((r) => setTimeout(r, 120));
+      await new Promise((r) => setTimeout(r, 150));
     }
 
     return {
       success: true,
       sessionId: sessId,
       playlistUrl: `/api/iptv/multiview/${sessId}/stream.m3u8`,
+      leftOk,
+      rightOk,
     };
   });
 
@@ -692,14 +804,25 @@ export function iptvRoutes(app: FastifyInstance) {
     reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
 
     const { sessId } = req.params as { sessId: string };
-    if (!activeMultiViewSession || activeMultiViewSession.id !== sessId) {
+    const session = multiViewSessions.get(sessId);
+    if (!session) {
       return reply.code(404).send('#EXTM3U\n#EXT-X-ERROR:SessionNotActive\n');
     }
 
-    activeMultiViewSession.lastAccess = Date.now();
-    const playlistFile = join(activeMultiViewSession.dir, 'stream.m3u8');
+    session.lastAccess = Date.now();
+    const playlistFile = join(session.dir, 'stream.m3u8');
+
+    // If file does not exist yet, poll up to 2500ms
     if (!existsSync(playlistFile)) {
-      return reply.code(404).send('#EXTM3U\n#EXT-X-ERROR:WaitingForSegments\n');
+      const waitStart = Date.now();
+      while (Date.now() - waitStart < 2500) {
+        await new Promise((r) => setTimeout(r, 150));
+        if (existsSync(playlistFile)) break;
+      }
+    }
+
+    if (!existsSync(playlistFile)) {
+      return reply.code(503).send('#EXTM3U\n#EXT-X-ERROR:WaitingForSegments\n');
     }
 
     try {
@@ -717,13 +840,14 @@ export function iptvRoutes(app: FastifyInstance) {
     reply.header('Content-Type', 'video/mp2t');
 
     const { sessId, segment } = req.params as { sessId: string; segment: string };
-    if (!activeMultiViewSession || activeMultiViewSession.id !== sessId) {
+    const session = multiViewSessions.get(sessId);
+    if (!session) {
       return reply.code(404).send();
     }
 
-    activeMultiViewSession.lastAccess = Date.now();
+    session.lastAccess = Date.now();
     const cleanSeg = segment.replace(/[^a-zA-Z0-9._-]/g, '');
-    const segFile = join(activeMultiViewSession.dir, cleanSeg);
+    const segFile = join(session.dir, cleanSeg);
     if (!existsSync(segFile)) {
       return reply.code(404).send();
     }
@@ -734,10 +858,10 @@ export function iptvRoutes(app: FastifyInstance) {
   // 4. Stop multiview session
   app.post('/api/iptv/multiview/stop', async (_req, reply) => {
     reply.header('Access-Control-Allow-Origin', '*');
-    if (activeMultiViewSession) {
-      console.log('[MultiView] Client requested stop for session:', activeMultiViewSession.id);
-      stopMultiViewSession(activeMultiViewSession);
-      activeMultiViewSession = null;
+    for (const [id, session] of multiViewSessions.entries()) {
+      console.log('[MultiView] Client requested stop for session:', id);
+      stopMultiViewSession(session);
+      multiViewSessions.delete(id);
     }
     return { success: true };
   });

@@ -2841,17 +2841,29 @@
 
         video.muted = false;
 
+        if (data.leftOk === false) {
+          showMultiToast('Экран 1: нет сигнала, нажмите ▲/▼ для смены');
+        } else if (data.rightOk === false) {
+          showMultiToast('Экран 2: нет сигнала, нажмите ▲/▼ для смены');
+        }
+
         if (window.Hls && window.Hls.isSupported()) {
           var hls = new window.Hls({
             enableWorker: false,
             lowLatencyMode: true,
             maxBufferLength: 4,
             maxMaxBufferLength: 8,
-            maxBufferSize: 15 * 1024 * 1024,
+            maxBufferSize: 20 * 1024 * 1024,
             backBufferLength: 0,
-            manifestLoadingTimeOut: 15000,
-            levelLoadingTimeOut: 15000,
-            fragLoadingTimeOut: 15000
+            manifestLoadingTimeOut: 20000,
+            manifestLoadingMaxRetry: 6,
+            manifestLoadingRetryDelay: 800,
+            levelLoadingTimeOut: 20000,
+            levelLoadingMaxRetry: 6,
+            levelLoadingRetryDelay: 800,
+            fragLoadingTimeOut: 20000,
+            fragLoadingMaxRetry: 6,
+            fragLoadingRetryDelay: 800
           });
           tvMultiHls = hls;
 
@@ -2871,6 +2883,10 @@
                 }
               });
             }
+          });
+
+          hls.on(window.Hls.Events.AUDIO_TRACKS_UPDATED, function() {
+            applyAudioTrack();
           });
 
           hls.on(window.Hls.Events.ERROR, function(event, errData) {
@@ -2910,7 +2926,13 @@
     if (!tvMultiHls) return;
     try {
       if (tvMultiHls.audioTracks && tvMultiHls.audioTracks.length > 1) {
-        tvMultiHls.audioTrack = (tvMultiViewFocus === 'left') ? 0 : 1;
+        var targetTrack = (tvMultiViewFocus === 'left') ? 0 : 1;
+        if (tvMultiHls.audioTrack !== targetTrack) {
+          tvMultiHls.audioTrack = targetTrack;
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('info', 'multiview', 'Switched audio to: ' + tvMultiViewFocus + ' (track ' + targetTrack + ')');
+          }
+        }
       }
     } catch(e) {}
   }
