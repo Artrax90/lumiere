@@ -97,15 +97,15 @@
 - Consumes: `:core` storage & models.
 - Produces: Navigation host supporting deep routes (`Connect`, `Profiles`, `Home`, `Details`, `Player`, `Iptv`, `Search`).
 
-- [ ] **Step 1: Implement `AppPreferences`**
+- [x] **Step 1: Implement `AppPreferences`**
   Store and retrieve `serverUrl`, `currentProfileId`, `lastWatchedMedia`.
-- [ ] **Step 2: Implement Lumiere Dark Gold Theme for TV**
+- [x] **Step 2: Implement Lumiere Dark Gold Theme for TV**
   Define `Gold = Color(0xFFE8C170)`, `BackgroundDark = Color(0xFF07090E)`, `SurfaceDark = Color(0xFF0F121C)` with Compose Material 3 TV theme.
-- [ ] **Step 3: Implement `Screen` sealed navigation class and `MainActivity`**
+- [x] **Step 3: Implement `Screen` sealed navigation class and `MainActivity`**
   Setup `NavHost` with D-pad back navigation handling.
-- [ ] **Step 4: Verify compilation**
+- [x] **Step 4: Verify compilation**
   Run: `cd android && ./gradlew :tv:compileDebugKotlin`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/
   git commit -m "feat(tv): add dark gold TV design theme, preferences and navigation graph"
