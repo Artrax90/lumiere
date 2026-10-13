@@ -102,8 +102,32 @@ class MainActivity : ComponentActivity() {
                                 navArgument("id") { type = NavType.LongType },
                                 navArgument("type") { type = NavType.StringType; defaultValue = "movie" }
                             )
-                        ) {
-                            // Implemented in Task 6
+                        ) { backStackEntry ->
+                            val id = backStackEntry.arguments?.getLong("id") ?: 0L
+                            val type = backStackEntry.arguments?.getString("type") ?: "movie"
+                            val app = (androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
+                            val detailsViewModel = remember(id, type) {
+                                com.lumiere.tv.ui.details.DetailsViewModel(app, id, type)
+                            }
+
+                            com.lumiere.tv.ui.details.DetailsScreen(
+                                mediaId = id,
+                                mediaType = type,
+                                onBackClick = { navController.popBackStack() },
+                                onPlayRequested = { streamUrl, title, subtitle, isHls ->
+                                    navController.navigate(
+                                        Screen.Player.createRoute(
+                                            streamUrl = streamUrl,
+                                            title = title,
+                                            subtitle = subtitle,
+                                            isHls = isHls,
+                                            mediaId = id,
+                                            mediaType = type
+                                        )
+                                    )
+                                },
+                                viewModel = detailsViewModel
+                            )
                         }
                         composable(
                             route = Screen.Player.route,

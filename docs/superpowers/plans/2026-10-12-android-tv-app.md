@@ -185,17 +185,17 @@
 - Consumes: `/api/movies/:id`, `/api/tv/:id`, `/api/torrents/search`.
 - Produces: Detailed view with trailer playback, episode picker, and torrent selection.
 
-- [ ] **Step 1: Implement `DetailsViewModel`**
+- [x] **Step 1: Implement `DetailsViewModel`**
   Fetch item details, cast list, trailers, episodes, and search torrent releases.
-- [ ] **Step 2: Implement `DetailsScreen` layout**
+- [x] **Step 2: Implement `DetailsScreen` layout**
   High-res backdrop background, metadata badges (Kinopoisk, IMDb, Year, Duration), action buttons.
-- [ ] **Step 3: Implement `SeasonPicker` and Episode Grid**
+- [x] **Step 3: Implement `SeasonPicker` and Episode Grid**
   Season tab selector and horizontal episode cards with preview thumbnail and description.
-- [ ] **Step 4: Implement `TorrentDialog`**
+- [x] **Step 4: Implement `TorrentDialog`**
   List available torrents with resolution badge (4K HDR, 1080p), voiceover tags (Dub, NewStudio), seeds, size, and one-click launch via TorrServer.
-- [ ] **Step 5: Verify build**
+- [x] **Step 5: Verify build**
   Run: `cd android && ./gradlew :tv:assembleDebug`.
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/ui/details/
   git commit -m "feat(tv): implement media detail screen with trailer, seasons and torrent picker"
