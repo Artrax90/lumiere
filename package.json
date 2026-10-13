@@ -8,6 +8,7 @@
     "test:back": "npm --prefix back test",
     "test:front": "npm --prefix front test",
     "build": "npm --prefix front run build && npm --prefix back run build",
+    "build:tv:android": "node scratch/build_native_tv.cjs",
     "start": "npm --prefix back start"
   }
 }

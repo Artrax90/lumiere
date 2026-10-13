@@ -301,13 +301,13 @@
 - Consumes: Gradle build outputs.
 - Produces: Signed `Lumiere-tv.apk` in root and `back/public/apk/Lumiere-tv.apk`, deployed to server and installable via ADB.
 
-- [ ] **Step 1: Create `scratch/build_native_tv.cjs`**
+- [x] **Step 1: Create `scratch/build_native_tv.cjs`**
   Executes `./gradlew :tv:assembleRelease` (or `assembleDebug`), signs APK, copies to root `Lumiere-tv.apk` and `back/public/apk/Lumiere-tv.apk`.
-- [ ] **Step 2: Add auto-install via ADB / SDB if TV is connected**
+- [x] **Step 2: Add auto-install via ADB / SDB if TV is connected**
   Support `adb install -r Lumiere-tv.apk` for connected Android TV devices.
-- [ ] **Step 3: Test full packaging pipeline**
+- [x] **Step 3: Test full packaging pipeline**
   Run: `node scratch/build_native_tv.cjs` and verify APK is created, signed, and placed in target locations.
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
   ```bash
   git add scratch/build_native_tv.cjs GEMINI.md
   git commit -m "feat(build): add native Android TV build, sign and deployment pipeline"
