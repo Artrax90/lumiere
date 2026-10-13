@@ -248,15 +248,15 @@
 - Consumes: `/iptv/playlist.m3u`, `/api/iptv/epg`.
 - Produces: Live TV channels browsing, EPG guide, and fast channel zap.
 
-- [ ] **Step 1: Implement `IptvViewModel`**
+- [x] **Step 1: Implement `IptvViewModel`**
   Fetch channels, group by category, load EPG schedule.
-- [ ] **Step 2: Implement `EpgSidebar`**
+- [x] **Step 2: Implement `EpgSidebar`**
   Category tabs, channel list with logos, current program title and progress indicator.
-- [ ] **Step 3: Implement `IptvScreen`**
+- [x] **Step 3: Implement `IptvScreen`**
   Fullscreen live playback with channel sidebar overlay. D-pad `▲`/`▼` triggers instant next/previous channel switch.
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
   Run: `cd android && ./gradlew :tv:assembleDebug`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/ui/iptv/
   git commit -m "feat(tv): implement IPTV player with category filter and EPG program guide"

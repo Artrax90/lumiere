@@ -94,7 +94,9 @@ class MainActivity : ComponentActivity() {
                             // Implemented in Task 9
                         }
                         composable(Screen.Iptv.route) {
-                            // Implemented in Task 8
+                            com.lumiere.tv.ui.iptv.IptvScreen(
+                                onBackClick = { navController.popBackStack() }
+                            )
                         }
                         composable(
                             route = Screen.Details.route,
