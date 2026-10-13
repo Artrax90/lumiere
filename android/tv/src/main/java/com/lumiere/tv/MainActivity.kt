@@ -141,8 +141,23 @@ class MainActivity : ComponentActivity() {
                                 navArgument("season") { type = NavType.IntType; defaultValue = 0 },
                                 navArgument("episode") { type = NavType.IntType; defaultValue = 0 }
                             )
-                        ) {
-                            // Implemented in Task 7
+                        ) { backStackEntry ->
+                            val url = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
+                            val title = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("title").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
+                            val subtitle = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("subtitle").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
+                            val isHls = backStackEntry.arguments?.getBoolean("hls") ?: false
+                            val mediaId = backStackEntry.arguments?.getLong("mediaId") ?: 0L
+                            val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+
+                            com.lumiere.tv.ui.player.PlayerScreen(
+                                streamUrl = url,
+                                title = title,
+                                subtitle = subtitle,
+                                isHls = isHls,
+                                mediaId = mediaId,
+                                mediaType = mediaType,
+                                onBackClick = { navController.popBackStack() }
+                            )
                         }
                     }
                 }

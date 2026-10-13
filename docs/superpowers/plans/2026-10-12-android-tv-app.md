@@ -215,21 +215,21 @@
 - Consumes: Direct video URLs, HLS playlists, TorrServer stream URLs.
 - Produces: Fullscreen video playback with hardware acceleration, audio track switching, subtitle picker, and progress sync.
 
-- [ ] **Step 1: Implement `LumierePlayer` wrapping Media3 ExoPlayer**
+- [x] **Step 1: Implement `LumierePlayer` wrapping Media3 ExoPlayer**
   Configure `DefaultRenderersFactory` with `EXTENSION_RENDERER_MODE_ON`, hardware `MediaCodec`, audio passthrough flags, and OkHttp data source.
-- [ ] **Step 2: Implement `PlayerControlsOverlay`**
+- [x] **Step 2: Implement `PlayerControlsOverlay`**
   On-screen TV HUD shown on D-pad interaction:
   - Play/Pause toggle, progress seekbar with current/total time.
   - Audio tracks dialog (`▲`).
   - Subtitle track dialog (`▲`).
   - Next/Previous episode navigation.
   - TorrServer buffer stats banner (peers, speed MB/s, buffer %).
-- [ ] **Step 3: Implement `PlayerScreen` & `PlayerViewModel`**
+- [x] **Step 3: Implement `PlayerScreen` & `PlayerViewModel`**
   Handle D-pad events (`KEYCODE_DPAD_CENTER`, `KEYCODE_MEDIA_PLAY_PAUSE`, `KEYCODE_DPAD_LEFT`/`RIGHT` seek).
   Periodic 10s heartbeat to `/api/sessions/heartbeat` and save progress on exit.
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
   Run: `cd android && ./gradlew :tv:assembleDebug`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/core/src/main/java/com/lumiere/core/player/ android/tv/src/main/java/com/lumiere/tv/ui/player/
   git commit -m "feat(tv): implement Media3 ExoPlayer engine with TV D-pad controls and audio passthrough"
