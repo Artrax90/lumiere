@@ -91,7 +91,12 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         composable(Screen.Search.route) {
-                            // Implemented in Task 9
+                            com.lumiere.tv.ui.search.SearchScreen(
+                                onBackClick = { navController.popBackStack() },
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                }
+                            )
                         }
                         composable(Screen.Iptv.route) {
                             com.lumiere.tv.ui.iptv.IptvScreen(

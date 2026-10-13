@@ -275,15 +275,15 @@
 - Consumes: `/api/movies?q=...`.
 - Produces: Fast search interface optimized for remote controls.
 
-- [ ] **Step 1: Implement `TvVirtualKeyboard`**
+- [x] **Step 1: Implement `TvVirtualKeyboard`**
   Russian + English + Digits layout with Backspace, Space, and Clear keys.
-- [ ] **Step 2: Implement `SearchViewModel`**
+- [x] **Step 2: Implement `SearchViewModel`**
   Debounced search queries (350ms) to backend API.
-- [ ] **Step 3: Implement `SearchScreen`**
+- [x] **Step 3: Implement `SearchScreen`**
   Side-by-side layout: keyboard on left, live results grid on right with focus transition.
-- [ ] **Step 4: Verify build**
+- [x] **Step 4: Verify build**
   Run: `cd android && ./gradlew :tv:assembleDebug`.
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
   ```bash
   git add android/tv/src/main/java/com/lumiere/tv/ui/search/
   git commit -m "feat(tv): implement TV search screen with on-screen remote keyboard"
