@@ -3,16 +3,12 @@ package com.lumiere.tv.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -33,9 +29,6 @@ fun MediaRow(
     badgeText: String? = null,
     badgeColor: Color = Color(0xFFE50914),
     headerAction: @Composable (() -> Unit)? = null,
-    headerActionFocusRequester: FocusRequester? = null,
-    firstItemFocusRequester: FocusRequester? = null,
-    downFocusRequester: FocusRequester? = null,
     rowState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
@@ -43,19 +36,17 @@ fun MediaRow(
 
     Column(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 32.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                modifier = Modifier.weight(1f, fill = false)
+                horizontalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 if (!badgeText.isNullOrBlank()) {
                     Box(
@@ -73,24 +64,21 @@ fun MediaRow(
                         )
                     }
                 }
-                Column {
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.titleLarge,
-                        color = TextPrimary
-                    )
-                    if (!subtitle.isNullOrBlank()) {
-                        Text(
-                            text = subtitle,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = TextSecondary
-                        )
-                    }
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = TextPrimary
+                )
+                if (headerAction != null) {
+                    headerAction()
                 }
             }
-
-            if (headerAction != null) {
-                headerAction()
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = TextSecondary
+                )
             }
         }
 
@@ -101,35 +89,17 @@ fun MediaRow(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-        itemsIndexed(
-            items = distinctItems,
-            key = { index, item -> "${item.id}_${item.type}_$index" },
-            contentType = { _, _ -> "media_card" }
-        ) { index, item ->
-            MediaCard(
-                title = item,
-                posterUrl = resolvePosterUrl(item.poster),
-                onClick = { onTitleClick(item) },
-                modifier = Modifier
-                    .then(
-                        if (index == 0 && firstItemFocusRequester != null) {
-                            Modifier.focusRequester(firstItemFocusRequester)
-                        } else Modifier
-                    )
-                    .then(
-                        if (headerActionFocusRequester != null || downFocusRequester != null) {
-                            Modifier.focusProperties {
-                                if (headerActionFocusRequester != null) {
-                                    up = headerActionFocusRequester
-                                }
-                                if (downFocusRequester != null) {
-                                    down = downFocusRequester
-                                }
-                            }
-                        } else Modifier
-                    )
-            )
-        }
+            itemsIndexed(
+                items = distinctItems,
+                key = { index, item -> "${item.id}_${item.type}_$index" },
+                contentType = { _, _ -> "media_card" }
+            ) { _, item ->
+                MediaCard(
+                    title = item,
+                    posterUrl = resolvePosterUrl(item.poster),
+                    onClick = { onTitleClick(item) }
+                )
+            }
         }
     }
 }

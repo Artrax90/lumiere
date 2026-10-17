@@ -66,12 +66,6 @@ fun CollectionsScreen(
                 { path: String? -> viewModel.resolvePosterUrl(path) }
             }
 
-            val netflixFocusRequesters = remember {
-                CURATED_COLLECTIONS.filter { it.isNetflixMovies || it.isNetflixTv }.associate { cat ->
-                    cat.id to (androidx.compose.ui.focus.FocusRequester() to androidx.compose.ui.focus.FocusRequester())
-                }
-            }
-
             val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
@@ -94,9 +88,6 @@ fun CollectionsScreen(
                             cat.subtitle
                         }
 
-                        val focusPair = netflixFocusRequesters[cat.id]
-                        val (switcherRequester, firstItemRequester) = focusPair ?: (null to null)
-
                         MediaRow(
                             title = cat.name,
                             subtitle = subtitle,
@@ -104,15 +95,11 @@ fun CollectionsScreen(
                             resolvePosterUrl = resolvePoster,
                             onTitleClick = onTitleClick,
                             badgeText = if (isNetflix) "NETFLIX" else null,
-                            headerActionFocusRequester = switcherRequester,
-                            firstItemFocusRequester = firstItemRequester,
-                            headerAction = if (isNetflix && switcherRequester != null && firstItemRequester != null) {
+                            headerAction = if (isNetflix) {
                                 {
                                     com.lumiere.tv.ui.components.NetflixPeriodSwitcher(
                                         selectedPeriod = uiState.netflixPeriod,
-                                        onSelectPeriod = { viewModel.setNetflixPeriod(it) },
-                                        firstButtonFocusRequester = switcherRequester,
-                                        rowFocusRequester = firstItemRequester
+                                        onSelectPeriod = { viewModel.setNetflixPeriod(it) }
                                     )
                                 }
                             } else null

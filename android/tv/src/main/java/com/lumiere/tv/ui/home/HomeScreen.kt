@@ -8,6 +8,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import kotlinx.coroutines.launch
 import com.lumiere.core.model.Title
 import com.lumiere.tv.theme.BackgroundDark
 import com.lumiere.tv.ui.components.*
@@ -40,11 +41,7 @@ fun HomeScreen(
     val trendingSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val popularSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    // Focus requesters for seamless remote D-pad navigation to row header actions
-    val netflixMoviesSwitcherFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    val netflixMoviesFirstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    val netflixSeriesSwitcherFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
-    val netflixSeriesFirstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val coroutineScope = rememberCoroutineScope()
 
     // Stable lambda for image resolving
     val resolvePosterUrl = remember(viewModel) {
@@ -123,14 +120,13 @@ fun HomeScreen(
 
             // Movies filter or Home
             if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) {
-                // Trending Movies (down leads directly to Netflix movies switcher)
+                // Trending Movies
                 MediaRow(
                     title = "В тренде (Фильмы)",
                     subtitle = "Самое популярное прямо сейчас",
                     items = state.trendingMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    downFocusRequester = if (state.netflixMovies.isNotEmpty()) netflixMoviesSwitcherFocusRequester else null,
                     rowState = trendingMoviesState
                 )
 
@@ -151,24 +147,24 @@ fun HomeScreen(
                         headerAction = {
                             NetflixPeriodSwitcher(
                                 selectedPeriod = state.netflixMoviesPeriod,
-                                onSelectPeriod = { viewModel.setNetflixMoviesPeriod(it) },
-                                firstButtonFocusRequester = netflixMoviesSwitcherFocusRequester,
-                                rowFocusRequester = netflixMoviesFirstItemFocusRequester
+                                onSelectPeriod = { period ->
+                                    viewModel.setNetflixMoviesPeriod(period)
+                                    coroutineScope.launch {
+                                        try { netflixMoviesState.scrollToItem(0) } catch (_: Exception) {}
+                                    }
+                                }
                             )
                         },
-                        headerActionFocusRequester = netflixMoviesSwitcherFocusRequester,
-                        firstItemFocusRequester = netflixMoviesFirstItemFocusRequester,
                         rowState = netflixMoviesState
                     )
                 }
 
-                // Popular Movies (down leads directly to Netflix series switcher)
+                // Popular Movies
                 MediaRow(
                     title = "Популярные фильмы",
                     items = state.popularMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    downFocusRequester = if (state.netflixSeries.isNotEmpty()) netflixSeriesSwitcherFocusRequester else null,
                     rowState = popularMoviesState
                 )
             }
@@ -192,13 +188,14 @@ fun HomeScreen(
                         headerAction = {
                             NetflixPeriodSwitcher(
                                 selectedPeriod = state.netflixSeriesPeriod,
-                                onSelectPeriod = { viewModel.setNetflixSeriesPeriod(it) },
-                                firstButtonFocusRequester = netflixSeriesSwitcherFocusRequester,
-                                rowFocusRequester = netflixSeriesFirstItemFocusRequester
+                                onSelectPeriod = { period ->
+                                    viewModel.setNetflixSeriesPeriod(period)
+                                    coroutineScope.launch {
+                                        try { netflixSeriesState.scrollToItem(0) } catch (_: Exception) {}
+                                    }
+                                }
                             )
                         },
-                        headerActionFocusRequester = netflixSeriesSwitcherFocusRequester,
-                        firstItemFocusRequester = netflixSeriesFirstItemFocusRequester,
                         rowState = netflixSeriesState
                     )
                 }

@@ -12,16 +12,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.tv.material3.*
-import com.lumiere.tv.theme.BackgroundDark
-import com.lumiere.tv.theme.LumiereGold
 import com.lumiere.tv.theme.SurfaceBorder
 import com.lumiere.tv.theme.SurfaceDark
 import com.lumiere.tv.theme.TextSecondary
@@ -31,10 +26,7 @@ import com.lumiere.tv.theme.TextSecondary
 fun NetflixPeriodSwitcher(
     selectedPeriod: String, // "week" or "all_time"
     onSelectPeriod: (String) -> Unit,
-    modifier: Modifier = Modifier,
-    firstButtonFocusRequester: FocusRequester? = null,
-    rowFocusRequester: FocusRequester? = null,
-    upFocusRequester: FocusRequester? = null
+    modifier: Modifier = Modifier
 ) {
     Row(
         modifier = modifier
@@ -62,25 +54,7 @@ fun NetflixPeriodSwitcher(
                 border = Border.None
             ),
             shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
-            modifier = Modifier
-                .then(
-                    if (firstButtonFocusRequester != null) {
-                        Modifier.focusRequester(firstButtonFocusRequester)
-                    } else Modifier
-                )
-                .then(
-                    if (rowFocusRequester != null || upFocusRequester != null) {
-                        Modifier.focusProperties {
-                            if (rowFocusRequester != null) {
-                                down = rowFocusRequester
-                            }
-                            if (upFocusRequester != null) {
-                                up = upFocusRequester
-                            }
-                        }
-                    } else Modifier
-                )
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -113,20 +87,7 @@ fun NetflixPeriodSwitcher(
                 border = Border.None
             ),
             shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp),
-            modifier = Modifier
-                .then(
-                    if (rowFocusRequester != null || upFocusRequester != null) {
-                        Modifier.focusProperties {
-                            if (rowFocusRequester != null) {
-                                down = rowFocusRequester
-                            }
-                            if (upFocusRequester != null) {
-                                up = upFocusRequester
-                            }
-                        }
-                    } else Modifier
-                )
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
