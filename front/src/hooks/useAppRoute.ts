@@ -115,7 +115,7 @@ export function parseRoute(pathname: string, searchStr = ''): AppRoute {
       return { section: 'profile' };
 
     case 'plugins':
-      return { section: 'plugins' };
+      return { section: 'home' };
 
     case 'downloads':
       return { section: 'downloads' };

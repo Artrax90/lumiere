@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Search, Settings, Film, Tv, Sparkles, Bell, Puzzle, Download, Grid3x3, Home, Radio, Bookmark } from 'lucide-react';
+import { Search, Settings, Film, Tv, Sparkles, Bell, Download, Grid3x3, Home, Radio, Bookmark } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { serverFetch } from '@/api/server';
 import { isTV } from '@/hooks/usePlatform';
@@ -231,22 +231,6 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
                 {unreadCount > 9 ? '9+' : unreadCount}
               </span>
             )}
-          </a>
-          <a
-            href="/plugins"
-            role="button"
-            tabIndex={0}
-            onClick={(e) => handleNavClick(e, 'plugins')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onNavigate('plugins');
-              }
-            }}
-            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
-            aria-label="Plugin Store"
-          >
-            <Puzzle className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
           </a>
           <a
             href="/settings"

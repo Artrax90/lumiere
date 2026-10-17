@@ -111,7 +111,6 @@ import TVShows from '@/components/TVShows';
 import EpisodeDetails from '@/components/EpisodeDetails';
 import AnimeView from '@/components/AnimeView';
 import ProfileView from '@/components/ProfileView';
-import PluginStore from '@/components/PluginStore';
 import DownloadManager from '@/components/DownloadManager';
 import NotificationsView from '@/components/NotificationsView';
 import IPTVView from '@/components/IPTVView';
@@ -676,8 +675,6 @@ export default function App() {
           <AnimeView onSelect={handleSelect} onPlay={handlePlay} />
         ) : section === 'profile' ? (
           <ProfileView onSelect={handleSelect} />
-        ) : section === 'plugins' ? (
-          <PluginStore />
         ) : section === 'downloads' ? (
           <DownloadManager onPlay={handlePlay} />
         ) : section === 'notifications' ? (
