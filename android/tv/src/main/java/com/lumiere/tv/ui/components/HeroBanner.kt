@@ -155,7 +155,7 @@ fun HeroBanner(
                 val bannerBtnShape = RoundedCornerShape(12.dp)
                 Button(
                     onClick = onPlayClick,
-                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                     colors = ButtonDefaults.colors(
                         containerColor = LumiereGold,
                         contentColor = BackgroundDark,
@@ -163,7 +163,7 @@ fun HeroBanner(
                         focusedContentColor = BackgroundDark
                     ),
                     border = ButtonDefaults.border(
-                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = bannerBtnShape),
+                        focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = bannerBtnShape),
                         border = Border.None
                     ),
                     shape = ButtonDefaults.shape(bannerBtnShape)
@@ -183,14 +183,14 @@ fun HeroBanner(
 
                 OutlinedButton(
                     onClick = onDetailsClick,
-                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                     colors = OutlinedButtonDefaults.colors(
                         focusedContainerColor = Color(0x22FFFFFF),
                         focusedContentColor = TextPrimary
                     ),
                     border = OutlinedButtonDefaults.border(
                         border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = bannerBtnShape),
-                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = bannerBtnShape)
+                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = bannerBtnShape)
                     ),
                     shape = OutlinedButtonDefaults.shape(bannerBtnShape)
                 ) {

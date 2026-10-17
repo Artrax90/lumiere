@@ -113,14 +113,14 @@ fun TorrentDialog(
                     val closeShape = RoundedCornerShape(10.dp)
                     OutlinedButton(
                         onClick = onDismiss,
-                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                         colors = OutlinedButtonDefaults.colors(
                             focusedContainerColor = Color(0x22FFFFFF),
                             focusedContentColor = TextPrimary
                         ),
                         border = OutlinedButtonDefaults.border(
                             border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = closeShape),
-                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = closeShape)
+                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = closeShape)
                         ),
                         shape = OutlinedButtonDefaults.shape(closeShape),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
@@ -162,16 +162,16 @@ fun TorrentDialog(
                                 val filterShape = RoundedCornerShape(8.dp)
                                 Button(
                                     onClick = { qualityFilter = id },
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = if (isSelected) Color(0x33E8C170) else Color(0x11FFFFFF),
+                                        containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
                                         contentColor = if (isSelected) LumiereGold else TextSecondary,
                                         focusedContainerColor = LumiereGold,
                                         focusedContentColor = BackgroundDark
                                     ),
                                     border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = filterShape),
-                                        border = if (isSelected) Border(border = BorderStroke(1.dp, Color(0x66E8C170)), shape = filterShape) else Border.None
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterShape),
+                                        border = Border.None
                                     ),
                                     shape = ButtonDefaults.shape(filterShape),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
@@ -196,16 +196,16 @@ fun TorrentDialog(
                                 val sortShape = RoundedCornerShape(8.dp)
                                 Button(
                                     onClick = { sortBy = id },
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = if (isSelected) Color(0x33E8C170) else Color(0x11FFFFFF),
+                                        containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
                                         contentColor = if (isSelected) LumiereGold else TextSecondary,
                                         focusedContainerColor = LumiereGold,
                                         focusedContentColor = BackgroundDark
                                     ),
                                     border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = sortShape),
-                                        border = if (isSelected) Border(border = BorderStroke(1.dp, Color(0x66E8C170)), shape = sortShape) else Border.None
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = sortShape),
+                                        border = Border.None
                                     ),
                                     shape = ButtonDefaults.shape(sortShape),
                                     contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)

@@ -275,10 +275,10 @@ fun PlayerControlsOverlay(
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (isBtn1Focused) Color.White else LumiereGold)
+                                .background(if (isBtn1Focused) Color.White else Color(0x33FFFFFF))
                                 .border(
-                                    width = if (isBtn1Focused) 3.dp else 0.dp,
-                                    color = if (isBtn1Focused) LumiereGold else Color.Transparent,
+                                    width = if (isBtn1Focused) 3.dp else 1.dp,
+                                    color = if (isBtn1Focused) LumiereGold else SurfaceBorder,
                                     shape = CircleShape
                                 )
                                 .clickable { onPlayPauseClick() }
@@ -287,7 +287,7 @@ fun PlayerControlsOverlay(
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) "Пауза" else "Играть",
-                                tint = BackgroundDark,
+                                tint = if (isBtn1Focused) BackgroundDark else Color.White,
                                 modifier = Modifier.size(28.dp)
                             )
                         }

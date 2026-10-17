@@ -368,10 +368,14 @@ private fun IptvChannelGridCard(
             focusedContainerColor = SurfaceVariantDark
         ),
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.03f),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = androidx.compose.foundation.BorderStroke(2.5.dp, LumiereGold),
+                border = androidx.compose.foundation.BorderStroke(2.dp, Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ),
+            border = Border(
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
                 shape = RoundedCornerShape(12.dp)
             )
         ),

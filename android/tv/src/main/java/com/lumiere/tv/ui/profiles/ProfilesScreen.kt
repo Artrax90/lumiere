@@ -155,7 +155,7 @@ private fun ProfileCard(
                 shape = RoundedCornerShape(16.dp)
             )
         ),
-        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f)
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.05f)
     ) {
         Column(
             modifier = Modifier

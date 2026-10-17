@@ -1,5 +1,6 @@
 package com.lumiere.tv.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
@@ -43,12 +44,16 @@ fun NetflixPeriodSwitcher(
 
         Button(
             onClick = { onSelectPeriod("week") },
-            scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+            scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
             colors = ButtonDefaults.colors(
-                containerColor = if (isWeek) Color(0xFFE50914) else Color.Transparent,
-                contentColor = if (isWeek) Color.White else TextSecondary,
-                focusedContainerColor = LumiereGold,
-                focusedContentColor = BackgroundDark
+                containerColor = if (isWeek) Color(0x33E50914) else Color.Transparent,
+                contentColor = if (isWeek) Color(0xFFFF7070) else TextSecondary,
+                focusedContainerColor = Color(0xFFE50914),
+                focusedContentColor = Color.White
+            ),
+            border = ButtonDefaults.border(
+                focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(16.dp)),
+                border = Border.None
             ),
             shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
@@ -72,12 +77,16 @@ fun NetflixPeriodSwitcher(
 
         Button(
             onClick = { onSelectPeriod("all_time") },
-            scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+            scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
             colors = ButtonDefaults.colors(
-                containerColor = if (isAllTime) Color(0xFFE50914) else Color.Transparent,
-                contentColor = if (isAllTime) Color.White else TextSecondary,
-                focusedContainerColor = LumiereGold,
-                focusedContentColor = BackgroundDark
+                containerColor = if (isAllTime) Color(0x33E50914) else Color.Transparent,
+                contentColor = if (isAllTime) Color(0xFFFF7070) else TextSecondary,
+                focusedContainerColor = Color(0xFFE50914),
+                focusedContentColor = Color.White
+            ),
+            border = ButtonDefaults.border(
+                focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(16.dp)),
+                border = Border.None
             ),
             shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)

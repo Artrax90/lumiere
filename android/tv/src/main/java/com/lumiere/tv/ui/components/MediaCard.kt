@@ -48,7 +48,7 @@ fun MediaCard(
                 shape = RoundedCornerShape(14.dp)
             )
         ),
-        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.05f),
         shape = CardDefaults.shape(RoundedCornerShape(14.dp))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {

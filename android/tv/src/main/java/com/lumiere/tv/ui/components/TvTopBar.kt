@@ -156,15 +156,15 @@ fun TvTopBar(
             // Search Icon Button
             Button(
                 onClick = { onNavigate(TvNavDestination.SEARCH) },
-                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                 colors = ButtonDefaults.colors(
-                    containerColor = if (currentDestination == TvNavDestination.SEARCH) Color(0x33E8C170) else SurfaceDark,
+                    containerColor = SurfaceDark,
                     contentColor = if (currentDestination == TvNavDestination.SEARCH) LumiereGold else TextSecondary,
                     focusedContainerColor = LumiereGold,
                     focusedContentColor = BackgroundDark
                 ),
                 border = ButtonDefaults.border(
-                    focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = CircleShape),
+                    focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = CircleShape),
                     border = Border.None
                 ),
                 shape = ButtonDefaults.shape(CircleShape),
@@ -184,7 +184,7 @@ fun TvTopBar(
             Box(modifier = Modifier.size(34.dp)) {
                 Button(
                     onClick = onNotificationsClick,
-                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                     colors = ButtonDefaults.colors(
                         containerColor = SurfaceDark,
                         contentColor = if (unreadNotificationsCount > 0) LumiereGold else TextSecondary,
@@ -192,7 +192,7 @@ fun TvTopBar(
                         focusedContentColor = BackgroundDark
                     ),
                     border = ButtonDefaults.border(
-                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = CircleShape),
+                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = CircleShape),
                         border = Border.None
                     ),
                     shape = ButtonDefaults.shape(CircleShape),
@@ -231,15 +231,15 @@ fun TvTopBar(
             // Settings Icon Button
             Button(
                 onClick = { onNavigate(TvNavDestination.SETTINGS) },
-                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                 colors = ButtonDefaults.colors(
-                    containerColor = if (currentDestination == TvNavDestination.SETTINGS) Color(0x33E8C170) else SurfaceDark,
+                    containerColor = SurfaceDark,
                     contentColor = if (currentDestination == TvNavDestination.SETTINGS) LumiereGold else TextSecondary,
                     focusedContainerColor = LumiereGold,
                     focusedContentColor = BackgroundDark
                 ),
                 border = ButtonDefaults.border(
-                    focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = CircleShape),
+                    focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = CircleShape),
                     border = Border.None
                 ),
                 shape = ButtonDefaults.shape(CircleShape),
@@ -258,7 +258,7 @@ fun TvTopBar(
             // Profile Button (Avatar + Name)
             Button(
                 onClick = onProfileClick,
-                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                 colors = ButtonDefaults.colors(
                     containerColor = SurfaceDark,
                     contentColor = TextPrimary,
@@ -266,7 +266,7 @@ fun TvTopBar(
                     focusedContentColor = BackgroundDark
                 ),
                 border = ButtonDefaults.border(
-                    focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = RoundedCornerShape(16.dp)),
+                    focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(16.dp)),
                     border = Border.None
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
@@ -324,25 +324,40 @@ private fun TopBarItem(
     val shape = RoundedCornerShape(8.dp)
     Button(
         onClick = onClick,
-        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
         colors = ButtonDefaults.colors(
-            containerColor = if (selected) Color(0x33E8C170) else Color.Transparent,
+            containerColor = Color.Transparent,
             contentColor = if (selected) LumiereGold else TextSecondary,
             focusedContainerColor = LumiereGold,
             focusedContentColor = BackgroundDark
         ),
         border = ButtonDefaults.border(
-            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = shape),
+            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = shape),
             border = Border.None
         ),
         shape = ButtonDefaults.shape(shape),
-        contentPadding = PaddingValues(horizontal = 9.dp, vertical = 5.dp),
+        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
         modifier = modifier
     ) {
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text(
+                text = label,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
+            )
+            if (selected) {
+                Spacer(modifier = Modifier.height(2.dp))
+                Box(
+                    modifier = Modifier
+                        .width(16.dp)
+                        .height(2.dp)
+                        .clip(CircleShape)
+                        .background(LumiereGold)
+                )
+            }
+        }
     }
 }

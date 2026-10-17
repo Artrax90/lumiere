@@ -245,7 +245,7 @@ fun DetailsScreen(
                                     Button(
                                         onClick = { viewModel.openTorrentDialog() },
                                         modifier = Modifier.focusRequester(watchFocusRequester),
-                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                         colors = ButtonDefaults.colors(
                                             containerColor = LumiereGold,
                                             contentColor = BackgroundDark,
@@ -253,7 +253,7 @@ fun DetailsScreen(
                                             focusedContentColor = BackgroundDark
                                         ),
                                         border = ButtonDefaults.border(
-                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionShape),
+                                            focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = actionShape),
                                             border = Border.None
                                         ),
                                         shape = ButtonDefaults.shape(actionShape)
@@ -276,14 +276,14 @@ fun DetailsScreen(
                                 item {
                                     OutlinedButton(
                                         onClick = { viewModel.openTorrentDialog() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                         colors = OutlinedButtonDefaults.colors(
                                             focusedContainerColor = Color(0x22FFFFFF),
                                             focusedContentColor = TextPrimary
                                         ),
                                         border = OutlinedButtonDefaults.border(
                                             border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = actionShape),
-                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionShape)
+                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionShape)
                                         ),
                                         shape = OutlinedButtonDefaults.shape(actionShape)
                                     ) {
@@ -304,16 +304,16 @@ fun DetailsScreen(
                                 item {
                                     OutlinedButton(
                                         onClick = { viewModel.toggleWatchlist() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                         colors = OutlinedButtonDefaults.colors(
-                                            containerColor = if (state.isInWatchlist) Color(0x33E8C170) else Color.Transparent,
+                                            containerColor = if (state.isInWatchlist) Color(0x18FFFFFF) else Color.Transparent,
                                             contentColor = if (state.isInWatchlist) LumiereGold else TextPrimary,
                                             focusedContainerColor = LumiereGold,
                                             focusedContentColor = BackgroundDark
                                         ),
                                         border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, if (state.isInWatchlist) Color(0x66E8C170) else SurfaceBorder), shape = actionShape),
-                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionShape)
+                                            border = Border(border = BorderStroke(1.dp, if (state.isInWatchlist) Color(0x44E8C170) else SurfaceBorder), shape = actionShape),
+                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionShape)
                                         ),
                                         shape = OutlinedButtonDefaults.shape(actionShape)
                                     ) {
@@ -334,16 +334,16 @@ fun DetailsScreen(
                                 item {
                                     OutlinedButton(
                                         onClick = { viewModel.toggleFavorite() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                         colors = OutlinedButtonDefaults.colors(
-                                            containerColor = if (state.isFavorite) Color(0x33FF4081) else Color.Transparent,
+                                            containerColor = if (state.isFavorite) Color(0x18FF4081) else Color.Transparent,
                                             contentColor = if (state.isFavorite) Color(0xFFFF5252) else TextPrimary,
                                             focusedContainerColor = Color(0xFFFF5252),
                                             focusedContentColor = Color.White
                                         ),
                                         border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, if (state.isFavorite) Color(0x88FF4081) else SurfaceBorder), shape = actionShape),
-                                            focusedBorder = Border(border = BorderStroke(2.dp, Color(0xFFFF5252)), shape = actionShape)
+                                            border = Border(border = BorderStroke(1.dp, if (state.isFavorite) Color(0x44FF4081) else SurfaceBorder), shape = actionShape),
+                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionShape)
                                         ),
                                         shape = OutlinedButtonDefaults.shape(actionShape)
                                     ) {
@@ -446,16 +446,16 @@ fun DetailsScreen(
                                 val isEpisodesTab = seriesTab == "episodes"
                                 Button(
                                     onClick = { viewModel.setSeriesTab("episodes") },
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = if (isEpisodesTab) LumiereGold else Color(0x18FFFFFF),
-                                        contentColor = if (isEpisodesTab) BackgroundDark else TextSecondary,
-                                        focusedContainerColor = if (isEpisodesTab) Color.White else Color(0x33FFFFFF),
-                                        focusedContentColor = if (isEpisodesTab) BackgroundDark else TextPrimary
+                                        containerColor = if (isEpisodesTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+                                        contentColor = if (isEpisodesTab) LumiereGold else TextSecondary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
                                     ),
                                     border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = tabShape),
-                                        border = if (isEpisodesTab) Border(border = BorderStroke(1.dp, LumiereGold), shape = tabShape) else Border.None
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
+                                        border = Border.None
                                     ),
                                     shape = ButtonDefaults.shape(tabShape),
                                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
@@ -470,16 +470,16 @@ fun DetailsScreen(
                                 val isTorrentsTab = seriesTab == "torrents"
                                 Button(
                                     onClick = { viewModel.setSeriesTab("torrents") },
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
                                     colors = ButtonDefaults.colors(
-                                        containerColor = if (isTorrentsTab) LumiereGold else Color(0x18FFFFFF),
-                                        contentColor = if (isTorrentsTab) BackgroundDark else TextSecondary,
-                                        focusedContainerColor = if (isTorrentsTab) Color.White else Color(0x33FFFFFF),
-                                        focusedContentColor = if (isTorrentsTab) BackgroundDark else TextPrimary
+                                        containerColor = if (isTorrentsTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+                                        contentColor = if (isTorrentsTab) LumiereGold else TextSecondary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
                                     ),
                                     border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = tabShape),
-                                        border = if (isTorrentsTab) Border(border = BorderStroke(1.dp, LumiereGold), shape = tabShape) else Border.None
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
+                                        border = Border.None
                                     ),
                                     shape = ButtonDefaults.shape(tabShape),
                                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
@@ -556,16 +556,16 @@ fun DetailsScreen(
                                                     val filterShape = RoundedCornerShape(8.dp)
                                                     Button(
                                                         onClick = { viewModel.setTorrentQualityFilter(id) },
-                                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                                         colors = ButtonDefaults.colors(
-                                                            containerColor = if (isSelected) Color(0x33E8C170) else Color(0x11FFFFFF),
+                                                            containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
                                                             contentColor = if (isSelected) LumiereGold else TextSecondary,
                                                             focusedContainerColor = LumiereGold,
                                                             focusedContentColor = BackgroundDark
                                                         ),
                                                         border = ButtonDefaults.border(
-                                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = filterShape),
-                                                            border = if (isSelected) Border(border = BorderStroke(1.dp, Color(0x66E8C170)), shape = filterShape) else Border.None
+                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterShape),
+                                                            border = Border.None
                                                         ),
                                                         shape = ButtonDefaults.shape(filterShape),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
@@ -590,16 +590,16 @@ fun DetailsScreen(
                                                     val sortShape = RoundedCornerShape(8.dp)
                                                     Button(
                                                         onClick = { viewModel.setTorrentSortBy(id) },
-                                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                                         colors = ButtonDefaults.colors(
-                                                            containerColor = if (isSelected) Color(0x33E8C170) else Color(0x11FFFFFF),
+                                                            containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
                                                             contentColor = if (isSelected) LumiereGold else TextSecondary,
                                                             focusedContainerColor = LumiereGold,
                                                             focusedContentColor = BackgroundDark
                                                         ),
                                                         border = ButtonDefaults.border(
-                                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = sortShape),
-                                                            border = if (isSelected) Border(border = BorderStroke(1.dp, Color(0x66E8C170)), shape = sortShape) else Border.None
+                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = sortShape),
+                                                            border = Border.None
                                                         ),
                                                         shape = ButtonDefaults.shape(sortShape),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)

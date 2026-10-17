@@ -175,23 +175,20 @@ private fun ChannelRowItem(
 ) {
     Card(
         onClick = onClick,
-        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.03f),
         modifier = modifier
             .fillMaxWidth()
             .height(58.dp),
         colors = CardDefaults.colors(
-            containerColor = if (isPlaying) Color(0x33E8C170) else SurfaceVariantDark,
+            containerColor = if (isPlaying) Color(0x22FFFFFF) else SurfaceVariantDark,
             focusedContainerColor = SurfaceDark
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, LumiereGold),
+                border = BorderStroke(2.dp, Color.White),
                 shape = RoundedCornerShape(10.dp)
             ),
-            border = Border(
-                border = BorderStroke(1.dp, if (isPlaying) LumiereGoldVariant else Color.Transparent),
-                shape = RoundedCornerShape(10.dp)
-            )
+            border = Border.None
         ),
         shape = CardDefaults.shape(RoundedCornerShape(10.dp))
     ) {
@@ -232,13 +229,25 @@ private fun ChannelRowItem(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(2.dp)
             ) {
-                Text(
-                    text = channel.name,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = if (isPlaying) LumiereGold else TextPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (isPlaying) {
+                        Text(
+                            text = "▶",
+                            fontSize = 11.sp,
+                            color = LumiereGold
+                        )
+                    }
+                    Text(
+                        text = channel.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = if (isPlaying) LumiereGold else TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
 
                 val program = channel.currentProgram
                 if (!program.isNullOrBlank()) {

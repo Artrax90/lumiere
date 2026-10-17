@@ -61,16 +61,16 @@ fun SeasonPicker(
                     val tabShape = RoundedCornerShape(10.dp)
                     Button(
                         onClick = { onSeasonSelect(seasonNum) },
-                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
+                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                         colors = ButtonDefaults.colors(
-                            containerColor = if (isSelected) LumiereGold else SurfaceDark,
-                            contentColor = if (isSelected) BackgroundDark else TextSecondary,
-                            focusedContainerColor = Color.White,
+                            containerColor = if (isSelected) Color(0x22FFFFFF) else SurfaceDark,
+                            contentColor = if (isSelected) LumiereGold else TextSecondary,
+                            focusedContainerColor = LumiereGold,
                             focusedContentColor = BackgroundDark
                         ),
                         border = ButtonDefaults.border(
-                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = tabShape),
-                            border = if (isSelected) Border(border = BorderStroke(1.dp, LumiereGold), shape = tabShape) else Border.None
+                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
+                            border = Border.None
                         ),
                         shape = ButtonDefaults.shape(tabShape),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
