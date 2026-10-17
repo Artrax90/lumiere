@@ -88,11 +88,31 @@ data class Title(
     val releaseDate: String? = null,
     val tagline: String? = null,
     val productionCompanies: List<String> = emptyList(),
+    val cast: List<CastMember> = emptyList(),
     val seasonsCount: Int? = null,
     val progress: Double? = null,
     val videoUrl: String? = null,
     val directUrl: String? = null,
     val hlsUrl: String? = null
+)
+
+@Serializable
+data class CastMember(
+    val id: Long? = null,
+    val name: String,
+    val role: String? = null,
+    val image: String? = null
+)
+
+@Serializable
+data class Genre(
+    val id: Int,
+    val name: String
+)
+
+@Serializable
+data class GenreListResponse(
+    val genres: List<Genre> = emptyList()
 )
 
 @Serializable
@@ -141,6 +161,7 @@ data class TorrentItem(
     val title: String,
     val magnet: String,
     val size: String? = null,
+    val sizeFormatted: String? = null,
     val sizeBytes: Long? = null,
     val seeders: Int? = 0,
     val leechers: Int? = 0,
@@ -221,10 +242,12 @@ data class IptvParseResponse(
 
 @Serializable
 data class EpgProgram(
-    val channel: String,
-    val title: String,
-    val start: String,
-    val stop: String,
+    val channel: String? = null,
+    val title: String = "",
+    val start: String = "",
+    val stop: String = "",
+    val startTime: String? = null,
+    val stopTime: String? = null,
     val desc: String? = null
 )
 
@@ -251,3 +274,160 @@ data class SyncPullResponse(
     val favorites: List<WatchProgressSyncItem> = emptyList(),
     val syncedAt: String? = null
 )
+
+@Serializable
+data class FavoriteItem(
+    val id: Long? = null,
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val titleName: String? = null,
+    val poster: String? = null
+)
+
+@Serializable
+data class FavoritesResponse(
+    val favorites: List<FavoriteItem> = emptyList()
+)
+
+@Serializable
+data class FavoriteRequest(
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val titleName: String? = null,
+    val poster: String? = null,
+    val userId: Long? = null
+)
+
+@Serializable
+data class WatchlistItem(
+    val id: Long? = null,
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val titleName: String? = null,
+    val poster: String? = null,
+    val year: String? = null,
+    val score: Double? = null
+)
+
+@Serializable
+data class WatchlistResponse(
+    val watchlist: List<WatchlistItem> = emptyList()
+)
+
+@Serializable
+data class WatchlistRequest(
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val titleName: String? = null,
+    val poster: String? = null,
+    val year: String? = null,
+    val score: Double? = null,
+    val userId: Long? = null
+)
+
+@Serializable
+data class SubscriptionStatusResponse(
+    val isSubscribed: Boolean = false
+)
+
+@Serializable
+data class SubscribeRequest(
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val title: String? = null,
+    val poster: String? = null,
+    val year: Int? = null,
+    val lastSeason: Int? = 0,
+    val lastEpisode: Int? = 0,
+    val userId: Long? = null
+)
+
+@Serializable
+data class TrailerItem(
+    val url: String? = null,
+    val embedUrl: String? = null,
+    val streamUrl: String? = null,
+    val title: String? = null
+)
+
+@Serializable
+data class TrailerResponse(
+    val trailer: TrailerItem? = null
+)
+
+@Serializable
+data class SimpleActionResponse(
+    val success: Boolean = true,
+    val message: String? = null
+)
+
+@Serializable
+data class AppNotification(
+    val id: Long,
+    val title: String,
+    val message: String,
+    val mediaType: String? = "movie",
+    val mediaId: Long? = 0L,
+    val poster: String? = null,
+    val isRead: Boolean = false,
+    val createdAt: String? = null
+)
+
+@Serializable
+data class NotificationsResponse(
+    val notifications: List<AppNotification> = emptyList(),
+    val unreadCount: Int = 0
+)
+
+@Serializable
+data class UserHistoryItem(
+    val id: Long? = null,
+    val tmdbId: Long,
+    val mediaType: String? = "movie",
+    val titleName: String? = null,
+    val poster: String? = null,
+    val progress: Long? = 0L,
+    val timestamp: Long? = 0L,
+    val updatedAt: String? = null
+)
+
+@Serializable
+data class UserHistoryResponse(
+    val history: List<UserHistoryItem> = emptyList()
+)
+
+@Serializable
+data class DiskInfo(
+    val free: String? = null,
+    val total: String? = null
+)
+
+@Serializable
+data class ServerDownloadItem(
+    val id: String,
+    val userId: Long? = null,
+    val title: String,
+    val mediaType: String? = "movie",
+    val mediaId: Long? = 0L,
+    val season: Int? = 0,
+    val episode: Int? = 0,
+    val fileName: String? = null,
+    val fileSize: Long? = 0L,
+    val fileSizeFormatted: String? = null,
+    val downloadedBytes: Long? = 0L,
+    val downloadedBytesFormatted: String? = null,
+    val progress: Int = 0,
+    val status: String = "completed",
+    val poster: String? = null,
+    val streamUrl: String? = null,
+    val createdAt: String? = null,
+    val completedAt: String? = null
+)
+
+@Serializable
+data class ServerDownloadsResponse(
+    val downloads: List<ServerDownloadItem> = emptyList(),
+    val disk: DiskInfo? = null
+)
+
+

@@ -74,9 +74,9 @@ fun SearchScreen(
             modifier = Modifier.fillMaxSize(),
             horizontalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-            // Left Column (Width ~440.dp)
+            // Left Column (Width ~480.dp)
             Column(
-                modifier = Modifier.width(440.dp),
+                modifier = Modifier.width(480.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 // Query Text Display Box

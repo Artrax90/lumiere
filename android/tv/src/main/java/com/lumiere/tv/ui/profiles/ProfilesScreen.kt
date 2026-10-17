@@ -114,6 +114,19 @@ fun ProfilesScreen(
                 onDismiss = { viewModel.dismissPinDialog() }
             )
         }
+
+        // Password Dialog Modal
+        if (state.selectedProfileForPassword != null) {
+            val prof = state.selectedProfileForPassword!!
+            com.lumiere.tv.ui.components.PasswordDialog(
+                profileName = prof.name,
+                profileEmail = prof.email,
+                errorMessage = state.passwordError,
+                isLoading = state.isAuthenticating,
+                onSubmit = { email, password -> viewModel.submitPassword(email, password, onProfileChosen) },
+                onDismiss = { viewModel.dismissPasswordDialog() }
+            )
+        }
     }
 }
 
@@ -142,7 +155,7 @@ private fun ProfileCard(
                 shape = RoundedCornerShape(16.dp)
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.08f)
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f)
     ) {
         Column(
             modifier = Modifier

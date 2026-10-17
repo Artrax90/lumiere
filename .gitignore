@@ -33,6 +33,7 @@ back/data/
 *.tmp
 *.manifest.tmp
 *.idsig
+*.bak
 out.txt
 .system_generated/
 .tempmediaStorage/

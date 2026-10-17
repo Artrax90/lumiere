@@ -30,8 +30,22 @@ fun SeasonPicker(
     episodes: List<Episode>,
     resolveImageUrl: (String?) -> String,
     onEpisodeClick: (Episode) -> Unit,
+    lastWatchedEpisodeNum: Int? = null,
     modifier: Modifier = Modifier
 ) {
+    val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    androidx.compose.runtime.LaunchedEffect(episodes, lastWatchedEpisodeNum) {
+        if (episodes.isNotEmpty() && lastWatchedEpisodeNum != null) {
+            val targetIdx = episodes.indexOfFirst { it.episode == lastWatchedEpisodeNum }
+            if (targetIdx >= 0) {
+                try {
+                    episodesListState.animateScrollToItem(targetIdx)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -44,15 +58,21 @@ fun SeasonPicker(
             ) {
                 items((1..seasonsCount).toList()) { seasonNum ->
                     val isSelected = seasonNum == selectedSeason
+                    val tabShape = RoundedCornerShape(10.dp)
                     Button(
                         onClick = { onSeasonSelect(seasonNum) },
+                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
                         colors = ButtonDefaults.colors(
                             containerColor = if (isSelected) LumiereGold else SurfaceDark,
                             contentColor = if (isSelected) BackgroundDark else TextSecondary,
                             focusedContainerColor = Color.White,
                             focusedContentColor = BackgroundDark
                         ),
-                        shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                        border = ButtonDefaults.border(
+                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = tabShape),
+                            border = if (isSelected) Border(border = BorderStroke(1.dp, LumiereGold), shape = tabShape) else Border.None
+                        ),
+                        shape = ButtonDefaults.shape(tabShape),
                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
                     ) {
                         Text(
@@ -68,6 +88,7 @@ fun SeasonPicker(
         // Episodes Horizontal Carousel
         if (episodes.isNotEmpty()) {
             LazyRow(
+                state = episodesListState,
                 contentPadding = PaddingValues(horizontal = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
@@ -75,6 +96,7 @@ fun SeasonPicker(
                     EpisodeCard(
                         episode = ep,
                         thumbnailUrl = resolveImageUrl(ep.thumbnail),
+                        isLastWatched = ep.episode == lastWatchedEpisodeNum,
                         onClick = { onEpisodeClick(ep) }
                     )
                 }
@@ -88,6 +110,7 @@ fun SeasonPicker(
 private fun EpisodeCard(
     episode: Episode,
     thumbnailUrl: String,
+    isLastWatched: Boolean = false,
     onClick: () -> Unit
 ) {
     Card(
@@ -101,15 +124,18 @@ private fun EpisodeCard(
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, LumiereGold),
+                border = BorderStroke(2.5.dp, LumiereGold),
                 shape = RoundedCornerShape(14.dp)
             ),
             border = Border(
-                border = BorderStroke(1.dp, SurfaceBorder),
+                border = BorderStroke(
+                    width = if (isLastWatched) 1.5.dp else 1.dp,
+                    color = if (isLastWatched) LumiereGold.copy(alpha = 0.8f) else SurfaceBorder
+                ),
                 shape = RoundedCornerShape(14.dp)
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.05f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
         shape = CardDefaults.shape(RoundedCornerShape(14.dp))
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -141,6 +167,25 @@ private fun EpisodeCard(
                         color = LumiereGold,
                         fontWeight = FontWeight.Bold
                     )
+                }
+
+                // Last Watched badge
+                if (isLastWatched) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(LumiereGold)
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "Вы смотрели",
+                            fontSize = 10.sp,
+                            color = BackgroundDark,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
             }
 

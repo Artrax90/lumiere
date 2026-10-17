@@ -2,7 +2,8 @@ package com.lumiere.tv.ui.home
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -16,11 +17,40 @@ fun HomeScreen(
     onTitleClick: (Title) -> Unit,
     onSearchClick: () -> Unit,
     onIptvClick: () -> Unit,
+    onMoviesClick: () -> Unit = {},
+    onSeriesClick: () -> Unit = {},
+    onCollectionsClick: () -> Unit = {},
+    onMyClick: () -> Unit = {},
+    onDownloadsClick: () -> Unit = {},
+    onSettingsClick: () -> Unit = {},
     onProfileClick: () -> Unit,
+    onNotificationsClick: () -> Unit = {},
     viewModel: HomeViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsState()
     var currentTab by remember { mutableStateOf(TvNavDestination.HOME) }
+
+    // Persistent row scroll states to prevent destruction/re-measurement when scrolling vertically
+    val continueWatchingState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val trendingMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val netflixMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val popularMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val netflixSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val trendingSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val popularSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // Stable lambda for image resolving
+    val resolvePosterUrl = remember(viewModel) {
+        { path: String? -> viewModel.resolveImageUrl(path) }
+    }
+
+    val homeFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) {
+        kotlinx.coroutines.delay(100)
+        try {
+            homeFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
 
     Column(
         modifier = Modifier
@@ -30,96 +60,137 @@ fun HomeScreen(
         // Persistent Top Bar
         TvTopBar(
             currentDestination = currentTab,
+            firstItemFocusRequester = homeFocusRequester,
             onNavigate = { dest ->
-                currentTab = dest
                 when (dest) {
-                    TvNavDestination.SEARCH -> onSearchClick()
+                    TvNavDestination.HOME -> { currentTab = TvNavDestination.HOME }
+                    TvNavDestination.MOVIES -> onMoviesClick()
+                    TvNavDestination.SERIES -> onSeriesClick()
+                    TvNavDestination.COLLECTIONS -> onCollectionsClick()
                     TvNavDestination.IPTV -> onIptvClick()
-                    else -> {}
+                    TvNavDestination.MY -> onMyClick()
+                    TvNavDestination.DOWNLOADS -> onDownloadsClick()
+                    TvNavDestination.SEARCH -> onSearchClick()
+                    TvNavDestination.SETTINGS -> onSettingsClick()
                 }
             },
             profileName = state.profileName,
-            profileAvatar = viewModel.resolveImageUrl(state.profileAvatar),
-            onProfileClick = onProfileClick
+            profileAvatar = resolvePosterUrl(state.profileAvatar),
+            onProfileClick = onProfileClick,
+            unreadNotificationsCount = state.unreadNotificationsCount,
+            onNotificationsClick = onNotificationsClick
         )
 
-        // Main Scrolling Catalog
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(32.dp),
-            contentPadding = PaddingValues(bottom = 48.dp)
+        // Main Scrolling Catalog with persistent in-memory rows to eliminate recreation lag and focus crash
+        val scrollState = rememberScrollState()
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(top = 16.dp, bottom = 48.dp),
+            verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-            // Hero Banner
-            val hero = state.heroItem
-            if (hero != null && currentTab == TvNavDestination.HOME) {
-                item {
-                    HeroBanner(
-                        title = hero,
-                        backdropUrl = viewModel.resolveImageUrl(hero.backdrop),
-                        onPlayClick = { onTitleClick(hero) },
-                        onDetailsClick = { onTitleClick(hero) },
-                        modifier = Modifier.padding(horizontal = 32.dp)
-                    )
-                }
-            }
 
             // Continue Watching Row
             if (state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME) {
-                item {
-                    MediaRow(
-                        title = "Продолжить просмотр",
-                        items = state.continueWatching,
-                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                        onTitleClick = onTitleClick
-                    )
-                }
+                MediaRow(
+                    title = "Продолжить просмотр",
+                    items = state.continueWatching,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = continueWatchingState
+                )
             }
 
             // Movies filter or Home
             if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) {
                 // Trending Movies
-                item {
+                MediaRow(
+                    title = "В тренде (Фильмы)",
+                    subtitle = "Самое популярное прямо сейчас",
+                    items = state.trendingMovies,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = trendingMoviesState
+                )
+
+                // Netflix Movies Row with interactive Week / All Time switcher
+                if (state.netflixMovies.isNotEmpty()) {
+                    val subtitle = if (state.netflixMoviesPeriod == "week") {
+                        "Главные кинохиты и оригинальные премьеры этой недели"
+                    } else {
+                        "Культовые шедевры мирового кино с признанием зрителей"
+                    }
                     MediaRow(
-                        title = "В тренде (Фильмы)",
-                        subtitle = "Самое популярное прямо сейчас",
-                        items = state.trendingMovies,
-                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                        onTitleClick = onTitleClick
+                        title = "Топ фильмы Netflix",
+                        subtitle = subtitle,
+                        items = state.netflixMovies,
+                        resolvePosterUrl = resolvePosterUrl,
+                        onTitleClick = onTitleClick,
+                        badgeText = "NETFLIX",
+                        headerAction = {
+                            NetflixPeriodSwitcher(
+                                selectedPeriod = state.netflixMoviesPeriod,
+                                onSelectPeriod = { viewModel.setNetflixMoviesPeriod(it) }
+                            )
+                        },
+                        rowState = netflixMoviesState
                     )
                 }
 
                 // Popular Movies
-                item {
-                    MediaRow(
-                        title = "Популярные фильмы",
-                        items = state.popularMovies,
-                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                        onTitleClick = onTitleClick
-                    )
-                }
+                MediaRow(
+                    title = "Популярные фильмы",
+                    items = state.popularMovies,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = popularMoviesState
+                )
             }
 
             // Series filter or Home
             if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) {
-                // Trending Series
-                item {
+                // Netflix Series Row with interactive Week / All Time switcher
+                if (state.netflixSeries.isNotEmpty()) {
+                    val subtitle = if (state.netflixSeriesPeriod == "week") {
+                        "Горячие тренды и самые обсуждаемые сериалы прямо сейчас"
+                    } else {
+                        "Легендарные рекордсмены по просмотрам и рейтингу за всё время"
+                    }
                     MediaRow(
-                        title = "Популярные сериалы",
-                        items = state.trendingSeries,
-                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                        onTitleClick = onTitleClick
+                        title = "Топ сериалы Netflix",
+                        subtitle = subtitle,
+                        items = state.netflixSeries,
+                        resolvePosterUrl = resolvePosterUrl,
+                        onTitleClick = onTitleClick,
+                        badgeText = "NETFLIX",
+                        headerAction = {
+                            NetflixPeriodSwitcher(
+                                selectedPeriod = state.netflixSeriesPeriod,
+                                onSelectPeriod = { viewModel.setNetflixSeriesPeriod(it) }
+                            )
+                        },
+                        rowState = netflixSeriesState
                     )
                 }
 
+                // Trending Series
+                MediaRow(
+                    title = "Популярные сериалы",
+                    items = state.trendingSeries,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = trendingSeriesState
+                )
+
                 // Top Rated Series
-                item {
-                    MediaRow(
-                        title = "Новые сезоны",
-                        items = state.popularSeries,
-                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                        onTitleClick = onTitleClick
-                    )
-                }
+                MediaRow(
+                    title = "Новые сезоны",
+                    items = state.popularSeries,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = popularSeriesState
+                )
             }
         }
     }

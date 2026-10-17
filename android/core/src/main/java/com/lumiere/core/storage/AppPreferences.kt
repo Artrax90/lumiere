@@ -126,4 +126,19 @@ class AppPreferences(private val context: Context) {
             prefs[KEY_LAST_WATCHED_POSITION] = positionSec
         }
     }
+
+    suspend fun setLastWatchedSeries(seriesId: Long, season: Int, episode: Int) {
+        context.dataStore.edit { prefs ->
+            prefs[intPreferencesKey("last_season_$seriesId")] = season
+            prefs[intPreferencesKey("last_episode_$seriesId")] = episode
+        }
+    }
+
+    suspend fun getLastWatchedSeriesSeason(seriesId: Long): Int? {
+        return context.dataStore.data.first()[intPreferencesKey("last_season_$seriesId")]
+    }
+
+    suspend fun getLastWatchedSeriesEpisode(seriesId: Long): Int? {
+        return context.dataStore.data.first()[intPreferencesKey("last_episode_$seriesId")]
+    }
 }

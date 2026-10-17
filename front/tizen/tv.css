@@ -1,5 +1,6 @@
 /* Lumiere TV — Chrome 56 compatible (Tizen 5.5) — TV optimized sizes */
 * { margin: 0; padding: 0; box-sizing: border-box; }
+*:focus, *:focus-visible, button:focus, a:focus { outline: none !important; }
 
 :root {
   --bg: #0a0b0f;
@@ -85,12 +86,11 @@ body.player-active .section {
 }
 .nav-btn.active { color: var(--text); background: var(--surface-2); }
 .nav-btn:focus, .nav-btn.focused {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 2px !important;
+  outline: none !important;
   background: rgba(232, 193, 112, 0.22) !important;
   color: #ffffff !important;
   transform: scale(1.06) !important;
-  box-shadow: 0 0 20px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 20px rgba(232, 193, 112, 0.4) !important;
 }
 
 .nav-profile-pill {
@@ -131,8 +131,8 @@ body.player-active .section {
 .nav-profile-pill:focus, .nav-profile-pill.focused {
   background: rgba(232, 193, 112, 0.28) !important;
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
-  box-shadow: 0 0 25px rgba(232, 193, 112, 0.5) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 0 25px rgba(232, 193, 112, 0.5) !important;
   transform: scale(1.08) !important;
 }
 
@@ -342,11 +342,10 @@ body.player-active .section {
   color: var(--text); font-size: 26px; outline: none;
 }
 .search-input:focus, .search-input.focused {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 2px !important;
+  outline: none !important;
   border-color: #e8c170 !important;
   background: rgba(232, 193, 112, 0.1) !important;
-  box-shadow: 0 0 24px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 24px rgba(232, 193, 112, 0.4) !important;
 }
 .search-input::placeholder { color: var(--text-mute); }
 
@@ -425,11 +424,10 @@ body.player-active .section {
 }
 
 .iptv-cat-item.focused {
-  outline: 3px solid var(--accent) !important;
-  outline-offset: -3px;
+  outline: none !important;
   color: #ffffff !important;
   background: rgba(232,193,112,0.2) !important;
-  box-shadow: 0 0 20px rgba(232,193,112,0.4) !important;
+  box-shadow: 0 0 0 2.5px var(--accent), 0 0 20px rgba(232,193,112,0.4) !important;
 }
 
 .iptv-cat-icon {
@@ -462,8 +460,8 @@ body.player-active .section {
 .iptv-search-input.focused {
   border-color: var(--accent) !important;
   background: rgba(232, 193, 112, 0.18) !important;
-  box-shadow: 0 0 16px rgba(232, 193, 112, 0.4) !important;
-  outline: 2px solid var(--accent) !important;
+  box-shadow: 0 0 0 2.5px var(--accent), 0 0 16px rgba(232, 193, 112, 0.4) !important;
+  outline: none !important;
 }
 .iptv-search-input::placeholder {
   color: rgba(255, 255, 255, 0.45);
@@ -492,9 +490,8 @@ body.player-active .section {
 
 .iptv-ch-item.focused {
   background: rgba(232,193,112,0.2) !important;
-  outline: 3px solid var(--accent) !important;
-  outline-offset: -3px;
-  box-shadow: 0 0 20px rgba(232,193,112,0.4) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2.5px var(--accent), 0 0 20px rgba(232,193,112,0.4) !important;
 }
 
 .iptv-ch-logo {
@@ -815,11 +812,10 @@ body.player-active .section {
   font-size: 20px; cursor: pointer; margin-top: 12px;
 }
 .setting-btn:focus, .setting-btn.focused {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 3px !important;
+  outline: none !important;
   background: rgba(232, 193, 112, 0.22) !important;
   color: #ffffff !important;
-  box-shadow: 0 0 24px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 24px rgba(232, 193, 112, 0.4) !important;
 }
 .setting-btn.danger { color: var(--error); }
 
@@ -873,12 +869,12 @@ body.player-active .section {
 }
 .detail-back-btn:hover,
 .detail-back-btn.focused {
-  outline: 3px solid #ffffff !important;
+  outline: none !important;
   background: #e8c170 !important;
   color: #0b0c10 !important;
   border-color: #ffffff !important;
   transform: scale(1.05);
-  box-shadow: 0 6px 24px rgba(232, 193, 112, 0.55);
+  box-shadow: 0 0 0 2.5px #ffffff, 0 6px 24px rgba(232, 193, 112, 0.55) !important;
 }
 
 /* Upper Hero Split: Left side (~52%) and Right side from 50% to right edge (640px) */
@@ -1059,7 +1055,8 @@ body.player-active .section {
   color: #0b0c10 !important;
   background: #e8c170 !important;
   border-color: #ffffff !important;
-  outline: 3px solid #ffffff !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2.5px #ffffff, 0 0 16px rgba(232, 193, 112, 0.45) !important;
   transform: scale(1.05);
 }
 .detail-cast-grid-4x2 {
@@ -1086,9 +1083,9 @@ body.player-active .section {
 .detail-actor-card.focused {
   background: rgba(26, 32, 48, 0.98) !important;
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
+  outline: none !important;
   transform: translateY(-4px) scale(1.04);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 20px rgba(232, 193, 112, 0.45);
+  box-shadow: 0 0 0 2.5px #e8c170, 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 20px rgba(232, 193, 112, 0.45) !important;
   z-index: 10;
 }
 .detail-actor-photo {
@@ -1160,8 +1157,9 @@ body.player-active .section {
 .detail-about-card.theme-dark .detail-cast-item.focused {
   background: rgba(232, 193, 112, 0.28) !important;
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
+  outline: none !important;
   color: #ffffff !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 16px rgba(232, 193, 112, 0.4) !important;
 }
 
 /* Dynamic theme: Light/Bright backdrop (adaptive text and card) */
@@ -1189,8 +1187,9 @@ body.player-active .section {
 .detail-about-card.theme-light .detail-cast-item.focused {
   background: rgba(232, 193, 112, 0.45) !important;
   border-color: #b8860b !important;
-  outline: 3px solid #b8860b !important;
+  outline: none !important;
   color: #000000 !important;
+  box-shadow: 0 0 0 2.5px #b8860b, 0 0 16px rgba(184, 134, 11, 0.4) !important;
 }
 
 .detail-about-header {
@@ -1348,11 +1347,10 @@ body.player-active .section {
   border-color: rgba(255, 255, 255, 0.45);
 }
 .detail-btn.focused {
-  outline: 4px solid var(--accent) !important;
-  outline-offset: 3px;
+  outline: none !important;
   border-color: var(--accent) !important;
   transform: scale(1.06);
-  box-shadow: 0 8px 30px rgba(232, 193, 112, 0.45);
+  box-shadow: 0 0 0 3px var(--accent), 0 0 24px rgba(232, 193, 112, 0.55) !important;
 }
 .detail-btn-primary {
   padding: 14px 30px;
@@ -1365,8 +1363,8 @@ body.player-active .section {
 .detail-btn-primary.focused {
   background: #ffffff !important;
   color: #0b0c10 !important;
-  outline: 4px solid var(--accent) !important;
-  box-shadow: 0 8px 32px rgba(255, 255, 255, 0.5);
+  outline: none !important;
+  box-shadow: 0 0 0 3.5px var(--accent), 0 8px 32px rgba(255, 255, 255, 0.5) !important;
 }
 .detail-btn-icon {
   width: 52px;
@@ -1419,8 +1417,11 @@ body.player-active .section {
   color: var(--accent);
 }
 .detail-tab.focused {
-  outline: 3px solid var(--accent); outline-offset: 3px;
-  color: var(--text);
+  outline: none !important;
+  color: var(--text) !important;
+  border-color: var(--accent) !important;
+  background: rgba(232, 193, 112, 0.2) !important;
+  box-shadow: 0 0 0 2.5px var(--accent), 0 0 16px rgba(232, 193, 112, 0.4) !important;
 }
 
 /* Detail: Season buttons row */
@@ -1472,11 +1473,11 @@ body.player-active .section {
 }
 .season-btn.focused,
 .season-btn:focus {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 2px !important;
+  outline: none !important;
+  border-color: #e8c170 !important;
   color: #ffffff !important;
   background: rgba(232, 193, 112, 0.25) !important;
-  box-shadow: 0 0 14px rgba(232, 193, 112, 0.5) !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 16px rgba(232, 193, 112, 0.5) !important;
   transform: scale(1.06);
 }
 
@@ -2027,7 +2028,8 @@ body.player-active .section {
 }
 .torrent-confirm-file-item.focused {
   background: rgba(232, 193, 112, 0.25);
-  outline: 2px solid #e8c170;
+  outline: none;
+  box-shadow: 0 0 0 2px #e8c170, inset 0 0 10px rgba(232, 193, 112, 0.2);
 }
 .torrent-confirm-actions {
   display: flex;
@@ -2398,7 +2400,8 @@ body.player-active .section {
 .iptv-search-box.focused {
   border-color: #e8c170;
   background: rgba(232, 193, 112, 0.15);
-  outline: 2px solid #e8c170;
+  outline: none;
+  box-shadow: 0 0 0 2px #e8c170;
 }
 .iptv-search-box-text {
   font-size: 16px;

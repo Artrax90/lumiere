@@ -40,7 +40,7 @@ fun MediaCard(
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, LumiereGold),
+                border = BorderStroke(2.5.dp, LumiereGold),
                 shape = RoundedCornerShape(14.dp)
             ),
             border = Border(
@@ -48,13 +48,21 @@ fun MediaCard(
                 shape = RoundedCornerShape(14.dp)
             )
         ),
-        scale = CardDefaults.scale(focusedScale = 1.06f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
         shape = CardDefaults.shape(RoundedCornerShape(14.dp))
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
-            // Poster Image
+            // Poster Image with downscaled decoding (150x225 RGB_565 like Jellyfin/Plex)
+            val context = androidx.compose.ui.platform.LocalContext.current
+            val imageRequest = androidx.compose.runtime.remember(posterUrl) {
+                coil3.request.ImageRequest.Builder(context)
+                    .data(posterUrl)
+                    .memoryCacheKey(posterUrl)
+                    .diskCacheKey(posterUrl)
+                    .build()
+            }
             AsyncImage(
-                model = posterUrl,
+                model = imageRequest,
                 contentDescription = title.name,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()

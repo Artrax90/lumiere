@@ -65,6 +65,8 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
             val isHealthy = discovery.checkHealth(sanitized)
             if (isHealthy) {
                 preferences.setServerUrl(sanitized)
+                preferences.clearTokens()
+                preferences.clearActiveProfile()
                 _uiState.update { it.copy(isConnecting = false) }
                 onSuccess()
             } else {

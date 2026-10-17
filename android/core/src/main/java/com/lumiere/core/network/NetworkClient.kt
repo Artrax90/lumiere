@@ -1,9 +1,14 @@
 package com.lumiere.core.network
 
+import com.lumiere.core.model.RefreshResponse
+import com.lumiere.core.storage.AppPreferences
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import okhttp3.Interceptor
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
@@ -14,7 +19,8 @@ import java.util.concurrent.TimeUnit
 
 class NetworkClient(
     private var baseUrlProvider: () -> String,
-    private var tokenProvider: () -> String? = { null }
+    private var tokenProvider: () -> String? = { null },
+    private val preferences: AppPreferences? = null
 ) {
 
     val json: Json = Json {
@@ -30,7 +36,9 @@ class NetworkClient(
             .header("x-lumiere-tv", "1")
             .header("x-lumiere-client", "tv")
 
-        val token = tokenProvider()
+        val token = tokenProvider() ?: preferences?.let { prefs ->
+            runBlocking { prefs.accessToken.first() }
+        }
         if (!token.isNullOrBlank() && original.header("Authorization") == null) {
             builder.header("Authorization", "Bearer $token")
         }
@@ -38,11 +46,51 @@ class NetworkClient(
         chain.proceed(builder.build())
     }
 
+    private fun responseCount(response: Response): Int {
+        var count = 1
+        var prior = response.priorResponse
+        while (prior != null) {
+            count++
+            prior = prior.priorResponse
+        }
+        return count
+    }
+
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(authAndHeaderInterceptor)
+        .authenticator { _, response ->
+            if (responseCount(response) >= 3) return@authenticator null
+            val prefs = preferences ?: return@authenticator null
+            val refreshToken = runBlocking { prefs.refreshToken.first() }
+            if (refreshToken.isNullOrBlank()) return@authenticator null
+            val serverUrl = baseUrlProvider()
+            if (serverUrl.isBlank()) return@authenticator null
+
+            try {
+                val refreshClient = OkHttpClient.Builder()
+                    .connectTimeout(10, TimeUnit.SECONDS)
+                    .readTimeout(10, TimeUnit.SECONDS)
+                    .build()
+                val body = """{"refreshToken":"$refreshToken"}""".toRequestBody("application/json".toMediaType())
+                val req = okhttp3.Request.Builder()
+                    .url("${serverUrl.trimEnd('/')}/api/auth/refresh")
+                    .post(body)
+                    .build()
+                val refreshResp = refreshClient.newCall(req).execute()
+                if (refreshResp.isSuccessful) {
+                    val respStr = refreshResp.body?.string().orEmpty()
+                    val parsed = json.decodeFromString<RefreshResponse>(respStr)
+                    runBlocking { prefs.setTokens(parsed.accessToken, parsed.refreshToken) }
+                    return@authenticator response.request.newBuilder()
+                        .header("Authorization", "Bearer ${parsed.accessToken}")
+                        .build()
+                }
+            } catch (_: Exception) {}
+            null
+        }
         .addInterceptor(HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BASIC
         })

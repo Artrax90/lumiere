@@ -10,9 +10,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -26,6 +28,10 @@ import coil3.compose.AsyncImage
 import com.lumiere.core.model.IptvChannel
 import com.lumiere.tv.theme.*
 
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.*
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun EpgSidebar(
@@ -37,16 +43,22 @@ fun EpgSidebar(
     activeChannelId: String?,
     onChannelSelected: (IptvChannel) -> Unit,
     resolveLogoUrl: (String?) -> String,
+    onClose: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    AnimatedVisibility(
-        visible = isVisible,
-        enter = slideInHorizontally(initialOffsetX = { -it }),
-        exit = slideOutHorizontally(targetOffsetX = { -it }),
-        modifier = modifier
-    ) {
+    val listFocusRequester = remember { FocusRequester() }
+
+    androidx.compose.runtime.LaunchedEffect(isVisible) {
+        if (isVisible) {
+            try {
+                listFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
+    if (isVisible) {
         Box(
-            modifier = Modifier
+            modifier = modifier
                 .width(420.dp)
                 .fillMaxHeight()
                 .background(SurfaceDark.copy(alpha = 0.96f))
@@ -54,6 +66,18 @@ fun EpgSidebar(
                     BorderStroke(1.dp, SurfaceBorder),
                     shape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
                 )
+                .onPreviewKeyEvent { keyEvent ->
+                    if (keyEvent.type == KeyEventType.KeyDown) {
+                        when (keyEvent.nativeKeyEvent.keyCode) {
+                            android.view.KeyEvent.KEYCODE_DPAD_RIGHT,
+                            android.view.KeyEvent.KEYCODE_BACK -> {
+                                onClose()
+                                true
+                            }
+                            else -> false
+                        }
+                    } else false
+                }
                 .padding(vertical = 24.dp)
         ) {
             Column(
@@ -84,6 +108,7 @@ fun EpgSidebar(
                             val isAll = selectedGroup.isEmpty() || selectedGroup == "Все"
                             Button(
                                 onClick = { onGroupSelected("Все") },
+                                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (isAll) LumiereGold else SurfaceVariantDark,
                                     contentColor = if (isAll) BackgroundDark else TextSecondary,
@@ -101,6 +126,7 @@ fun EpgSidebar(
                             val isSelected = group == selectedGroup
                             Button(
                                 onClick = { onGroupSelected(group) },
+                                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (isSelected) LumiereGold else SurfaceVariantDark,
                                     contentColor = if (isSelected) BackgroundDark else TextSecondary,
@@ -122,13 +148,14 @@ fun EpgSidebar(
                     contentPadding = PaddingValues(horizontal = 24.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(channels, key = { it.id }) { channel ->
+                    itemsIndexed(channels, key = { index, ch -> "${ch.id}_$index" }) { index, channel ->
                         val isPlaying = channel.id == activeChannelId
                         ChannelRowItem(
                             channel = channel,
                             isPlaying = isPlaying,
                             logoUrl = resolveLogoUrl(channel.logo),
-                            onClick = { onChannelSelected(channel) }
+                            onClick = { onChannelSelected(channel) },
+                            modifier = if (index == 0) Modifier.focusRequester(listFocusRequester) else Modifier
                         )
                     }
                 }
@@ -143,11 +170,13 @@ private fun ChannelRowItem(
     channel: IptvChannel,
     isPlaying: Boolean,
     logoUrl: String,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     Card(
         onClick = onClick,
-        modifier = Modifier
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
+        modifier = modifier
             .fillMaxWidth()
             .height(58.dp),
         colors = CardDefaults.colors(

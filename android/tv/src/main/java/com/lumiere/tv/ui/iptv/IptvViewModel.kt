@@ -23,6 +23,7 @@ data class IptvUiState(
     val groups: List<String> = emptyList(),
     val selectedGroup: String = "Все",
     val activeChannel: IptvChannel? = null,
+    val isPlayerMode: Boolean = false,
     val isSidebarVisible: Boolean = false,
     val showChannelBanner: Boolean = false,
     val errorMessage: String? = null
@@ -64,9 +65,14 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             val api = networkClient?.createApiService(serverUrl) ?: return@launch
 
             try {
-                val res = api.parseIptvPlaylist()
+                val res = try {
+                    val defaultRes = api.getDefaultIptvPlaylist()
+                    if (defaultRes.channels.isNotEmpty()) defaultRes else api.parseIptvPlaylist()
+                } catch (_: Exception) {
+                    api.parseIptvPlaylist()
+                }
                 val channels = res.channels
-                val groups = res.groups
+                val groups = if (res.groups.isNotEmpty()) res.groups else listOf("Все")
 
                 _uiState.update {
                     it.copy(
@@ -78,8 +84,9 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
 
-                // Auto-start first channel
-                channels.firstOrNull()?.let { playChannel(it) }
+                // Trigger EPG loading with fallback to iptvx.one XMLTV
+                val targetEpg = res.epgUrl?.takeIf { it.isNotBlank() } ?: "https://iptvx.one/epg/epg_lite.xml.gz"
+                loadEpg(targetEpg, channels, api)
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(
@@ -88,6 +95,117 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }
             }
+        }
+    }
+
+    private fun loadEpg(epgUrl: String, baseChannels: List<IptvChannel>, api: com.lumiere.core.network.LumiereApiService) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val epgRes = api.getEpg(mapOf("url" to epgUrl))
+                val now = System.currentTimeMillis()
+
+                val epgData = epgRes.epg
+                val channelMap = epgRes.channelMap
+                val iconMap = epgRes.iconMap
+
+                val enrichedChannels = baseChannels.map { channel ->
+                    var epgId: String? = null
+                    if (!channel.tvgId.isNullOrBlank() && epgData.containsKey(channel.tvgId)) {
+                        epgId = channel.tvgId
+                    } else {
+                        val cleanName = normalizeChannelName(channel.name)
+                        epgId = channelMap[cleanName]
+                        if (epgId == null || !epgData.containsKey(epgId)) {
+                            epgId = channelMap.entries.firstOrNull { (k, id) ->
+                                (cleanName.contains(k) || k.contains(cleanName)) && epgData.containsKey(id)
+                            }?.value
+                        }
+                    }
+
+                    if (epgId != null && epgData.containsKey(epgId)) {
+                        val programs = epgData[epgId].orEmpty()
+                        var curProg = programs.firstOrNull { prog ->
+                            val s = parseEpgTime(prog.start)
+                            val e = parseEpgTime(prog.stop)
+                            s > 0 && e > 0 && now in s until e
+                        }
+                        if (curProg == null) {
+                            curProg = programs.firstOrNull { prog ->
+                                val s = parseEpgTime(prog.start)
+                                s >= now
+                            }
+                        }
+
+                        val curTitle = curProg?.let {
+                            if (!it.startTime.isNullOrBlank()) "${it.startTime} ${it.title}" else it.title
+                        }
+
+                        val nextProg = curProg?.let { cp ->
+                            val idx = programs.indexOf(cp)
+                            if (idx in 0 until programs.size - 1) programs[idx + 1] else null
+                        }
+                        val nextTitle = nextProg?.let {
+                            if (!it.startTime.isNullOrBlank()) "${it.startTime} ${it.title}" else it.title
+                        }
+
+                        val logo = if (channel.logo.isNullOrBlank()) {
+                            iconMap[epgId] ?: "https://iptvx.one/picons/$epgId.png"
+                        } else channel.logo
+
+                        channel.copy(
+                            currentProgram = curTitle ?: channel.currentProgram,
+                            nextProgram = nextTitle ?: channel.nextProgram,
+                            logo = logo
+                        )
+                    } else {
+                        channel
+                    }
+                }
+
+                withContext(Dispatchers.Main) {
+                    _uiState.update { current ->
+                        val group = current.selectedGroup
+                        val filtered = if (group.isEmpty() || group == "Все") {
+                            enrichedChannels
+                        } else {
+                            enrichedChannels.filter { it.group == group }
+                        }
+                        val updatedActive = current.activeChannel?.let { act ->
+                            enrichedChannels.find { it.id == act.id } ?: act
+                        } ?: enrichedChannels.firstOrNull()
+
+                        current.copy(
+                            allChannels = enrichedChannels,
+                            displayedChannels = filtered,
+                            activeChannel = updatedActive
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.w("LumiereTV", "EPG load failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun normalizeChannelName(raw: String): String {
+        return raw.lowercase(java.util.Locale.ROOT)
+            .replace(Regex("\\b(hd|sd|uhd|4k|fhd|50fps|original|orig)\\b", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("[^a-zA-Zа-яА-Я0-9]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun parseEpgTime(ts: String?): Long {
+        if (ts.isNullOrBlank()) return 0L
+        return try {
+            val sdf = java.text.SimpleDateFormat("yyyyMMddHHmmss Z", java.util.Locale.US)
+            sdf.parse(ts.trim())?.time ?: 0L
+        } catch (_: Exception) {
+            try {
+                val clean = ts.take(14)
+                val sdf = java.text.SimpleDateFormat("yyyyMMddHHmmss", java.util.Locale.US)
+                sdf.parse(clean)?.time ?: 0L
+            } catch (_: Exception) { 0L }
         }
     }
 
@@ -107,16 +225,21 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playChannel(channel: IptvChannel) {
-        _uiState.update { it.copy(activeChannel = channel, isSidebarVisible = false) }
+        _uiState.update { it.copy(activeChannel = channel, isPlayerMode = true, isSidebarVisible = false) }
 
         viewModelScope.launch {
             val serverUrl = preferences.serverUrl.first().orEmpty()
-            // Proxy stream via Lumiere server to ensure SSL/CORS/ISP bypass
+            // Proxy stream via Lumiere server to ensure SSL/CORS/ISP bypass and playlist manifest rewriting
             val encoded = URLEncoder.encode(channel.url, StandardCharsets.UTF_8.toString())
-            val streamUrl = "$serverUrl/api/iptv/proxy?url=$encoded"
+            val streamUrl = "$serverUrl/api/iptv/stream?url=$encoded"
             player.prepare(streamUrl, isHls = true)
             showBanner()
         }
+    }
+
+    fun exitPlayerMode() {
+        _uiState.update { it.copy(isPlayerMode = false, isSidebarVisible = false, showChannelBanner = false) }
+        player.stop()
     }
 
     fun nextChannel() {

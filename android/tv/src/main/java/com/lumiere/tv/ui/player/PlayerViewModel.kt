@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
 data class PlayerUiState(
-    val isControlsVisible: Boolean = true,
+    val isControlsVisible: Boolean = false,
     val torrServerStats: String? = null
 )
 
@@ -40,7 +40,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         player = LumierePlayer(application.applicationContext, networkClient!!.okHttpClient)
 
         startStatsPolling()
-        scheduleControlsHide()
+
+        viewModelScope.launch {
+            player.isPlaying.collect { playing ->
+                if (playing) {
+                    scheduleControlsHide(4000L)
+                }
+            }
+        }
     }
 
     fun playStream(streamUrl: String, isHls: Boolean = streamUrl.contains(".m3u8")) {
@@ -49,23 +56,28 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
     fun showControls() {
         _uiState.update { it.copy(isControlsVisible = true) }
-        scheduleControlsHide()
+        scheduleControlsHide(4000L)
+    }
+
+    fun hideControls() {
+        hideControlsJob?.cancel()
+        _uiState.update { it.copy(isControlsVisible = false) }
     }
 
     fun toggleControls() {
         val willBeVisible = !_uiState.value.isControlsVisible
         _uiState.update { it.copy(isControlsVisible = willBeVisible) }
         if (willBeVisible) {
-            scheduleControlsHide()
+            scheduleControlsHide(4000L)
         } else {
             hideControlsJob?.cancel()
         }
     }
 
-    private fun scheduleControlsHide() {
+    fun scheduleControlsHide(delayMs: Long = 4000L) {
         hideControlsJob?.cancel()
         hideControlsJob = viewModelScope.launch {
-            delay(5000)
+            delay(delayMs)
             if (player.isPlaying.value) {
                 _uiState.update { it.copy(isControlsVisible = false) }
             }

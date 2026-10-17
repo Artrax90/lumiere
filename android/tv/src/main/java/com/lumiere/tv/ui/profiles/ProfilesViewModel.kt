@@ -3,6 +3,7 @@ package com.lumiere.tv.ui.profiles
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lumiere.core.model.LoginRequest
 import com.lumiere.core.model.Profile
 import com.lumiere.core.model.QuickLoginRequest
 import com.lumiere.core.network.NetworkClient
@@ -18,7 +19,10 @@ data class ProfilesUiState(
     val isLoading: Boolean = false,
     val profiles: List<Profile> = emptyList(),
     val selectedProfileForPin: Profile? = null,
+    val selectedProfileForPassword: Profile? = null,
     val pinError: String? = null,
+    val passwordError: String? = null,
+    val isAuthenticating: Boolean = false,
     val errorMessage: String? = null
 )
 
@@ -66,9 +70,25 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
 
     fun onProfileSelected(profile: Profile, onSuccess: () -> Unit) {
         if (profile.hasPin) {
-            _uiState.update { it.copy(selectedProfileForPin = profile, pinError = null) }
-        } else {
+            _uiState.update {
+                it.copy(
+                    selectedProfileForPin = profile,
+                    selectedProfileForPassword = null,
+                    pinError = null
+                )
+            }
+        } else if (profile.isKids) {
+            // Kids profiles can quick login without password/PIN
             performQuickLogin(profile, pin = null, onSuccess = onSuccess)
+        } else {
+            // Adult/regular profile requires password!
+            _uiState.update {
+                it.copy(
+                    selectedProfileForPassword = profile,
+                    selectedProfileForPin = null,
+                    passwordError = null
+                )
+            }
         }
     }
 
@@ -77,8 +97,45 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         performQuickLogin(target, pin = pin, onSuccess = onSuccess)
     }
 
+    fun submitPassword(email: String, password: String, onSuccess: () -> Unit) {
+        val target = _uiState.value.selectedProfileForPassword ?: return
+        viewModelScope.launch {
+            _uiState.update { it.copy(isAuthenticating = true, passwordError = null) }
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            val api = networkClient?.createApiService(serverUrl) ?: return@launch
+
+            try {
+                val loginEmail = email.trim().ifBlank { target.email.orEmpty().trim() }
+                val authRes = api.login(LoginRequest(email = loginEmail, password = password))
+                preferences.setTokens(authRes.accessToken, authRes.refreshToken)
+                preferences.setActiveProfile(
+                    id = authRes.user.id,
+                    name = authRes.user.name,
+                    avatar = authRes.user.avatar,
+                    isKids = authRes.user.isKids
+                )
+                _uiState.update {
+                    it.copy(
+                        selectedProfileForPassword = null,
+                        passwordError = null,
+                        isAuthenticating = false
+                    )
+                }
+                onSuccess()
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticating = false,
+                        passwordError = e.message ?: "Неверный пароль"
+                    )
+                }
+            }
+        }
+    }
+
     private fun performQuickLogin(profile: Profile, pin: String?, onSuccess: () -> Unit) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isAuthenticating = true, pinError = null) }
             val serverUrl = preferences.serverUrl.first().orEmpty()
             val api = networkClient?.createApiService(serverUrl) ?: return@launch
 
@@ -91,13 +148,19 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     avatar = authRes.user.avatar,
                     isKids = authRes.user.isKids
                 )
-                _uiState.update { it.copy(selectedProfileForPin = null, pinError = null) }
+                _uiState.update {
+                    it.copy(
+                        selectedProfileForPin = null,
+                        pinError = null,
+                        isAuthenticating = false
+                    )
+                }
                 onSuccess()
             } catch (e: Exception) {
                 if (profile.hasPin) {
-                    _uiState.update { it.copy(pinError = "Неверный PIN-код") }
+                    _uiState.update { it.copy(pinError = "Неверный PIN-код", isAuthenticating = false) }
                 } else {
-                    _uiState.update { it.copy(errorMessage = "Ошибка входа: ${e.message}") }
+                    _uiState.update { it.copy(errorMessage = "Ошибка входа: ${e.message}", isAuthenticating = false) }
                 }
             }
         }
@@ -107,9 +170,15 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
         _uiState.update { it.copy(selectedProfileForPin = null, pinError = null) }
     }
 
+    fun dismissPasswordDialog() {
+        _uiState.update { it.copy(selectedProfileForPassword = null, passwordError = null) }
+    }
+
     fun changeServer(onServerCleared: () -> Unit) {
         viewModelScope.launch {
             preferences.clearServerUrl()
+            preferences.clearTokens()
+            preferences.clearActiveProfile()
             onServerCleared()
         }
     }

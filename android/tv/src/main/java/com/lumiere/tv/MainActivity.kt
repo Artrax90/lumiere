@@ -23,6 +23,37 @@ import com.lumiere.tv.ui.profiles.ProfilesScreen
 
 class MainActivity : ComponentActivity() {
 
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean {
+        return try {
+            val isDpad = event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN ||
+                         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP ||
+                         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_LEFT ||
+                         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_RIGHT ||
+                         event.keyCode == android.view.KeyEvent.KEYCODE_DPAD_CENTER ||
+                         event.keyCode == android.view.KeyEvent.KEYCODE_ENTER
+
+            // Automatic focus recovery: if the window has lost focus (e.g. after back navigation or screen transition),
+            // restore default focus before dispatching
+            if (currentFocus == null && event.action == android.view.KeyEvent.ACTION_DOWN && isDpad) {
+                window.decorView.restoreDefaultFocus()
+            }
+
+            val handled = super.dispatchKeyEvent(event)
+            if (!handled && isDpad) {
+                // If focus was lost, recover focus to prevent swallowing remote inputs
+                if (currentFocus == null && event.action == android.view.KeyEvent.ACTION_DOWN) {
+                    window.decorView.requestFocus()
+                }
+                true
+            } else {
+                handled
+            }
+        } catch (e: Throwable) {
+            android.util.Log.e("LumiereTV", "D-pad focus navigation exception trapped: ${e.message}", e)
+            true
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -34,11 +65,41 @@ class MainActivity : ComponentActivity() {
                 val serverUrl by preferences.serverUrl.collectAsState(initial = null)
                 val activeProfileId by preferences.activeProfileId.collectAsState(initial = null)
 
+                var lastBackPressTime by remember { mutableLongStateOf(0L) }
+                val context = androidx.compose.ui.platform.LocalContext.current
+
+                androidx.activity.compose.BackHandler {
+                    val currentRoute = navController.currentBackStackEntry?.destination?.route
+                    if (currentRoute == Screen.Home.route || currentRoute == Screen.Connect.route || currentRoute == null) {
+                        val now = System.currentTimeMillis()
+                        if (now - lastBackPressTime < 2500L) {
+                            finish()
+                        } else {
+                            lastBackPressTime = now
+                            android.widget.Toast.makeText(context, "Нажмите «Назад» еще раз для выхода", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                    } else {
+                        navController.popBackStack()
+                    }
+                }
+
                 val startDestination = remember(serverUrl, activeProfileId) {
                     when {
                         serverUrl.isNullOrBlank() -> Screen.Connect.route
                         activeProfileId == null || activeProfileId == 0L -> Screen.Profiles.route
                         else -> Screen.Home.route
+                    }
+                }
+
+                val navigateTab: (String) -> Unit = { targetRoute ->
+                    if (navController.currentBackStackEntry?.destination?.route != targetRoute) {
+                        navController.navigate(targetRoute) {
+                            popUpTo(Screen.Home.route) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
                     }
                 }
 
@@ -79,14 +140,168 @@ class MainActivity : ComponentActivity() {
                                 onTitleClick = { title ->
                                     navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
                                 },
-                                onSearchClick = {
-                                    navController.navigate(Screen.Search.route)
+                                onSearchClick = { navigateTab(Screen.Search.route) },
+                                onIptvClick = { navigateTab(Screen.Iptv.route) },
+                                onMoviesClick = { navigateTab(Screen.Movies.route) },
+                                onSeriesClick = { navigateTab(Screen.Shows.route) },
+                                onCollectionsClick = { navigateTab(Screen.Collections.route) },
+                                onMyClick = { navigateTab(Screen.My.route) },
+                                onDownloadsClick = { navigateTab(Screen.Downloads.route) },
+                                onSettingsClick = { navigateTab(Screen.Settings.route) },
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) }
+                            )
+                        }
+                        composable(Screen.Movies.route) {
+                            val app = (androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
+                            val catalogVm = remember { com.lumiere.tv.ui.catalog.CatalogViewModel(app, "movie") }
+                            com.lumiere.tv.ui.catalog.CatalogScreen(
+                                mediaType = "movie",
+                                titleName = "фильмы",
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
                                 },
-                                onIptvClick = {
-                                    navController.navigate(Screen.Iptv.route)
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navigateTab(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navigateTab(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navigateTab(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navigateTab(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navigateTab(Screen.Settings.route)
+                                    }
                                 },
-                                onProfileClick = {
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) },
+                                viewModel = catalogVm
+                            )
+                        }
+                        composable(Screen.Shows.route) {
+                            val app = (androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
+                            val catalogVm = remember { com.lumiere.tv.ui.catalog.CatalogViewModel(app, "tv") }
+                            com.lumiere.tv.ui.catalog.CatalogScreen(
+                                mediaType = "tv",
+                                titleName = "сериалы",
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "tv"))
+                                },
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navigateTab(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navigateTab(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navigateTab(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navigateTab(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navigateTab(Screen.Settings.route)
+                                    }
+                                },
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) },
+                                viewModel = catalogVm
+                            )
+                        }
+                        composable(Screen.Collections.route) {
+                            com.lumiere.tv.ui.collections.CollectionsScreen(
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                },
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navigateTab(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navigateTab(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navigateTab(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navigateTab(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navigateTab(Screen.Settings.route)
+                                    }
+                                },
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) }
+                            )
+                        }
+                        composable(Screen.My.route) {
+                            com.lumiere.tv.ui.my.MyScreen(
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                },
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navigateTab(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navigateTab(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navigateTab(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navigateTab(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navigateTab(Screen.Settings.route)
+                                    }
+                                },
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) }
+                            )
+                        }
+                        composable(Screen.Downloads.route) {
+                            com.lumiere.tv.ui.downloads.DownloadsScreen(
+                                onPlayRequested = { streamUrl, title, subtitle, isHls ->
+                                    navController.navigate(
+                                        Screen.Player.createRoute(
+                                            streamUrl = streamUrl,
+                                            title = title,
+                                            subtitle = subtitle,
+                                            isHls = isHls
+                                        )
+                                    )
+                                },
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navigateTab(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navigateTab(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navigateTab(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navigateTab(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navigateTab(Screen.Settings.route)
+                                    }
+                                },
+                                onProfileClick = { navigateTab(Screen.Profile.route) },
+                                onNotificationsClick = { navigateTab(Screen.Notifications.route) }
+                            )
+                        }
+                        composable(Screen.Settings.route) {
+                            com.lumiere.tv.ui.settings.SettingsScreen(
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navigateTab(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navigateTab(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navigateTab(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navigateTab(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> navigateTab(Screen.Iptv.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navigateTab(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navigateTab(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navigateTab(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> {}
+                                    }
+                                },
+                                onChangeServerClick = {
+                                    navController.navigate(Screen.Connect.route) { popUpTo(0) }
+                                },
+                                onSwitchProfileClick = {
                                     navController.navigate(Screen.Profiles.route)
+                                },
+                                onNotificationsClick = {
+                                    navController.navigate(Screen.Notifications.route)
                                 }
                             )
                         }
@@ -100,7 +315,46 @@ class MainActivity : ComponentActivity() {
                         }
                         composable(Screen.Iptv.route) {
                             com.lumiere.tv.ui.iptv.IptvScreen(
-                                onBackClick = { navController.popBackStack() }
+                                onBackClick = { navController.popBackStack() },
+                                onNavigateDestination = { dest ->
+                                    when (dest) {
+                                        com.lumiere.tv.ui.components.TvNavDestination.HOME -> navController.navigate(Screen.Home.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.MOVIES -> navController.navigate(Screen.Movies.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SERIES -> navController.navigate(Screen.Shows.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.COLLECTIONS -> navController.navigate(Screen.Collections.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.IPTV -> {}
+                                        com.lumiere.tv.ui.components.TvNavDestination.MY -> navController.navigate(Screen.My.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.DOWNLOADS -> navController.navigate(Screen.Downloads.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SEARCH -> navController.navigate(Screen.Search.route)
+                                        com.lumiere.tv.ui.components.TvNavDestination.SETTINGS -> navController.navigate(Screen.Settings.route)
+                                    }
+                                },
+                                onProfileClick = { navController.navigate(Screen.Profile.route) },
+                                onNotificationsClick = { navController.navigate(Screen.Notifications.route) }
+                            )
+                        }
+                        composable(Screen.Notifications.route) {
+                            com.lumiere.tv.ui.notifications.NotificationsScreen(
+                                onBackClick = { navController.popBackStack() },
+                                onTitleClick = { mediaId, mediaType ->
+                                    navController.navigate(Screen.Details.createRoute(mediaId, mediaType))
+                                }
+                            )
+                        }
+                        composable(Screen.Profile.route) {
+                            com.lumiere.tv.ui.profile.ProfileScreen(
+                                onBackClick = { navController.popBackStack() },
+                                onTitleClick = { title ->
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                },
+                                onSwitchProfileClick = {
+                                    navController.navigate(Screen.Profiles.route)
+                                },
+                                onLogoutClick = {
+                                    navController.navigate(Screen.Connect.route) {
+                                        popUpTo(0)
+                                    }
+                                }
                             )
                         }
                         composable(
@@ -132,6 +386,9 @@ class MainActivity : ComponentActivity() {
                                             mediaType = type
                                         )
                                     )
+                                },
+                                onSimilarTitleClick = { sim ->
+                                    navController.navigate(Screen.Details.createRoute(sim.id, sim.type ?: "movie"))
                                 },
                                 viewModel = detailsViewModel
                             )

@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.SpaceBar
@@ -18,7 +19,8 @@ import com.lumiere.tv.theme.*
 
 enum class KeyboardLayout {
     RUSSIAN,
-    ENGLISH
+    ENGLISH,
+    SYMBOLS
 }
 
 @OptIn(ExperimentalTvMaterial3Api::class)
@@ -30,56 +32,98 @@ fun TvVirtualKeyboard(
     onSpace: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var layout by remember { mutableStateOf(KeyboardLayout.RUSSIAN) }
+    var layout by remember { mutableStateOf(KeyboardLayout.ENGLISH) }
+    var isUpperCase by remember { mutableStateOf(false) }
 
     val digits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")
 
     val russianRows = listOf(
-        listOf("Й", "Ц", "У", "К", "Е", "Н", "Г", "Ш", "Щ", "З", "Х"),
-        listOf("Ф", "Ы", "В", "А", "П", "Р", "О", "Л", "Д", "Ж", "Э"),
-        listOf("Я", "Ч", "С", "М", "И", "Т", "Ь", "Б", "Ю", "Ъ", "Ё")
+        listOf("й", "ц", "у", "к", "е", "н", "г", "ш", "щ", "з", "х"),
+        listOf("ф", "ы", "в", "а", "п", "р", "о", "л", "д", "ж", "э"),
+        listOf("я", "ч", "с", "м", "и", "т", "ь", "б", "ю", "ъ", "ё")
     )
 
     val englishRows = listOf(
-        listOf("Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P"),
-        listOf("A", "S", "D", "F", "G", "H", "J", "K", "L"),
-        listOf("Z", "X", "C", "V", "B", "N", "M")
+        listOf("q", "w", "e", "r", "t", "y", "u", "i", "o", "p"),
+        listOf("a", "s", "d", "f", "g", "h", "j", "k", "l"),
+        listOf("z", "x", "c", "v", "b", "n", "m")
+    )
+
+    val symbolsRows = listOf(
+        listOf("@", ".", "_", "-", "/", ":", "+", "=", "?", "!"),
+        listOf("#", "$", "%", "&", "*", "(", ")", "[", "]", "^"),
+        listOf("~", "<", ">", ",", ";", "\"", "'", "\\", "|", "{", "}")
     )
 
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(16.dp))
             .background(SurfaceDark)
-            .padding(16.dp),
+            .padding(14.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         // Digits Row
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             digits.forEach { digit ->
-                KeyButton(text = digit, onClick = { onChar(digit[0]) }, modifier = Modifier.size(36.dp))
+                KeyButton(text = digit, onClick = { onChar(digit[0]) }, modifier = Modifier.size(width = 36.dp, height = 36.dp))
             }
         }
 
-        // Letter Rows
-        val letterRows = if (layout == KeyboardLayout.RUSSIAN) russianRows else englishRows
-        letterRows.forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { letter ->
-                    KeyButton(text = letter, onClick = { onChar(letter[0]) }, modifier = Modifier.size(36.dp))
+        // Letter / Symbol Rows
+        val currentRows = when (layout) {
+            KeyboardLayout.RUSSIAN -> russianRows
+            KeyboardLayout.ENGLISH -> englishRows
+            KeyboardLayout.SYMBOLS -> symbolsRows
+        }
+
+        currentRows.forEach { row ->
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                row.forEach { rawChar ->
+                    val displayChar = if (layout != KeyboardLayout.SYMBOLS && isUpperCase) {
+                        rawChar.uppercase()
+                    } else {
+                        rawChar
+                    }
+                    KeyButton(
+                        text = displayChar,
+                        onClick = { onChar(displayChar[0]) },
+                        modifier = Modifier.size(width = 36.dp, height = 36.dp)
+                    )
                 }
             }
         }
 
         // Action Keys Row
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // Shift / Caps Key
+            if (layout != KeyboardLayout.SYMBOLS) {
+                Button(
+                    onClick = { isUpperCase = !isUpperCase },
+                    colors = ButtonDefaults.colors(
+                        containerColor = if (isUpperCase) LumiereGold else SurfaceVariantDark,
+                        contentColor = if (isUpperCase) BackgroundDark else TextPrimary,
+                        focusedContainerColor = LumiereGold,
+                        focusedContentColor = BackgroundDark
+                    ),
+                    shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Default.ArrowUpward, contentDescription = "Shift", modifier = Modifier.size(15.dp))
+                }
+            }
+
             // Language Switch
             Button(
                 onClick = {
-                    layout = if (layout == KeyboardLayout.RUSSIAN) KeyboardLayout.ENGLISH else KeyboardLayout.RUSSIAN
+                    layout = when (layout) {
+                        KeyboardLayout.RUSSIAN -> KeyboardLayout.ENGLISH
+                        KeyboardLayout.ENGLISH -> KeyboardLayout.RUSSIAN
+                        KeyboardLayout.SYMBOLS -> KeyboardLayout.ENGLISH
+                    }
                 },
                 colors = ButtonDefaults.colors(
                     containerColor = SurfaceVariantDark,
@@ -88,11 +132,28 @@ fun TvVirtualKeyboard(
                     focusedContentColor = BackgroundDark
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Language, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(if (layout == KeyboardLayout.RUSSIAN) "RU" else "EN", fontSize = 12.sp)
+                Text(if (layout == KeyboardLayout.RUSSIAN) "RU" else "EN", fontSize = 11.sp)
+            }
+
+            // 123 / ?!= Symbols Toggle
+            Button(
+                onClick = {
+                    layout = if (layout == KeyboardLayout.SYMBOLS) KeyboardLayout.ENGLISH else KeyboardLayout.SYMBOLS
+                },
+                colors = ButtonDefaults.colors(
+                    containerColor = if (layout == KeyboardLayout.SYMBOLS) LumiereGold else SurfaceVariantDark,
+                    contentColor = if (layout == KeyboardLayout.SYMBOLS) BackgroundDark else TextPrimary,
+                    focusedContainerColor = LumiereGold,
+                    focusedContentColor = BackgroundDark
+                ),
+                shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(if (layout == KeyboardLayout.SYMBOLS) "ABC" else "?!#", fontSize = 11.sp)
             }
 
             // Space
@@ -105,11 +166,11 @@ fun TvVirtualKeyboard(
                     focusedContentColor = BackgroundDark
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
-                contentPadding = PaddingValues(horizontal = 24.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.SpaceBar, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.SpaceBar, contentDescription = null, modifier = Modifier.size(15.dp))
                 Spacer(modifier = Modifier.width(4.dp))
-                Text("Пробел", fontSize = 12.sp)
+                Text("Пробел", fontSize = 11.sp)
             }
 
             // Backspace
@@ -122,9 +183,9 @@ fun TvVirtualKeyboard(
                     focusedContentColor = BackgroundDark
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Icon(Icons.Default.Backspace, contentDescription = "Удалить", modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.Backspace, contentDescription = "Удалить", modifier = Modifier.size(15.dp))
             }
 
             // Clear
@@ -137,9 +198,9 @@ fun TvVirtualKeyboard(
                     focusedContentColor = BackgroundDark
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
             ) {
-                Text("Сброс", fontSize = 12.sp)
+                Text("Сброс", fontSize = 11.sp)
             }
         }
     }
@@ -154,6 +215,7 @@ private fun KeyButton(
 ) {
     Button(
         onClick = onClick,
+        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
         colors = ButtonDefaults.colors(
             containerColor = SurfaceVariantDark,
             contentColor = TextPrimary,

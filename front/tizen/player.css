@@ -363,11 +363,10 @@ body {
 }
 .osd-ctrl-btn.focused,
 .osd-ctrl-btn:focus {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 3px !important;
+  outline: none !important;
   color: #ffffff !important;
   background: rgba(232, 193, 112, 0.38) !important;
-  box-shadow: 0 0 24px rgba(232, 193, 112, 0.85) !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 0 24px rgba(232, 193, 112, 0.85) !important;
   transform: scale(1.08);
 }
 
@@ -389,11 +388,10 @@ body {
 }
 .osd-btn.focused,
 .osd-btn:focus {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: 2px !important;
+  outline: none !important;
   color: #ffffff !important;
   background: rgba(232, 193, 112, 0.25) !important;
-  box-shadow: 0 0 20px rgba(232, 193, 112, 0.6) !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 0 20px rgba(232, 193, 112, 0.6) !important;
   transform: scale(1.06);
 }
 

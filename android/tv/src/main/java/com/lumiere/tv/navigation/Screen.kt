@@ -7,9 +7,16 @@ sealed class Screen(val route: String) {
     data object Connect : Screen("connect")
     data object Profiles : Screen("profiles")
     data object Home : Screen("home")
+    data object Movies : Screen("movies")
+    data object Shows : Screen("shows")
+    data object Collections : Screen("collections")
     data object Search : Screen("search")
     data object Iptv : Screen("iptv")
+    data object My : Screen("my")
+    data object Downloads : Screen("downloads")
     data object Settings : Screen("settings")
+    data object Notifications : Screen("notifications")
+    data object Profile : Screen("profile")
 
     data object Details : Screen("details/{id}/{type}") {
         fun createRoute(id: Long, type: String = "movie"): String {

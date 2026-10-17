@@ -1,5 +1,6 @@
 package com.lumiere.tv.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,8 +39,15 @@ fun HeroBanner(
             .clip(RoundedCornerShape(20.dp))
     ) {
         // Backdrop Image
+        val context = androidx.compose.ui.platform.LocalContext.current
+        val imageRequest = androidx.compose.runtime.remember(backdropUrl) {
+            coil3.request.ImageRequest.Builder(context)
+                .data(backdropUrl)
+                .size(1280, 720)
+                .build()
+        }
         AsyncImage(
-            model = backdropUrl,
+            model = imageRequest,
             contentDescription = title.name,
             contentScale = ContentScale.Crop,
             modifier = Modifier.fillMaxSize()
@@ -144,15 +152,21 @@ fun HeroBanner(
                 horizontalArrangement = Arrangement.spacedBy(14.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                val bannerBtnShape = RoundedCornerShape(12.dp)
                 Button(
                     onClick = onPlayClick,
+                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1f),
                     colors = ButtonDefaults.colors(
                         containerColor = LumiereGold,
                         contentColor = BackgroundDark,
                         focusedContainerColor = Color.White,
                         focusedContentColor = BackgroundDark
                     ),
-                    shape = ButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    border = ButtonDefaults.border(
+                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = bannerBtnShape),
+                        border = Border.None
+                    ),
+                    shape = ButtonDefaults.shape(bannerBtnShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.PlayArrow,
@@ -169,11 +183,16 @@ fun HeroBanner(
 
                 OutlinedButton(
                     onClick = onDetailsClick,
+                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
                     colors = OutlinedButtonDefaults.colors(
                         focusedContainerColor = Color(0x22FFFFFF),
                         focusedContentColor = TextPrimary
                     ),
-                    shape = OutlinedButtonDefaults.shape(RoundedCornerShape(12.dp))
+                    border = OutlinedButtonDefaults.border(
+                        border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = bannerBtnShape),
+                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = bannerBtnShape)
+                    ),
+                    shape = OutlinedButtonDefaults.shape(bannerBtnShape)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Info,

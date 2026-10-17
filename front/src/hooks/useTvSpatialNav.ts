@@ -317,9 +317,13 @@ export function useTvSpatialNav() {
         });
       } else {
         if (isDown) {
+          e.preventDefault();
           window.scrollBy({ top: 240, behavior: 'auto' });
         } else if (isUp) {
+          e.preventDefault();
           window.scrollBy({ top: -240, behavior: 'auto' });
+        } else if (isLeft || isRight) {
+          e.preventDefault();
         }
       }
     };

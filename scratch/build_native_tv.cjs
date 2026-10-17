@@ -6,7 +6,9 @@ const rootDir = path.resolve(__dirname, '..');
 const androidDir = path.join(rootDir, 'android');
 const javaHome = 'C:\\Users\\Artrax\\jdk-21\\jdk-21.0.5+11';
 const builtApk = path.join(androidDir, 'tv/build/outputs/apk/debug/tv-debug.apk');
-const adbPath = 'C:\\Users\\Artrax\\AppData\Local\\Android\\Sdk\\platform-tools\\adb.exe';
+const adbPath = fs.existsSync('C:\\Users\\Artrax\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe')
+  ? 'C:\\Users\\Artrax\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe'
+  : path.join(rootDir, 'scratch/platform-tools/adb.exe');
 
 console.log('==================================================');
 console.log('       BUILDING NATIVE ANDROID TV APP             ');
@@ -68,9 +70,12 @@ try {
 console.log('\n--- Checking for Connected ADB Devices ---');
 if (fs.existsSync(adbPath)) {
   try {
+    try {
+      execSync(`"${adbPath}" connect 192.168.1.128:5555`, { encoding: 'utf8', timeout: 4000 });
+    } catch {}
     const devicesOutput = execSync(`"${adbPath}" devices`, { encoding: 'utf8' });
     const lines = devicesOutput.split('\n').filter(l => l.trim().length > 0 && !l.startsWith('List of'));
-    const connectedDevices = lines.map(l => l.split('\t')[0].trim()).filter(id => id.length > 0);
+    const connectedDevices = lines.map(l => l.split('\t')[0].trim()).filter(id => id.length > 0 && !id.includes('offline'));
     
     if (connectedDevices.length > 0) {
       console.log(`Found ${connectedDevices.length} connected device(s): ${connectedDevices.join(', ')}`);
