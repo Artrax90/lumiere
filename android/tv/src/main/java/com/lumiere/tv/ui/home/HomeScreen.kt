@@ -32,12 +32,19 @@ fun HomeScreen(
 
     // Persistent row scroll states to prevent destruction/re-measurement when scrolling vertically
     val continueWatchingState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val recommendationsState = androidx.compose.foundation.lazy.rememberLazyListState()
     val trendingMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val netflixMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val popularMoviesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val netflixSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val trendingSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
     val popularSeriesState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    // Focus requesters for seamless remote D-pad navigation to row header actions
+    val netflixMoviesSwitcherFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val netflixMoviesFirstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val netflixSeriesSwitcherFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val netflixSeriesFirstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
     // Stable lambda for image resolving
     val resolvePosterUrl = remember(viewModel) {
@@ -102,15 +109,28 @@ fun HomeScreen(
                 )
             }
 
+            // Personalized Recommendations: "✨ Вам может понравиться" (based on watched history)
+            if (state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME) {
+                MediaRow(
+                    title = "✨ Вам может понравиться",
+                    subtitle = "На основе просмотренных вами фильмов и сериалов",
+                    items = state.recommendations,
+                    resolvePosterUrl = resolvePosterUrl,
+                    onTitleClick = onTitleClick,
+                    rowState = recommendationsState
+                )
+            }
+
             // Movies filter or Home
             if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) {
-                // Trending Movies
+                // Trending Movies (down leads directly to Netflix movies switcher)
                 MediaRow(
                     title = "В тренде (Фильмы)",
                     subtitle = "Самое популярное прямо сейчас",
                     items = state.trendingMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
+                    downFocusRequester = if (state.netflixMovies.isNotEmpty()) netflixMoviesSwitcherFocusRequester else null,
                     rowState = trendingMoviesState
                 )
 
@@ -131,19 +151,24 @@ fun HomeScreen(
                         headerAction = {
                             NetflixPeriodSwitcher(
                                 selectedPeriod = state.netflixMoviesPeriod,
-                                onSelectPeriod = { viewModel.setNetflixMoviesPeriod(it) }
+                                onSelectPeriod = { viewModel.setNetflixMoviesPeriod(it) },
+                                firstButtonFocusRequester = netflixMoviesSwitcherFocusRequester,
+                                rowFocusRequester = netflixMoviesFirstItemFocusRequester
                             )
                         },
+                        headerActionFocusRequester = netflixMoviesSwitcherFocusRequester,
+                        firstItemFocusRequester = netflixMoviesFirstItemFocusRequester,
                         rowState = netflixMoviesState
                     )
                 }
 
-                // Popular Movies
+                // Popular Movies (down leads directly to Netflix series switcher)
                 MediaRow(
                     title = "Популярные фильмы",
                     items = state.popularMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
+                    downFocusRequester = if (state.netflixSeries.isNotEmpty()) netflixSeriesSwitcherFocusRequester else null,
                     rowState = popularMoviesState
                 )
             }
@@ -167,9 +192,13 @@ fun HomeScreen(
                         headerAction = {
                             NetflixPeriodSwitcher(
                                 selectedPeriod = state.netflixSeriesPeriod,
-                                onSelectPeriod = { viewModel.setNetflixSeriesPeriod(it) }
+                                onSelectPeriod = { viewModel.setNetflixSeriesPeriod(it) },
+                                firstButtonFocusRequester = netflixSeriesSwitcherFocusRequester,
+                                rowFocusRequester = netflixSeriesFirstItemFocusRequester
                             )
                         },
+                        headerActionFocusRequester = netflixSeriesSwitcherFocusRequester,
+                        firstItemFocusRequester = netflixSeriesFirstItemFocusRequester,
                         rowState = netflixSeriesState
                     )
                 }

@@ -66,6 +66,12 @@ fun CollectionsScreen(
                 { path: String? -> viewModel.resolvePosterUrl(path) }
             }
 
+            val netflixFocusRequesters = remember {
+                CURATED_COLLECTIONS.filter { it.isNetflixMovies || it.isNetflixTv }.associate { cat ->
+                    cat.id to (androidx.compose.ui.focus.FocusRequester() to androidx.compose.ui.focus.FocusRequester())
+                }
+            }
+
             val scrollState = rememberScrollState()
             Column(
                 modifier = Modifier
@@ -88,6 +94,9 @@ fun CollectionsScreen(
                             cat.subtitle
                         }
 
+                        val focusPair = netflixFocusRequesters[cat.id]
+                        val (switcherRequester, firstItemRequester) = focusPair ?: (null to null)
+
                         MediaRow(
                             title = cat.name,
                             subtitle = subtitle,
@@ -95,11 +104,15 @@ fun CollectionsScreen(
                             resolvePosterUrl = resolvePoster,
                             onTitleClick = onTitleClick,
                             badgeText = if (isNetflix) "NETFLIX" else null,
-                            headerAction = if (isNetflix) {
+                            headerActionFocusRequester = switcherRequester,
+                            firstItemFocusRequester = firstItemRequester,
+                            headerAction = if (isNetflix && switcherRequester != null && firstItemRequester != null) {
                                 {
                                     com.lumiere.tv.ui.components.NetflixPeriodSwitcher(
                                         selectedPeriod = uiState.netflixPeriod,
-                                        onSelectPeriod = { viewModel.setNetflixPeriod(it) }
+                                        onSelectPeriod = { viewModel.setNetflixPeriod(it) },
+                                        firstButtonFocusRequester = switcherRequester,
+                                        rowFocusRequester = firstItemRequester
                                     )
                                 }
                             } else null

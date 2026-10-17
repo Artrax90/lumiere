@@ -10,6 +10,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -30,6 +33,9 @@ fun MediaRow(
     badgeText: String? = null,
     badgeColor: Color = Color(0xFFE50914),
     headerAction: @Composable (() -> Unit)? = null,
+    headerActionFocusRequester: FocusRequester? = null,
+    firstItemFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
     rowState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     modifier: Modifier = Modifier
 ) {
@@ -99,11 +105,29 @@ fun MediaRow(
             items = distinctItems,
             key = { index, item -> "${item.id}_${item.type}_$index" },
             contentType = { _, _ -> "media_card" }
-        ) { _, item ->
+        ) { index, item ->
             MediaCard(
                 title = item,
                 posterUrl = resolvePosterUrl(item.poster),
-                onClick = { onTitleClick(item) }
+                onClick = { onTitleClick(item) },
+                modifier = Modifier
+                    .then(
+                        if (index == 0 && firstItemFocusRequester != null) {
+                            Modifier.focusRequester(firstItemFocusRequester)
+                        } else Modifier
+                    )
+                    .then(
+                        if (headerActionFocusRequester != null || downFocusRequester != null) {
+                            Modifier.focusProperties {
+                                if (headerActionFocusRequester != null) {
+                                    up = headerActionFocusRequester
+                                }
+                                if (downFocusRequester != null) {
+                                    down = downFocusRequester
+                                }
+                            }
+                        } else Modifier
+                    )
             )
         }
         }

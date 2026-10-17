@@ -105,6 +105,12 @@ interface LumiereApiService {
         @Query("lang") lang: String = "ru"
     ): TitleListResponse
 
+    @POST("/api/recommendations/personal")
+    suspend fun getPersonalRecommendations(
+        @Body request: PersonalRecommendationsRequest,
+        @Query("lang") lang: String = "ru"
+    ): TitleListResponse
+
     @GET("/api/movies/{id}")
     suspend fun getMovieDetails(
         @Path("id") id: Long,

@@ -276,6 +276,18 @@ data class SyncPullResponse(
 )
 
 @Serializable
+data class PersonalRecommendationItem(
+    val id: Long,
+    val type: String? = "movie",
+    val name: String? = null
+)
+
+@Serializable
+data class PersonalRecommendationsRequest(
+    val items: List<PersonalRecommendationItem>
+)
+
+@Serializable
 data class FavoriteItem(
     val id: Long? = null,
     val tmdbId: Long,

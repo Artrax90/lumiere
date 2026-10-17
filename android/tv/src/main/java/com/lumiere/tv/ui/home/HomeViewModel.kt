@@ -3,6 +3,8 @@ package com.lumiere.tv.ui.home
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lumiere.core.model.PersonalRecommendationItem
+import com.lumiere.core.model.PersonalRecommendationsRequest
 import com.lumiere.core.model.Title
 import com.lumiere.core.network.NetworkClient
 import com.lumiere.core.storage.AppPreferences
@@ -18,6 +20,7 @@ data class HomeUiState(
     val isLoading: Boolean = false,
     val heroItem: Title? = null,
     val continueWatching: List<Title> = emptyList(),
+    val recommendations: List<Title> = emptyList(),
     val trendingMovies: List<Title> = emptyList(),
     val popularMovies: List<Title> = emptyList(),
     val netflixMoviesWeek: List<Title> = emptyList(),
@@ -148,6 +151,38 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                     )
                 }.orEmpty()
 
+                // Personalized recommendations based on watched history
+                var recommendations: List<Title> = emptyList()
+                val watchedItems = syncData?.watchHistory.orEmpty()
+                if (watchedItems.isNotEmpty()) {
+                    try {
+                        val recItems = watchedItems.take(8).map {
+                            PersonalRecommendationItem(
+                                id = it.tmdbId,
+                                type = it.mediaType,
+                                name = it.titleName
+                            )
+                        }
+                        val recResponse = api.getPersonalRecommendations(
+                            PersonalRecommendationsRequest(items = recItems)
+                        )
+                        recommendations = recResponse.results.filter { !it.poster.isNullOrBlank() }
+                    } catch (_: Exception) {}
+
+                    // Fallback to TMDB recommendations for the most recent watched item
+                    if (recommendations.isEmpty()) {
+                        try {
+                            val lastWatched = watchedItems.first()
+                            val fallbackResponse = if (lastWatched.mediaType == "tv") {
+                                api.getTvRecommendations(lastWatched.tmdbId)
+                            } else {
+                                api.getMovieRecommendations(lastWatched.tmdbId)
+                            }
+                            recommendations = fallbackResponse.results.filter { !it.poster.isNullOrBlank() }
+                        } catch (_: Exception) {}
+                    }
+                }
+
                 val hero = trendingMovies.firstOrNull { !it.backdrop.isNullOrBlank() }
                     ?: trendingMovies.firstOrNull()
                     ?: trendingTv.firstOrNull()
@@ -157,6 +192,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                         isLoading = false,
                         heroItem = hero,
                         continueWatching = continueWatching,
+                        recommendations = recommendations,
                         trendingMovies = trendingMovies,
                         popularMovies = popularMovies,
                         netflixMoviesWeek = netflixMoviesWeek,
