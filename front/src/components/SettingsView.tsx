@@ -22,6 +22,11 @@ import {
   RotateCcw,
   X,
   LayoutList,
+  Server,
+  Film,
+  Wifi,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import ActivityHeatmap from './ActivityHeatmap';
 import ActiveSessionsView from './ActiveSessionsView';

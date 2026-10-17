@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Clock, Heart, Trophy, Monitor, Star, LogOut } from 'lucide-react';
 import type { Title } from '@/api/client';
 import { serverFetch } from '@/api/server';
-import { getScopedItem } from '@/api/sync';
+import { getScopedItem, setScopedItem } from '@/api/sync';
 import { useAuth } from '@/contexts/AuthContext';
 import Card from './Card';
 
