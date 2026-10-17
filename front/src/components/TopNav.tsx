@@ -249,22 +249,6 @@ export default function TopNav({ active, onNavigate }: TopNavProps) {
             <Puzzle className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
           </a>
           <a
-            href="/downloads"
-            role="button"
-            tabIndex={0}
-            onClick={(e) => handleNavClick(e, 'downloads')}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ' ') {
-                e.preventDefault();
-                onNavigate('downloads');
-              }
-            }}
-            className="group hidden xl:flex h-9 w-9 items-center justify-center rounded-full transition-all outline-none focus:outline-none focus:ring-2 focus:ring-amber-400 focus:bg-white/10 hover:bg-white/[0.07]"
-            aria-label="Downloads"
-          >
-            <Download className="h-[17px] w-[17px] text-white/55 transition-colors duration-300 group-hover:text-white/88" strokeWidth={1.5} />
-          </a>
-          <a
             href="/settings"
             role="button"
             tabIndex={0}
