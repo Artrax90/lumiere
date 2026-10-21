@@ -256,7 +256,12 @@ fun DetailsScreen(
                                 // 1. Play Button
                                 item {
                                     Button(
-                                        onClick = { viewModel.openTorrentDialog() },
+                                        onClick = {
+                                            viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
+                                                val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                                onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty())
+                                            }
+                                        },
                                         modifier = Modifier.focusRequester(watchFocusRequester),
                                         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                                         colors = ButtonDefaults.colors(
@@ -293,7 +298,7 @@ fun DetailsScreen(
                                     }
                                 }
 
-                                // 2. Choose Quality
+                                // 2. All Torrents / Quality ("Все раздачи")
                                 item {
                                     OutlinedButton(
                                         onClick = { viewModel.openTorrentDialog() },
@@ -314,8 +319,9 @@ fun DetailsScreen(
                                             modifier = Modifier.size(18.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
+                                        val torrentCount = state.torrents.size
                                         Text(
-                                            text = "Качество (${state.torrents.size})",
+                                            text = if (torrentCount > 0) "Все раздачи ($torrentCount)" else "Все раздачи",
                                             style = MaterialTheme.typography.labelLarge
                                         )
                                     }
@@ -656,6 +662,7 @@ fun DetailsScreen(
                                             TorrentRowItem(
                                                 item = torrent,
                                                 isLaunching = state.isStartingStream && state.activeTorrent?.magnet == torrent.magnet,
+                                                isSelected = !state.lastPlayedTorrentMagnet.isNullOrBlank() && torrent.magnet == state.lastPlayedTorrentMagnet,
                                                 onClick = {
                                                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
                                                         val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {
@@ -720,6 +727,7 @@ fun DetailsScreen(
             TorrentDialog(
                 torrents = state.torrents,
                 isLoading = state.isSearchingTorrents,
+                selectedMagnet = state.lastPlayedTorrentMagnet,
                 onTorrentSelected = { torrent ->
                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
                         val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {

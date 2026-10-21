@@ -34,7 +34,9 @@ data class DetailsUiState(
     val isInWatchlist: Boolean = false,
     val isSubscribed: Boolean = false,
     val lastWatchedEpisodeNum: Int? = null,
-    val savedProgressSec: Long = 0L
+    val savedProgressSec: Long = 0L,
+    val lastPlayedTorrentMagnet: String? = null,
+    val lastPlayedTorrentTitle: String? = null
 )
 
 class DetailsViewModel(
@@ -92,14 +94,23 @@ class DetailsViewModel(
                         preferences.setPlaybackPosition(mediaId, mediaType, serverProgress)
                     }
                 } catch (_: Exception) {}
-                _uiState.update { it.copy(savedProgressSec = finalProgress) }
 
                 // If TV series, fetch saved or season 1 episodes
+                var savedSeason = 1
                 if (mediaType == "tv") {
-                    val savedSeason = preferences.getLastWatchedSeriesSeason(mediaId) ?: 1
+                    savedSeason = preferences.getLastWatchedSeriesSeason(mediaId) ?: 1
                     val savedEp = preferences.getLastWatchedSeriesEpisode(mediaId)
                     _uiState.update { it.copy(selectedSeason = savedSeason, lastWatchedEpisodeNum = savedEp) }
                     loadSeason(savedSeason)
+                }
+
+                val lastTorrent = preferences.getLastPlayedTorrent(mediaId, if (mediaType == "tv") savedSeason else 0)
+                _uiState.update {
+                    it.copy(
+                        savedProgressSec = finalProgress,
+                        lastPlayedTorrentMagnet = lastTorrent?.first,
+                        lastPlayedTorrentTitle = lastTorrent?.second
+                    )
                 }
 
                 // Fetch similar/recommendations
@@ -214,7 +225,52 @@ class DetailsViewModel(
                     }
                 } catch (_: Exception) {}
             }
-            _uiState.update { it.copy(savedProgressSec = finalProgress) }
+            val season = if (mediaType == "tv") _uiState.value.selectedSeason else 0
+            val lastTorrent = preferences.getLastPlayedTorrent(mediaId, season)
+            _uiState.update {
+                it.copy(
+                    savedProgressSec = finalProgress,
+                    lastPlayedTorrentMagnet = lastTorrent?.first,
+                    lastPlayedTorrentTitle = lastTorrent?.second
+                )
+            }
+        }
+    }
+
+    fun playResumeOrOpenDialog(
+        onStreamReady: (streamUrl: String, title: String, subtitle: String, isHls: Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            val season = if (mediaType == "tv") _uiState.value.selectedSeason else 0
+            val savedTorrent = preferences.getLastPlayedTorrent(mediaId, season)
+                ?: preferences.getLastPlayedTorrent(mediaId, 0)
+            val currentProgress = _uiState.value.savedProgressSec.takeIf { it > 0L }
+                ?: preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+
+            if (currentProgress > 0L && savedTorrent != null && savedTorrent.first.isNotBlank()) {
+                val matchingTorrent = _uiState.value.torrents.find { it.magnet == savedTorrent.first }
+                    ?: TorrentItem(
+                        title = savedTorrent.second.ifBlank { _uiState.value.title?.name ?: "Видео" },
+                        magnet = savedTorrent.first
+                    )
+
+                if (mediaType == "tv") {
+                    val targetEpNum = _uiState.value.lastWatchedEpisodeNum
+                        ?: preferences.getLastWatchedSeriesEpisode(mediaId)
+                        ?: 1
+                    val targetEp = _uiState.value.episodes.find { it.episode == targetEpNum }
+                        ?: Episode(
+                            season = _uiState.value.selectedSeason,
+                            episode = targetEpNum,
+                            title = "Серия $targetEpNum"
+                        )
+                    _uiState.update { it.copy(selectedEpisode = targetEp) }
+                }
+
+                playTorrent(matchingTorrent, onStreamReady)
+            } else {
+                openTorrentDialog()
+            }
         }
     }
 
@@ -301,7 +357,17 @@ class DetailsViewModel(
                     _uiState.update { it.copy(selectedSeason = ep.season, lastWatchedEpisodeNum = ep.episode) }
                 }
 
-                _uiState.update { it.copy(isStartingStream = false, showTorrentDialog = false) }
+                val curSeason = ep?.season ?: if (mediaType == "tv") _uiState.value.selectedSeason else 0
+                preferences.setLastPlayedTorrent(mediaId, curSeason, torrent.magnet, torrent.title)
+
+                _uiState.update {
+                    it.copy(
+                        isStartingStream = false,
+                        showTorrentDialog = false,
+                        lastPlayedTorrentMagnet = torrent.magnet,
+                        lastPlayedTorrentTitle = torrent.title
+                    )
+                }
                 onStreamReady(fullUrl, playTitle, subTitle, relativeUrl.contains(".m3u8"))
             } catch (e: Exception) {
                 _uiState.update {
@@ -429,13 +495,16 @@ class DetailsViewModel(
                     val subTitle = "Сезон ${episode.season}, Серия ${episode.episode}: ${episode.title.orEmpty()}"
 
                     preferences.setLastWatchedSeries(mediaId, episode.season, episode.episode)
+                    preferences.setLastPlayedTorrent(mediaId, episode.season, matchedTorrent.magnet, matchedTorrent.title)
                     _uiState.update {
                         it.copy(
                             isStartingStream = false,
                             showTorrentDialog = false,
                             activeTorrent = null,
                             selectedSeason = episode.season,
-                            lastWatchedEpisodeNum = episode.episode
+                            lastWatchedEpisodeNum = episode.episode,
+                            lastPlayedTorrentMagnet = matchedTorrent.magnet,
+                            lastPlayedTorrentTitle = matchedTorrent.title
                         )
                     }
 

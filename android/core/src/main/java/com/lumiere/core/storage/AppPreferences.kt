@@ -155,4 +155,27 @@ class AppPreferences(private val context: Context) {
     suspend fun getLastWatchedSeriesEpisode(seriesId: Long): Int? {
         return context.dataStore.data.first()[intPreferencesKey("last_episode_$seriesId")]
     }
+
+    suspend fun setLastPlayedTorrent(mediaId: Long, season: Int = 0, magnet: String, title: String) {
+        context.dataStore.edit { prefs ->
+            val keySuffix = if (season > 0) "${mediaId}_s$season" else "$mediaId"
+            prefs[stringPreferencesKey("last_torrent_magnet_$keySuffix")] = magnet
+            prefs[stringPreferencesKey("last_torrent_title_$keySuffix")] = title
+            // Also save default mediaId key as fallback
+            prefs[stringPreferencesKey("last_torrent_magnet_$mediaId")] = magnet
+            prefs[stringPreferencesKey("last_torrent_title_$mediaId")] = title
+        }
+    }
+
+    suspend fun getLastPlayedTorrent(mediaId: Long, season: Int = 0): Pair<String, String>? {
+        val prefs = context.dataStore.data.first()
+        val keySuffix = if (season > 0) "${mediaId}_s$season" else "$mediaId"
+        var magnet = prefs[stringPreferencesKey("last_torrent_magnet_$keySuffix")]
+        var title = prefs[stringPreferencesKey("last_torrent_title_$keySuffix")]
+        if (magnet.isNullOrBlank() && season > 0) {
+            magnet = prefs[stringPreferencesKey("last_torrent_magnet_$mediaId")]
+            title = prefs[stringPreferencesKey("last_torrent_title_$mediaId")]
+        }
+        return if (!magnet.isNullOrBlank()) Pair(magnet, title.orEmpty()) else null
+    }
 }

@@ -30,6 +30,7 @@ import com.lumiere.tv.theme.*
 fun TorrentDialog(
     torrents: List<TorrentItem>,
     isLoading: Boolean,
+    selectedMagnet: String? = null,
     onTorrentSelected: (TorrentItem) -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -246,9 +247,11 @@ fun TorrentDialog(
                     ) {
                         items(filteredAndSortedTorrents, key = { it.magnet ?: it.title }) { item ->
                             val isLaunching = launchingMagnet == item.magnet
+                            val isSelected = !selectedMagnet.isNullOrBlank() && item.magnet == selectedMagnet
                             TorrentRowItem(
                                 item = item,
                                 isLaunching = isLaunching,
+                                isSelected = isSelected,
                                 onClick = {
                                     launchingMagnet = item.magnet
                                     onTorrentSelected(item)
@@ -267,6 +270,7 @@ fun TorrentDialog(
 fun TorrentRowItem(
     item: TorrentItem,
     isLaunching: Boolean = false,
+    isSelected: Boolean = false,
     onClick: () -> Unit
 ) {
     val meta = remember(item.title, item.audio, item.quality) {
@@ -280,7 +284,11 @@ fun TorrentRowItem(
             .fillMaxWidth()
             .wrapContentHeight(),
         colors = CardDefaults.colors(
-            containerColor = if (isLaunching) Color(0x33E8C170) else SurfaceVariantDark,
+            containerColor = when {
+                isLaunching -> Color(0x33E8C170)
+                isSelected -> Color(0x22E8C170)
+                else -> SurfaceVariantDark
+            },
             focusedContainerColor = SurfaceDark
         ),
         border = CardDefaults.border(
@@ -289,7 +297,7 @@ fun TorrentRowItem(
                 shape = cardShape
             ),
             border = Border(
-                border = BorderStroke(1.dp, if (isLaunching) LumiereGold else SurfaceBorder),
+                border = BorderStroke(1.dp, if (isLaunching || isSelected) LumiereGold else SurfaceBorder),
                 shape = cardShape
             )
         ),
@@ -332,6 +340,15 @@ fun TorrentRowItem(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (isSelected) {
+                            BadgePill(
+                                text = "✓ ТЕКУЩИЙ",
+                                bgColor = Color(0x33E8C170),
+                                borderColor = LumiereGold,
+                                textColor = LumiereGold
+                            )
+                        }
+
                         // Tracker Pill
                         val tracker = item.tracker
                         if (!tracker.isNullOrBlank()) {
