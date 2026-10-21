@@ -5513,7 +5513,7 @@
       if (nameEl) nameEl.textContent = data.name || personName;
 
       var metaParts = [];
-      if (data.birthday) metaParts.push('Родился: ' + data.birthday);
+      if (data.birthday) metaParts.push('Дата рождения: ' + data.birthday);
       if (data.placeOfBirth) metaParts.push(data.placeOfBirth);
       if (metaEl) metaEl.textContent = metaParts.join(' · ');
 
