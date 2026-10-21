@@ -38,7 +38,7 @@ fun DetailsScreen(
     mediaId: Long,
     mediaType: String,
     onBackClick: () -> Unit,
-    onPlayRequested: (streamUrl: String, title: String, subtitle: String, isHls: Boolean) -> Unit,
+    onPlayRequested: (streamUrl: String, title: String, subtitle: String, isHls: Boolean, startPositionMs: Long, poster: String) -> Unit,
     onSimilarTitleClick: ((Title) -> Unit)? = null,
     viewModel: DetailsViewModel
 ) {
@@ -47,6 +47,19 @@ fun DetailsScreen(
     val watchFocusRequester = remember { FocusRequester() }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                viewModel.reloadProgress()
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
 
     LaunchedEffect(title, state.lastWatchedEpisodeNum) {
         if (title != null) {
@@ -401,7 +414,7 @@ fun DetailsScreen(
                                     OutlinedButton(
                                         onClick = {
                                             viewModel.playTrailer { trailerUrl ->
-                                                onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"))
+                                                onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "")
                                             }
                                         },
                                         scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
@@ -501,8 +514,9 @@ fun DetailsScreen(
                                     resolveImageUrl = { viewModel.resolveImageUrl(it) },
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
                                     onEpisodeClick = { ep ->
-                                        viewModel.playEpisodeDirectly(ep) { streamUrl, title, subtitle, isHls ->
-                                            onPlayRequested(streamUrl, title, subtitle, isHls)
+                                        viewModel.playEpisodeDirectly(ep) { streamUrl, epTitle, subtitle, isHls ->
+                                            val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                            onPlayRequested(streamUrl, epTitle, subtitle, isHls, startPos, title.poster.orEmpty())
                                         }
                                     }
                                 )
@@ -631,7 +645,10 @@ fun DetailsScreen(
                                                 item = torrent,
                                                 isLaunching = state.isStartingStream && state.activeTorrent?.magnet == torrent.magnet,
                                                 onClick = {
-                                                    viewModel.playTorrent(torrent, onPlayRequested)
+                                                    viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
+                                                        val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty())
+                                                    }
                                                 }
                                             )
                                         }
@@ -684,7 +701,10 @@ fun DetailsScreen(
                 torrents = state.torrents,
                 isLoading = state.isSearchingTorrents,
                 onTorrentSelected = { torrent ->
-                    viewModel.playTorrent(torrent, onPlayRequested)
+                    viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
+                        val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title?.poster.orEmpty())
+                    }
                 },
                 onDismiss = { viewModel.dismissTorrentDialog() }
             )

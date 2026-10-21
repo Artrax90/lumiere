@@ -24,7 +24,7 @@ sealed class Screen(val route: String) {
         }
     }
 
-    data object Player : Screen("player?url={url}&title={title}&subtitle={subtitle}&hls={hls}&mediaId={mediaId}&mediaType={mediaType}&season={season}&episode={episode}") {
+    data object Player : Screen("player?url={url}&title={title}&subtitle={subtitle}&hls={hls}&mediaId={mediaId}&mediaType={mediaType}&season={season}&episode={episode}&startPosition={startPosition}&poster={poster}") {
         fun createRoute(
             streamUrl: String,
             title: String,
@@ -33,12 +33,15 @@ sealed class Screen(val route: String) {
             mediaId: Long = 0L,
             mediaType: String = "movie",
             season: Int = 0,
-            episode: Int = 0
+            episode: Int = 0,
+            startPositionMs: Long = 0L,
+            poster: String = ""
         ): String {
             val encUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
             val encTitle = URLEncoder.encode(title, StandardCharsets.UTF_8.toString())
             val encSub = URLEncoder.encode(subtitle, StandardCharsets.UTF_8.toString())
-            return "player?url=$encUrl&title=$encTitle&subtitle=$encSub&hls=$isHls&mediaId=$mediaId&mediaType=$mediaType&season=$season&episode=$episode"
+            val encPoster = URLEncoder.encode(poster, StandardCharsets.UTF_8.toString())
+            return "player?url=$encUrl&title=$encTitle&subtitle=$encSub&hls=$isHls&mediaId=$mediaId&mediaType=$mediaType&season=$season&episode=$episode&startPosition=$startPositionMs&poster=$encPoster"
         }
     }
 }

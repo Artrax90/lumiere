@@ -276,6 +276,23 @@ data class SyncPullResponse(
 )
 
 @Serializable
+data class WatchProgressRequest(
+    val tmdbId: Long,
+    val mediaType: String,
+    val titleName: String? = "",
+    val poster: String? = "",
+    val progress: Long = 0L,
+    val timestamp: Long = 0L
+)
+
+@Serializable
+data class TitleProgressResponse(
+    val progress: Long = 0L,
+    val timestamp: Long = 0L,
+    val updatedAt: String? = null
+)
+
+@Serializable
 data class PersonalRecommendationItem(
     val id: Long,
     val type: String? = "movie",

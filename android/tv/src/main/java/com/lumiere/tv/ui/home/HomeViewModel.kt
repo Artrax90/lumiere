@@ -217,6 +217,30 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun refreshWatchHistory() {
+        viewModelScope.launch {
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            if (serverUrl.isBlank() || networkClient == null) return@launch
+            try {
+                val api = networkClient!!.createApiService(serverUrl)
+                val syncData = runCatching { api.pullSync() }.getOrNull()
+                if (syncData != null) {
+                    val continueWatching = syncData.watchHistory.map { item ->
+                        Title(
+                            id = item.tmdbId,
+                            tmdbId = item.tmdbId,
+                            name = item.titleName,
+                            type = item.mediaType,
+                            poster = item.poster,
+                            progress = (item.progress ?: 0L).toDouble()
+                        )
+                    }
+                    _uiState.update { it.copy(continueWatching = continueWatching) }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
     fun resolveImageUrl(path: String?): String {
         return networkClient?.resolveImageUrl(path) ?: path.orEmpty()
     }

@@ -124,7 +124,21 @@ class AppPreferences(private val context: Context) {
             prefs[KEY_LAST_WATCHED_TMDB_ID] = tmdbId
             prefs[KEY_LAST_WATCHED_MEDIA_TYPE] = mediaType
             prefs[KEY_LAST_WATCHED_POSITION] = positionSec
+            prefs[longPreferencesKey("pos_${mediaType}_$tmdbId")] = positionSec
         }
+    }
+
+    suspend fun setPlaybackPosition(tmdbId: Long, mediaType: String, positionSec: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[longPreferencesKey("pos_${mediaType}_$tmdbId")] = positionSec
+            prefs[KEY_LAST_WATCHED_TMDB_ID] = tmdbId
+            prefs[KEY_LAST_WATCHED_MEDIA_TYPE] = mediaType
+            prefs[KEY_LAST_WATCHED_POSITION] = positionSec
+        }
+    }
+
+    suspend fun getPlaybackPosition(tmdbId: Long, mediaType: String): Long? {
+        return context.dataStore.data.first()[longPreferencesKey("pos_${mediaType}_$tmdbId")]
     }
 
     suspend fun setLastWatchedSeries(seriesId: Long, season: Int, episode: Int) {

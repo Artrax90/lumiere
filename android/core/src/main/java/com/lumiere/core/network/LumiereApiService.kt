@@ -177,6 +177,15 @@ interface LumiereApiService {
     @GET("/api/sync/pull")
     suspend fun pullSync(): SyncPullResponse
 
+    @POST("/api/sync/progress")
+    suspend fun saveWatchProgress(@Body request: WatchProgressRequest): SimpleActionResponse
+
+    @GET("/api/sync/progress/{tmdbId}")
+    suspend fun getWatchProgress(
+        @Path("tmdbId") tmdbId: Long,
+        @Query("type") type: String = "movie"
+    ): TitleProgressResponse
+
     @GET("/api/user/favorites")
     suspend fun getFavorites(@Query("userId") userId: Long? = null): FavoritesResponse
 

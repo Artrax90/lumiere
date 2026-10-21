@@ -375,7 +375,7 @@ class MainActivity : ComponentActivity() {
                                 mediaId = id,
                                 mediaType = type,
                                 onBackClick = { navController.popBackStack() },
-                                onPlayRequested = { streamUrl, title, subtitle, isHls ->
+                                onPlayRequested = { streamUrl, title, subtitle, isHls, startPositionMs, poster ->
                                     navController.navigate(
                                         Screen.Player.createRoute(
                                             streamUrl = streamUrl,
@@ -383,7 +383,9 @@ class MainActivity : ComponentActivity() {
                                             subtitle = subtitle,
                                             isHls = isHls,
                                             mediaId = id,
-                                            mediaType = type
+                                            mediaType = type,
+                                            startPositionMs = startPositionMs,
+                                            poster = poster
                                         )
                                     )
                                 },
@@ -403,7 +405,9 @@ class MainActivity : ComponentActivity() {
                                 navArgument("mediaId") { type = NavType.LongType; defaultValue = 0L },
                                 navArgument("mediaType") { type = NavType.StringType; defaultValue = "movie" },
                                 navArgument("season") { type = NavType.IntType; defaultValue = 0 },
-                                navArgument("episode") { type = NavType.IntType; defaultValue = 0 }
+                                navArgument("episode") { type = NavType.IntType; defaultValue = 0 },
+                                navArgument("startPosition") { type = NavType.LongType; defaultValue = 0L },
+                                navArgument("poster") { type = NavType.StringType; defaultValue = "" }
                             )
                         ) { backStackEntry ->
                             val url = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("url").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
@@ -412,6 +416,8 @@ class MainActivity : ComponentActivity() {
                             val isHls = backStackEntry.arguments?.getBoolean("hls") ?: false
                             val mediaId = backStackEntry.arguments?.getLong("mediaId") ?: 0L
                             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+                            val startPosition = backStackEntry.arguments?.getLong("startPosition") ?: 0L
+                            val poster = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("poster").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
 
                             com.lumiere.tv.ui.player.PlayerScreen(
                                 streamUrl = url,
@@ -420,6 +426,8 @@ class MainActivity : ComponentActivity() {
                                 isHls = isHls,
                                 mediaId = mediaId,
                                 mediaType = mediaType,
+                                startPositionMs = startPosition,
+                                poster = poster,
                                 onBackClick = { navController.popBackStack() }
                             )
                         }

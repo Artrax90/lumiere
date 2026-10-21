@@ -33,6 +33,8 @@ fun PlayerScreen(
     isHls: Boolean,
     mediaId: Long = 0L,
     mediaType: String = "movie",
+    startPositionMs: Long = 0L,
+    poster: String = "",
     onBackClick: () -> Unit,
     viewModel: PlayerViewModel = viewModel()
 ) {
@@ -61,12 +63,13 @@ fun PlayerScreen(
     val totalBottomButtons = 3 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
 
     LaunchedEffect(streamUrl) {
-        viewModel.playStream(streamUrl, isHls)
+        viewModel.playStream(streamUrl, isHls, startPositionMs)
+        viewModel.startPeriodicProgressSaving(mediaId, mediaType, title, poster)
         focusRequester.requestFocus()
     }
 
     val handleBack: () -> Unit = {
-        viewModel.saveWatchProgress(mediaId, mediaType)
+        viewModel.saveWatchProgress(mediaId, mediaType, title, poster)
         try {
             player.stop()
         } catch (_: Throwable) {}

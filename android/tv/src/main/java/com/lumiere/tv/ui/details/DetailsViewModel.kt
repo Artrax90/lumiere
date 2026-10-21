@@ -33,7 +33,8 @@ data class DetailsUiState(
     val isFavorite: Boolean = false,
     val isInWatchlist: Boolean = false,
     val isSubscribed: Boolean = false,
-    val lastWatchedEpisodeNum: Int? = null
+    val lastWatchedEpisodeNum: Int? = null,
+    val savedProgressSec: Long = 0L
 )
 
 class DetailsViewModel(
@@ -80,6 +81,18 @@ class DetailsViewModel(
                 }
 
                 _uiState.update { it.copy(isLoading = false, title = details) }
+
+                // Load saved playback progress
+                val localProgress = preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+                var finalProgress = localProgress
+                try {
+                    val serverProgress = api.getWatchProgress(mediaId, mediaType).progress
+                    if (serverProgress > finalProgress) {
+                        finalProgress = serverProgress
+                        preferences.setPlaybackPosition(mediaId, mediaType, serverProgress)
+                    }
+                } catch (_: Exception) {}
+                _uiState.update { it.copy(savedProgressSec = finalProgress) }
 
                 // If TV series, fetch saved or season 1 episodes
                 if (mediaType == "tv") {
@@ -183,6 +196,25 @@ class DetailsViewModel(
             } catch (_: Exception) {
                 _uiState.update { it.copy(isSearchingTorrents = false) }
             }
+        }
+    }
+
+    fun reloadProgress() {
+        viewModelScope.launch {
+            val localProgress = preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+            var finalProgress = localProgress
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            if (serverUrl.isNotBlank() && networkClient != null) {
+                try {
+                    val api = networkClient!!.createApiService(serverUrl)
+                    val serverProgress = api.getWatchProgress(mediaId, mediaType).progress
+                    if (serverProgress > finalProgress) {
+                        finalProgress = serverProgress
+                        preferences.setPlaybackPosition(mediaId, mediaType, serverProgress)
+                    }
+                } catch (_: Exception) {}
+            }
+            _uiState.update { it.copy(savedProgressSec = finalProgress) }
         }
     }
 
