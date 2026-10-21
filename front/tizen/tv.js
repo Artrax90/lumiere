@@ -4655,13 +4655,9 @@
     html += '<button class="detail-btn detail-btn-trailer" id="detail-trailer-btn" tabindex="0">🎞 Трейлер</button>';
     html += '</div>'; // end detail-actions
 
-    // Description
+    // Description (full text)
     if (d.description) {
-      html += '<div class="detail-desc-wrap"><p class="detail-desc" id="detail-desc-text">' + esc(d.description) + '</p>';
-      if (d.description.length > 200) {
-        html += '<button class="detail-desc-toggle" id="detail-desc-toggle" tabindex="0">Ещё</button>';
-      }
-      html += '</div>';
+      html += '<div class="detail-desc-wrap"><p class="detail-desc">' + esc(d.description) + '</p></div>';
     }
 
     // Left side specs & details: "О фильме" block to perfectly fill the left column
@@ -4838,7 +4834,6 @@
     bindDetailActions(d);
     bindCastItems();
     bindDetailTabs();
-    bindDescriptionToggle();
     bindSeasonSelector(d);
 
     // Load content
@@ -5735,17 +5730,6 @@
     $detail.querySelectorAll('.detail-tab-pane').forEach(function(p) {
       p.classList.toggle('active', p.getAttribute('data-pane') === tabName);
     });
-  }
-
-  function bindDescriptionToggle() {
-    var toggle = document.getElementById('detail-desc-toggle');
-    var descText = document.getElementById('detail-desc-text');
-    if (toggle && descText) {
-      toggle.addEventListener('click', function() {
-        var expanded = descText.classList.toggle('expanded');
-        toggle.textContent = expanded ? 'Свернуть' : 'Ещё';
-      });
-    }
   }
 
   function bindSeasonSelector(title) {

@@ -1386,20 +1386,18 @@ body.player-active .section {
   gap: 8px;
 }
 
-/* Detail: Description */
-.detail-desc-wrap { margin-bottom: 32px; max-width: 900px; }
-.detail-desc {
-  font-size: 19px; line-height: 1.65; color: rgba(255, 255, 255, 0.9);
-  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
-  overflow: hidden; display: -webkit-box;
-  -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+/* Detail: Description (full text, no clamping or button) */
+.detail-desc-wrap {
+  margin-bottom: 28px;
+  max-width: 920px;
 }
-.detail-desc.expanded { -webkit-line-clamp: unset; }
-.detail-desc-toggle {
-  margin-top: 10px; border: none; background: none;
-  color: var(--accent); font-size: 16px; font-weight: 600;
-  cursor: pointer; padding: 6px 0;
-  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.9);
+.detail-desc {
+  font-size: 19px;
+  line-height: 1.6;
+  color: rgba(255, 255, 255, 0.92);
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+  display: block;
+  overflow: visible;
 }
 
 /* Detail: Tabs */
