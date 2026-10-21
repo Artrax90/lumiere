@@ -214,18 +214,18 @@
     lastSeekDirection = 0;
     seekHoldCount = 0;
 
+    // Parameters
+    params = params || {};
+
     // Server & API
-    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
+    var server = (params && params.api) || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
     if (server) {
-      API = server;
+      API = String(server).replace(/\/+$/, '');
     } else if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file')) {
-      API = window.location.origin;
+      API = window.location.origin.replace(/\/+$/, '');
     } else {
       API = '';
     }
-
-    // Parameters
-    params = params || {};
     movieTitle = params.title || '';
     if (typeof movieTitle === 'object') {
       movieTitle = movieTitle.name || movieTitle.title || '';
@@ -1751,7 +1751,7 @@
     xhr.send();
   }
 
-  function saveProgress() {
+  function saveProgress(isSync) {
     if (mediaType === 'iptv' || !movieId || isNaN(Number(movieId)) || Number(movieId) <= 0) return;
     var saveId = Number(movieId);
     if (!saveId) return;
@@ -1827,18 +1827,34 @@
       // Also persist to server history via /api/sync/progress if progress > 2
       if (effectiveTime > 2) {
         var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
-        var hXhr = new XMLHttpRequest();
-        hXhr.open('POST', (API || '') + '/api/sync/progress', true);
-        hXhr.setRequestHeader('Content-Type', 'application/json');
-        if (token) hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
-        hXhr.send(JSON.stringify({
-          tmdbId: saveId,
-          mediaType: mediaType || 'movie',
-          titleName: movieTitle || ('Медиа #' + saveId),
-          poster: savePoster,
-          progress: effectiveTime,
-          timestamp: now
-        }));
+        var serverBase = (API || '').replace(/\/+$/, '');
+        if (serverBase) {
+          var payload = {
+            tmdbId: saveId,
+            mediaType: mediaType || 'movie',
+            titleName: movieTitle || ('Медиа #' + saveId),
+            poster: savePoster,
+            progress: effectiveTime,
+            timestamp: now,
+            token: token
+          };
+          var progressUrl = serverBase + '/api/sync/progress' + (token ? ('?token=' + encodeURIComponent(token)) : '');
+
+          if (isSync && typeof navigator !== 'undefined' && typeof navigator.sendBeacon === 'function') {
+            try {
+              var blob = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+              navigator.sendBeacon(progressUrl, blob);
+            } catch(be) {}
+          }
+
+          var hXhr = new XMLHttpRequest();
+          hXhr.open('POST', progressUrl, !isSync);
+          hXhr.setRequestHeader('Content-Type', 'application/json');
+          if (token) hXhr.setRequestHeader('Authorization', 'Bearer ' + token);
+          try {
+            hXhr.send(JSON.stringify(payload));
+          } catch(seErr) {}
+        }
       }
     } catch(e) {}
   }
@@ -1940,7 +1956,7 @@
 
   function goBack() {
     console.log('[Player] Exiting player...');
-    try { saveProgress(); } catch(e1) {}
+    try { saveProgress(true); } catch(e1) {}
     try { destroyPlayer(); } catch(e2) { console.error('[Player] destroyPlayer error:', e2); }
     try {
       var exitNow = Date.now();

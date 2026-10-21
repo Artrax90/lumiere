@@ -6,13 +6,20 @@ export interface AuthenticatedRequest extends FastifyRequest {
 }
 
 export async function requireAuth(request: AuthenticatedRequest, reply: FastifyReply) {
+  let token = '';
   const authHeader = request.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if ((request.query as any)?.token) {
+    token = String((request.query as any).token);
+  } else if ((request.body as any)?.token) {
+    token = String((request.body as any).token);
+  }
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return reply.code(401).send({ error: 'Authorization token required' });
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyAccessToken(token);
 
   if (!payload) {
@@ -23,13 +30,20 @@ export async function requireAuth(request: AuthenticatedRequest, reply: FastifyR
 }
 
 export async function optionalAuth(request: AuthenticatedRequest, _reply: FastifyReply) {
+  let token = '';
   const authHeader = request.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if ((request.query as any)?.token) {
+    token = String((request.query as any).token);
+  } else if ((request.body as any)?.token) {
+    token = String((request.body as any).token);
+  }
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  if (!token) {
     return;
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyAccessToken(token);
 
   if (payload) {
