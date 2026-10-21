@@ -98,6 +98,7 @@ class LumierePlayer(
     val subtitleTracks: StateFlow<List<TrackInfo>> = _subtitleTracks.asStateFlow()
 
     private var progressJob: Job? = null
+    private var pendingInitialSeekMs: Long = 0L
 
     init {
         exoPlayer.addListener(object : Player.Listener {
@@ -109,6 +110,13 @@ class LumierePlayer(
                 _playbackState.value = state
                 if (state == Player.STATE_READY) {
                     _durationMs.value = exoPlayer.duration.coerceAtLeast(0L)
+                    val pendingSeek = pendingInitialSeekMs
+                    if (pendingSeek > 1000L) {
+                        pendingInitialSeekMs = 0L
+                        if (kotlin.math.abs(exoPlayer.currentPosition - pendingSeek) > 2000L) {
+                            exoPlayer.seekTo(pendingSeek)
+                        }
+                    }
                     updateTracks()
                 }
             }
@@ -146,6 +154,10 @@ class LumierePlayer(
             ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(MediaItem.fromUri(uri))
         }
 
+        pendingInitialSeekMs = if (startPositionMs > 1000L) startPositionMs else 0L
+        if (startPositionMs > 0L) {
+            _positionMs.value = startPositionMs
+        }
         exoPlayer.setMediaSource(mediaSource)
         if (startPositionMs > 0L) {
             exoPlayer.seekTo(startPositionMs)
@@ -163,6 +175,7 @@ class LumierePlayer(
     }
 
     fun stop() {
+        pendingInitialSeekMs = 0L
         try {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()

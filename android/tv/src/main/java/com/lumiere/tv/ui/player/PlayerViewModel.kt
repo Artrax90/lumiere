@@ -49,8 +49,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 }
             }
         }
+
+        viewModelScope.launch {
+            player.positionMs.collect { posMs ->
+                val sec = posMs / 1000L
+                if (sec > maxPositionSec) {
+                    maxPositionSec = sec
+                }
+            }
+        }
     }
 
+    private var maxPositionSec: Long = 0L
     private var periodicSaveJob: Job? = null
     private var heartbeatJob: Job? = null
     private var currentSessionId: String? = null
@@ -66,8 +76,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         if (model.isNotEmpty()) "Android TV ($model)" else "Android TV Stick"
     }
 
-    fun playStream(streamUrl: String, isHls: Boolean = streamUrl.contains(".m3u8"), startPositionMs: Long = 0L) {
-        player.prepare(streamUrl, isHls, startPositionMs)
+    fun playStream(
+        streamUrl: String,
+        isHls: Boolean = streamUrl.contains(".m3u8"),
+        startPositionMs: Long = 0L,
+        mediaId: Long = 0L,
+        mediaType: String = "movie"
+    ) {
+        viewModelScope.launch {
+            var initialSeek = startPositionMs
+            if (initialSeek <= 0L && mediaId > 0L) {
+                val savedSec = preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+                if (savedSec > 5L) {
+                    initialSeek = savedSec * 1000L
+                }
+            }
+            if (initialSeek > 0L) {
+                maxPositionSec = initialSeek / 1000L
+            }
+            player.prepare(streamUrl, isHls, initialSeek)
+        }
     }
 
     fun startPeriodicProgressSaving(
@@ -110,7 +138,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         periodicSaveJob = viewModelScope.launch {
             while (isActive) {
-                delay(10000L)
+                delay(5000L)
                 if (player.isPlaying.value) {
                     saveWatchProgress(mediaId, mediaType, title, poster)
                 }
@@ -217,9 +245,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     @OptIn(DelicateCoroutinesApi::class)
     fun saveWatchProgress(mediaId: Long, mediaType: String, title: String = "", poster: String = "") {
         if (mediaId <= 0L) return
-        val currentSec = player.positionMs.value / 1000
-        val durSec = player.durationMs.value / 1000
-        val effectiveSec = if (durSec > 60 && currentSec >= durSec - 15) 0L else currentSec
+        val rawSec = player.positionMs.value / 1000L
+        val currentSec = if (rawSec > 0L) rawSec else maxPositionSec
+        val durSec = player.durationMs.value / 1000L
+        val isCompleted = durSec > 60L && currentSec >= durSec - 15L
+        val effectiveSec = if (isCompleted) 0L else currentSec
+
+        // Guard: Do not overwrite progress with 0 or < 5s if user hasn't finished the film
+        if (effectiveSec < 5L && !isCompleted) return
 
         // Launch in GlobalScope with NonCancellable to ensure persistence completes even if ViewModel is cleared
         GlobalScope.launch(Dispatchers.IO + NonCancellable) {

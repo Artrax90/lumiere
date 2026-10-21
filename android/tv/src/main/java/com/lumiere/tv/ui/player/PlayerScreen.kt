@@ -65,16 +65,16 @@ fun PlayerScreen(
     val totalBottomButtons = 3 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
 
     LaunchedEffect(streamUrl) {
-        viewModel.playStream(streamUrl, isHls, startPositionMs)
+        viewModel.playStream(streamUrl, isHls, startPositionMs, mediaId, mediaType)
         viewModel.startPeriodicProgressSaving(mediaId, mediaType, title, poster, season, episode)
         focusRequester.requestFocus()
     }
 
     val handleBack: () -> Unit = {
-        viewModel.saveWatchProgress(mediaId, mediaType, title, poster)
         try {
-            player.stop()
+            player.pause()
         } catch (_: Throwable) {}
+        viewModel.saveWatchProgress(mediaId, mediaType, title, poster)
         onBackClick()
     }
 

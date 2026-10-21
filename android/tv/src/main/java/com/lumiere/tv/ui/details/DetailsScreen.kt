@@ -277,8 +277,16 @@ fun DetailsScreen(
                                             modifier = Modifier.size(20.dp)
                                         )
                                         Spacer(modifier = Modifier.width(6.dp))
+                                        val watchButtonText = when {
+                                            state.isStartingStream -> "Запуск..."
+                                            state.savedProgressSec > 60L -> {
+                                                val minutes = state.savedProgressSec / 60
+                                                "Продолжить (${minutes} мин)"
+                                            }
+                                            else -> "Смотреть"
+                                        }
                                         Text(
-                                            text = if (state.isStartingStream) "Запуск..." else "Смотреть",
+                                            text = watchButtonText,
                                             style = MaterialTheme.typography.labelLarge,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -515,7 +523,11 @@ fun DetailsScreen(
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
                                     onEpisodeClick = { ep ->
                                         viewModel.playEpisodeDirectly(ep) { streamUrl, epTitle, subtitle, isHls ->
-                                            val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                            val startPos = if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
+                                                (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                            } else {
+                                                0L
+                                            }
                                             onPlayRequested(streamUrl, epTitle, subtitle, isHls, startPos, title.poster.orEmpty())
                                         }
                                     }
@@ -646,7 +658,15 @@ fun DetailsScreen(
                                                 isLaunching = state.isStartingStream && state.activeTorrent?.magnet == torrent.magnet,
                                                 onClick = {
                                                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
-                                                        val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                                        val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {
+                                                            if (state.selectedEpisode?.season == state.selectedSeason && state.selectedEpisode?.episode == state.lastWatchedEpisodeNum) {
+                                                                (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                                            } else {
+                                                                0L
+                                                            }
+                                                        } else {
+                                                            (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                                        }
                                                         onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty())
                                                     }
                                                 }
@@ -702,7 +722,15 @@ fun DetailsScreen(
                 isLoading = state.isSearchingTorrents,
                 onTorrentSelected = { torrent ->
                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
-                        val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                        val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {
+                            if (state.selectedEpisode?.season == state.selectedSeason && state.selectedEpisode?.episode == state.lastWatchedEpisodeNum) {
+                                (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                            } else {
+                                0L
+                            }
+                        } else {
+                            (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                        }
                         onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title?.poster.orEmpty())
                     }
                 },
