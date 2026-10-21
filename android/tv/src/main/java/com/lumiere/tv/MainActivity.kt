@@ -416,6 +416,8 @@ class MainActivity : ComponentActivity() {
                             val isHls = backStackEntry.arguments?.getBoolean("hls") ?: false
                             val mediaId = backStackEntry.arguments?.getLong("mediaId") ?: 0L
                             val mediaType = backStackEntry.arguments?.getString("mediaType") ?: "movie"
+                            val season = backStackEntry.arguments?.getInt("season") ?: 0
+                            val episode = backStackEntry.arguments?.getInt("episode") ?: 0
                             val startPosition = backStackEntry.arguments?.getLong("startPosition") ?: 0L
                             val poster = java.net.URLDecoder.decode(backStackEntry.arguments?.getString("poster").orEmpty(), java.nio.charset.StandardCharsets.UTF_8.toString())
 
@@ -426,6 +428,8 @@ class MainActivity : ComponentActivity() {
                                 isHls = isHls,
                                 mediaId = mediaId,
                                 mediaType = mediaType,
+                                season = season,
+                                episode = episode,
                                 startPositionMs = startPosition,
                                 poster = poster,
                                 onBackClick = { navController.popBackStack() }

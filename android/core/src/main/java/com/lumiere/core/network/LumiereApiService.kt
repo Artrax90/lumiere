@@ -238,4 +238,10 @@ interface LumiereApiService {
         @Path("id") id: Long,
         @Query("lang") lang: String = "ru"
     ): TrailerResponse
+
+    @POST("/api/sessions/heartbeat")
+    suspend fun sendSessionHeartbeat(@Body request: SessionHeartbeatRequest): SessionHeartbeatResponse
+
+    @POST("/api/sessions/stop")
+    suspend fun stopSession(@Body request: SessionStopRequest): SimpleActionResponse
 }

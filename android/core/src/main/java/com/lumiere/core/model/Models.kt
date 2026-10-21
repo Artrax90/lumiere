@@ -459,4 +459,38 @@ data class ServerDownloadsResponse(
     val disk: DiskInfo? = null
 )
 
+@Serializable
+data class SessionHeartbeatRequest(
+    val sessionId: String,
+    val deviceType: String = "tv",
+    val deviceName: String? = null,
+    val mediaType: String = "movie",
+    val mediaId: String,
+    val mediaTitle: String,
+    val mediaPoster: String? = null,
+    val season: Int? = 0,
+    val episode: Int? = 0,
+    val currentTime: Long = 0L,
+    val duration: Long = 0L,
+    val isPaused: Boolean = false
+)
+
+@Serializable
+data class SessionStopRequest(
+    val sessionId: String
+)
+
+@Serializable
+data class SessionCommandItem(
+    val id: String? = null,
+    val action: String? = null
+)
+
+@Serializable
+data class SessionHeartbeatResponse(
+    val success: Boolean = true,
+    val terminate: Boolean = false,
+    val commands: List<SessionCommandItem> = emptyList()
+)
+
 

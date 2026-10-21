@@ -33,6 +33,8 @@ fun PlayerScreen(
     isHls: Boolean,
     mediaId: Long = 0L,
     mediaType: String = "movie",
+    season: Int = 0,
+    episode: Int = 0,
     startPositionMs: Long = 0L,
     poster: String = "",
     onBackClick: () -> Unit,
@@ -64,7 +66,7 @@ fun PlayerScreen(
 
     LaunchedEffect(streamUrl) {
         viewModel.playStream(streamUrl, isHls, startPositionMs)
-        viewModel.startPeriodicProgressSaving(mediaId, mediaType, title, poster)
+        viewModel.startPeriodicProgressSaving(mediaId, mediaType, title, poster, season, episode)
         focusRequester.requestFocus()
     }
 

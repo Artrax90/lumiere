@@ -52,28 +52,105 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private var periodicSaveJob: Job? = null
+    private var heartbeatJob: Job? = null
+    private var currentSessionId: String? = null
     private var activeMediaId: Long = 0L
     private var activeMediaType: String = "movie"
     private var activeTitle: String = ""
     private var activePoster: String = ""
+    private var activeSeason: Int = 0
+    private var activeEpisode: Int = 0
+
+    private val deviceDisplayName: String by lazy {
+        val model = android.os.Build.MODEL.orEmpty().trim()
+        if (model.isNotEmpty()) "Android TV ($model)" else "Android TV Stick"
+    }
 
     fun playStream(streamUrl: String, isHls: Boolean = streamUrl.contains(".m3u8"), startPositionMs: Long = 0L) {
         player.prepare(streamUrl, isHls, startPositionMs)
     }
 
-    fun startPeriodicProgressSaving(mediaId: Long, mediaType: String, title: String, poster: String) {
+    fun startPeriodicProgressSaving(
+        mediaId: Long,
+        mediaType: String,
+        title: String,
+        poster: String,
+        season: Int = 0,
+        episode: Int = 0
+    ) {
         activeMediaId = mediaId
         activeMediaType = mediaType
         activeTitle = title
         activePoster = poster
+        activeSeason = season
+        activeEpisode = episode
+
+        // Stop prior session if any
+        val oldSessionId = currentSessionId
+        if (!oldSessionId.isNullOrBlank()) {
+            GlobalScope.launch(Dispatchers.IO + NonCancellable) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        networkClient?.createApiService(serverUrl)?.stopSession(
+                            com.lumiere.core.model.SessionStopRequest(oldSessionId)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        val newSessionId = "android-tv-${System.currentTimeMillis()}-${(1000..9999).random()}"
+        currentSessionId = newSessionId
+
         periodicSaveJob?.cancel()
+        heartbeatJob?.cancel()
+
         if (mediaId <= 0L) return
+
         periodicSaveJob = viewModelScope.launch {
             while (isActive) {
                 delay(10000L)
                 if (player.isPlaying.value) {
                     saveWatchProgress(mediaId, mediaType, title, poster)
                 }
+            }
+        }
+
+        // Real-time session heartbeat loop (every 4s)
+        heartbeatJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        val currentSec = player.positionMs.value / 1000L
+                        val durSec = player.durationMs.value / 1000L
+                        val isPaused = !player.isPlaying.value
+
+                        val api = networkClient?.createApiService(serverUrl)
+                        val resp = api?.sendSessionHeartbeat(
+                            com.lumiere.core.model.SessionHeartbeatRequest(
+                                sessionId = newSessionId,
+                                deviceType = "tv",
+                                deviceName = deviceDisplayName,
+                                mediaType = mediaType,
+                                mediaId = mediaId.toString(),
+                                mediaTitle = title,
+                                mediaPoster = poster,
+                                season = season,
+                                episode = episode,
+                                currentTime = currentSec,
+                                duration = durSec,
+                                isPaused = isPaused
+                            )
+                        )
+
+                        if (resp?.terminate == true) {
+                            player.pause()
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(4000L)
             }
         }
     }
@@ -166,11 +243,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     override fun onCleared() {
         super.onCleared()
         if (activeMediaId > 0L) {
             saveWatchProgress(activeMediaId, activeMediaType, activeTitle, activePoster)
         }
+        val closingSessionId = currentSessionId
+        if (!closingSessionId.isNullOrBlank()) {
+            GlobalScope.launch(Dispatchers.IO + NonCancellable) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        networkClient?.createApiService(serverUrl)?.stopSession(
+                            com.lumiere.core.model.SessionStopRequest(closingSessionId)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        heartbeatJob?.cancel()
         periodicSaveJob?.cancel()
         hideControlsJob?.cancel()
         statsPollingJob?.cancel()

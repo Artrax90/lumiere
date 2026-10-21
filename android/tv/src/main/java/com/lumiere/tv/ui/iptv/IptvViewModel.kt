@@ -40,6 +40,13 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<IptvUiState> = _uiState.asStateFlow()
 
     private var bannerJob: Job? = null
+    private var iptvHeartbeatJob: Job? = null
+    private var iptvSessionId: String? = null
+
+    private val deviceDisplayName: String by lazy {
+        val model = android.os.Build.MODEL.orEmpty().trim()
+        if (model.isNotEmpty()) "Android TV ($model)" else "Android TV Stick"
+    }
 
     init {
         networkClient = NetworkClient(
@@ -227,6 +234,26 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     fun playChannel(channel: IptvChannel) {
         _uiState.update { it.copy(activeChannel = channel, isPlayerMode = true, isSidebarVisible = false) }
 
+        // Stop prior IPTV session if any
+        val oldSessionId = iptvSessionId
+        if (!oldSessionId.isNullOrBlank()) {
+            GlobalScope.launch(Dispatchers.IO + NonCancellable) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        networkClient?.createApiService(serverUrl)?.stopSession(
+                            com.lumiere.core.model.SessionStopRequest(oldSessionId)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+
+        val newSessionId = "android-tv-iptv-${System.currentTimeMillis()}-${(1000..9999).random()}"
+        iptvSessionId = newSessionId
+
+        iptvHeartbeatJob?.cancel()
+
         viewModelScope.launch {
             val serverUrl = preferences.serverUrl.first().orEmpty()
             // Proxy stream via Lumiere server to ensure SSL/CORS/ISP bypass and playlist manifest rewriting
@@ -235,10 +262,56 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             player.prepare(streamUrl, isHls = true)
             showBanner()
         }
+
+        // Periodic IPTV session heartbeat loop (every 4s)
+        iptvHeartbeatJob = viewModelScope.launch {
+            while (isActive) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        val isPaused = !player.isPlaying.value
+                        val title = channel.name + (if (!channel.currentProgram.isNullOrBlank()) " (${channel.currentProgram})" else "")
+                        val api = networkClient?.createApiService(serverUrl)
+                        val resp = api?.sendSessionHeartbeat(
+                            com.lumiere.core.model.SessionHeartbeatRequest(
+                                sessionId = newSessionId,
+                                deviceType = "tv",
+                                deviceName = deviceDisplayName,
+                                mediaType = "iptv",
+                                mediaId = channel.id,
+                                mediaTitle = title,
+                                mediaPoster = channel.logo,
+                                currentTime = 0L,
+                                duration = 0L,
+                                isPaused = isPaused
+                            )
+                        )
+                        if (resp?.terminate == true) {
+                            player.pause()
+                        }
+                    }
+                } catch (_: Exception) {}
+                delay(4000L)
+            }
+        }
     }
 
     fun exitPlayerMode() {
         _uiState.update { it.copy(isPlayerMode = false, isSidebarVisible = false, showChannelBanner = false) }
+        val closingSessionId = iptvSessionId
+        if (!closingSessionId.isNullOrBlank()) {
+            GlobalScope.launch(Dispatchers.IO + NonCancellable) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        networkClient?.createApiService(serverUrl)?.stopSession(
+                            com.lumiere.core.model.SessionStopRequest(closingSessionId)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        iptvHeartbeatJob?.cancel()
         player.stop()
     }
 
@@ -281,6 +354,20 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
 
     override fun onCleared() {
         super.onCleared()
+        val closingSessionId = iptvSessionId
+        if (!closingSessionId.isNullOrBlank()) {
+            GlobalScope.launch(Dispatchers.IO + NonCancellable) {
+                try {
+                    val serverUrl = preferences.serverUrl.first().orEmpty()
+                    if (serverUrl.isNotBlank()) {
+                        networkClient?.createApiService(serverUrl)?.stopSession(
+                            com.lumiere.core.model.SessionStopRequest(closingSessionId)
+                        )
+                    }
+                } catch (_: Exception) {}
+            }
+        }
+        iptvHeartbeatJob?.cancel()
         bannerJob?.cancel()
         player.release()
     }
