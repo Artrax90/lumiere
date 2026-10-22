@@ -647,10 +647,21 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
         # Send cards for recent downloaded items
         for item in downloads[:3]:
             safe_title = html.escape(str(item.get('title') or 'Видео'))
+            year_val = item.get("year")
+            year_fmt = f" ({year_val})" if year_val else ""
+            rating_val = item.get("rating")
+            rating_fmt = f" ⭐ {rating_val}" if rating_val else ""
+            desc_val = item.get("description")
+            desc_fmt = ""
+            if desc_val:
+                short_desc = desc_val[:220] + "..." if len(desc_val) > 220 else desc_val
+                desc_fmt = f"\n\n📝 <i>{html.escape(short_desc)}</i>"
+
             card_text = (
-                f"📁 <b>{safe_title}</b>\n"
-                f"💾 Размер: {item.get('fileSizeFormatted', '')}\n"
-                f"Статус: {'Готово к просмотру' if item.get('status') == 'completed' else 'Скачивается...'}"
+                f"🎬 <b>«{safe_title}»</b>{year_fmt}{rating_fmt}\n"
+                f"💾 Размер: <b>{item.get('fileSizeFormatted', '')}</b>\n"
+                f"Статус: <b>{'✅ Готово к просмотру' if item.get('status') == 'completed' else '⏳ Скачивается...'}</b>"
+                f"{desc_fmt}"
             )
             dl_buttons = [
                 InlineKeyboardButton(text="▶ Включить на ТВ", callback_data=f"tv_play_local:{item.get('id')}", style="primary"),
@@ -789,15 +800,22 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 title = res.get("title") or "Фильм"
                 size_str = res.get("fileSizeFormatted") or ""
                 year_val = res.get("year")
-                year_fmt = f"({year_val})" if year_val else ""
+                year_fmt = f" ({year_val})" if year_val else ""
                 rating_val = res.get("rating")
-                rating_fmt = f"⭐ {rating_val}" if rating_val else ""
+                rating_fmt = f" ⭐ {rating_val}" if rating_val else ""
+                desc_val = res.get("description") or ""
                 raw_poster = res.get("poster") or ""
                 poster_url = clean_poster_url(raw_poster)
 
+                desc_fmt = ""
+                if desc_val:
+                    short_desc = desc_val[:280] + "..." if len(desc_val) > 280 else desc_val
+                    desc_fmt = f"\n\n📝 <i>{html.escape(short_desc)}</i>"
+
                 card_caption = (
                     f"🎬 <b>Загрузка фильма начата на сервере!</b>\n\n"
-                    f"🎬 <b>«{html.escape(title)}»</b> {year_fmt} {rating_fmt}\n"
+                    f"🎬 <b>«{html.escape(title)}»</b>{year_fmt}{rating_fmt}"
+                    f"{desc_fmt}\n\n"
                     f"📦 Размер: <b>{size_str}</b>\n\n"
                     f"🚀 <i>Фильм скачивается в фоновом режиме на сервер Lumière. После завершения он появится в разделе «📥 Скачанное» и будет готов к моментальному просмотру на ТВ и мобильных устройствах!</i>"
                 )
@@ -830,16 +848,23 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             total_eps = res.get("totalEpisodes") or len(res.get("files", []))
             total_size_fmt = res.get("totalSizeFormatted") or ""
             year_val = res.get("year")
-            year_fmt = f"({year_val})" if year_val else ""
+            year_fmt = f" ({year_val})" if year_val else ""
             rating_val = res.get("rating")
-            rating_fmt = f"⭐ {rating_val}" if rating_val else ""
+            rating_fmt = f" ⭐ {rating_val}" if rating_val else ""
+            desc_val = res.get("description") or ""
             raw_poster = res.get("poster") or ""
             poster_url = clean_poster_url(raw_poster)
 
             TORRENT_PACK_CACHE[t_hash] = res
 
+            desc_fmt = ""
+            if desc_val:
+                short_desc = desc_val[:280] + "..." if len(desc_val) > 280 else desc_val
+                desc_fmt = f"\n\n📝 <i>{html.escape(short_desc)}</i>"
+
             card_caption = (
-                f"📺 <b>Обнаружен сериал: «{html.escape(title)}»</b> {year_fmt} {rating_fmt}\n\n"
+                f"📺 <b>Обнаружен сериал: «{html.escape(title)}»</b>{year_fmt}{rating_fmt}"
+                f"{desc_fmt}\n\n"
                 f"📦 <b>{det_season} сезон</b> (всего {total_eps} серий)\n"
                 f"💾 Общий размер: <b>{total_size_fmt}</b>\n\n"
                 f"<i>Выберите вариант загрузки на сервер:</i>"

@@ -42,12 +42,18 @@ export async function ensureServerDownloadsTable() {
         status VARCHAR(50) DEFAULT 'downloading',
         error_message TEXT DEFAULT '',
         poster VARCHAR(500) DEFAULT '',
+        description TEXT DEFAULT '',
+        year VARCHAR(20) DEFAULT '',
+        rating VARCHAR(20) DEFAULT '',
         torrent_hash VARCHAR(100) DEFAULT '',
         torrent_index INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         completed_at TIMESTAMP
       )
     `);
+    await pool.query(`ALTER TABLE server_downloads ADD COLUMN IF NOT EXISTS description TEXT DEFAULT ''`).catch(() => {});
+    await pool.query(`ALTER TABLE server_downloads ADD COLUMN IF NOT EXISTS year VARCHAR(20) DEFAULT ''`).catch(() => {});
+    await pool.query(`ALTER TABLE server_downloads ADD COLUMN IF NOT EXISTS rating VARCHAR(20) DEFAULT ''`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_server_downloads_user_id ON server_downloads(user_id)`).catch(() => {});
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_server_downloads_status ON server_downloads(status)`).catch(() => {});
     tableReady = true;
@@ -56,6 +62,7 @@ export async function ensureServerDownloadsTable() {
       try {
         await pool.query("UPDATE server_downloads SET status = 'queued' WHERE status = 'downloading'");
         triggerNextQueuedDownload().catch(() => {});
+        enrichMissingMetadata().catch(() => {});
       } catch {}
     }, 2000);
   } catch (err: any) {
@@ -198,33 +205,138 @@ export function parseEpisodeInfo(filePath: string): { season: number; episode: n
 
   const seMatch = fileName.match(/[sS](\d+)[eE](\d+)/i) ||
                   fileName.match(/\b(\d+)[xх](\d+)\b/i) ||
-                  fileName.match(/(?:сезон|season)\s*(\d+).*?(?:сери[яий]|выпуск|ep)\s*(\d+)/i) ||
-                  fileName.match(/\b(\d{2})[-_](\d{2})\b/);
+                  fileName.match(/(?:сезон|season)\s*(\d+).*?(?:сери[яий]|выпуск|ep|episode)\s*(\d+)/i) ||
+                  fileName.match(/\b(\d{1,2})[-_](\d{1,2})\b/);
   if (seMatch) {
     return { season: parseInt(seMatch[1], 10), episode: parseInt(seMatch[2], 10) };
   }
 
-  const eMatch = fileName.match(/[eE]p?\.?\s*0*(\d+)\b/i) ||
-                 fileName.match(/(?:сери[яий]|выпуск|эпизод)\s*[:#№]?\s*0*(\d+)\b/i) ||
-                 fileName.match(/\b0*(\d+)\s*(?:сери[яий]|выпуск|эпизод)/i) ||
-                 fileName.match(/[\[\(_\s\.-]0*(\d+)[\s\._\)\]-]/i);
+  const eMatch = fileName.match(/[eE]p?\.?\s*0*(\d{1,3})\b/i) ||
+                 fileName.match(/(?:сери[яий]|выпуск|эпизод)\s*[:#№]?\s*0*(\d{1,3})\b/i) ||
+                 fileName.match(/\b0*(\d{1,3})\s*(?:сери[яий]|выпуск|эпизод)/i);
   if (eMatch) {
-    return { season: season || 1, episode: parseInt(eMatch[1], 10) };
+    const epNum = parseInt(eMatch[1], 10);
+    if (epNum > 0 && epNum < 1000) {
+      return { season: season || 1, episode: epNum };
+    }
+  }
+
+  // Standalone episode number only if season is already identified, or starts with 1-3 digits
+  if (season > 0) {
+    const standMatch = fileName.match(/(?:^|[\[\(_\s\.-])0*(\d{1,3})(?:[\s\._\)\]-]|$)/);
+    if (standMatch) {
+      const epNum = parseInt(standMatch[1], 10);
+      if (epNum > 0 && epNum < 1000 && epNum !== 1080 && epNum !== 720 && epNum !== 264 && epNum !== 265) {
+        return { season, episode: epNum };
+      }
+    }
   }
 
   return { season, episode };
 }
 
+export function cleanReleaseMetadata(raw: string): { title: string; year: string } {
+  if (!raw) return { title: '', year: '' };
+  let base = raw.replace(/\.[a-z0-9]{2,4}$/i, '');
+  base = base.split('/')[0].split('|')[0];
+  base = base.replace(/\[[^\]]*\]/g, ' ').replace(/\([^\)]*\)/g, ' ');
+
+  let year = '';
+  const ym = base.match(/(?:[\._\s\(\[-]|\b)(19\d\d|20\d\d)(?:[\._\s\)\]-]|\b)/);
+  if (ym) {
+    year = ym[1];
+  }
+
+  // Check if year or season cutoff exists
+  let titlePart = base;
+  const cutoffMatch = base.match(/^(.*?)(?:[\._\s\(\[-]|\b)(?:(?:19\d\d|20\d\d)|[sS]\d{1,2}(?:[eE]\d{1,3})?|season\s*\d{1,2}|\d{1,2}\s*сезон|\d{1,2}[xх]\d{1,2})/i);
+  if (cutoffMatch && cutoffMatch[1].trim()) {
+    titlePart = cutoffMatch[1];
+  }
+
+  // Strip known release tags, codecs, providers
+  let clean = titlePart.replace(/[\._]/g, ' ');
+  clean = clean.replace(/\b(1080p|720p|2160p|4k|uhd|bluray|blu-ray|remux|bdrip|web-?dl|webrip|hdtv|dvdrip|h\.?264|h\.?265|x264|x265|hevc|avc|nf|netflix|amzn|atvp|dsnp|hulu|max|hbo|kp|kion|okko|start|premier|ivi|lostfilm|hdrezka|amedia|kuraj-bambey|red-head-sound|newstudio|rus|eng|sub|subs|mkv|avi|mp4)\b/gi, ' ');
+  clean = clean.replace(/-[A-Za-z0-9_]+$/, ' ');
+  clean = clean.replace(/\s+/g, ' ').trim();
+
+  if (!clean) clean = raw.trim();
+  return { title: clean, year };
+}
+
 export function cleanReleaseTitle(raw: string): string {
-  if (!raw) return '';
-  let clean = raw.split('/')[0].split('|')[0];
-  clean = clean.replace(/\[[^\]]*\]/g, ' ').replace(/\([^\)]*\)/g, ' ');
-  clean = clean.replace(/\b(\d{4})\b/g, ' ');
-  clean = clean.replace(/\b(1080p|720p|2160p|4k|uhd|bluray|remux|bdrip|web-dl|webrip|hdtv|lostfilm|hdrezka|amedia|kuraj-bambey|red-head-sound|newstudio|hd|avc|hevc|x264|x265|aac|ac3|dts|rus|eng|sub|subs|mkv|avi|mp4)\b/gi, ' ');
-  clean = clean.replace(/\b[sS]\d+\b/gi, ' ');
-  clean = clean.replace(/\b\d+\s*сезон\b/gi, ' ');
-  clean = clean.replace(/[\._-]/g, ' ').replace(/\s+/g, ' ').trim();
-  return clean || raw.trim();
+  return cleanReleaseMetadata(raw).title;
+}
+
+export async function enrichMissingMetadata() {
+  try {
+    const res = await pool.query(`
+      SELECT id, title, file_name, media_type, media_id, poster, description, year, rating
+      FROM server_downloads
+      WHERE (poster IS NULL OR poster = '' OR description IS NULL OR description = '' OR title LIKE '%S01E2026%' OR title LIKE '%NF%')
+      LIMIT 20
+    `);
+    for (const r of res.rows) {
+      const candidateName = r.file_name || r.title;
+      const { title: cleanName, year: extYear } = cleanReleaseMetadata(candidateName);
+      if (!cleanName) continue;
+
+      try {
+        const sUrl = `http://127.0.0.1:${config.port}/api/search?q=${encodeURIComponent(cleanName)}`;
+        const sRes = await fetch(sUrl, { signal: AbortSignal.timeout(4000) });
+        if (sRes.ok) {
+          const sData = (await sRes.json()) as any;
+          const results: any[] = sData.results || [];
+          let best: any = null;
+          if (extYear) {
+            best = results.find((x: any) => String(x.year) === extYear);
+          }
+          if (!best) best = results[0];
+
+          if (best) {
+            const rawP = best.poster || best.posterPath || '';
+            let finalPoster = r.poster || '';
+            if (rawP && !finalPoster) {
+              if (rawP.includes('/api/image?url=')) {
+                try {
+                  const u = new URL(rawP, 'http://localhost');
+                  finalPoster = u.searchParams.get('url') || rawP;
+                } catch {
+                  finalPoster = rawP;
+                }
+              } else if (rawP.startsWith('http')) {
+                finalPoster = rawP;
+              } else {
+                finalPoster = `https://image.tmdb.org/t/p/w500${rawP}`;
+              }
+            }
+
+            const cleanDbTitle = best.name || best.title || cleanName;
+            const newDesc = best.description || best.overview || r.description || '';
+            const newYear = String(best.year || extYear || r.year || '');
+            const newScore = best.score ? Number(best.score).toFixed(1) : (r.rating || '');
+
+            await pool.query(
+              `UPDATE server_downloads SET
+                title = CASE WHEN title LIKE '%S01E2026%' OR title LIKE '%NF%' THEN $1 ELSE title END,
+                poster = COALESCE(NULLIF($2, ''), poster),
+                description = COALESCE(NULLIF($3, ''), description),
+                year = COALESCE(NULLIF($4, ''), year),
+                rating = COALESCE(NULLIF($5, ''), rating),
+                media_id = CASE WHEN media_id = 0 THEN $6 ELSE media_id END
+               WHERE id = $7`,
+              [cleanDbTitle, finalPoster, newDesc, newYear, newScore, best.id || 0, r.id]
+            );
+            console.log(`[Downloads] Enriched metadata for "${candidateName}" -> "${cleanDbTitle}"`);
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Downloads] Enrichment error for ${r.id}:`, e.message);
+      }
+    }
+  } catch (err: any) {
+    console.warn('[Downloads] enrichMissingMetadata error:', err.message);
+  }
 }
 
 // Track active background downloads in memory for cancellation
@@ -467,6 +579,9 @@ export async function registerServerDownload(params: {
   season: number;
   episode: number;
   poster: string;
+  description?: string;
+  year?: string;
+  rating?: string;
   torrentHash: string;
   torrentIndex: number;
   magnet?: string;
@@ -484,6 +599,9 @@ export async function registerServerDownload(params: {
     season,
     episode,
     poster,
+    description = '',
+    year = '',
+    rating = '',
     torrentHash,
     torrentIndex,
     magnet,
@@ -491,15 +609,26 @@ export async function registerServerDownload(params: {
     fileName = `${title.replace(/[^a-zA-Z0-9а-яА-Я._-]/g, '_')}.mkv`,
   } = params;
 
-  if (!poster && mediaId) {
+  if (mediaId && (!poster || !description)) {
     try {
       const epUrl = `http://127.0.0.1:${config.port}/api/${mediaType === 'tv' ? 'tv' : 'movie'}/${mediaId}?lang=ru`;
       const detRes = await fetch(epUrl, { signal: AbortSignal.timeout(3000) });
       if (detRes.ok) {
         const detData = (await detRes.json()) as any;
         const pPath = detData?.poster_path || detData?.poster;
-        if (pPath) {
+        if (pPath && !poster) {
           poster = pPath.startsWith('http') ? pPath : `https://image.tmdb.org/t/p/w500${pPath}`;
+        }
+        if (!description && (detData?.overview || detData?.description)) {
+          description = detData.overview || detData.description;
+        }
+        if (!year && detData?.release_date) {
+          year = String(detData.release_date).substring(0, 4);
+        } else if (!year && detData?.first_air_date) {
+          year = String(detData.first_air_date).substring(0, 4);
+        }
+        if (!rating && detData?.vote_average) {
+          rating = Number(detData.vote_average).toFixed(1);
         }
       }
     } catch {}
@@ -518,12 +647,15 @@ export async function registerServerDownload(params: {
     `INSERT INTO server_downloads (
       id, user_id, title, media_type, media_id, season, episode,
       file_path, file_name, file_size, downloaded_bytes, status,
-      poster, torrent_hash, torrent_index, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, NOW())
+      poster, description, year, rating, torrent_hash, torrent_index, created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, $15, $16, $17, NOW())
     ON CONFLICT (id) DO UPDATE SET
       status = $11,
       error_message = '',
       poster = COALESCE(NULLIF(EXCLUDED.poster, ''), server_downloads.poster),
+      description = COALESCE(NULLIF(EXCLUDED.description, ''), server_downloads.description),
+      year = COALESCE(NULLIF(EXCLUDED.year, ''), server_downloads.year),
+      rating = COALESCE(NULLIF(EXCLUDED.rating, ''), server_downloads.rating),
       downloaded_bytes = 0`,
     [
       id,
@@ -538,6 +670,9 @@ export async function registerServerDownload(params: {
       fileSize,
       initialStatus,
       poster,
+      description,
+      year,
+      rating,
       torrentHash,
       torrentIndex,
     ]
@@ -787,27 +922,49 @@ export function downloadRoutes(app: FastifyInstance) {
 
       // 5. Title & TMDB metadata search
       const rawName = torrTitle || parsed?.name || title || fileName || videoFiles[0].name;
-      const cleanName = cleanReleaseTitle(rawName);
+      const { title: cleanName, year: extractedYear } = cleanReleaseMetadata(rawName);
 
       let tmdbTitle = cleanName;
       let tmdbPoster = body.poster || '';
+      let tmdbDescription = '';
       let tmdbMediaType = body.mediaType || (videoFiles.length > 1 ? 'tv' : 'movie');
       let tmdbMediaId = body.mediaId || 0;
-      let tmdbYear = '';
+      let tmdbYear = extractedYear || '';
       let tmdbScore = 0;
 
       try {
         const sUrl = `http://127.0.0.1:${config.port}/api/search?q=${encodeURIComponent(cleanName)}`;
-        const sRes = await fetch(sUrl, { signal: AbortSignal.timeout(4000) });
+        const sRes = await fetch(sUrl, { signal: AbortSignal.timeout(5000) });
         if (sRes.ok) {
           const sData = (await sRes.json()) as any;
-          const top = (sData.results || [])[0];
-          if (top) {
-            tmdbTitle = top.name || top.title || tmdbTitle;
-            tmdbMediaId = top.id || top.tmdbId || tmdbMediaId;
-            tmdbYear = String(top.year || '');
-            tmdbScore = Number(top.score || 0);
-            const rawP = top.poster || top.posterPath || '';
+          const results: any[] = sData.results || [];
+          let best: any = null;
+
+          if (extractedYear) {
+            best = results.find((r) => String(r.year) === extractedYear);
+            if (!best) {
+              const yNum = parseInt(extractedYear, 10);
+              best = results.find((r) => Math.abs(Number(r.year || 0) - yNum) <= 1);
+            }
+          }
+
+          if (!best && videoFiles.length > 1) {
+            best = results.find((r) => r.type === 'tv');
+          } else if (!best && videoFiles.length === 1 && videoFiles[0].season === 0 && videoFiles[0].episode === 0) {
+            best = results.find((r) => r.type === 'movie');
+          }
+
+          if (!best) {
+            best = results[0];
+          }
+
+          if (best) {
+            tmdbTitle = best.name || best.title || tmdbTitle;
+            tmdbMediaId = best.id || best.tmdbId || tmdbMediaId;
+            tmdbYear = String(best.year || extractedYear || tmdbYear);
+            tmdbDescription = best.description || best.overview || '';
+            tmdbScore = Number(best.score || 0);
+            const rawP = best.poster || best.posterPath || '';
             if (rawP && !tmdbPoster) {
               if (rawP.includes('/api/image?url=')) {
                 try {
@@ -822,7 +979,7 @@ export function downloadRoutes(app: FastifyInstance) {
                 tmdbPoster = `https://image.tmdb.org/t/p/w500${rawP}`;
               }
             }
-            if (top.type) tmdbMediaType = top.type;
+            if (best.type) tmdbMediaType = best.type;
           }
         }
       } catch (err: any) {
@@ -846,6 +1003,9 @@ export function downloadRoutes(app: FastifyInstance) {
             season: f.season,
             episode: f.episode,
             poster: tmdbPoster,
+            description: tmdbDescription,
+            year: tmdbYear,
+            rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
             torrentHash,
             torrentIndex: f.id,
             magnet: magnet || '',
@@ -859,6 +1019,9 @@ export function downloadRoutes(app: FastifyInstance) {
           message: `Поставлено на загрузку ${videoFiles.length} серий сериала «${tmdbTitle}»`,
           title: tmdbTitle,
           poster: tmdbPoster,
+          description: tmdbDescription,
+          year: tmdbYear,
+          rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
         };
       }
 
@@ -880,6 +1043,9 @@ export function downloadRoutes(app: FastifyInstance) {
             season: f.season,
             episode: f.episode,
             poster: tmdbPoster,
+            description: tmdbDescription,
+            year: tmdbYear,
+            rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
             torrentHash,
             torrentIndex: f.id,
             magnet: magnet || '',
@@ -893,6 +1059,9 @@ export function downloadRoutes(app: FastifyInstance) {
           message: `Поставлено на загрузку ${targets.length} файл(ов)`,
           title: tmdbTitle,
           poster: tmdbPoster,
+          description: tmdbDescription,
+          year: tmdbYear,
+          rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
         };
       }
 
@@ -914,6 +1083,9 @@ export function downloadRoutes(app: FastifyInstance) {
           season: f.season,
           episode: f.episode,
           poster: tmdbPoster,
+          description: tmdbDescription,
+          year: tmdbYear,
+          rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
           torrentHash,
           torrentIndex: f.id,
           magnet: magnet || '',
@@ -929,6 +1101,7 @@ export function downloadRoutes(app: FastifyInstance) {
           fileSize: f.size,
           fileSizeFormatted: f.sizeFormatted,
           poster: tmdbPoster,
+          description: tmdbDescription,
           year: tmdbYear,
           rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
           mediaType: isMovie ? 'movie' : 'tv',
@@ -948,6 +1121,7 @@ export function downloadRoutes(app: FastifyInstance) {
         mediaType: 'tv',
         mediaId: tmdbMediaId,
         poster: tmdbPoster,
+        description: tmdbDescription,
         year: tmdbYear,
         rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
         detectedSeason,
@@ -1008,6 +1182,9 @@ export function downloadRoutes(app: FastifyInstance) {
             progress,
             status: existsOnDisk ? r.status : (r.status === 'completed' ? 'missing' : r.status),
             poster: r.poster,
+            description: r.description || '',
+            year: r.year || '',
+            rating: r.rating || '',
             streamUrl: `/api/downloads/server/stream/${r.id}`,
             createdAt: r.created_at,
             completedAt: r.completed_at,

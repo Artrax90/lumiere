@@ -19,6 +19,9 @@ interface ServerDownloadItem {
   progress: number;
   status: string;
   poster: string;
+  description?: string;
+  year?: string;
+  rating?: string;
   streamUrl: string;
   createdAt: string;
   completedAt?: string;
@@ -137,44 +140,62 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                 className="group relative flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-[16px] bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.04] transition-cinematic"
               >
                 {/* Info */}
-                <div className="flex items-center gap-4 min-w-0">
+                <div className="flex items-start gap-4 min-w-0">
                   {item.poster ? (
                     <SafeImg
                       src={item.poster}
                       alt={item.title}
-                      className="h-16 w-11 rounded-[8px] object-cover shrink-0 border border-white/10"
+                      className="h-20 w-14 rounded-[10px] object-cover shrink-0 border border-white/10 shadow-lg"
                     />
                   ) : (
-                    <div className="h-16 w-11 rounded-[8px] bg-white/[0.05] border border-white/10 flex items-center justify-center text-white/30 shrink-0">
-                      <Film className="h-5 w-5" />
+                    <div className="h-20 w-14 rounded-[10px] bg-white/[0.05] border border-white/10 flex items-center justify-center text-white/30 shrink-0">
+                      <Film className="h-6 w-6" />
                     </div>
                   )}
 
-                  <div className="min-w-0">
-                    <h3 className="text-[15px] font-medium text-white/90 truncate flex items-center gap-2">
-                      <span>{item.title}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="text-[16px] font-semibold text-white/95 truncate">
+                        {item.title}
+                      </h3>
+                      {item.year && (
+                        <span className="rounded-[6px] bg-white/[0.08] px-2 py-0.5 text-[11px] font-medium text-white/70">
+                          {item.year}
+                        </span>
+                      )}
+                      {item.rating && (
+                        <span className="rounded-[6px] bg-amber-400/15 text-amber-300 px-2 py-0.5 text-[11px] font-medium flex items-center gap-1">
+                          ⭐ {item.rating}
+                        </span>
+                      )}
                       {isCompleted && (
-                        <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
-                          <CheckCircle2 className="h-3 w-3" />
+                        <span className="flex items-center gap-1 rounded-full bg-emerald-400/10 px-2.5 py-0.5 text-[11px] font-medium text-emerald-400">
+                          <CheckCircle2 className="h-3.5 w-3.5" />
                           Готово к просмотру
                         </span>
                       )}
                       {isDownloading && (
-                        <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
-                          <Loader2 className="h-3 w-3 animate-spin" />
+                        <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2.5 py-0.5 text-[11px] font-medium text-amber-300">
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           Скачивается {item.progress}%
                         </span>
                       )}
                       {isQueued && (
-                        <span className="flex items-center gap-1 rounded-full bg-sky-400/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
-                          <Clock className="h-3 w-3" />
+                        <span className="flex items-center gap-1 rounded-full bg-sky-400/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300">
+                          <Clock className="h-3.5 w-3.5" />
                           В очереди
                         </span>
                       )}
-                    </h3>
+                    </div>
 
-                    <div className="mt-1 flex flex-wrap items-center gap-2.5 text-[12px] text-white/45">
-                      <span>Размер: <strong className="text-white/70">{item.fileSizeFormatted}</strong></span>
+                    {item.description && (
+                      <p className="mt-1 text-[12px] text-white/55 line-clamp-2 max-w-2xl leading-relaxed">
+                        {item.description}
+                      </p>
+                    )}
+
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2.5 text-[12px] text-white/45">
+                      <span>Размер: <strong className="text-white/75">{item.fileSizeFormatted}</strong></span>
                       {isDownloading && (
                         <span>Скачано: {item.downloadedBytesFormatted}</span>
                       )}
