@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Download, Pause, Play, Trash2, Loader2, HardDrive, ArrowDown, ArrowUp, Film, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Download, Pause, Play, Trash2, Loader2, HardDrive, ArrowDown, ArrowUp, Film, CheckCircle2, AlertCircle, Clock } from 'lucide-react';
 import { serverFetch, serverUrl } from '@/api/server';
 import SafeImg from './SafeImg';
 
@@ -129,6 +129,7 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
           {serverDownloads.map((item) => {
             const isCompleted = item.status === 'completed';
             const isDownloading = item.status === 'downloading';
+            const isQueued = item.status === 'queued';
 
             return (
               <div
@@ -162,6 +163,12 @@ export default function DownloadManager({ onPlay }: DownloadManagerProps) {
                         <span className="flex items-center gap-1 rounded-full bg-amber-400/10 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                           <Loader2 className="h-3 w-3 animate-spin" />
                           Скачивается {item.progress}%
+                        </span>
+                      )}
+                      {isQueued && (
+                        <span className="flex items-center gap-1 rounded-full bg-sky-400/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
+                          <Clock className="h-3 w-3" />
+                          В очереди
                         </span>
                       )}
                     </h3>

@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from 'fastify';
 import { existsSync, mkdirSync, createReadStream, createWriteStream, statSync, unlinkSync, statfsSync, readFileSync, rmSync } from 'fs';
 import { spawn } from 'child_process';
 import { join, extname } from 'path';
+import crypto from 'crypto';
 import pool from '../db/pool.js';
 import { config } from '../config.js';
 import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middleware/auth.js';
@@ -51,6 +52,12 @@ export async function ensureServerDownloadsTable() {
     await pool.query(`CREATE INDEX IF NOT EXISTS idx_server_downloads_status ON server_downloads(status)`).catch(() => {});
     tableReady = true;
     console.log('[Downloads] server_downloads table ready');
+    setTimeout(async () => {
+      try {
+        await pool.query("UPDATE server_downloads SET status = 'queued' WHERE status = 'downloading'");
+        triggerNextQueuedDownload().catch(() => {});
+      } catch {}
+    }, 2000);
   } catch (err: any) {
     console.error('[Downloads] ensureServerDownloadsTable error:', err.message);
   }
@@ -80,10 +87,378 @@ export function getDiskSpace(): { free: string; freeBytes: number; total: string
   }
 }
 
+// Helpers for parsing .torrent files, episode numbering, and release titles
+export function parseTorrentBuffer(buf: Buffer): {
+  hash: string;
+  name: string;
+  files: Array<{ id: number; path: string; length: number }>;
+} {
+  let pos = 0;
+  let infoStart = -1;
+  let infoEnd = -1;
+
+  function parseVal(): any {
+    if (pos >= buf.length) return null;
+    const b = buf[pos];
+    if (b === 0x69) { // 'i' integer
+      pos++;
+      const end = buf.indexOf(0x65, pos);
+      if (end === -1) return null;
+      const val = parseInt(buf.subarray(pos, end).toString('ascii'), 10);
+      pos = end + 1;
+      return val;
+    }
+    if (b === 0x6c) { // 'l' list
+      pos++;
+      const list: any[] = [];
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        list.push(parseVal());
+      }
+      pos++; // skip 'e'
+      return list;
+    }
+    if (b === 0x64) { // 'd' dict
+      pos++;
+      const dict: Record<string, any> = {};
+      while (pos < buf.length && buf[pos] !== 0x65) {
+        const keyBuf = parseVal();
+        const key = Buffer.isBuffer(keyBuf) ? keyBuf.toString('utf8') : String(keyBuf || '');
+        const isInfo = (key === 'info');
+        if (isInfo) infoStart = pos;
+        const val = parseVal();
+        if (isInfo) infoEnd = pos;
+        dict[key] = val;
+      }
+      pos++; // skip 'e'
+      return dict;
+    }
+    if (b >= 0x30 && b <= 0x39) { // string
+      const col = buf.indexOf(0x3a, pos);
+      if (col === -1) return null;
+      const len = parseInt(buf.subarray(pos, col).toString('ascii'), 10);
+      pos = col + 1;
+      const res = buf.subarray(pos, pos + len);
+      pos += len;
+      return res;
+    }
+    return null;
+  }
+
+  const root = parseVal() || {};
+  let hash = '';
+  if (infoStart !== -1 && infoEnd !== -1) {
+    const infoBytes = buf.subarray(infoStart, infoEnd);
+    hash = crypto.createHash('sha1').update(infoBytes).digest('hex').toLowerCase();
+  }
+
+  const info = root.info || {};
+  const nameBuf = info.name;
+  const name = Buffer.isBuffer(nameBuf)
+    ? nameBuf.toString('utf8')
+    : (info['name.utf-8'] ? info['name.utf-8'].toString('utf8') : '');
+
+  const files: Array<{ id: number; path: string; length: number }> = [];
+  if (info.files && Array.isArray(info.files)) {
+    let fId = 1;
+    for (const f of info.files) {
+      const pArr = (f['path.utf-8'] || f.path || []);
+      const parts = Array.isArray(pArr)
+        ? pArr.map((p: any) => Buffer.isBuffer(p) ? p.toString('utf8') : String(p))
+        : [Buffer.isBuffer(pArr) ? pArr.toString('utf8') : String(pArr)];
+      files.push({
+        id: fId++,
+        path: parts.join('/'),
+        length: Number(f.length || 0),
+      });
+    }
+  } else if (info.length) {
+    files.push({
+      id: 1,
+      path: name,
+      length: Number(info.length || 0),
+    });
+  }
+
+  return { hash, name, files };
+}
+
+export function parseEpisodeInfo(filePath: string): { season: number; episode: number } {
+  const parts = filePath.split(/[\/\\]/);
+  const fileName = parts.pop() || filePath;
+  let season = 0;
+  let episode = 0;
+
+  for (const part of parts) {
+    const sMatch = part.match(/(?:сезон|season)\s*0*(\d+)/i) || part.match(/\b[sS]0*(\d+)\b/i);
+    if (sMatch) {
+      season = parseInt(sMatch[1], 10);
+      break;
+    }
+  }
+
+  const seMatch = fileName.match(/[sS](\d+)[eE](\d+)/i) ||
+                  fileName.match(/\b(\d+)[xх](\d+)\b/i) ||
+                  fileName.match(/(?:сезон|season)\s*(\d+).*?(?:сери[яий]|выпуск|ep)\s*(\d+)/i) ||
+                  fileName.match(/\b(\d{2})[-_](\d{2})\b/);
+  if (seMatch) {
+    return { season: parseInt(seMatch[1], 10), episode: parseInt(seMatch[2], 10) };
+  }
+
+  const eMatch = fileName.match(/[eE]p?\.?\s*0*(\d+)\b/i) ||
+                 fileName.match(/(?:сери[яий]|выпуск|эпизод)\s*[:#№]?\s*0*(\d+)\b/i) ||
+                 fileName.match(/\b0*(\d+)\s*(?:сери[яий]|выпуск|эпизод)/i) ||
+                 fileName.match(/[\[\(_\s\.-]0*(\d+)[\s\._\)\]-]/i);
+  if (eMatch) {
+    return { season: season || 1, episode: parseInt(eMatch[1], 10) };
+  }
+
+  return { season, episode };
+}
+
+export function cleanReleaseTitle(raw: string): string {
+  if (!raw) return '';
+  let clean = raw.split('/')[0].split('|')[0];
+  clean = clean.replace(/\[[^\]]*\]/g, ' ').replace(/\([^\)]*\)/g, ' ');
+  clean = clean.replace(/\b(\d{4})\b/g, ' ');
+  clean = clean.replace(/\b(1080p|720p|2160p|4k|uhd|bluray|remux|bdrip|web-dl|webrip|hdtv|lostfilm|hdrezka|amedia|kuraj-bambey|red-head-sound|newstudio|hd|avc|hevc|x264|x265|aac|ac3|dts|rus|eng|sub|subs|mkv|avi|mp4)\b/gi, ' ');
+  clean = clean.replace(/\b[sS]\d+\b/gi, ' ');
+  clean = clean.replace(/\b\d+\s*сезон\b/gi, ' ');
+  clean = clean.replace(/[\._-]/g, ' ').replace(/\s+/g, ' ').trim();
+  return clean || raw.trim();
+}
+
 // Track active background downloads in memory for cancellation
 const activeDownloads = new Map<string, { abortController: AbortController; stream?: any }>();
+const MAX_CONCURRENT_DOWNLOADS = 1;
 
-export async function startServerDownloadProcess(params: {
+export async function triggerNextQueuedDownload() {
+  if (activeDownloads.size >= MAX_CONCURRENT_DOWNLOADS) return;
+  try {
+    const nextRes = await pool.query(
+      `SELECT id FROM server_downloads WHERE status = 'queued' ORDER BY created_at ASC LIMIT 1`
+    );
+    if (nextRes.rows.length === 0) return;
+    const nextId = nextRes.rows[0].id;
+    console.log(`[Downloads] Triggering next queued download: ${nextId}`);
+    runServerDownloadStream(nextId).catch((err) => {
+      console.error(`[Downloads] Error running queued download ${nextId}:`, err.message);
+    });
+  } catch (err: any) {
+    console.error('[Downloads] triggerNextQueuedDownload error:', err.message);
+  }
+}
+
+export async function runServerDownloadStream(id: string) {
+  await ensureServerDownloadsTable();
+  const itemRes = await pool.query('SELECT * FROM server_downloads WHERE id = $1', [id]);
+  if (itemRes.rows.length === 0) return;
+  const item = itemRes.rows[0];
+
+  if (activeDownloads.has(id)) return;
+
+  const abortController = new AbortController();
+  activeDownloads.set(id, { abortController });
+
+  await pool.query("UPDATE server_downloads SET status = 'downloading', error_message = '' WHERE id = $1", [id]);
+
+  const localFilePath = item.file_path;
+  const initialSizeEstimate = item.file_size > 0 ? formatBytes(Number(item.file_size)) : undefined;
+
+  // Telegram alert: download started
+  notifyDownloadStarted(item.user_id, item.title, initialSizeEstimate).catch(() => {});
+
+  console.log(`[Downloads] Starting server download: "${item.title}" (ID: ${id}) -> ${localFilePath}`);
+
+  let writeStream: any = null;
+  try {
+    const torrUrl = await getActiveTorrServerUrl();
+    let targetMagnet = item.magnet || '';
+    if (targetMagnet) {
+      for (const tr of FALLBACK_PUBLIC_TRACKERS) {
+        if (!targetMagnet.includes(encodeURIComponent(tr)) && !targetMagnet.includes(tr)) {
+          targetMagnet += `&tr=${encodeURIComponent(tr)}`;
+        }
+      }
+    }
+
+    let activeHash = item.torrent_hash;
+    // Preload into TorrServer
+    try {
+      const addRes = await fetch(`${torrUrl}/torrents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add',
+          link: targetMagnet || activeHash,
+          title: item.title || 'Download',
+          poster: item.poster || '',
+          save_to_db: true,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      if (addRes.ok) {
+        const addData = (await addRes.json()) as { hash?: string };
+        if (addData.hash) activeHash = addData.hash;
+      }
+    } catch (err: any) {
+      console.warn('[Downloads] TorrServer preload warning:', err.message);
+    }
+
+    let resolvedIndex = item.torrent_index;
+    let resolvedSize = Number(item.file_size || 0);
+    const statLink = activeHash || encodeURIComponent(targetMagnet);
+
+    // Wait for metadata / file_stats from TorrServer if needed
+    for (let attempt = 0; attempt < 8; attempt++) {
+      if (abortController.signal.aborted) break;
+      try {
+        const statRes = await fetch(`${torrUrl}/stream?link=${statLink}&index=-1&stat`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        if (statRes.ok) {
+          const statData = (await statRes.json()) as any;
+          if (statData.file_stats && statData.file_stats.length > 0) {
+            const videoFiles = statData.file_stats.filter((f: any) =>
+              /\.(mkv|mp4|avi|ts|m4v|mov|webm)$/i.test(f.path)
+            );
+            if (videoFiles.length > 0) {
+              videoFiles.sort((a: any, b: any) => b.length - a.length);
+              if (resolvedIndex === 0 || !resolvedIndex) {
+                if (item.season > 0 && item.episode > 0) {
+                  const patterns = [
+                    new RegExp(`s0*${item.season}e0*${item.episode}\\b`, 'i'),
+                    new RegExp(`\\b0*${item.season}[xх]0*${item.episode}\\b`, 'i'),
+                    new RegExp(`\\b0*${item.episode}\\s*(?:выпуск|сери[яий]|эпизод)`, 'i'),
+                    new RegExp(`(?:выпуск|сери[яий]|эпизод)\\s*[:#№]?\s*0*${item.episode}\\b`, 'i'),
+                    new RegExp(`\\bep?\\.?0*${item.episode}\\b`, 'i'),
+                    new RegExp(`[\\[\\(_\\s\\.-]0*${item.episode}[\\]\\)_\\s\\.-]`, 'i'),
+                  ];
+                  let matchedEpisodeFile = videoFiles.find((f: any) =>
+                    patterns.some((re) => re.test(f.path))
+                  );
+                  if (!matchedEpisodeFile) {
+                    const sortedByPath = [...videoFiles].sort((a: any, b: any) =>
+                      a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
+                    );
+                    if (sortedByPath[item.episode - 1]) {
+                      matchedEpisodeFile = sortedByPath[item.episode - 1];
+                    }
+                  }
+                  if (matchedEpisodeFile) {
+                    resolvedIndex = matchedEpisodeFile.id;
+                  } else {
+                    resolvedIndex = videoFiles[0].id;
+                  }
+                } else {
+                  resolvedIndex = videoFiles[0].id;
+                }
+              }
+              const chosen = statData.file_stats.find((f: any) => f.id === resolvedIndex) || videoFiles[0];
+              resolvedIndex = chosen.id;
+              if (chosen.length > 0) {
+                resolvedSize = chosen.length;
+              }
+              if (chosen.path) {
+                const baseName = chosen.path.split(/[\/\\]/).pop();
+                if (baseName) {
+                  await pool.query('UPDATE server_downloads SET file_name = $1 WHERE id = $2', [baseName, id]).catch(() => {});
+                }
+              }
+            }
+            break;
+          }
+        }
+      } catch {}
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    if (resolvedSize > 0 && resolvedSize !== Number(item.file_size)) {
+      await pool.query('UPDATE server_downloads SET file_size = $1 WHERE id = $2', [resolvedSize, id]).catch(() => {});
+    }
+
+    const linkParam = targetMagnet ? encodeURIComponent(targetMagnet) : activeHash;
+    const torrStreamUrl = `${torrUrl}/stream?link=${linkParam}&index=${resolvedIndex}&play=1`;
+
+    console.log(`[Downloads] Streaming from TorrServer: ${torrStreamUrl}`);
+
+    const res = await fetch(torrStreamUrl, {
+      signal: abortController.signal,
+      headers: { 'User-Agent': 'LumiereServer/1.0' },
+    });
+
+    if (!res.ok || !res.body) {
+      throw new Error(`TorrServer returned HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    writeStream = createWriteStream(localFilePath);
+    activeDownloads.set(id, { abortController, stream: writeStream });
+
+    let downloaded = 0;
+    let lastDbUpdate = Date.now();
+    const nodeStream = res.body as any;
+
+    for await (const chunk of nodeStream) {
+      if (abortController.signal.aborted) {
+        throw new Error('Download aborted by user');
+      }
+
+      writeStream.write(chunk);
+      downloaded += chunk.length;
+
+      const now = Date.now();
+      if (now - lastDbUpdate > 3000) {
+        lastDbUpdate = now;
+        await pool.query(
+          'UPDATE server_downloads SET downloaded_bytes = $1 WHERE id = $2',
+          [downloaded, id]
+        ).catch(() => {});
+      }
+    }
+
+    await new Promise((resolve, reject) => {
+      writeStream.end((err: any) => {
+        if (err) reject(err);
+        else resolve(true);
+      });
+    });
+
+    const finalSize = statSync(localFilePath).size;
+
+    await pool.query(
+      `UPDATE server_downloads SET
+        status = 'completed',
+        file_size = GREATEST(file_size, $1),
+        downloaded_bytes = $1,
+        completed_at = NOW()
+       WHERE id = $2`,
+      [finalSize, id]
+    );
+
+    console.log(`[Downloads] Completed server download: "${item.title}" (${formatBytes(finalSize)})`);
+
+    notifyDownloadFinished(item.user_id, id, item.title, formatBytes(finalSize), item.poster).catch(() => {});
+  } catch (err: any) {
+    if (writeStream) writeStream.close();
+    if (abortController.signal.aborted) {
+      console.log(`[Downloads] Download ${id} cancelled by user`);
+      await pool.query(
+        "UPDATE server_downloads SET status = 'cancelled', error_message = 'Отменено пользователем' WHERE id = $1",
+        [id]
+      ).catch(() => {});
+    } else {
+      console.error(`[Downloads] Download ${id} error:`, err.message);
+      await pool.query(
+        "UPDATE server_downloads SET status = 'error', error_message = $1 WHERE id = $2",
+        [err.message, id]
+      ).catch(() => {});
+    }
+  } finally {
+    activeDownloads.delete(id);
+    triggerNextQueuedDownload().catch(() => {});
+  }
+}
+
+export async function registerServerDownload(params: {
   id: string;
   userId: number;
   title: string;
@@ -116,7 +491,6 @@ export async function startServerDownloadProcess(params: {
     fileName = `${title.replace(/[^a-zA-Z0-9а-яА-Я._-]/g, '_')}.mkv`,
   } = params;
 
-  // Fallback poster if not provided
   if (!poster && mediaId) {
     try {
       const epUrl = `http://127.0.0.1:${config.port}/api/${mediaType === 'tv' ? 'tv' : 'movie'}/${mediaId}?lang=ru`;
@@ -138,20 +512,16 @@ export async function startServerDownloadProcess(params: {
   const localFileName = `${id}${localExt}`;
   const localFilePath = join(DOWNLOADS_DIR, localFileName);
 
-  const isTvEpisode = (season > 0 && episode > 0);
-  const isLargePack = isTvEpisode && fileSize > 2.5 * 1024 * 1024 * 1024;
-  const initialDbFileSize = isLargePack ? 0 : fileSize;
-  const initialSizeEstimate = isLargePack ? undefined : (fileSize > 0 ? formatBytes(fileSize) : undefined);
+  const initialStatus = activeDownloads.size < MAX_CONCURRENT_DOWNLOADS ? 'downloading' : 'queued';
 
-  // 1. Insert download record
   await pool.query(
     `INSERT INTO server_downloads (
       id, user_id, title, media_type, media_id, season, episode,
       file_path, file_name, file_size, downloaded_bytes, status,
       poster, torrent_hash, torrent_index, created_at
-    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, 'downloading', $11, $12, $13, NOW())
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11, $12, $13, $14, NOW())
     ON CONFLICT (id) DO UPDATE SET
-      status = 'downloading',
+      status = $11,
       error_message = '',
       poster = COALESCE(NULLIF(EXCLUDED.poster, ''), server_downloads.poster),
       downloaded_bytes = 0`,
@@ -165,220 +535,25 @@ export async function startServerDownloadProcess(params: {
       episode,
       localFilePath,
       fileName,
-      initialDbFileSize,
+      fileSize,
+      initialStatus,
       poster,
       torrentHash,
       torrentIndex,
     ]
   );
 
-  // 2. Telegram Alert: Download Started
-  notifyDownloadStarted(userId, title, initialSizeEstimate).catch(() => {});
+  console.log(`[Downloads] Registered server download: "${title}" (ID: ${id}) [Status: ${initialStatus}]`);
 
-  const abortController = new AbortController();
-  activeDownloads.set(id, { abortController });
+  if (initialStatus === 'downloading') {
+    runServerDownloadStream(id).catch((err) => {
+      console.error(`[Downloads] Error running download ${id}:`, err.message);
+    });
+  }
+}
 
-  console.log(`[Downloads] Starting server download: "${title}" (ID: ${id}) -> ${localFilePath}`);
-
-  (async () => {
-    let writeStream: any = null;
-    try {
-      // 3. Initiate TorrServer streaming into local file
-      const torrUrl = await getActiveTorrServerUrl();
-      let targetMagnet = magnet || '';
-      if (targetMagnet) {
-        for (const tr of FALLBACK_PUBLIC_TRACKERS) {
-          if (!targetMagnet.includes(encodeURIComponent(tr)) && !targetMagnet.includes(tr)) {
-            targetMagnet += `&tr=${encodeURIComponent(tr)}`;
-          }
-        }
-      }
-
-      let activeHash = torrentHash;
-      // Step 3a: Pre-add torrent to TorrServer with save_to_db: true so it actively resolves peers & metadata
-      try {
-        const addRes = await fetch(`${torrUrl}/torrents`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            action: 'add',
-            link: targetMagnet || activeHash,
-            title: title || 'Download',
-            poster: poster || '',
-            save_to_db: true,
-          }),
-          signal: AbortSignal.timeout(12000),
-        });
-        if (addRes.ok) {
-          const addData = (await addRes.json()) as { hash?: string };
-          if (addData.hash) activeHash = addData.hash;
-        }
-      } catch (err: any) {
-        console.warn('[Downloads] TorrServer preload warning:', err.message);
-      }
-
-      // Step 3b: Wait for metadata / file_stats from TorrServer so we get the exact video file index & size
-      let resolvedIndex = torrentIndex;
-      let resolvedSize = fileSize;
-      const statLink = activeHash || encodeURIComponent(targetMagnet);
-
-      for (let attempt = 0; attempt < 8; attempt++) {
-        if (abortController.signal.aborted) break;
-        try {
-          const statRes = await fetch(`${torrUrl}/stream?link=${statLink}&index=-1&stat`, {
-            signal: AbortSignal.timeout(4000),
-          });
-          if (statRes.ok) {
-            const statData = (await statRes.json()) as any;
-            if (statData.file_stats && statData.file_stats.length > 0) {
-              const videoFiles = statData.file_stats.filter((f: any) =>
-                /\.(mkv|mp4|avi|ts|m4v|mov)$/i.test(f.path)
-              );
-              if (videoFiles.length > 0) {
-                videoFiles.sort((a: any, b: any) => b.length - a.length);
-                if (resolvedIndex === 0 || !resolvedIndex) {
-                  // If season and episode are specified, select the exact episode file!
-                  if (season > 0 && episode > 0) {
-                    const sStr = String(season).padStart(2, '0');
-                    const eStr = String(episode).padStart(2, '0');
-                    const patterns = [
-                      new RegExp(`s0*${season}e0*${episode}\\b`, 'i'),
-                      new RegExp(`\\b0*${season}[xх]0*${episode}\\b`, 'i'),
-                      new RegExp(`\\b0*${episode}\\s*(?:выпуск|сери[яий]|эпизод)`, 'i'),
-                      new RegExp(`(?:выпуск|сери[яий]|эпизод)\\s*[:#№]?\\s*0*${episode}\\b`, 'i'),
-                      new RegExp(`\\bep?\\.?0*${episode}\\b`, 'i'),
-                      new RegExp(`[\\[\\(_\\s\\.-]0*${episode}[\\]\\)_\\s\\.-]`, 'i'),
-                    ];
-                    let matchedEpisodeFile = videoFiles.find((f: any) =>
-                      patterns.some((re) => re.test(f.path))
-                    );
-                    if (!matchedEpisodeFile) {
-                      // Natural sort files by path to match 1-based episode index
-                      const sortedByPath = [...videoFiles].sort((a: any, b: any) =>
-                        a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' })
-                      );
-                      if (sortedByPath[episode - 1]) {
-                        matchedEpisodeFile = sortedByPath[episode - 1];
-                      }
-                    }
-                    if (matchedEpisodeFile) {
-                      resolvedIndex = matchedEpisodeFile.id;
-                      console.log(`[Downloads] Matched single episode file for S${sStr}E${eStr}: "${matchedEpisodeFile.path}" (ID: ${resolvedIndex})`);
-                    } else {
-                      resolvedIndex = videoFiles[0].id;
-                    }
-                  } else {
-                    resolvedIndex = videoFiles[0].id;
-                  }
-                }
-                const chosen = statData.file_stats.find((f: any) => f.id === resolvedIndex) || videoFiles[0];
-                resolvedIndex = chosen.id;
-                if (chosen.length > 0) {
-                  resolvedSize = chosen.length;
-                }
-                if (chosen.path) {
-                  const baseName = chosen.path.split(/[\/\\]/).pop();
-                  if (baseName) {
-                    await pool.query('UPDATE server_downloads SET file_name = $1 WHERE id = $2', [baseName, id]).catch(() => {});
-                  }
-                }
-              }
-              break;
-            }
-          }
-        } catch {
-          // Retry
-        }
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      if (resolvedSize > 0 && resolvedSize !== fileSize) {
-        await pool.query('UPDATE server_downloads SET file_size = $1 WHERE id = $2', [resolvedSize, id]).catch(() => {});
-      }
-
-      const linkParam = targetMagnet ? encodeURIComponent(targetMagnet) : activeHash;
-      const torrStreamUrl = `${torrUrl}/stream?link=${linkParam}&index=${resolvedIndex}&play=1`;
-
-      console.log(`[Downloads] Streaming from TorrServer: ${torrStreamUrl}`);
-
-      const res = await fetch(torrStreamUrl, {
-        signal: abortController.signal,
-        headers: { 'User-Agent': 'LumiereServer/1.0' },
-      });
-
-      if (!res.ok || !res.body) {
-        throw new Error(`TorrServer returned HTTP ${res.status}: ${res.statusText}`);
-      }
-
-      writeStream = createWriteStream(localFilePath);
-      activeDownloads.set(id, { abortController, stream: writeStream });
-
-      let downloaded = 0;
-      let lastDbUpdate = Date.now();
-      const nodeStream = res.body as any; // ReadableStream / Node stream
-
-      for await (const chunk of nodeStream) {
-        if (abortController.signal.aborted) {
-          throw new Error('Download aborted by user');
-        }
-
-        writeStream.write(chunk);
-        downloaded += chunk.length;
-
-        // Update DB progress every 3 seconds
-        const now = Date.now();
-        if (now - lastDbUpdate > 3000) {
-          lastDbUpdate = now;
-          await pool.query(
-            'UPDATE server_downloads SET downloaded_bytes = $1 WHERE id = $2',
-            [downloaded, id]
-          ).catch(() => {});
-        }
-      }
-
-      await new Promise((resolve, reject) => {
-        writeStream.end((err: any) => {
-          if (err) reject(err);
-          else resolve(true);
-        });
-      });
-
-      const finalSize = statSync(localFilePath).size;
-
-      // Update DB: completed
-      await pool.query(
-        `UPDATE server_downloads SET
-          status = 'completed',
-          file_size = GREATEST(file_size, $1),
-          downloaded_bytes = $1,
-          completed_at = NOW()
-         WHERE id = $2`,
-        [finalSize, id]
-      );
-
-      console.log(`[Downloads] Completed server download: "${title}" (${formatBytes(finalSize)})`);
-
-      // 4. Telegram Alert: Download Complete
-      notifyDownloadFinished(userId, id, title, formatBytes(finalSize), poster).catch(() => {});
-    } catch (err: any) {
-      if (writeStream) writeStream.close();
-      if (abortController.signal.aborted) {
-        console.log(`[Downloads] Download ${id} cancelled by user`);
-        await pool.query(
-          "UPDATE server_downloads SET status = 'cancelled', error_message = 'Отменено пользователем' WHERE id = $1",
-          [id]
-        ).catch(() => {});
-      } else {
-        console.error(`[Downloads] Download ${id} error:`, err.message);
-        await pool.query(
-          "UPDATE server_downloads SET status = 'error', error_message = $1 WHERE id = $2",
-          [err.message, id]
-        ).catch(() => {});
-      }
-    } finally {
-      activeDownloads.delete(id);
-    }
-  })();
+export async function startServerDownloadProcess(params: Parameters<typeof registerServerDownload>[0]) {
+  await registerServerDownload(params);
 }
 
 export function downloadRoutes(app: FastifyInstance) {
@@ -451,6 +626,335 @@ export function downloadRoutes(app: FastifyInstance) {
         success: true,
         downloadId: id,
         message: 'Загрузка фильма/серии на сервер начата',
+      };
+    }
+  );
+
+  // 1b. Upload Torrent / Magnet for Server Download (Telegram bot, Web upload, etc.)
+  app.post(
+    '/api/downloads/server/upload-torrent',
+    {
+      bodyLimit: 30 * 1024 * 1024,
+      preHandler: [optionalAuth],
+    },
+    async (req: AuthenticatedRequest, reply: FastifyReply) => {
+      await ensureServerDownloadsTable();
+      const body = (req.body as any) || {};
+
+      const torrentBase64 = body.torrentBase64 as string | undefined;
+      const magnet = body.magnet as string | undefined;
+      const fileName = body.fileName as string | undefined;
+      const title = body.title as string | undefined;
+      const startAll = Boolean(body.startAll);
+      const selectedIndices = Array.isArray(body.selectedIndices)
+        ? body.selectedIndices.map((n: any) => Number(n))
+        : undefined;
+
+      let torrentHash = (body.torrentHash || '').toLowerCase().trim();
+      let userId: number = Number(body.userId) || req.user?.userId || 0;
+      if (!userId) {
+        const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        userId = u.rows[0]?.id || 1;
+      }
+
+      let parsed: { hash: string; name: string; files: Array<{ id: number; path: string; length: number }> } | null = null;
+
+      const torrUrl = await getActiveTorrServerUrl();
+
+      // 1. If torrentBase64 is provided, parse it and upload to TorrServer /torrent/upload
+      if (torrentBase64) {
+        try {
+          const buf = Buffer.from(torrentBase64, 'base64');
+          parsed = parseTorrentBuffer(buf);
+          if (parsed.hash && !torrentHash) {
+            torrentHash = parsed.hash.toLowerCase();
+          }
+
+          const fd = new FormData();
+          fd.append('save', 'true');
+          fd.append('file', new Blob([buf]), fileName || `${torrentHash || 'file'}.torrent`);
+          if (parsed.name || title) {
+            fd.append('title', parsed.name || title || '');
+          }
+
+          await fetch(`${torrUrl}/torrent/upload`, {
+            method: 'POST',
+            body: fd,
+            signal: AbortSignal.timeout(10000),
+          }).catch((err) => {
+            console.warn('[Downloads] TorrServer /torrent/upload warning:', err.message);
+          });
+        } catch (err: any) {
+          console.error('[Downloads] Error parsing torrent buffer:', err.message);
+        }
+      }
+
+      // 2. If magnet link provided
+      if (magnet && !torrentBase64) {
+        const hashMatch = magnet.match(/urn:btih:([a-fA-F0-9]{40}|[a-zA-Z2-7]{32})/i);
+        if (hashMatch && !torrentHash) {
+          torrentHash = hashMatch[1].toLowerCase();
+        }
+
+        let targetMagnet = magnet;
+        for (const tr of FALLBACK_PUBLIC_TRACKERS) {
+          if (!targetMagnet.includes(encodeURIComponent(tr)) && !targetMagnet.includes(tr)) {
+            targetMagnet += `&tr=${encodeURIComponent(tr)}`;
+          }
+        }
+
+        try {
+          await fetch(`${torrUrl}/torrents`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'add',
+              link: targetMagnet,
+              title: title || 'Download',
+              save_to_db: true,
+            }),
+            signal: AbortSignal.timeout(12000),
+          });
+        } catch (err: any) {
+          console.warn('[Downloads] TorrServer add magnet warning:', err.message);
+        }
+      }
+
+      if (!torrentHash && !parsed?.hash) {
+        return reply.code(400).send({ error: 'Не удалось определить хэш торрента. Проверьте торрент-файл или magnet-ссылку.' });
+      }
+
+      // 3. Query TorrServer for file_stats with retry loop
+      let fileStats: Array<{ id: number; path: string; length: number }> = [];
+      let torrTitle = '';
+
+      for (let attempt = 0; attempt < 8; attempt++) {
+        try {
+          const statRes = await fetch(`${torrUrl}/stream?link=${torrentHash}&index=-1&stat`, {
+            signal: AbortSignal.timeout(4000),
+          });
+          if (statRes.ok) {
+            const statData = (await statRes.json()) as any;
+            if (statData.title) torrTitle = statData.title;
+            if (statData.file_stats && statData.file_stats.length > 0) {
+              fileStats = statData.file_stats;
+              break;
+            }
+          }
+        } catch {}
+        await new Promise((r) => setTimeout(r, 800));
+      }
+
+      // Fallback to parsed files from buffer if TorrServer stat hasn't resolved them yet
+      if (fileStats.length === 0 && parsed?.files && parsed.files.length > 0) {
+        fileStats = parsed.files;
+      }
+
+      if (fileStats.length === 0) {
+        return reply.code(400).send({
+          error: 'Не удалось получить список файлов раздачи из TorrServer. Возможно, на торренте нет сидов или DHT ещё ищет метаданные. Попробуйте через минуту.',
+        });
+      }
+
+      // 4. Filter video files and parse episode info
+      const videoFiles = fileStats
+        .filter((f) => /\.(mkv|mp4|avi|ts|mov|m4v|webm)$/i.test(f.path) && !/sample|trailer/i.test(f.path))
+        .map((f) => {
+          const epInfo = parseEpisodeInfo(f.path);
+          return {
+            id: f.id,
+            path: f.path,
+            name: f.path.split(/[\/\\]/).pop() || f.path,
+            season: epInfo.season,
+            episode: epInfo.episode,
+            size: Number(f.length || 0),
+            sizeFormatted: formatBytes(Number(f.length || 0)),
+          };
+        });
+
+      if (videoFiles.length === 0) {
+        return reply.code(400).send({
+          error: 'В торрент-раздаче не найдено ни одного видеофайла (.mkv, .mp4, .avi и т.д.)',
+        });
+      }
+
+      // Sort video files naturally by season, then episode, or path
+      videoFiles.sort((a, b) => {
+        if (a.season !== b.season) return a.season - b.season;
+        if (a.episode !== b.episode) return a.episode - b.episode;
+        return a.path.localeCompare(b.path, undefined, { numeric: true, sensitivity: 'base' });
+      });
+
+      // 5. Title & TMDB metadata search
+      const rawName = torrTitle || parsed?.name || title || fileName || videoFiles[0].name;
+      const cleanName = cleanReleaseTitle(rawName);
+
+      let tmdbTitle = cleanName;
+      let tmdbPoster = body.poster || '';
+      let tmdbMediaType = body.mediaType || (videoFiles.length > 1 ? 'tv' : 'movie');
+      let tmdbMediaId = body.mediaId || 0;
+      let tmdbYear = '';
+      let tmdbScore = 0;
+
+      try {
+        const sUrl = `http://127.0.0.1:${config.port}/api/search?q=${encodeURIComponent(cleanName)}`;
+        const sRes = await fetch(sUrl, { signal: AbortSignal.timeout(4000) });
+        if (sRes.ok) {
+          const sData = (await sRes.json()) as any;
+          const top = (sData.results || [])[0];
+          if (top) {
+            tmdbTitle = top.name || top.title || tmdbTitle;
+            tmdbMediaId = top.id || top.tmdbId || tmdbMediaId;
+            tmdbYear = String(top.year || '');
+            tmdbScore = Number(top.score || 0);
+            const rawP = top.poster || top.posterPath || '';
+            if (rawP && !tmdbPoster) {
+              if (rawP.includes('/api/image?url=')) {
+                try {
+                  const u = new URL(rawP, 'http://localhost');
+                  tmdbPoster = u.searchParams.get('url') || rawP;
+                } catch {
+                  tmdbPoster = rawP;
+                }
+              } else if (rawP.startsWith('http')) {
+                tmdbPoster = rawP;
+              } else {
+                tmdbPoster = `https://image.tmdb.org/t/p/w500${rawP}`;
+              }
+            }
+            if (top.type) tmdbMediaType = top.type;
+          }
+        }
+      } catch (err: any) {
+        console.warn('[Downloads] TMDB search error:', err.message);
+      }
+
+      // If user requested: start downloading ALL files (whole season)
+      if (startAll) {
+        for (const f of videoFiles) {
+          const dlId = `dl_${torrentHash}_${f.id}_${Date.now().toString(36)}`;
+          const epTitle = f.season > 0 && f.episode > 0
+            ? `${tmdbTitle} S${String(f.season).padStart(2, '0')}E${String(f.episode).padStart(2, '0')}`
+            : (videoFiles.length === 1 ? tmdbTitle : `${tmdbTitle} - ${f.name}`);
+
+          await registerServerDownload({
+            id: dlId,
+            userId,
+            title: epTitle,
+            mediaType: videoFiles.length > 1 ? 'tv' : 'movie',
+            mediaId: tmdbMediaId,
+            season: f.season,
+            episode: f.episode,
+            poster: tmdbPoster,
+            torrentHash,
+            torrentIndex: f.id,
+            magnet: magnet || '',
+            fileSize: f.size,
+            fileName: f.name,
+          });
+        }
+        return {
+          success: true,
+          startedCount: videoFiles.length,
+          message: `Поставлено на загрузку ${videoFiles.length} серий сериала «${tmdbTitle}»`,
+          title: tmdbTitle,
+          poster: tmdbPoster,
+        };
+      }
+
+      // If user selected specific indices
+      if (selectedIndices && selectedIndices.length > 0) {
+        const targets = videoFiles.filter((f) => selectedIndices.includes(f.id));
+        for (const f of targets) {
+          const dlId = `dl_${torrentHash}_${f.id}_${Date.now().toString(36)}`;
+          const epTitle = f.season > 0 && f.episode > 0
+            ? `${tmdbTitle} S${String(f.season).padStart(2, '0')}E${String(f.episode).padStart(2, '0')}`
+            : (videoFiles.length === 1 ? tmdbTitle : `${tmdbTitle} - ${f.name}`);
+
+          await registerServerDownload({
+            id: dlId,
+            userId,
+            title: epTitle,
+            mediaType: videoFiles.length > 1 ? 'tv' : 'movie',
+            mediaId: tmdbMediaId,
+            season: f.season,
+            episode: f.episode,
+            poster: tmdbPoster,
+            torrentHash,
+            torrentIndex: f.id,
+            magnet: magnet || '',
+            fileSize: f.size,
+            fileName: f.name,
+          });
+        }
+        return {
+          success: true,
+          startedCount: targets.length,
+          message: `Поставлено на загрузку ${targets.length} файл(ов)`,
+          title: tmdbTitle,
+          poster: tmdbPoster,
+        };
+      }
+
+      // If single video file (Movie or single episode): automatically start immediately!
+      if (videoFiles.length === 1) {
+        const f = videoFiles[0];
+        const dlId = `dl_${torrentHash}_${f.id}_${Date.now().toString(36)}`;
+        const isMovie = f.season === 0 && f.episode === 0;
+        const finalTitle = isMovie
+          ? tmdbTitle
+          : `${tmdbTitle} S${String(f.season).padStart(2, '0')}E${String(f.episode).padStart(2, '0')}`;
+
+        await registerServerDownload({
+          id: dlId,
+          userId,
+          title: finalTitle,
+          mediaType: isMovie ? 'movie' : 'tv',
+          mediaId: tmdbMediaId,
+          season: f.season,
+          episode: f.episode,
+          poster: tmdbPoster,
+          torrentHash,
+          torrentIndex: f.id,
+          magnet: magnet || '',
+          fileSize: f.size,
+          fileName: f.name,
+        });
+
+        return {
+          success: true,
+          isMultiFile: false,
+          downloadId: dlId,
+          title: finalTitle,
+          fileSize: f.size,
+          fileSizeFormatted: f.sizeFormatted,
+          poster: tmdbPoster,
+          year: tmdbYear,
+          rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
+          mediaType: isMovie ? 'movie' : 'tv',
+          message: `Загрузка «${finalTitle}» начата на сервере`,
+        };
+      }
+
+      // If multi-file series: return summary and file list so bot or UI can present episode selector / whole season download
+      const totalBytes = videoFiles.reduce((acc, f) => acc + f.size, 0);
+      const detectedSeason = videoFiles.find((f) => f.season > 0)?.season || 1;
+
+      return {
+        success: true,
+        isMultiFile: true,
+        torrentHash,
+        title: tmdbTitle,
+        mediaType: 'tv',
+        mediaId: tmdbMediaId,
+        poster: tmdbPoster,
+        year: tmdbYear,
+        rating: tmdbScore > 0 ? tmdbScore.toFixed(1) : '',
+        detectedSeason,
+        totalEpisodes: videoFiles.length,
+        totalSize: totalBytes,
+        totalSizeFormatted: formatBytes(totalBytes),
+        files: videoFiles,
       };
     }
   );

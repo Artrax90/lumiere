@@ -95,7 +95,7 @@ async function runMigrations() {
 // Run migrations on boot with retries for container startup
 runMigrations().catch((e) => console.error('[DB] Migration error:', e.message));
 
-const app = Fastify({ logger: true, trustProxy: true });
+const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 30 * 1024 * 1024 });
 
 
 await app.register(cors, {

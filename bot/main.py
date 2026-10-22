@@ -7,6 +7,7 @@ import random
 import uuid
 import tempfile
 import urllib.parse
+import base64
 from typing import Dict, Any, Optional, Set, Callable, Awaitable
 from datetime import datetime
 import functools
@@ -93,20 +94,23 @@ def get_main_reply_keyboard() -> ReplyKeyboardMarkup:
         input_field_placeholder="Название фильма или выберите пункт меню..."
     )
 
-async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None) -> Optional[Any]:
+async def fetch_api(path: str, method: str = "GET", data: Optional[Dict] = None, timeout_sec: int = 15) -> Optional[Any]:
     url = f"{BACKEND_URL}{path}"
     try:
         async with aiohttp.ClientSession() as session:
             if method == "GET":
-                async with session.get(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.get(url, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
                     if resp.status == 200:
                         return await resp.json()
             elif method == "POST":
-                async with session.post(url, json=data or {}, timeout=aiohttp.ClientTimeout(total=10)) as resp:
-                    if resp.status in (200, 201):
+                post_timeout = max(timeout_sec, 35)
+                async with session.post(url, json=data or {}, timeout=aiohttp.ClientTimeout(total=post_timeout)) as resp:
+                    try:
                         return await resp.json()
+                    except Exception:
+                        return {"success": resp.status in (200, 201)}
             elif method == "DELETE":
-                async with session.delete(url, timeout=aiohttp.ClientTimeout(total=10)) as resp:
+                async with session.delete(url, timeout=aiohttp.ClientTimeout(total=timeout_sec)) as resp:
                     if resp.status in (200, 204):
                         return await resp.json()
     except Exception as e:
@@ -117,6 +121,7 @@ import re
 
 ITEM_CACHE: Dict[str, dict] = {}
 TORRENT_PICK_CACHE: Dict[str, dict] = {}
+TORRENT_PACK_CACHE: Dict[str, dict] = {}
 
 def parse_torrent_badge(title: str, size_str: str = "", seeders: int = 0) -> str:
     """Format a concise badge for torrent releases (quality, audio, size, seeders)."""
@@ -753,6 +758,131 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
     async def btn_server_status(message: types.Message):
         await show_server_status(message)
 
+    async def handle_torrent_upload(message: types.Message, doc: Optional[types.Document] = None, magnet: Optional[str] = None):
+        eff_u = await resolve_sender_user(message, user_id)
+        eff_uid = eff_u["userId"]
+
+        status_msg = await message.answer("⏳ <i>Подключаюсь к торренту и анализирую файлы...</i>", parse_mode="HTML")
+
+        try:
+            req_data: Dict[str, Any] = {
+                "userId": eff_uid,
+            }
+
+            if doc:
+                file_io = await message.bot.download(doc)
+                content_bytes = file_io.read() if hasattr(file_io, 'read') else file_io.getvalue()
+                req_data["torrentBase64"] = base64.b64encode(content_bytes).decode("utf-8")
+                req_data["fileName"] = doc.file_name or "upload.torrent"
+            elif magnet:
+                req_data["magnet"] = magnet
+
+            res = await fetch_api("/api/downloads/server/upload-torrent", method="POST", data=req_data)
+
+            if not res or not res.get("success"):
+                err_text = (res or {}).get("error") or "Не удалось обработать торрент. Возможно, на раздаче нет сидеров или DHT ещё ищет метаданные."
+                await status_msg.edit_text(f"⚠️ <b>Ошибка:</b> {html.escape(err_text)}", parse_mode="HTML")
+                return
+
+            # Case A: Single file (movie or single episode) - downloaded immediately!
+            if not res.get("isMultiFile"):
+                title = res.get("title") or "Фильм"
+                size_str = res.get("fileSizeFormatted") or ""
+                year_val = res.get("year")
+                year_fmt = f"({year_val})" if year_val else ""
+                rating_val = res.get("rating")
+                rating_fmt = f"⭐ {rating_val}" if rating_val else ""
+                raw_poster = res.get("poster") or ""
+                poster_url = clean_poster_url(raw_poster)
+
+                card_caption = (
+                    f"🎬 <b>Загрузка фильма начата на сервере!</b>\n\n"
+                    f"🎬 <b>«{html.escape(title)}»</b> {year_fmt} {rating_fmt}\n"
+                    f"📦 Размер: <b>{size_str}</b>\n\n"
+                    f"🚀 <i>Фильм скачивается в фоновом режиме на сервер Lumière. После завершения он появится в разделе «📥 Скачанное» и будет готов к моментальному просмотру на ТВ и мобильных устройствах!</i>"
+                )
+
+                kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="📥 Открыть Скачанное", callback_data="menu:downloads", style="primary")
+                    ]
+                ])
+
+                try:
+                    await status_msg.delete()
+                except Exception:
+                    pass
+
+                if poster_url:
+                    try:
+                        await message.answer_photo(photo=poster_url, caption=card_caption, reply_markup=kb, parse_mode="HTML")
+                        return
+                    except Exception as pe:
+                        print(f"[Bot] Failed to send photo: {pe}")
+
+                await message.answer(card_caption, reply_markup=kb, parse_mode="HTML")
+                return
+
+            # Case B: Multi-file series - show season/episodes summary & prompt
+            t_hash = res.get("torrentHash", "")
+            title = res.get("title") or "Сериал"
+            det_season = res.get("detectedSeason") or 1
+            total_eps = res.get("totalEpisodes") or len(res.get("files", []))
+            total_size_fmt = res.get("totalSizeFormatted") or ""
+            year_val = res.get("year")
+            year_fmt = f"({year_val})" if year_val else ""
+            rating_val = res.get("rating")
+            rating_fmt = f"⭐ {rating_val}" if rating_val else ""
+            raw_poster = res.get("poster") or ""
+            poster_url = clean_poster_url(raw_poster)
+
+            TORRENT_PACK_CACHE[t_hash] = res
+
+            card_caption = (
+                f"📺 <b>Обнаружен сериал: «{html.escape(title)}»</b> {year_fmt} {rating_fmt}\n\n"
+                f"📦 <b>{det_season} сезон</b> (всего {total_eps} серий)\n"
+                f"💾 Общий размер: <b>{total_size_fmt}</b>\n\n"
+                f"<i>Выберите вариант загрузки на сервер:</i>"
+            )
+
+            builder = InlineKeyboardBuilder()
+            builder.button(text=f"📥 Скачать весь сезон ({total_eps} сер.)", callback_data=f"dl_pack_all:{t_hash}", style="success")
+            builder.button(text="📋 Выбрать конкретную серию", callback_data=f"dl_pack_pick:{t_hash}:0", style="primary")
+            builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+            builder.adjust(1, 1, 1)
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+            if poster_url:
+                try:
+                    await message.answer_photo(photo=poster_url, caption=card_caption, reply_markup=builder.as_markup(), parse_mode="HTML")
+                    return
+                except Exception as pe:
+                    print(f"[Bot] Failed to send photo for series: {pe}")
+
+            await message.answer(card_caption, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+        except Exception as e:
+            print(f"[Bot] handle_torrent_upload error: {e}")
+            try:
+                await status_msg.edit_text(f"⚠️ Ошибка при обработке торрента: {html.escape(str(e))}", parse_mode="HTML")
+            except Exception:
+                pass
+
+    @dp.message(F.document)
+    async def handle_document(message: types.Message):
+        doc = message.document
+        if not doc:
+            return
+        f_name = (doc.file_name or "").lower()
+        m_type = (doc.mime_type or "").lower()
+        if not (f_name.endswith(".torrent") or "bittorrent" in m_type):
+            return
+        await handle_torrent_upload(message, doc=doc)
+
     @dp.message(F.text)
     async def handle_text(message: types.Message):
         query = message.text.strip()
@@ -760,6 +890,11 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
             return
         if query in ("🔍 Поиск", "📺 Сейчас на ТВ", "📥 Скачанное", "🔔 Подписки", "⚙️ Статус сервера"):
             return
+        if "magnet:?xt=" in query:
+            magnet_match = re.search(r'magnet:\?xt=[^\s<>"\']+', query)
+            if magnet_match:
+                await handle_torrent_upload(message, magnet=magnet_match.group(0))
+                return
         await perform_search_and_reply(message, query)
 
     async def perform_search_and_reply(message: types.Message, query: str):
@@ -1676,6 +1811,202 @@ def build_dispatcher(user_id: int, bot_token: str) -> Dispatcher:
                 await call.message.reply(success_text, reply_markup=ikb, parse_mode="HTML")
         else:
             await call.message.reply("⚠️ Ошибка при запуске загрузки на сервер.")
+
+    @dp.callback_query(F.data == "noop")
+    async def on_noop(call: types.CallbackQuery):
+        await call.answer()
+
+    @dp.callback_query(F.data.startswith("dl_pack_all:"))
+    async def on_dl_pack_all(call: types.CallbackQuery):
+        t_hash = call.data.replace("dl_pack_all:", "").strip()
+        cached = TORRENT_PACK_CACHE.get(t_hash)
+        if not cached:
+            await call.answer("⚠️ Данные раздачи устарели. Отправьте торрент-файл повторно.", show_alert=True)
+            return
+
+        await call.answer("⏳ Ставим все серии на загрузку...")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
+        res = await fetch_api("/api/downloads/server/upload-torrent", method="POST", data={
+            "torrentHash": t_hash,
+            "startAll": True,
+            "userId": eff_uid,
+        })
+
+        if res and res.get("success"):
+            title = cached.get("title") or "Сериал"
+            det_season = cached.get("detectedSeason") or 1
+            total_eps = cached.get("totalEpisodes") or len(cached.get("files", []))
+
+            confirm_text = (
+                f"📥 <b>Все {total_eps} серий {det_season} сезона «{html.escape(title)}» поставлены на загрузку!</b>\n\n"
+                f"🚀 Серии будут последовательно скачиваться на сервер и сразу появляться в разделе <b>«📥 Скачанное»</b> на Smart TV, в приложении и веб-плеере.\n\n"
+                f"<i>Первая серия уже скачивается! Вы получите уведомление по завершении каждой серии.</i>"
+            )
+
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📥 Открыть Скачанное", callback_data="menu:downloads", style="primary")
+                ]
+            ])
+            try:
+                if call.message.caption:
+                    await call.message.edit_caption(caption=confirm_text, reply_markup=kb, parse_mode="HTML")
+                else:
+                    await call.message.edit_text(confirm_text, reply_markup=kb, parse_mode="HTML")
+            except Exception:
+                await call.message.reply(confirm_text, reply_markup=kb, parse_mode="HTML")
+        else:
+            err_msg = (res or {}).get("error") or "Не удалось запустить загрузку"
+            await call.answer(f"⚠️ Ошибка: {err_msg}", show_alert=True)
+
+    @dp.callback_query(F.data.startswith("dl_pack_pick:"))
+    async def on_dl_pack_pick(call: types.CallbackQuery):
+        parts = call.data.split(":")
+        t_hash = parts[1]
+        page = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+
+        cached = TORRENT_PACK_CACHE.get(t_hash)
+        if not cached:
+            await call.answer("⚠️ Данные раздачи устарели. Отправьте торрент-файл повторно.", show_alert=True)
+            return
+
+        await call.answer()
+        files = cached.get("files", [])
+        title = cached.get("title") or "Сериал"
+        det_season = cached.get("detectedSeason") or 1
+
+        PAGE_SIZE = 8
+        total_pages = max(1, (len(files) + PAGE_SIZE - 1) // PAGE_SIZE)
+        page = max(0, min(page, total_pages - 1))
+
+        current_files = files[page * PAGE_SIZE : (page + 1) * PAGE_SIZE]
+
+        builder = InlineKeyboardBuilder()
+        for f in current_files:
+            ep_num = f.get("episode") or 0
+            size_tag = f.get("sizeFormatted", "").replace(" ", "")
+            btn_title = f"Серия {ep_num} ({size_tag})" if ep_num > 0 else f"{f.get('name')[:20]} ({size_tag})"
+            builder.button(text=btn_title, callback_data=f"dl_pack_ep:{t_hash}:{f.get('id')}", style="primary")
+        builder.adjust(2)
+
+        # Pagination row
+        nav_row = []
+        if page > 0:
+            nav_row.append(InlineKeyboardButton(text="◀️ Назад", callback_data=f"dl_pack_pick:{t_hash}:{page - 1}"))
+        if total_pages > 1:
+            nav_row.append(InlineKeyboardButton(text=f"Стр. {page + 1}/{total_pages}", callback_data="noop"))
+        if page < total_pages - 1:
+            nav_row.append(InlineKeyboardButton(text="Вперёд ▶️", callback_data=f"dl_pack_pick:{t_hash}:{page + 1}"))
+        if nav_row:
+            builder.row(*nav_row)
+
+        builder.row(
+            InlineKeyboardButton(text="🔙 Назад к сезону", callback_data=f"dl_pack_back:{t_hash}"),
+            InlineKeyboardButton(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+        )
+
+        prompt_text = (
+            f"📋 <b>Выберите серию для загрузки на сервер:</b>\n\n"
+            f"🎬 <b>«{html.escape(title)}»</b> — Сезон {det_season}\n"
+            f"<i>Нажмите на нужную серию, чтобы поставить её на скачивание:</i>"
+        )
+
+        try:
+            if call.message.caption:
+                await call.message.edit_caption(caption=prompt_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+            else:
+                await call.message.edit_text(prompt_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+        except Exception:
+            await call.message.reply(prompt_text, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("dl_pack_back:"))
+    async def on_dl_pack_back(call: types.CallbackQuery):
+        t_hash = call.data.replace("dl_pack_back:", "").strip()
+        cached = TORRENT_PACK_CACHE.get(t_hash)
+        if not cached:
+            await call.answer("⚠️ Данные раздачи устарели.", show_alert=True)
+            return
+
+        await call.answer()
+        title = cached.get("title") or "Сериал"
+        det_season = cached.get("detectedSeason") or 1
+        total_eps = cached.get("totalEpisodes") or len(cached.get("files", []))
+        total_size_fmt = cached.get("totalSizeFormatted") or ""
+        year_val = cached.get("year")
+        year_fmt = f"({year_val})" if year_val else ""
+        rating_val = cached.get("rating")
+        rating_fmt = f"⭐ {rating_val}" if rating_val else ""
+
+        card_caption = (
+            f"📺 <b>Обнаружен сериал: «{html.escape(title)}»</b> {year_fmt} {rating_fmt}\n\n"
+            f"📦 <b>{det_season} сезон</b> (всего {total_eps} серий)\n"
+            f"💾 Общий размер: <b>{total_size_fmt}</b>\n\n"
+            f"<i>Выберите вариант загрузки на сервер:</i>"
+        )
+
+        builder = InlineKeyboardBuilder()
+        builder.button(text=f"📥 Скачать весь сезон ({total_eps} сер.)", callback_data=f"dl_pack_all:{t_hash}", style="success")
+        builder.button(text="📋 Выбрать конкретную серию", callback_data=f"dl_pack_pick:{t_hash}:0", style="primary")
+        builder.button(text="❌ Отмена", callback_data="dl_cancel", style="danger")
+        builder.adjust(1, 1, 1)
+
+        try:
+            if call.message.caption:
+                await call.message.edit_caption(caption=card_caption, reply_markup=builder.as_markup(), parse_mode="HTML")
+            else:
+                await call.message.edit_text(card_caption, reply_markup=builder.as_markup(), parse_mode="HTML")
+        except Exception:
+            await call.message.reply(card_caption, reply_markup=builder.as_markup(), parse_mode="HTML")
+
+    @dp.callback_query(F.data.startswith("dl_pack_ep:"))
+    async def on_dl_pack_ep(call: types.CallbackQuery):
+        parts = call.data.split(":")
+        t_hash = parts[1]
+        file_id = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 0
+
+        cached = TORRENT_PACK_CACHE.get(t_hash)
+        if not cached:
+            await call.answer("⚠️ Данные раздачи устарели.", show_alert=True)
+            return
+
+        target_file = next((f for f in cached.get("files", []) if f.get("id") == file_id), None)
+        ep_display = f"Серия {target_file.get('episode')}" if target_file and target_file.get("episode") else "Выбранная серия"
+
+        await call.answer(f"⏳ Ставим на загрузку: {ep_display}...")
+        eff_u = await resolve_sender_user(call, user_id)
+        eff_uid = eff_u["userId"]
+
+        res = await fetch_api("/api/downloads/server/upload-torrent", method="POST", data={
+            "torrentHash": t_hash,
+            "selectedIndices": [file_id],
+            "userId": eff_uid,
+        })
+
+        if res and res.get("success"):
+            title = cached.get("title") or "Сериал"
+            det_season = cached.get("detectedSeason") or 1
+            ep_text = (
+                f"📥 <b>{ep_display} ({det_season} сезон) сериала «{html.escape(title)}» поставлена на загрузку!</b>\n\n"
+                f"🚀 Файл скачивается на сервер Lumière. После завершения серия сразу появится в разделе <b>«📥 Скачанное»</b> на ваших устройствах."
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📋 Выбрать ещё серию", callback_data=f"dl_pack_pick:{t_hash}:0"),
+                    InlineKeyboardButton(text="📥 Открыть Скачанное", callback_data="menu:downloads", style="primary"),
+                ]
+            ])
+            try:
+                if call.message.caption:
+                    await call.message.edit_caption(caption=ep_text, reply_markup=kb, parse_mode="HTML")
+                else:
+                    await call.message.edit_text(ep_text, reply_markup=kb, parse_mode="HTML")
+            except Exception:
+                await call.message.reply(ep_text, reply_markup=kb, parse_mode="HTML")
+        else:
+            err_msg = (res or {}).get("error") or "Не удалось запустить загрузку"
+            await call.answer(f"⚠️ Ошибка: {err_msg}", show_alert=True)
 
     @dp.callback_query(F.data == "dl_cancel")
     async def on_dl_cancel(call: types.CallbackQuery):
