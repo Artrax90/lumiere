@@ -141,6 +141,16 @@ class AppPreferences(private val context: Context) {
         return context.dataStore.data.first()[longPreferencesKey("pos_${mediaType}_$tmdbId")]
     }
 
+    suspend fun setEpisodePlaybackPosition(tmdbId: Long, season: Int, episode: Int, positionSec: Long) {
+        context.dataStore.edit { prefs ->
+            prefs[longPreferencesKey("pos_tv_${tmdbId}_s${season}_e${episode}")] = positionSec
+        }
+    }
+
+    suspend fun getEpisodePlaybackPosition(tmdbId: Long, season: Int, episode: Int): Long? {
+        return context.dataStore.data.first()[longPreferencesKey("pos_tv_${tmdbId}_s${season}_e${episode}")]
+    }
+
     suspend fun setLastWatchedSeries(seriesId: Long, season: Int, episode: Int) {
         context.dataStore.edit { prefs ->
             prefs[intPreferencesKey("last_season_$seriesId")] = season

@@ -81,12 +81,20 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         isHls: Boolean = streamUrl.contains(".m3u8"),
         startPositionMs: Long = 0L,
         mediaId: Long = 0L,
-        mediaType: String = "movie"
+        mediaType: String = "movie",
+        season: Int = 0,
+        episode: Int = 0
     ) {
         viewModelScope.launch {
             var initialSeek = startPositionMs
             if (initialSeek <= 0L && mediaId > 0L) {
-                val savedSec = preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+                val savedSec = if (mediaType == "tv" && episode > 0) {
+                    preferences.getEpisodePlaybackPosition(mediaId, season, episode) ?: 0L
+                } else if (mediaType != "tv") {
+                    preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
+                } else {
+                    0L
+                }
                 if (savedSec > 5L) {
                     initialSeek = savedSec * 1000L
                 }
@@ -243,12 +251,23 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     @OptIn(DelicateCoroutinesApi::class)
-    fun saveWatchProgress(mediaId: Long, mediaType: String, title: String = "", poster: String = "") {
+    fun saveWatchProgress(
+        mediaId: Long,
+        mediaType: String,
+        title: String = "",
+        poster: String = "",
+        season: Int = activeSeason,
+        episode: Int = activeEpisode
+    ) {
         if (mediaId <= 0L) return
         val rawSec = player.positionMs.value / 1000L
         val currentSec = if (rawSec > 0L) rawSec else maxPositionSec
         val durSec = player.durationMs.value / 1000L
-        val isCompleted = durSec > 60L && currentSec >= durSec - 15L
+
+        // Episode/film completed if within 60s of end OR >= 90% watched (credits roll!)
+        val isCompleted = durSec > 60L && (
+            (durSec - currentSec <= 60L) || (currentSec.toDouble() / durSec.toDouble() >= 0.90)
+        )
         val effectiveSec = if (isCompleted) 0L else currentSec
 
         // Guard: Do not overwrite progress with 0 or < 5s if user hasn't finished the film
@@ -257,7 +276,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         // Launch in GlobalScope with NonCancellable to ensure persistence completes even if ViewModel is cleared
         GlobalScope.launch(Dispatchers.IO + NonCancellable) {
             try {
-                preferences.setPlaybackPosition(mediaId, mediaType, effectiveSec)
+                if (mediaType == "tv" && episode > 0) {
+                    preferences.setEpisodePlaybackPosition(mediaId, season, episode, effectiveSec)
+                    if (isCompleted) {
+                        preferences.setLastWatchedSeries(mediaId, season, episode + 1)
+                        preferences.setPlaybackPosition(mediaId, mediaType, 0L)
+                    } else {
+                        preferences.setLastWatchedSeries(mediaId, season, episode)
+                        preferences.setPlaybackPosition(mediaId, mediaType, effectiveSec)
+                    }
+                } else {
+                    preferences.setPlaybackPosition(mediaId, mediaType, effectiveSec)
+                }
+
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 if (serverUrl.isNotBlank()) {
                     val api = networkClient?.createApiService(serverUrl)

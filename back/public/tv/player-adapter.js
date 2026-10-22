@@ -436,7 +436,7 @@
         self._emit('loaded');
         self._emit('playing');
         // Only use HLS duration if we don't already have an accurate duration from FFprobe API
-        if (data && data.totalduration && isFinite(data.totalduration) && data.totalduration > 0) {
+        if (!self._hasExternalDuration && data && data.totalduration && isFinite(data.totalduration) && data.totalduration > 0) {
           if (!self._duration || data.totalduration > self._duration) {
             self._duration = (self._seekOffset || 0) + data.totalduration;
             self._emit('durationChange', { duration: self._duration });
@@ -501,13 +501,17 @@
       self._emit('timeUpdate', { currentTime: self._currentTime });
     };
     $video.onloadedmetadata = function() {
+      if (self._hasExternalDuration && self._duration > 60) return;
       if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
+        if (self._duration > 60 && $video.duration < self._duration) return;
         self._duration = $video.duration;
         self._emit('durationChange', { duration: self._duration });
       }
     };
     $video.ondurationchange = function() {
+      if (self._hasExternalDuration && self._duration > 60) return;
       if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
+        if (self._duration > 60 && $video.duration < self._duration) return;
         self._duration = $video.duration;
         self._emit('durationChange', { duration: self._duration });
       }

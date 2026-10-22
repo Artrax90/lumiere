@@ -1501,8 +1501,8 @@ export function torrentRoutes(app: FastifyInstance) {
       // Method 1: format-level duration with large probesize
       try {
         const { stdout: fmtResult } = await execAsync(
-          `ffprobe -v quiet -print_format json -show_format -probesize 5000000 -analyzeduration 5000000 "${streamUrl}"`,
-          { timeout: 15000 }
+          `ffprobe -v quiet -print_format json -show_format -probesize 1000000 -analyzeduration 1000000 "${streamUrl}"`,
+          { timeout: 25000 }
         );
         const fmtData = JSON.parse(fmtResult);
         dur = parseFloat(fmtData.format?.duration || '0');

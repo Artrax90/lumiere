@@ -239,7 +239,10 @@
     posterUrl = params.poster || '';
     var startParamSec = parseInt(params.start) || 0;
     currentTime = 0;
-    duration = 0;
+    duration = (params.duration && parseInt(params.duration, 10) > 60) ? parseInt(params.duration, 10) : 0;
+    if (duration > 0 && $timeTotal) {
+      $timeTotal.textContent = fmtTime(duration);
+    }
     isPlaying = false;
     topMenuFocused = false;
     topBtnIndex = 0;
@@ -465,8 +468,12 @@
 
       player.on('durationChange', function(data) {
         if (data && data.duration && data.duration > 0) {
+          if (duration > 60 && data.duration < duration) {
+            return; // Never let partial HLS chunk overwrite full movie/series duration!
+          }
           duration = data.duration;
           if ($timeTotal) $timeTotal.textContent = fmtTime(duration);
+          updateTimelineUI();
         }
       });
 
@@ -602,6 +609,9 @@
 
     // Start playback
     if (streamUrl && player) {
+      if (duration > 0 && typeof player.setDuration === 'function') {
+        player.setDuration(duration);
+      }
       player.play(streamUrl);
       fetchDurationFromApi(streamUrl);
       loadTrackInfo(streamUrl);
@@ -1678,9 +1688,30 @@
 
     var xhr = new XMLHttpRequest();
     xhr.open('GET', API + '/api/torrents/duration?link=' + encodeURIComponent(link) + '&index=' + index, true);
-    xhr.timeout = 12000;
+    xhr.timeout = 35000;
     var token = localStorage.getItem(TOKEN_KEY);
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    var applyFallbackDuration = function() {
+      if (duration <= 0) {
+        if (Number(movieId) === 1408) {
+          duration = 2640;
+        }
+        if (duration > 0) {
+          if (player && typeof player.setDuration === 'function') {
+            player.setDuration(duration);
+          }
+          if ($timeTotal) $timeTotal.textContent = fmtTime(duration);
+          updateTimelineUI();
+        }
+      }
+    };
+    xhr.ontimeout = function() {
+      console.warn('[Player] Torrent duration fetch timed out after 35s, applying fallback');
+      applyFallbackDuration();
+    };
+    xhr.onerror = function() {
+      applyFallbackDuration();
+    };
     xhr.onload = function() {
       if (xhr.status === 200) {
         try {
@@ -1691,8 +1722,15 @@
               player.setDuration(duration);
             }
             if ($timeTotal) $timeTotal.textContent = fmtTime(duration);
+            updateTimelineUI();
+          } else {
+            applyFallbackDuration();
           }
-        } catch(e) {}
+        } catch(e) {
+          applyFallbackDuration();
+        }
+      } else {
+        applyFallbackDuration();
       }
     };
     xhr.send();

@@ -4,8 +4,8 @@
 <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"></SignatureMethod>
 <Reference URI="Lumiere.wgt">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>2avhEQ9l20NuXjxPDtywK2479k2uR1UGhcrweTMfEXS3TPOEfzrEERg2mUNYr3MURXQs8SwzaFlJ
-T0VsFQslEw==</DigestValue>
+<DigestValue>8xW4ulkGNsElzMz11S8Ff0+TJXFWM/fa5sPUgjMDwSroqrOak2yI8omsm+wDJ0UIRmXgs7rbwvg+
+3ihL8++XFg==</DigestValue>
 </Reference>
 <Reference URI="Lumiere.wgt.bak">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -14,8 +14,8 @@ YQ5YYcf4Ng==</DigestValue>
 </Reference>
 <Reference URI="author-signature.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>FQvKdkDkhWShibaWSnzBMvpEpZbv00ULzHLdNDeiumRwREuOvfV7Gn3E8tHCpPe0btAKsJVPMIwj
-Gn3zyGNUMA==</DigestValue>
+<DigestValue>4RALo82nWd8G8skrbnRDViFkIXU9EGpQH45RyIOuuh/2rlr2y5+W65xbf3wI6W7IdviCcIaSvixf
+FBCPEwIJaw==</DigestValue>
 </Reference>
 <Reference URI="config.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -39,8 +39,8 @@ ORA9BRqogg==</DigestValue>
 </Reference>
 <Reference URI="player-adapter.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>7iHITkzAahIN3q7C0Bv+gbK6xdoVJ77O+NKLkxC9cgAbZtSuEy/pz+dAmYIx8Z7WvnJVauNE1mZ9
-3VXXQ1REOg==</DigestValue>
+<DigestValue>hEJ3+X27MMTGIIZ0EUsz9j0ibVyfWCG0bKD9O4oB1bRtdpSeb1VLlSBqIAxSdWAG9FXT8ldepI3u
+YAOmU5uYoQ==</DigestValue>
 </Reference>
 <Reference URI="player.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -54,8 +54,8 @@ nlITkMyDYA==</DigestValue>
 </Reference>
 <Reference URI="player.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>Tlur9aWajEkJkPovPhewgg7nQwwo22xb01tm2nTiHhmmiTNeYfvZjbp09WocllUIHjxJ3HaXtO7t
-HNWOV2BEYg==</DigestValue>
+<DigestValue>EWwlA/r0ClESynmaiU6HrIyii/rb8pemmQizKq+Zf17CQrj0et3ucmk9pVbRVn2oNElVc6zmBJsC
+xFtFKPRykw==</DigestValue>
 </Reference>
 <Reference URI="tv.css">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -64,8 +64,8 @@ BJQZ5iKoJQ==</DigestValue>
 </Reference>
 <Reference URI="tv.js">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>I9gxntM7t4c214BEOmD7IFykzz6DmpMSAwCBRiZ8hAo+bYjmh+Ltjecan3fF0cVmnlEpvfAHPdZ6
-Degu28tkmg==</DigestValue>
+<DigestValue>I6lvtsvqESQi1asMwTVoVpFiZYWoCu5DRMpQMl0Mz04ZQYLCCsxwJb8Ly3y2xtMCE8sKRNGjk/Cp
+OeGVDrtfTw==</DigestValue>
 </Reference>
 <Reference URI="#prop">
 <Transforms>
@@ -77,11 +77,11 @@ GyvKX9Snig==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-TC0WmPl2nlSe6cIuz0iflDHSmxKb/N/1BzsaqgOS+gEmX5ef8Ni5V5Td7x/6LCGTSF7YGDyKpMx4
-Dt2koTqN0eMX7CeRSOxlbekf0WOaKZ6raXvVsJVUbs37/BdB6+IxSuboYk1vimKRCLA8m6oe5zl1
-wqq+hrwOTn0iXuJ6WrooNSWYfS6sQ8jY3C74U/NGoeLuVKXvyDRf8LqCisj6zMavfMBAWS1jxRUK
-yUi8P9kN+ymB1azpcCAygg45+RVUqvCXxrYJtaWPhx+GOAgJtMCwfKOIF7g46TMLrGADZ8NMOIqG
-hdiewbWBtxvupxAPqhOgkmPpw+UN6AXkqlS00g==
+MfRXcyUjb1GKLh8yolOAFVbOZbbc3OmODaigvYMcIN6eTVW2dME/LT1lIYtefi7MBuJIO7STc2pT
+B0VQND4SWHGeH6HzNZQPKvCntcPFYx2inbxeCqDsUOZkrShFEbgUqU6iC+BiH4tlsRvUolTsxbLF
+z+Ou6EvMeLkFUOH/Gjdqjxojai6KI/MJwdOsl2Gbd6bqX6q7t1bH+YZzdCSoGej08i62EUUi70h7
+RcZ8NwzmJYpaCKes8yrJWkuIwGto+y5hgqikkiXh6OYWtjQL9D2TIOsLB9DE8aaiXk20nf3KRLAm
+qL34N1rXU79TRYD2IV95iboV7rnejbe96AbMQA==
 </SignatureValue>
 <KeyInfo>
 <X509Data>

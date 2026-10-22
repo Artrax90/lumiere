@@ -38,7 +38,7 @@ fun DetailsScreen(
     mediaId: Long,
     mediaType: String,
     onBackClick: () -> Unit,
-    onPlayRequested: (streamUrl: String, title: String, subtitle: String, isHls: Boolean, startPositionMs: Long, poster: String) -> Unit,
+    onPlayRequested: (streamUrl: String, title: String, subtitle: String, isHls: Boolean, startPositionMs: Long, poster: String, season: Int, episode: Int) -> Unit,
     onSimilarTitleClick: ((Title) -> Unit)? = null,
     viewModel: DetailsViewModel
 ) {
@@ -259,7 +259,9 @@ fun DetailsScreen(
                                         onClick = {
                                             viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
                                                 val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
-                                                onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty())
+                                                val sNum = if (mediaType == "tv") state.selectedSeason else 0
+                                                val eNum = if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0
+                                                onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
                                             }
                                         },
                                         modifier = Modifier.focusRequester(watchFocusRequester),
@@ -428,7 +430,7 @@ fun DetailsScreen(
                                     OutlinedButton(
                                         onClick = {
                                             viewModel.playTrailer { trailerUrl ->
-                                                onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "")
+                                                onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
                                             }
                                         },
                                         scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1f),
@@ -534,7 +536,7 @@ fun DetailsScreen(
                                             } else {
                                                 0L
                                             }
-                                            onPlayRequested(streamUrl, epTitle, subtitle, isHls, startPos, title.poster.orEmpty())
+                                            onPlayRequested(streamUrl, epTitle, subtitle, isHls, startPos, title.poster.orEmpty(), ep.season, ep.episode)
                                         }
                                     }
                                 )
@@ -665,7 +667,9 @@ fun DetailsScreen(
                                                 isSelected = !state.lastPlayedTorrentMagnet.isNullOrBlank() && torrent.magnet == state.lastPlayedTorrentMagnet,
                                                 onClick = {
                                                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
-                                                        val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {
+                                                        val sNum = state.selectedEpisode?.season ?: (if (mediaType == "tv") state.selectedSeason else 0)
+                                                        val eNum = state.selectedEpisode?.episode ?: (if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0)
+                                                        val startPos = if (mediaType == "tv") {
                                                             if (state.selectedEpisode?.season == state.selectedSeason && state.selectedEpisode?.episode == state.lastWatchedEpisodeNum) {
                                                                 (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                                                             } else {
@@ -674,7 +678,7 @@ fun DetailsScreen(
                                                         } else {
                                                             (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                                                         }
-                                                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty())
+                                                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
                                                     }
                                                 }
                                             )
@@ -730,7 +734,9 @@ fun DetailsScreen(
                 selectedMagnet = state.lastPlayedTorrentMagnet,
                 onTorrentSelected = { torrent ->
                     viewModel.playTorrent(torrent) { streamUrl, playTitle, subtitle, isHls ->
-                        val startPos = if (mediaType == "tv" && state.selectedEpisode != null) {
+                        val sNum = state.selectedEpisode?.season ?: (if (mediaType == "tv") state.selectedSeason else 0)
+                        val eNum = state.selectedEpisode?.episode ?: (if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0)
+                        val startPos = if (mediaType == "tv") {
                             if (state.selectedEpisode?.season == state.selectedSeason && state.selectedEpisode?.episode == state.lastWatchedEpisodeNum) {
                                 (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                             } else {
@@ -739,7 +745,7 @@ fun DetailsScreen(
                         } else {
                             (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                         }
-                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title?.poster.orEmpty())
+                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title?.poster.orEmpty(), sNum, eNum)
                     }
                 },
                 onDismiss = { viewModel.dismissTorrentDialog() }

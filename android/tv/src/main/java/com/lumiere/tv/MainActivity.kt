@@ -375,7 +375,7 @@ class MainActivity : ComponentActivity() {
                                 mediaId = id,
                                 mediaType = type,
                                 onBackClick = { navController.popBackStack() },
-                                onPlayRequested = { streamUrl, title, subtitle, isHls, startPositionMs, poster ->
+                                onPlayRequested = { streamUrl, title, subtitle, isHls, startPositionMs, poster, season, episode ->
                                     navController.navigate(
                                         Screen.Player.createRoute(
                                             streamUrl = streamUrl,
@@ -384,6 +384,8 @@ class MainActivity : ComponentActivity() {
                                             isHls = isHls,
                                             mediaId = id,
                                             mediaType = type,
+                                            season = season,
+                                            episode = episode,
                                             startPositionMs = startPositionMs,
                                             poster = poster
                                         )

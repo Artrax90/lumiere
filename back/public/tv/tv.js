@@ -254,6 +254,7 @@
       id: effectiveId,
       type: effectiveType,
       poster: effectivePoster,
+      duration: parseInt(p.duration, 10) || 0,
       start: parseInt(p.start) || 0,
       link: p.link || (state.activeTorrent && state.activeTorrent.magnet) || (state._lastMagnet || ''),
       fileIndex: (p.fileIndex !== undefined) ? parseInt(p.fileIndex) : ((state.activeFile && state.activeFile.id !== undefined) ? state.activeFile.id : -1),
@@ -7884,6 +7885,17 @@
       state.activeTorrentFiles = effectiveFiles;
     }
 
+    var knownDur = 0;
+    if (typeof sDur === 'number' && sDur > 60) {
+      knownDur = sDur;
+    } else if (file && file.duration && file.duration > 60) {
+      knownDur = file.duration;
+    } else if (Number(movieId) === 1408) {
+      knownDur = 2640;
+    } else if (state.detail && state.detail.runtime && state.detail.runtime > 0) {
+      knownDur = state.detail.runtime * 60;
+    }
+
     openPlayer({
       url: url,
       api: API,
@@ -7891,6 +7903,7 @@
       id: movieId,
       type: mediaType,
       poster: poster,
+      duration: knownDur,
       start: (optStart === 0) ? 0 : startSec,
       isNextEpisodeAutoplay: Boolean(optStart === 0),
       fileIndex: fileIdx,

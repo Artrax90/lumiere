@@ -100,6 +100,12 @@ class DetailsViewModel(
                 if (mediaType == "tv") {
                     savedSeason = preferences.getLastWatchedSeriesSeason(mediaId) ?: 1
                     val savedEp = preferences.getLastWatchedSeriesEpisode(mediaId)
+                    if (savedEp != null) {
+                        val epPos = preferences.getEpisodePlaybackPosition(mediaId, savedSeason, savedEp)
+                        if (epPos != null) {
+                            finalProgress = epPos
+                        }
+                    }
                     _uiState.update { it.copy(selectedSeason = savedSeason, lastWatchedEpisodeNum = savedEp) }
                     loadSeason(savedSeason)
                 }
@@ -226,6 +232,13 @@ class DetailsViewModel(
                 } catch (_: Exception) {}
             }
             val season = if (mediaType == "tv") _uiState.value.selectedSeason else 0
+            val savedEp = if (mediaType == "tv") _uiState.value.lastWatchedEpisodeNum else null
+            if (mediaType == "tv" && savedEp != null) {
+                val epPos = preferences.getEpisodePlaybackPosition(mediaId, season, savedEp)
+                if (epPos != null) {
+                    finalProgress = epPos
+                }
+            }
             val lastTorrent = preferences.getLastPlayedTorrent(mediaId, season)
             _uiState.update {
                 it.copy(
