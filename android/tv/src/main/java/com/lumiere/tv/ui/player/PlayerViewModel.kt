@@ -3,6 +3,7 @@ package com.lumiere.tv.ui.player
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lumiere.core.model.*
 import com.lumiere.core.network.NetworkClient
 import com.lumiere.core.player.LumierePlayer
 import com.lumiere.core.storage.AppPreferences
@@ -15,7 +16,11 @@ import kotlinx.coroutines.flow.update
 
 data class PlayerUiState(
     val isControlsVisible: Boolean = false,
-    val torrServerStats: String? = null
+    val torrServerStats: String? = null,
+    val currentTitle: String = "",
+    val currentSubtitle: String = "",
+    val isSwitchingEpisode: Boolean = false,
+    val statusMessage: String? = null
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -304,6 +309,204 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     )
                 }
             } catch (_: Exception) {}
+        }
+    }
+
+    fun setInitialMetadata(title: String, subtitle: String) {
+        _uiState.update {
+            it.copy(
+                currentTitle = if (it.currentTitle.isNotBlank()) it.currentTitle else title,
+                currentSubtitle = if (it.currentSubtitle.isNotBlank()) it.currentSubtitle else subtitle
+            )
+        }
+    }
+
+    private var switchEpisodeJob: Job? = null
+
+    fun previousEpisodeOrStart() {
+        val currentSec = player.positionMs.value / 1000L
+        if (activeMediaType != "tv") {
+            player.seekTo(0L)
+            return
+        }
+
+        // If played more than 10 seconds: standard behavior rewinds to beginning of current episode (0:00)
+        if (currentSec > 10L) {
+            player.seekTo(0L)
+            return
+        }
+
+        // In first 10 seconds: switch to previous episode if available
+        if (activeEpisode > 1) {
+            val prevEp = activeEpisode - 1
+            switchEpisode(activeSeason, prevEp)
+        } else {
+            player.seekTo(0L)
+        }
+    }
+
+    fun nextEpisodeOrEnd() {
+        if (activeMediaType != "tv") {
+            val durMs = player.durationMs.value
+            if (durMs > 5000L) {
+                player.seekTo(durMs - 3000L)
+            }
+            return
+        }
+
+        // For TV series: save watch progress and advance to next episode
+        saveWatchProgress(activeMediaId, activeMediaType, activeTitle, activePoster, activeSeason, activeEpisode)
+        val nextEp = activeEpisode + 1
+        switchEpisode(activeSeason, nextEp)
+    }
+
+    fun switchEpisode(season: Int, episode: Int) {
+        if (activeMediaId <= 0L) return
+        switchEpisodeJob?.cancel()
+        switchEpisodeJob = viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    isSwitchingEpisode = true,
+                    statusMessage = "Загрузка серии $episode..."
+                )
+            }
+            try {
+                val serverUrl = preferences.serverUrl.first().orEmpty()
+                val api = networkClient?.createApiService(serverUrl) ?: return@launch
+
+                // 1. Check last played torrent for this season
+                val lastTorrentPair = preferences.getLastPlayedTorrent(activeMediaId, season)
+                    ?: preferences.getLastPlayedTorrent(activeMediaId, 0)
+
+                var matchedUrl: String? = null
+                var isHls = false
+
+                if (lastTorrentPair != null) {
+                    val (magnet, torrentTitle) = lastTorrentPair
+                    try {
+                        val streamInfo = api.getTorrentStreamInfo(
+                            TorrentStreamRequest(magnet = magnet, title = torrentTitle)
+                        )
+                        if (streamInfo.files.isNotEmpty()) {
+                            val epPadded = String.format("%02d", episode)
+                            val file = streamInfo.files.find { f ->
+                                com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name) == episode
+                            } ?: streamInfo.files.find { f ->
+                                val name = f.name.lowercase()
+                                name.contains("e${episode}") || name.contains("e$epPadded") ||
+                                name.contains(" $epPadded ") || name.contains(" $epPadded.") ||
+                                name.contains("_${epPadded}_") || name.contains(".${epPadded}.")
+                            }
+                            if (file != null) {
+                                val rel = file.streamUrl ?: file.directUrl ?: file.hlsUrl
+                                if (!rel.isNullOrBlank()) {
+                                    matchedUrl = if (rel.startsWith("http")) rel else "$serverUrl$rel"
+                                    isHls = rel.contains(".m3u8")
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // 2. If not found in current torrent, search torrents matching season & episode
+                if (matchedUrl == null) {
+                    val searchRes = api.searchTorrents(
+                        query = activeTitle,
+                        tmdbId = activeMediaId,
+                        type = "tv",
+                        year = null
+                    )
+                    val torrents = searchRes.torrents.ifEmpty { searchRes.results }
+                    val candidates = torrents.filter {
+                        com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season)
+                    }.sortedWith(
+                        compareByDescending<TorrentItem> {
+                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(it.title, season, episode)) 100 else 0
+                        }.thenByDescending { it.seeders ?: 0 }
+                    )
+
+                    for (cand in candidates.take(3)) {
+                        try {
+                            val streamInfo = api.getTorrentStreamInfo(
+                                TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
+                            )
+                            val epPadded = String.format("%02d", episode)
+                            val file = streamInfo.files.find { f ->
+                                com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name) == episode
+                            } ?: streamInfo.files.find { f ->
+                                val name = f.name.lowercase()
+                                name.contains("e${episode}") || name.contains("e$epPadded") ||
+                                name.contains(" $epPadded ") || name.contains(" $epPadded.")
+                            }
+                            if (file != null) {
+                                val rel = file.streamUrl ?: file.directUrl ?: file.hlsUrl
+                                if (!rel.isNullOrBlank()) {
+                                    matchedUrl = if (rel.startsWith("http")) rel else "$serverUrl$rel"
+                                    isHls = rel.contains(".m3u8")
+                                    preferences.setLastPlayedTorrent(activeMediaId, season, cand.magnet, cand.title)
+                                    break
+                                }
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+
+                if (matchedUrl != null) {
+                    activeSeason = season
+                    activeEpisode = episode
+                    maxPositionSec = 0L
+
+                    val epSubtitle = "Сезон $season, Серия $episode"
+                    _uiState.update {
+                        it.copy(
+                            currentSubtitle = epSubtitle,
+                            isSwitchingEpisode = false,
+                            statusMessage = null
+                        )
+                    }
+
+                    // Check if target episode has saved progress
+                    val savedPos = preferences.getEpisodePlaybackPosition(activeMediaId, season, episode) ?: 0L
+                    val startPosMs = if (savedPos > 5L) savedPos * 1000L else 0L
+
+                    playStream(
+                        streamUrl = matchedUrl,
+                        isHls = isHls,
+                        startPositionMs = startPosMs,
+                        mediaId = activeMediaId,
+                        mediaType = activeMediaType,
+                        season = season,
+                        episode = episode
+                    )
+                    startPeriodicProgressSaving(
+                        mediaId = activeMediaId,
+                        mediaType = activeMediaType,
+                        title = activeTitle,
+                        poster = activePoster,
+                        season = season,
+                        episode = episode
+                    )
+                    preferences.setLastWatchedSeries(activeMediaId, season, episode)
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            isSwitchingEpisode = false,
+                            statusMessage = "Серия $episode не найдена в источниках"
+                        )
+                    }
+                    delay(3000)
+                    _uiState.update { it.copy(statusMessage = null) }
+                }
+            } catch (e: Exception) {
+                _uiState.update {
+                    it.copy(
+                        isSwitchingEpisode = false,
+                        statusMessage = "Ошибка загрузки: ${e.message}"
+                    )
+                }
+                delay(3000)
+                _uiState.update { it.copy(statusMessage = null) }
+            }
         }
     }
 

@@ -53,16 +53,23 @@ fun PlayerScreen(
 
     val focusRequester = remember { FocusRequester() }
 
+    val displayTitle = if (uiState.currentTitle.isNotBlank()) uiState.currentTitle else title
+    val displaySubtitle = if (uiState.currentSubtitle.isNotBlank()) uiState.currentSubtitle else subtitle
+
     var activeZone by remember { mutableStateOf(PlayerZone.TIMELINE) }
-    var bottomBtnIndex by remember { mutableIntStateOf(1) } // 1 is Play/Pause
+    var bottomBtnIndex by remember { mutableIntStateOf(2) } // 2 is Play/Pause
     var popupType by remember { mutableStateOf<String?>(null) } // "audio", "subs", or null
     var popupIndex by remember { mutableIntStateOf(0) }
 
     val hasAudio = audioTracks.isNotEmpty()
     val hasSubs = subtitleTracks.isNotEmpty()
-    val audioBtnIndex = if (hasAudio) 3 else -1
-    val subBtnIndex = if (hasSubs) (if (hasAudio) 4 else 3) else -1
-    val totalBottomButtons = 3 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
+    val audioBtnIndex = if (hasAudio) 5 else -1
+    val subBtnIndex = if (hasSubs) (if (hasAudio) 6 else 5) else -1
+    val totalBottomButtons = 5 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
+
+    LaunchedEffect(title, subtitle) {
+        viewModel.setInitialMetadata(title, subtitle)
+    }
 
     LaunchedEffect(streamUrl) {
         viewModel.playStream(streamUrl, isHls, startPositionMs, mediaId, mediaType, season, episode)
@@ -130,6 +137,20 @@ fun PlayerScreen(
                         player.seekRelative(-10000L)
                         viewModel.showControls()
                         activeZone = PlayerZone.TIMELINE
+                        return@onPreviewKeyEvent true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                        viewModel.previousEpisodeOrStart()
+                        viewModel.showControls()
+                        activeZone = PlayerZone.BOTTOM
+                        bottomBtnIndex = 0
+                        return@onPreviewKeyEvent true
+                    }
+                    KeyEvent.KEYCODE_MEDIA_NEXT -> {
+                        viewModel.nextEpisodeOrEnd()
+                        viewModel.showControls()
+                        activeZone = PlayerZone.BOTTOM
+                        bottomBtnIndex = 4
                         return@onPreviewKeyEvent true
                     }
                 }
@@ -228,7 +249,7 @@ fun PlayerScreen(
                                         }
                                         KeyEvent.KEYCODE_DPAD_DOWN -> {
                                             activeZone = PlayerZone.BOTTOM
-                                            bottomBtnIndex = 1 // default to Play/Pause
+                                            bottomBtnIndex = 2 // default to Play/Pause
                                             true
                                         }
                                         else -> false
@@ -254,9 +275,11 @@ fun PlayerScreen(
                                         }
                                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                                             when (bottomBtnIndex) {
-                                                0 -> player.seekRelative(-10000L)
-                                                1 -> player.togglePlayPause()
-                                                2 -> player.seekRelative(10000L)
+                                                0 -> viewModel.previousEpisodeOrStart()
+                                                1 -> player.seekRelative(-10000L)
+                                                2 -> player.togglePlayPause()
+                                                3 -> player.seekRelative(10000L)
+                                                4 -> viewModel.nextEpisodeOrEnd()
                                                 audioBtnIndex -> {
                                                     popupType = "audio"
                                                     val sel = audioTracks.indexOfFirst { it.isSelected }
@@ -322,7 +345,7 @@ fun PlayerScreen(
         )
 
         // Central Buffering / Loading Overlay - instant, zero transition lag
-        val isBuffering = playbackState == Player.STATE_BUFFERING
+        val isBuffering = playbackState == Player.STATE_BUFFERING || uiState.isSwitchingEpisode
         if (isBuffering) {
             Box(
                 modifier = Modifier
@@ -344,21 +367,29 @@ fun PlayerScreen(
                     )
 
                     androidx.tv.material3.Text(
-                        text = title,
+                        text = displayTitle,
                         style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
                         color = com.lumiere.tv.theme.TextPrimary
                     )
 
-                    if (subtitle.isNotBlank()) {
+                    if (displaySubtitle.isNotBlank()) {
                         androidx.tv.material3.Text(
-                            text = subtitle,
+                            text = displaySubtitle,
                             style = androidx.tv.material3.MaterialTheme.typography.bodyMedium,
                             color = com.lumiere.tv.theme.TextSecondary
                         )
                     }
 
+                    val msg = uiState.statusMessage
                     val stats = uiState.torrServerStats
-                    if (!stats.isNullOrBlank()) {
+                    if (!msg.isNullOrBlank()) {
+                        androidx.tv.material3.Text(
+                            text = msg,
+                            style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
+                            color = com.lumiere.tv.theme.LumiereGold,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                        )
+                    } else if (!stats.isNullOrBlank()) {
                         androidx.tv.material3.Text(
                             text = stats,
                             style = androidx.tv.material3.MaterialTheme.typography.labelMedium,
@@ -379,10 +410,10 @@ fun PlayerScreen(
         // TV Controls Overlay
         PlayerControlsOverlay(
             isVisible = uiState.isControlsVisible,
-            title = title,
-            subtitle = subtitle,
+            title = displayTitle,
+            subtitle = displaySubtitle,
             isPlaying = isPlaying,
-            isBuffering = playbackState == Player.STATE_BUFFERING,
+            isBuffering = isBuffering,
             positionMs = positionMs,
             durationMs = durationMs,
             bufferedMs = bufferedMs,
@@ -395,6 +426,8 @@ fun PlayerScreen(
             popupIndex = popupIndex,
             onPlayPauseClick = { player.togglePlayPause() },
             onSeekRelative = { offset -> player.seekRelative(offset) },
+            onPreviousClick = { viewModel.previousEpisodeOrStart() },
+            onNextClick = { viewModel.nextEpisodeOrEnd() },
             onAudioTrackSelect = { idx -> player.selectAudioTrack(idx) },
             onSubtitleTrackSelect = { idx -> player.selectSubtitleTrack(idx) },
             onOpenAudioPopup = {

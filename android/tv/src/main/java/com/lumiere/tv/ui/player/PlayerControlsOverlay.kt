@@ -50,6 +50,8 @@ fun PlayerControlsOverlay(
     popupIndex: Int,
     onPlayPauseClick: () -> Unit,
     onSeekRelative: (Long) -> Unit,
+    onPreviousClick: () -> Unit,
+    onNextClick: () -> Unit,
     onAudioTrackSelect: (Int) -> Unit,
     onSubtitleTrackSelect: (Int) -> Unit,
     onOpenAudioPopup: () -> Unit,
@@ -60,8 +62,8 @@ fun PlayerControlsOverlay(
 ) {
     val hasAudio = audioTracks.isNotEmpty()
     val hasSubs = subtitleTracks.isNotEmpty()
-    val audioBtnIndex = if (hasAudio) 3 else -1
-    val subBtnIndex = if (hasSubs) (if (hasAudio) 4 else 3) else -1
+    val audioBtnIndex = if (hasAudio) 5 else -1
+    val subBtnIndex = if (hasSubs) (if (hasAudio) 6 else 5) else -1
 
     if (isVisible) {
         Box(
@@ -248,7 +250,7 @@ fun PlayerControlsOverlay(
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Rewind 10s (Button 0)
+                        // Previous / Start (Button 0)
                         val isBtn0Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 0
                         Box(
                             modifier = Modifier
@@ -259,26 +261,48 @@ fun PlayerControlsOverlay(
                                     color = if (isBtn0Focused) Color.White else SurfaceBorder,
                                     shape = CircleShape
                                 )
+                                .clickable { onPreviousClick() }
+                                .padding(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "В начало / Предыдущая серия",
+                                tint = if (isBtn0Focused) BackgroundDark else TextPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // Rewind 10s (Button 1)
+                        val isBtn1Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 1
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isBtn1Focused) LumiereGold else SurfaceVariantDark)
+                                .border(
+                                    width = if (isBtn1Focused) 2.5.dp else 1.dp,
+                                    color = if (isBtn1Focused) Color.White else SurfaceBorder,
+                                    shape = CircleShape
+                                )
                                 .clickable { onSeekRelative(-10000L) }
                                 .padding(10.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Replay10,
                                 contentDescription = "-10с",
-                                tint = if (isBtn0Focused) BackgroundDark else TextPrimary,
+                                tint = if (isBtn1Focused) BackgroundDark else TextPrimary,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
 
-                        // Play/Pause (Button 1)
-                        val isBtn1Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 1
+                        // Play/Pause (Button 2)
+                        val isBtn2Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 2
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (isBtn1Focused) Color.White else Color(0x33FFFFFF))
+                                .background(if (isBtn2Focused) Color.White else Color(0x33FFFFFF))
                                 .border(
-                                    width = if (isBtn1Focused) 3.dp else 1.dp,
-                                    color = if (isBtn1Focused) LumiereGold else SurfaceBorder,
+                                    width = if (isBtn2Focused) 3.dp else 1.dp,
+                                    color = if (isBtn2Focused) LumiereGold else SurfaceBorder,
                                     shape = CircleShape
                                 )
                                 .clickable { onPlayPauseClick() }
@@ -287,20 +311,20 @@ fun PlayerControlsOverlay(
                             Icon(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) "Пауза" else "Играть",
-                                tint = if (isBtn1Focused) BackgroundDark else Color.White,
+                                tint = if (isBtn2Focused) BackgroundDark else Color.White,
                                 modifier = Modifier.size(28.dp)
                             )
                         }
 
-                        // Forward 10s (Button 2)
-                        val isBtn2Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 2
+                        // Forward 10s (Button 3)
+                        val isBtn3Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 3
                         Box(
                             modifier = Modifier
                                 .clip(CircleShape)
-                                .background(if (isBtn2Focused) LumiereGold else SurfaceVariantDark)
+                                .background(if (isBtn3Focused) LumiereGold else SurfaceVariantDark)
                                 .border(
-                                    width = if (isBtn2Focused) 2.5.dp else 1.dp,
-                                    color = if (isBtn2Focused) Color.White else SurfaceBorder,
+                                    width = if (isBtn3Focused) 2.5.dp else 1.dp,
+                                    color = if (isBtn3Focused) Color.White else SurfaceBorder,
                                     shape = CircleShape
                                 )
                                 .clickable { onSeekRelative(10000L) }
@@ -309,7 +333,29 @@ fun PlayerControlsOverlay(
                             Icon(
                                 imageVector = Icons.Default.Forward10,
                                 contentDescription = "+10с",
-                                tint = if (isBtn2Focused) BackgroundDark else TextPrimary,
+                                tint = if (isBtn3Focused) BackgroundDark else TextPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
+
+                        // Next / End (Button 4)
+                        val isBtn4Focused = activeZone == PlayerZone.BOTTOM && bottomBtnIndex == 4
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(if (isBtn4Focused) LumiereGold else SurfaceVariantDark)
+                                .border(
+                                    width = if (isBtn4Focused) 2.5.dp else 1.dp,
+                                    color = if (isBtn4Focused) Color.White else SurfaceBorder,
+                                    shape = CircleShape
+                                )
+                                .clickable { onNextClick() }
+                                .padding(10.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "В конец / Следующая серия",
+                                tint = if (isBtn4Focused) BackgroundDark else TextPrimary,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
