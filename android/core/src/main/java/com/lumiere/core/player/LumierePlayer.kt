@@ -37,7 +37,7 @@ class LumierePlayer(
         setParameters(
             buildUponParameters()
                 .setPreferredAudioLanguage("ru")
-                .setPreferredTextLanguage("ru")
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
                 .setTunnelingEnabled(true)
         )
     }
@@ -158,6 +158,13 @@ class LumierePlayer(
         if (startPositionMs > 0L) {
             _positionMs.value = startPositionMs
         }
+
+        if (!subtitlesExplicitlyEnabled) {
+            trackSelector.parameters = trackSelector.buildUponParameters()
+                .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .build()
+        }
+
         exoPlayer.setMediaSource(mediaSource)
         if (startPositionMs > 0L) {
             exoPlayer.seekTo(startPositionMs)
@@ -251,17 +258,43 @@ class LumierePlayer(
             .build()
     }
 
+    private var subtitlesExplicitlyEnabled: Boolean = false
+
     fun selectSubtitleTrack(index: Int) {
         if (index < 0) {
             // Disable subtitles
+            subtitlesExplicitlyEnabled = false
             trackSelector.parameters = trackSelector.buildUponParameters()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
+                .clearOverridesOfType(C.TRACK_TYPE_TEXT)
                 .build()
         } else {
-            trackSelector.parameters = trackSelector.buildUponParameters()
+            subtitlesExplicitlyEnabled = true
+            val target = _subtitleTracks.value.getOrNull(index)
+            val builder = trackSelector.buildUponParameters()
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-                .setPreferredTextLanguage(_subtitleTracks.value.getOrNull(index)?.language)
-                .build()
+
+            var foundOverride = false
+            for (group in exoPlayer.currentTracks.groups) {
+                if (group.type == C.TRACK_TYPE_TEXT) {
+                    for (i in 0 until group.length) {
+                        val format = group.getTrackFormat(i)
+                        val label = format.label ?: format.language ?: "Дорожка ${i + 1}"
+                        if (target != null && (format.id == target.id || label == target.name)) {
+                            builder.setOverrideForType(
+                                androidx.media3.common.TrackSelectionOverride(group.mediaTrackGroup, i)
+                            )
+                            foundOverride = true
+                            break
+                        }
+                    }
+                }
+                if (foundOverride) break
+            }
+            if (!foundOverride && target?.language != null) {
+                builder.setPreferredTextLanguage(target.language)
+            }
+            trackSelector.parameters = builder.build()
         }
     }
 
