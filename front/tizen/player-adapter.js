@@ -53,6 +53,7 @@
     this.currentSubtitle = -1;
     this._duration = 0;
     this._currentTime = 0;
+    this._lastReportedTime = 0;
     this._isPlaying = false;
     this._isSeeking = false;
     this._isBuffering = false;
@@ -103,10 +104,20 @@
       oncurrentplaytime: function(time) {
         if (self._isSeeking || self._isAvplayPreparing) return;
         if (typeof time === 'number' && time >= 0) {
-          self._currentTime = (self._seekOffset || 0) + (time / 1000);
-          if (self._duration && self._currentTime > self._duration) {
-            self._currentTime = self._duration;
+          var rawSec = time / 1000;
+          var calculatedTime = (self._seekOffset || 0) + rawSec;
+          if (self._duration && calculatedTime > self._duration) {
+            calculatedTime = self._duration;
           }
+          // Monotonic sanity guard: during normal playback, ignore backward ticks > 2s or jumps > 10s
+          if (self._lastReportedTime > 0 && !self._isSeeking) {
+            var diff = calculatedTime - self._lastReportedTime;
+            if (diff < -2.0 || diff > 10.0) {
+              return;
+            }
+          }
+          self._currentTime = calculatedTime;
+          self._lastReportedTime = calculatedTime;
           self._emit('timeUpdate', { currentTime: self._currentTime });
         }
       },
@@ -184,13 +195,8 @@
       try {
         var ct = webapis.avplay.getCurrentTime();
         if (typeof ct === 'number' && ct >= 0 && !self._isSeeking && !self._isAvplayPreparing) {
-          self._currentTime = (self._seekOffset || 0) + (ct / 1000);
-          if (self._duration && self._currentTime > self._duration) {
-            self._currentTime = self._duration;
-          }
-          self._emit('timeUpdate', { currentTime: self._currentTime });
-
-          if (self._pendingSeek && self._currentTime > 0.5) {
+          var nowSec = (self._seekOffset || 0) + (ct / 1000);
+          if (self._pendingSeek && nowSec > 0.5) {
             var pSeek = self._pendingSeek;
             self._pendingSeek = null;
             console.log('[AVPlay] Executing deferred seek to', pSeek.time, 's once playback is active');
@@ -668,6 +674,7 @@
     this._isPlaying = false;
     this._duration = 0;
     this._currentTime = 0;
+    this._lastReportedTime = 0;
     this._seekOffset = 0;
     this._currentUrl = '';
     this.engineType = 'none';
@@ -709,6 +716,7 @@
           try {
             webapis.avplay.jumpBackward(offsetMs, function() {
               self._currentTime = Math.max(1.5, self._currentTime + seconds);
+              self._lastReportedTime = self._currentTime;
               self._isSeeking = false;
               self._emit('timeUpdate', { currentTime: self._currentTime });
               if (successCb) successCb();
@@ -728,6 +736,7 @@
           try {
             webapis.avplay.jumpForward(offsetMs, function() {
               self._currentTime = self._currentTime + seconds;
+              self._lastReportedTime = self._currentTime;
               self._isSeeking = false;
               self._emit('timeUpdate', { currentTime: self._currentTime });
               if (successCb) successCb();
@@ -773,6 +782,7 @@
 
     self._seekOffset = safeTargetSec;
     self._currentTime = safeTargetSec;
+    self._lastReportedTime = safeTargetSec;
     self._emit('timeUpdate', { currentTime: safeTargetSec });
     self._emit('bufferingStart');
 
@@ -949,6 +959,7 @@
     var self = this;
     var targetSec = Math.max(0, Number(timeSeconds) || 0);
     self._currentTime = targetSec;
+    self._lastReportedTime = targetSec;
 
     if (self.engineType === 'avplay') {
       var isHls = self._currentUrl && (
@@ -1021,6 +1032,7 @@
         webapis.avplay.seekTo(ms, function() {
           console.log('[AVPlay] seekTo success at', ms, 'ms');
           self._currentTime = safeTargetSec;
+          self._lastReportedTime = safeTargetSec;
           self._emit('timeUpdate', { currentTime: safeTargetSec });
           setTimeout(onSeekDone, 150);
           if (successCb) successCb();

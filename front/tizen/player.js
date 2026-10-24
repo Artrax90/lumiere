@@ -450,6 +450,12 @@
       player.on('timeUpdate', function(data) {
         if (isSeeking) return; // Ignore while user is actively seeking
         if (data && data.currentTime !== undefined) {
+          if (currentTime > 0 && !isSeeking) {
+            var diff = data.currentTime - currentTime;
+            if (diff < -2.0 || diff > 10.0) {
+              return;
+            }
+          }
           currentTime = data.currentTime;
           updateTimelineUI();
           updateSubtitleDisplay();
