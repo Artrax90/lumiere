@@ -716,8 +716,9 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     document.body.style.userSelect = 'none';
     document.body.style.cursor = 'grabbing';
 
+    const timelineRect = progressRef.current?.getBoundingClientRect();
     const getFraction = (clientX: number) => {
-      const rect = progressRef.current?.getBoundingClientRect();
+      const rect = timelineRect || progressRef.current?.getBoundingClientRect();
       if (!rect || rect.width <= 0) return 0;
       return Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     };
@@ -734,9 +735,8 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       setCurrentTime(initialFraction * duration);
       setHoverTime(initialFraction * duration);
     }
-    if (progressRef.current) {
-      const r = progressRef.current.getBoundingClientRect();
-      setHoverX(e.clientX - r.left);
+    if (timelineRect) {
+      setHoverX(Math.max(16, Math.min(timelineRect.width - 16, e.clientX - timelineRect.left)));
     }
 
     const onPointerMove = (moveEvt: PointerEvent) => {
@@ -822,7 +822,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
     if (rect.width <= 0) return;
     const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
     setHoverTime(isFinite(duration) && duration > 0 ? fraction * duration : 0);
-    setHoverX(e.clientX - rect.left);
+    setHoverX(Math.max(16, Math.min(rect.width - 16, e.clientX - rect.left)));
   };
 
   // When playback pauses or settings modal opens, keep controls visible without hiding
@@ -2001,7 +2001,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               </div>
             )}
             {/* Track */}
-            <div className="relative w-full h-1.5 rounded-full bg-white/20 group-hover:h-2 transition-all">
+            <div className="relative w-full h-1.5 rounded-full bg-white/20 group-hover:h-2 transition-[height] duration-150">
               {/* Buffered range */}
               <div
                 className="absolute inset-y-0 rounded-full bg-white/40 pointer-events-none"
@@ -2026,12 +2026,6 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
                 />
               </div>
             </div>
-            {/* Buffer indicator */}
-            {bufferedRange.end > 0 && bufferedRange.end < 98 && (
-              <div className="text-[10px] text-white/30 mt-1">
-                {t('player.buffer')}: {fmtTime((bufferedRange.end / 100) * duration)}
-              </div>
-            )}
           </div>
         </div>
 
@@ -2087,7 +2081,14 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
               />
             </div>
 
-            <span className="text-[12px] text-white/50">{fmtTime(currentTime)} / {fmtTime(duration)}</span>
+            <span className="text-[12px] text-white/50">
+              {fmtTime(currentTime)} / {fmtTime(duration)}
+              {bufferedRange.end > 0 && bufferedRange.end < 98 && (
+                <span className="text-white/30 ml-2 hidden sm:inline">
+                  ({t('player.buffer')}: {fmtTime((bufferedRange.end / 100) * duration)})
+                </span>
+              )}
+            </span>
           </div>
 
           <div className="flex items-center gap-3">
