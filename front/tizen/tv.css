@@ -1577,10 +1577,17 @@ body.player-active .section {
   font-weight: 600;
   color: rgba(255, 255, 255, 0.95);
   margin-bottom: 12px;
+  line-height: 1.4;
+  white-space: normal;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  line-height: 1.35;
+}
+.torrent-item.focused .detail-torrent-title {
+  -webkit-line-clamp: unset;
+  display: block;
 }
 .detail-torrent-badges {
   display: flex;
