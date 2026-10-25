@@ -8700,41 +8700,68 @@
 
     var checkEpBtn = document.getElementById('btn-tv-check-episodes');
     if (checkEpBtn) {
-      checkEpBtn.addEventListener('click', function() {
-        showTvToast('Проверка новых серий...', 2000);
-        apiPost('/api/notifications/check', {}, function(err, res) {
-          if (!err && res) {
-            var count = res.newEpisodesFound || 0;
-            showTvToast(count > 0 ? ('Найдено новых серий: ' + count) : 'Новых серий не найдено', 2500);
-            loadNotifications();
-          } else {
-            showTvToast('Ошибка проверки серий', 2000);
-          }
-        });
-      });
+      checkEpBtn.onclick = executeCheckEpisodes;
+      checkEpBtn.addEventListener('click', executeCheckEpisodes);
     }
 
     var readAllBtn = document.getElementById('btn-tv-read-all');
     if (readAllBtn) {
-      readAllBtn.addEventListener('click', function() {
-        apiPut('/api/notifications/read-all', {}, function(err) {
-          if (!err) {
-            for (var i = 0; i < notifState.items.length; i++) {
-              notifState.items[i].isRead = true;
-            }
-            notifState.unreadCount = 0;
-            updateNotifBadge();
-            renderNotifications();
-            showTvToast('Все уведомления прочитаны', 2000);
-          }
-        });
-      });
+      readAllBtn.onclick = executeReadAllNotifications;
+      readAllBtn.addEventListener('click', executeReadAllNotifications);
     }
+  }
+
+  function executeCheckEpisodes() {
+    showTvToast('Проверка новых серий...', 3000);
+    var checkBtn = document.getElementById('btn-tv-check-episodes');
+    if (checkBtn) {
+      checkBtn.classList.add('loading');
+      checkBtn.textContent = '⏳ Проверка...';
+    }
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications/check' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiPost(url, { userId: uId }, function(err, res) {
+      if (checkBtn) {
+        checkBtn.classList.remove('loading');
+        checkBtn.textContent = '🔄 Проверить серии';
+      }
+      if (!err && res && res.success !== false) {
+        var count = (res.newEpisodesFound || 0) + (res.newMoviesFound || 0);
+        showTvToast(count > 0 ? ('Найдено новых релизов: ' + count) : 'Новых серий не найдено', 3000);
+        loadNotifications();
+      } else {
+        var errMsg = (res && res.error) || (err && err.message) || 'Ошибка проверки серий';
+        showTvToast('Ошибка: ' + errMsg, 3000);
+      }
+    });
+  }
+
+  function executeReadAllNotifications() {
+    showTvToast('Помечаем как прочитанные...', 2000);
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications/read-all' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiPut(url, { userId: uId }, function(err, res) {
+      if (!err && (!res || res.success !== false)) {
+        for (var i = 0; i < notifState.items.length; i++) {
+          notifState.items[i].isRead = true;
+        }
+        notifState.unreadCount = 0;
+        updateNotifBadge();
+        renderNotifications();
+        showTvToast('Все уведомления прочитаны', 2500);
+        focusNotificationElement('topBtn', 1);
+      } else {
+        var errMsg = (res && res.error) || (err && err.message) || 'Не удалось обновить';
+        showTvToast('Ошибка: ' + errMsg, 3000);
+      }
+    });
   }
 
   // ========== Notifications System ==========
   function loadNotifications(callback) {
-    apiFetch('/api/notifications', function(err, data) {
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiFetch(url, function(err, data) {
       if (!err && data) {
         notifState.items = data.notifications || [];
         notifState.unreadCount = data.unreadCount || 0;
@@ -8802,6 +8829,12 @@
         });
       })(ci);
     }
+
+    // Also ensure top action buttons are bound
+    var checkEpBtn = document.getElementById('btn-tv-check-episodes');
+    if (checkEpBtn) checkEpBtn.onclick = executeCheckEpisodes;
+    var readAllBtn = document.getElementById('btn-tv-read-all');
+    if (readAllBtn) readAllBtn.onclick = executeReadAllNotifications;
   }
 
   function openNotification(item) {
@@ -8858,46 +8891,48 @@
   }
 
   function handleNotificationsKeys(code, e) {
-    var isLeft = code === 37 || e.key === 'ArrowLeft';
-    var isRight = code === 39 || e.key === 'ArrowRight';
-    var isUp = code === 38 || e.key === 'ArrowUp';
-    var isDown = code === 40 || e.key === 'ArrowDown';
-    var isEnter = isEnterKey(code, e.key);
-    var isBack = code === 10009 || code === 27 || e.key === 'Escape' || e.key === 'GoBack';
+    var key = e ? e.key : '';
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack' || key === 'Back';
 
+    var focusedBtn = document.querySelector('.notif-btn.focused') || (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('notif-btn') ? document.activeElement : null);
     var cards = document.querySelectorAll('#tv-notif-container .tv-notif-card');
+    var isOnTopBtn = !!focusedBtn || notifState.focusedIndex === -1;
 
     if (isBack) {
       if (notifState.focusedIndex >= 0) {
         focusNotificationElement('topBtn', 0);
       } else {
         clearAllFocus();
-        focusNav(5);
+        focusNav(8);
       }
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
 
-    if (notifState.focusedIndex === -1) {
-      // In top action buttons
+    if (isOnTopBtn) {
+      var isCheckBtn = (focusedBtn && focusedBtn.id === 'btn-tv-check-episodes') || notifState.focusedTopBtn === 0;
+
       if (isLeft) {
         focusNotificationElement('topBtn', 0);
       } else if (isRight) {
         focusNotificationElement('topBtn', 1);
       } else if (isUp) {
         clearAllFocus();
-        focusNav(5);
+        focusNav(8);
       } else if (isDown) {
         if (cards.length > 0) {
           focusNotificationElement('card', 0);
         }
       } else if (isEnter) {
-        if (notifState.focusedTopBtn === 0) {
-          var btnCheck = document.getElementById('btn-tv-check-episodes');
-          if (btnCheck) btnCheck.click();
+        if (isCheckBtn) {
+          executeCheckEpisodes();
         } else {
-          var btnReadAll = document.getElementById('btn-tv-read-all');
-          if (btnReadAll) btnReadAll.click();
+          executeReadAllNotifications();
         }
       }
     } else {
@@ -8917,6 +8952,8 @@
       } else if (isEnter) {
         if (cards[notifState.focusedIndex]) {
           cards[notifState.focusedIndex].click();
+        } else if (notifState.items && notifState.items[notifState.focusedIndex]) {
+          openNotification(notifState.items[notifState.focusedIndex]);
         }
       }
     }
@@ -9388,6 +9425,8 @@
     }
 
     if (section === 'notifications') {
+      notifState.focusedIndex = -1;
+      notifState.focusedTopBtn = 0;
       loadNotifications(function() {
         var isNavActive = !!document.querySelector('.nav-btn.focused');
         if (!isNavActive) {
@@ -9820,7 +9859,7 @@
       var isNavActive = !!document.querySelector('.nav-btn.focused');
       if (!isNavActive) {
         clearAllFocus();
-        focusNav(5);
+        focusNav(8);
         return;
       }
       switchSection('home');
