@@ -6,6 +6,7 @@ import androidx.annotation.OptIn
 import androidx.media3.common.*
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
@@ -13,6 +14,8 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
+import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -27,6 +30,22 @@ data class TrackInfo(
 )
 
 @OptIn(UnstableApi::class)
+private class LiveStreamLoadErrorHandlingPolicy : DefaultLoadErrorHandlingPolicy() {
+    override fun getMinimumLoadableRetryCount(dataType: Int): Int {
+        return if (dataType == C.DATA_TYPE_MEDIA) 1 else super.getMinimumLoadableRetryCount(dataType)
+    }
+
+    override fun getRetryDelayMsFor(loadErrorInfo: LoadErrorHandlingPolicy.LoadErrorInfo): Long {
+        val cause = loadErrorInfo.exception
+        if (cause is HttpDataSource.InvalidResponseCodeException && cause.responseCode == 404) {
+            // Live chunk 404: do not delay/retry dead chunk, fail fast so listener seeks to live edge
+            return C.TIME_UNSET
+        }
+        return super.getRetryDelayMsFor(loadErrorInfo)
+    }
+}
+
+@OptIn(UnstableApi::class)
 class LumierePlayer(
     private val context: Context,
     okHttpClient: OkHttpClient
@@ -38,7 +57,6 @@ class LumierePlayer(
             buildUponParameters()
                 .setPreferredAudioLanguage("ru")
                 .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
-                .setTunnelingEnabled(true)
         )
     }
 
@@ -126,6 +144,20 @@ class LumierePlayer(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                android.util.Log.e("LumierePlayer", "ExoPlayer onPlayerError: ${error.errorCodeName} (${error.errorCode})", error)
+                val isLiveBehind = error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW
+                val isHttp404 = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode == 404
+                if (isLiveBehind || isHttp404) {
+                    android.util.Log.w("LumierePlayer", "Live stream segment 404 or behind live window, seeking to live default position...")
+                    try {
+                        exoPlayer.seekToDefaultPosition()
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                        return
+                    } catch (e: Exception) {
+                        android.util.Log.e("LumierePlayer", "Failed to seek to live default position: ${e.message}")
+                    }
+                }
                 _playbackState.value = Player.STATE_IDLE
             }
         })
@@ -146,12 +178,38 @@ class LumierePlayer(
         }
     }
 
-    fun prepare(streamUrl: String, isHls: Boolean = streamUrl.contains(".m3u8"), startPositionMs: Long = 0L) {
+    fun prepare(
+        streamUrl: String,
+        isHls: Boolean = streamUrl.contains(".m3u8"),
+        startPositionMs: Long = 0L,
+        isLive: Boolean = false
+    ) {
         val uri = Uri.parse(streamUrl)
+        val shouldConfigureLive = isLive || (isHls && startPositionMs == 0L)
+        val mediaItem = MediaItem.Builder()
+            .setUri(uri)
+            .apply {
+                if (shouldConfigureLive) {
+                    setLiveConfiguration(
+                        MediaItem.LiveConfiguration.Builder()
+                            .setTargetOffsetMs(3500L)
+                            .setMinOffsetMs(1500L)
+                            .setMaxOffsetMs(8000L)
+                            .build()
+                    )
+                }
+            }
+            .build()
+
         val mediaSource = if (isHls) {
-            HlsMediaSource.Factory(dataSourceFactory).createMediaSource(MediaItem.fromUri(uri))
+            val hlsFactory = HlsMediaSource.Factory(dataSourceFactory)
+                .setAllowChunklessPreparation(false)
+            if (shouldConfigureLive) {
+                hlsFactory.setLoadErrorHandlingPolicy(LiveStreamLoadErrorHandlingPolicy())
+            }
+            hlsFactory.createMediaSource(mediaItem)
         } else {
-            ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(MediaItem.fromUri(uri))
+            ProgressiveMediaSource.Factory(dataSourceFactory).createMediaSource(mediaItem)
         }
 
         pendingInitialSeekMs = if (startPositionMs > 1000L) startPositionMs else 0L

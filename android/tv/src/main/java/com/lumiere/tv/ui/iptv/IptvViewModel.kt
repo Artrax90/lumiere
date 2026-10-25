@@ -258,8 +258,9 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             val serverUrl = preferences.serverUrl.first().orEmpty()
             // Proxy stream via Lumiere server to ensure SSL/CORS/ISP bypass and playlist manifest rewriting
             val encoded = URLEncoder.encode(channel.url, StandardCharsets.UTF_8.toString())
-            val streamUrl = "$serverUrl/api/iptv/stream?url=$encoded"
-            player.prepare(streamUrl, isHls = true)
+            val streamUrl = if (serverUrl.isNotBlank()) "$serverUrl/api/iptv/stream?url=$encoded" else channel.url
+            val isHls = channel.url.contains(".m3u", ignoreCase = true) || !channel.url.endsWith(".ts", ignoreCase = true)
+            player.prepare(streamUrl, isHls = isHls, startPositionMs = 0L, isLive = true)
             showBanner()
         }
 

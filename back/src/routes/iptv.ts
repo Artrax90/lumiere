@@ -501,7 +501,9 @@ export function iptvRoutes(app: FastifyInstance) {
         const rewritten = rewriteM3U8(text, finalUrl);
 
         reply.header('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+        reply.header('Cache-Control', 'no-cache, no-store, must-revalidate, max-age=0');
+        reply.header('Pragma', 'no-cache');
+        reply.header('Expires', '0');
         return reply.code(upstreamRes.status).send(rewritten);
       }
 
