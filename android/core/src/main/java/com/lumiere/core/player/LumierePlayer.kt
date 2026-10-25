@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
@@ -63,6 +64,7 @@ class LumierePlayer(
     private val renderersFactory = DefaultRenderersFactory(context).apply {
         setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
         setEnableDecoderFallback(true)
+        setMediaCodecSelector(MediaCodecSelector.DEFAULT)
     }
 
     // Strictly bounded buffer for Android TV sticks with limited RAM (1.5GB total)
@@ -137,6 +139,14 @@ class LumierePlayer(
                     }
                     updateTracks()
                 }
+            }
+
+            override fun onVideoSizeChanged(videoSize: VideoSize) {
+                android.util.Log.i("LumierePlayer", "onVideoSizeChanged: ${videoSize.width}x${videoSize.height}, rotation=${videoSize.unappliedRotationDegrees}")
+            }
+
+            override fun onRenderedFirstFrame() {
+                android.util.Log.i("LumierePlayer", "onRenderedFirstFrame: First video frame rendered to surface successfully!")
             }
 
             override fun onTracksChanged(tracks: Tracks) {

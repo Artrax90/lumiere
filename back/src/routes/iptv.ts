@@ -472,7 +472,7 @@ export function iptvRoutes(app: FastifyInstance) {
         responseType: 'stream',
         validateStatus: () => true,
         maxRedirects: 5,
-        timeout: 25000,
+        timeout: 8000,
       });
 
       // Forward CORS headers
