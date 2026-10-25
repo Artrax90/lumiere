@@ -79,6 +79,13 @@
   // ========== Play ==========
   PlayerAdapter.prototype.play = function(url) {
     this._hasFallenBackToVideo = false;
+    this._duration = 0;
+    this._currentTime = 0;
+    this._lastReportedTime = 0;
+    this._seekOffset = 0;
+    this._hasExternalDuration = false;
+    this._pendingSeek = null;
+    this._isSeeking = false;
     console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
     if (isTizen()) {
       console.log('[PlayerAdapter] Using AVPlay engine');
@@ -113,7 +120,12 @@
           if (self._lastReportedTime > 0 && !self._isSeeking) {
             var diff = calculatedTime - self._lastReportedTime;
             if (diff < -2.0 || diff > 10.0) {
-              return;
+              if (calculatedTime < 5.0 && self._lastReportedTime > 20.0) {
+                // False resume offset or loop back to beginning
+                self._lastReportedTime = calculatedTime;
+              } else {
+                return;
+              }
             }
           }
           self._currentTime = calculatedTime;
@@ -144,7 +156,7 @@
           var info = webapis.avplay.getStreamingProperty('DURATION_INFO');
           if (info) {
             var durVal = parseInt(info) / 1000;
-            if (durVal > 0 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+            if (durVal > 60 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
               self._duration = durVal;
               self._emit('durationChange', { duration: self._duration });
             }
@@ -206,7 +218,7 @@
       } catch(e) {}
       try {
         var dur = webapis.avplay.getDuration();
-        if (dur && dur > 0 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+        if (dur && dur > 60000 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
           var durSec = dur / 1000;
           if (Math.abs(durSec - self._duration) > 5) {
             self._duration = durSec;
@@ -340,7 +352,7 @@
           } catch(e) {}
           try {
             var totalDur = webapis.avplay.getDuration();
-            if (totalDur && totalDur > 0) {
+            if (totalDur && totalDur > 60000) {
               var durSec = totalDur / 1000;
               if (durSec > self._duration) {
                 self._duration = durSec;

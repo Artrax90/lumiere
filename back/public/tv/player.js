@@ -240,8 +240,14 @@
     var startParamSec = parseInt(params.start) || 0;
     currentTime = 0;
     duration = (params.duration && parseInt(params.duration, 10) > 60) ? parseInt(params.duration, 10) : 0;
-    if (duration > 0 && $timeTotal) {
-      $timeTotal.textContent = fmtTime(duration);
+    if (duration <= 0 && mediaType === 'tv') {
+      duration = 2700; // Sensible 45-min series fallback so scrubber has proper scale immediately
+    }
+    if ($fill) $fill.style.width = '0%';
+    if ($thumb) $thumb.style.left = '0%';
+    if ($timeCurrent) $timeCurrent.textContent = '00:00';
+    if ($timeTotal) {
+      $timeTotal.textContent = duration > 0 ? fmtTime(duration) : '--:--';
     }
     isPlaying = false;
     topMenuFocused = false;
@@ -278,31 +284,35 @@
     nextEpDismissed = false;
     nextFile = null;
 
-    curSeason = 1;
-    curEpisode = 1;
+    curSeason = 0;
+    curEpisode = 0;
     var pTitle = params.title || '';
-    var sMatch = pTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
-                 pTitle.match(/\bS([0-9]+)E([0-9]+)\b/i) || 
-                 pTitle.match(/\[([0-9]+)x([0-9]+)\]/i);
-    if (sMatch) {
-      curSeason = parseInt(sMatch[1], 10);
-      curEpisode = parseInt(sMatch[2], 10);
-    } else {
-      var epNumMatch = pTitle.match(/(?:сери[яий]|эпизод|выпуск|ep\.?)\s*[:]?\s*(\d{1,3})/i) ||
-                       pTitle.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск)\b/i);
-      if (epNumMatch) {
-        curEpisode = parseInt(epNumMatch[1], 10);
+    if (mediaType === 'tv') {
+      curSeason = 1;
+      curEpisode = 1;
+      var sMatch = pTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
+                   pTitle.match(/\bS([0-9]+)E([0-9]+)\b/i) || 
+                   pTitle.match(/\[([0-9]+)x([0-9]+)\]/i);
+      if (sMatch) {
+        curSeason = parseInt(sMatch[1], 10);
+        curEpisode = parseInt(sMatch[2], 10);
+      } else {
+        var epNumMatch = pTitle.match(/(?:сери[яий]|эпизод|выпуск|ep\.?)\s*[:]?\s*(\d{1,3})/i) ||
+                         pTitle.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск)\b/i);
+        if (epNumMatch) {
+          curEpisode = parseInt(epNumMatch[1], 10);
+        }
       }
+      if (params.season) curSeason = parseInt(params.season, 10) || curSeason;
+      if (params.episode) curEpisode = parseInt(params.episode, 10) || curEpisode;
     }
-    if (params.season) curSeason = parseInt(params.season, 10) || curSeason;
-    if (params.episode) curEpisode = parseInt(params.episode, 10) || curEpisode;
 
     var targetNextE = curEpisode + 1;
     var targetNextS = curSeason;
     var baseTitle = pTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
 
     // 1. Check torrentFiles by episode number (most accurate!)
-    if (torrentFiles && torrentFiles.length > 0) {
+    if (mediaType === 'tv' && torrentFiles && torrentFiles.length > 0) {
       for (var tfi = 0; tfi < torrentFiles.length; tfi++) {
         var tf = torrentFiles[tfi];
         if (!tf || !tf.name) continue;
@@ -383,7 +393,7 @@
     if ($osdTitle) $osdTitle.textContent = movieTitle;
 
     // Resolve Russian episode title from TMDB if missing ("Сериал · SxxExx · Название серии")
-    if (movieId && curSeason && curEpisode) {
+    if (mediaType === 'tv' && movieId && curSeason && curEpisode) {
       var hasEpTitle = (movieTitle || '').match(/·\s*S\d+\s*E\d+\s*·\s*(.+)$/i);
       if (!hasEpTitle) {
         var baseSeries = (movieTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
@@ -453,6 +463,12 @@
           if (currentTime > 0 && !isSeeking) {
             var diff = data.currentTime - currentTime;
             if (diff < -2.0 || diff > 10.0) {
+              if (data.currentTime < 5.0 && currentTime > 20.0) {
+                // False resume offset or loop back to beginning
+                currentTime = data.currentTime;
+                updateTimelineUI();
+                return;
+              }
               return;
             }
           }
@@ -473,8 +489,8 @@
       });
 
       player.on('durationChange', function(data) {
-        if (data && data.duration && data.duration > 0) {
-          if (duration > 60 && data.duration < duration) {
+        if (data && data.duration && data.duration > 60) {
+          if (duration > 60 && data.duration < duration && Math.abs(data.duration - duration) > 120) {
             return; // Never let partial HLS chunk overwrite full movie/series duration!
           }
           duration = data.duration;
@@ -591,7 +607,7 @@
           var sTime = Math.floor((typeof saved === 'object') ? (saved.time || saved.progress || 0) : saved);
           var sDur = Math.floor((typeof saved === 'object') ? (saved.duration || 0) : 0);
           // If video was completed (>90% watched or within 60s of end), start from 0!
-          if (sDur > 120 && (sDur - sTime <= 60 || (sTime / sDur) > 0.90)) {
+          if ((sDur > 120 && (sDur - sTime <= 60 || (sTime / sDur) > 0.90)) || (sDur <= 0 && sTime > 2400)) {
             console.log('[Player] Saved position is near the end, resetting to beginning');
             saved = null;
             resumeTarget = 0;
@@ -832,7 +848,7 @@
   }
 
   function showNextEpOverlay() {
-    if (nextEpOverlayVisible || nextEpDismissed) return;
+    if (mediaType !== 'tv' || nextEpOverlayVisible || nextEpDismissed) return;
     if (!duration || duration <= 180 || currentTime < 120) return;
     if (duration - currentTime > 30 || duration - currentTime <= 0) return;
     if (!nextFile) {
@@ -851,7 +867,7 @@
           }
         } catch(ex) {}
       }
-      if (sMatch || mediaType === 'tv') {
+      if (mediaType === 'tv' && (sMatch || curSeason)) {
         var nextE = curE + 1;
         var nextSStr = (curS < 10 ? '0' + curS : String(curS));
         var nextEStr = (nextE < 10 ? '0' + nextE : String(nextE));
@@ -1014,12 +1030,17 @@
   function updateTimelineUI(overrideTime) {
     var t = (overrideTime !== undefined) ? overrideTime : currentTime;
     if ($timeCurrent) $timeCurrent.textContent = fmtTime(t);
-    if ($timeTotal && duration > 0) $timeTotal.textContent = fmtTime(duration);
+    if ($timeTotal) {
+      $timeTotal.textContent = (duration > 0) ? fmtTime(duration) : '--:--';
+    }
 
     if (duration > 0) {
       var pct = Math.min(100, Math.max(0, (t / duration) * 100));
       if ($fill) $fill.style.width = pct + '%';
       if ($thumb) $thumb.style.left = pct + '%';
+    } else {
+      if ($fill) $fill.style.width = '0%';
+      if ($thumb) $thumb.style.left = '0%';
     }
   }
 
@@ -1701,6 +1722,10 @@
       if (duration <= 0) {
         if (Number(movieId) === 1408) {
           duration = 2640;
+        } else if (mediaType === 'tv') {
+          duration = 2700;
+        } else {
+          duration = 5400;
         }
         if (duration > 0) {
           if (player && typeof player.setDuration === 'function') {
@@ -1806,14 +1831,24 @@
       var pos = JSON.parse(localStorage.getItem(posKey) || localStorage.getItem('playback_positions') || '{}');
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
-      var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
-      var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
-      var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
+      var sNum = undefined;
+      var eNum = undefined;
+      var cleanMovieTitleStr = movieTitle || '';
+      if (mediaType === 'tv') {
+        var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+        sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
+        eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
+        if (!sNum && curSeason) sNum = curSeason;
+        if (!eNum && curEpisode) eNum = curEpisode;
+      } else {
+        cleanMovieTitleStr = cleanMovieTitleStr.replace(/\s*·\s*S\d+.*$/i, '').trim() || cleanMovieTitleStr;
+        movieTitle = cleanMovieTitleStr;
+      }
       var saveTime = Math.round(currentTime || 0);
       if (saveTime < 3) return; // Do not save or overwrite progress before playback actually starts
       var effectiveTime = saveTime;
 
-      if (epMatch) {
+      if (mediaType === 'tv' && sNum && eNum) {
         var epKey = saveId + '_s' + sNum + '_e' + eNum;
         pos[epKey] = {
           time: effectiveTime,
@@ -1826,7 +1861,14 @@
         time: effectiveTime,
         duration: Math.round(duration || (pos[saveId] && pos[saveId].duration) || 0),
         timestamp: now,
-        title: { name: movieTitle, poster: savePoster, id: saveId, type: mediaType, season: sNum, episode: eNum }
+        title: { 
+          name: cleanMovieTitleStr, 
+          poster: savePoster, 
+          id: saveId, 
+          type: mediaType, 
+          season: mediaType === 'tv' ? sNum : undefined, 
+          episode: mediaType === 'tv' ? eNum : undefined 
+        }
       };
       localStorage.setItem(posKey, JSON.stringify(pos));
 
@@ -1836,24 +1878,35 @@
         var lastT = JSON.parse(localStorage.getItem(ltKey) || localStorage.getItem('last_torrents') || '{}');
         if (!lastT[saveId]) lastT[saveId] = {};
         lastT[saveId].timestamp = now;
-        if (sNum) lastT[saveId].season = sNum;
-        if (eNum) lastT[saveId].episode = eNum;
+        lastT[saveId].type = mediaType;
+        if (mediaType === 'tv') {
+          if (sNum) lastT[saveId].season = sNum;
+          if (eNum) lastT[saveId].episode = eNum;
+        } else {
+          delete lastT[saveId].season;
+          delete lastT[saveId].episode;
+        }
         if (torrentFileIndex >= 0) lastT[saveId].fileIndex = torrentFileIndex;
         if (torrentFiles && torrentFiles.length > 0) {
           var curTf = torrentFiles.find(function(f) { return f.id === torrentFileIndex; });
           if (curTf && curTf.name) lastT[saveId].fileName = curTf.name;
         }
         localStorage.setItem(ltKey, JSON.stringify(lastT));
-        if (sNum) {
-          localStorage.setItem(getUserStorageKey('last_season_' + saveId), String(sNum));
-        }
-        if (eNum) {
-          localStorage.setItem(getUserStorageKey('last_episode_' + saveId), String(eNum));
+        if (mediaType === 'tv') {
+          if (sNum) localStorage.setItem(getUserStorageKey('last_season_' + saveId), String(sNum));
+          if (eNum) localStorage.setItem(getUserStorageKey('last_episode_' + saveId), String(eNum));
+        } else {
+          try {
+            localStorage.removeItem(getUserStorageKey('last_season_' + saveId));
+            localStorage.removeItem(getUserStorageKey('last_episode_' + saveId));
+            localStorage.removeItem('last_season_' + saveId);
+            localStorage.removeItem('last_episode_' + saveId);
+          } catch(re) {}
         }
       } catch(ltErr) {}
 
       // Check if episode watched (>= 85% or within 60s of end)
-      if (sNum && eNum && duration > 60) {
+      if (mediaType === 'tv' && sNum && eNum && duration > 60) {
         var pctWatched = (effectiveTime / duration);
         if (pctWatched >= 0.85 || (duration - effectiveTime <= 60)) {
           try {
@@ -1876,7 +1929,7 @@
           var payload = {
             tmdbId: saveId,
             mediaType: mediaType || 'movie',
-            titleName: movieTitle || ('Медиа #' + saveId),
+            titleName: cleanMovieTitleStr || ('Медиа #' + saveId),
             poster: savePoster,
             progress: effectiveTime,
             timestamp: now,
@@ -2065,6 +2118,10 @@
       streamUrl = '';
       currentTime = 0;
       duration = 0;
+      if ($fill) $fill.style.width = '0%';
+      if ($thumb) $thumb.style.left = '0%';
+      if ($timeCurrent) $timeCurrent.textContent = '00:00';
+      if ($timeTotal) $timeTotal.textContent = '--:--';
     } catch(err) {
       console.error('[Player] destroyPlayer caught error:', err);
     }

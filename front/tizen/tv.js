@@ -237,7 +237,11 @@
     if (cleanPlayerTitle === '[object Object]') cleanPlayerTitle = '';
 
     var effectiveId = parseInt(p.id) || (state.detail && state.detail.id) || 0;
-    var effectiveType = p.type || (state.detail && state.detail.type) || ((cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie');
+    var rawType = p.type || (state.detail && state.detail.type) || '';
+    var effectiveType = rawType;
+    if (!effectiveType) {
+      effectiveType = (cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie';
+    }
     var effectivePoster = p.poster || (state.detail && state.detail.poster) || '';
 
     // Self-heal House M.D. (ID 1408)
@@ -246,6 +250,13 @@
       if (/^(1408|Комната 1408)$/i.test(cleanPlayerTitle) || !cleanPlayerTitle) {
         cleanPlayerTitle = 'Доктор Хаус';
       }
+    }
+
+    // Self-heal Harry Potter (ID 671)
+    if (Number(effectiveId) === 671 || /поттер|potter/i.test(cleanPlayerTitle || '')) {
+      effectiveType = 'movie';
+      cleanPlayerTitle = (cleanPlayerTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+      if (!cleanPlayerTitle) cleanPlayerTitle = 'Гарри Поттер и философский камень';
     }
 
     var playerParams = {
@@ -408,8 +419,13 @@
           app.classList.add('hidden');
           app.style.display = 'none';
         }
-        if (targetDetail.type === 'tv') {
+        if (Number(targetDetail.id) === 671 || /поттер|potter/i.test(targetDetail.name || '')) {
+          targetDetail.type = 'movie';
+        }
+        if (targetDetail.type === 'tv' && Number(targetDetail.id) !== 671 && Number(targetDetail.id) !== 13) {
           state.detailTab = 'episodes';
+        } else {
+          state.detailTab = 'torrents';
         }
         var cleanTitle = cleanMovieTitle(targetDetail.name || targetDetail.title || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
         showDetail({
@@ -2113,12 +2129,17 @@
     var lastTorrents = {};
     try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
     var tObj = lastTorrents[item.id];
-    var isTvShow = (Number(item.id) === 1408) ||
+    var isKnownMovie = (Number(item.id) === 13) || (Number(item.id) === 671) ||
+                       ((item.title && item.title.type === 'movie') && Number(item.id) !== 1408) ||
+                       (tObj && tObj.type === 'movie' && Number(item.id) !== 1408) ||
+                       /поттер|potter/i.test(rawName);
+    var isTvShow = !isKnownMovie && (
+                   (Number(item.id) === 1408) ||
                    (tObj && (tObj.type === 'tv' || tObj.season)) ||
                    (item.title && (item.title.type === 'tv' || item.title.season)) ||
                    (rawName && /·\s*S\d+/i.test(rawName)) ||
-                   !!getStorageItem('last_season_' + item.id);
-    if (!isTvShow && Number(item.id) !== 13) {
+                   !!getStorageItem('last_season_' + item.id));
+    if (!isTvShow && !isKnownMovie) {
       for (var lk in localStorage) {
         if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
           isTvShow = true;
@@ -2126,7 +2147,10 @@
         }
       }
     }
-    var curType = (Number(item.id) === 13) ? 'movie' : (isTvShow ? 'tv' : ((tObj && tObj.type) || (item.title && item.title.type) || 'movie'));
+    var curType = isKnownMovie ? 'movie' : (isTvShow ? 'tv' : ((tObj && tObj.type) || (item.title && item.title.type) || 'movie'));
+    if (isKnownMovie) {
+      rawName = rawName.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
     if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(rawName) || !rawName)) {
       rawName = 'Доктор Хаус';
     }
@@ -2410,6 +2434,38 @@
             setStorageItem('last_torrents', JSON.stringify(lastTorrents));
           } catch(e) {}
         }
+
+        // Self-heal Harry Potter (ID 671) if corrupted to TV series Moolah Beach
+        if (Number(item.id) === 671 || /поттер|potter/i.test(name)) {
+          var cleanHp = 'Гарри Поттер и философский камень';
+          name = cleanHp;
+          rawName = cleanHp;
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = cleanHp;
+            item.title.type = 'movie';
+            delete item.title.season;
+            delete item.title.episode;
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = cleanHp;
+            positions[item.id].title.type = 'movie';
+            delete positions[item.id].title.season;
+            delete positions[item.id].title.episode;
+            try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+          }
+          if (lastTorrents[item.id]) {
+            lastTorrents[item.id].type = 'movie';
+            lastTorrents[item.id].title = cleanHp;
+            delete lastTorrents[item.id].season;
+            delete lastTorrents[item.id].episode;
+            try { setStorageItem('last_torrents', JSON.stringify(lastTorrents)); } catch(e) {}
+          }
+          try {
+            removeStorageItem('last_season_' + item.id);
+            removeStorageItem('last_episode_' + item.id);
+          } catch(e) {}
+        }
+
         if ((!/[\u0400-\u04FF]/.test(name) || /\.(mkv|mp4|avi)$/i.test(name)) && torrent && torrent.title && /[\u0400-\u04FF]/.test(torrent.title)) {
           name = cleanMovieTitle(torrent.title);
         } else if (/\.(mkv|mp4|avi)$/i.test(name)) {
@@ -2420,12 +2476,16 @@
 
         // Fetch official Russian metadata & poster from API
         if (item.id && !isNaN(Number(item.id))) {
-          var isTvShow = (Number(item.id) === 1408) ||
+          var isKnownMovie = (Number(item.id) === 13) || (Number(item.id) === 671) ||
+                             ((item.title && item.title.type === 'movie') && Number(item.id) !== 1408) ||
+                             (torrent && torrent.type === 'movie' && Number(item.id) !== 1408);
+          var isTvShow = !isKnownMovie && (
+                         (Number(item.id) === 1408) ||
                          ((item.title && item.title.type === 'tv') || (item.title && item.title.season)) ||
                          ((torrent && torrent.type === 'tv') || (torrent && torrent.season)) ||
                          (/ · S[0-9]+/i.test(rawName)) ||
-                         !!getStorageItem('last_season_' + item.id);
-          if (!isTvShow && Number(item.id) !== 13) {
+                         !!getStorageItem('last_season_' + item.id));
+          if (!isTvShow && !isKnownMovie) {
             for (var lk in localStorage) {
               if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
                 isTvShow = true;
@@ -2433,7 +2493,7 @@
               }
             }
           }
-          var itemMediaType = (Number(item.id) === 13) ? 'movie' : (isTvShow ? 'tv' : 'movie');
+          var itemMediaType = isKnownMovie ? 'movie' : (isTvShow ? 'tv' : 'movie');
           var apiEndpoint = (itemMediaType === 'tv') ? '/api/tv/' : '/api/movies/';
 
           var applyApiData = function(data, type) {
@@ -4444,7 +4504,18 @@
       }
     }
 
-    if (/ · S[0-9]+/i.test(title.name)) {
+    // Self-heal Harry Potter (ID 671)
+    if (Number(title.id) === 671 || /поттер|potter/i.test(title.name || '')) {
+      title.type = 'movie';
+      title.name = cleanMovieTitle(title.name).replace(/\s*·\s*S\d+.*$/i, '').trim();
+      if (!title.name) title.name = 'Гарри Поттер и философский камень';
+    } else if (Number(title.id) === 13) {
+      title.type = 'movie';
+      title.name = 'Форрест Гамп';
+    } else if (title.type === 'movie' && Number(title.id) !== 1408) {
+      title.type = 'movie';
+      title.name = title.name.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    } else if (title.type !== 'movie' && (/ · S[0-9]+/i.test(title.name))) {
       title.type = 'tv';
     }
 
@@ -4454,7 +4525,9 @@
     $detail.classList.remove('screen');
     $detail.style.display = 'block';
     $detail.style.zIndex = '900';
-    if (title.type === 'tv' || state.detailTab === 'episodes' || (/ · S[0-9]+/i.test(title.name))) {
+
+    var isMovieType = (title.type === 'movie') || (Number(title.id) === 671) || (Number(title.id) === 13);
+    if (!isMovieType && (title.type === 'tv' || state.detailTab === 'episodes' || (/ · S[0-9]+/i.test(title.name)))) {
       state.detailTab = 'episodes';
     } else {
       state.detailTab = 'torrents';
@@ -4470,7 +4543,7 @@
     renderDetailLoading(title);
 
     // Fetch full details
-    var type = (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name))) ? 'tv' : 'movies';
+    var type = (!isMovieType && (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name)))) ? 'tv' : 'movies';
     var cacheKey = type + '_' + title.id;
     if (state._detailCache && state._detailCache[cacheKey]) {
       var cached = state._detailCache[cacheKey];
@@ -6246,7 +6319,8 @@
           var hlsUrl = '/api/online/hls/' + provider + '/' + encodeURIComponent(id);
           var sIdNum = (title && title.id) || 0;
           var sPoster = (title && title.poster) || '';
-          openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name) + '&id=' + sIdNum + '&poster=' + encodeURIComponent(sPoster));
+          var sType = (title && title.type) || (state.detail && state.detail.type) || 'movie';
+          openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name) + '&id=' + sIdNum + '&poster=' + encodeURIComponent(sPoster) + '&type=' + encodeURIComponent(sType));
         });
       });
     });
@@ -7833,6 +7907,14 @@
         }
       } catch(e) {}
 
+      var startSec = 0;
+      if (optStart === 0) {
+        startSec = 0;
+      } else if (startParam) {
+        var sm = startParam.match(/start=(\d+)/);
+        if (sm) startSec = parseInt(sm[1], 10);
+      }
+
       try {
         var now = Date.now();
         setStorageItem('last_watched_id', String(movieId));
@@ -7840,6 +7922,9 @@
         var posMap = JSON.parse(getStorageItem('playback_positions') || '{}');
         if (!posMap[movieId]) posMap[movieId] = {};
         posMap[movieId].timestamp = now;
+        if (isTv) {
+          posMap[movieId].time = startSec;
+        }
         if (!posMap[movieId].title) {
           posMap[movieId].title = { name: name, poster: poster, id: movieId, type: mediaType, season: sNum, episode: eNum };
         } else if (typeof posMap[movieId].title === 'object') {
@@ -7873,7 +7958,6 @@
 
     state.activeFile = file;
     var fileIdx = (file && file.id !== undefined) ? file.id : -1;
-    var startSec = 0;
     if (optStart === 0) {
       startSec = 0;
     } else if (startParam) {
@@ -7892,8 +7976,20 @@
       knownDur = file.duration;
     } else if (Number(movieId) === 1408) {
       knownDur = 2640;
-    } else if (state.detail && state.detail.runtime && state.detail.runtime > 0) {
-      knownDur = state.detail.runtime * 60;
+    } else if (state.detail) {
+      var dRt = 0;
+      if (typeof state.detail.runtime === 'number' && state.detail.runtime > 0) {
+        dRt = state.detail.runtime;
+      } else if (typeof state.detail.runtime === 'string') {
+        var rtMatch = state.detail.runtime.match(/(\d+)/);
+        if (rtMatch) dRt = parseInt(rtMatch[1], 10);
+      } else if (Array.isArray(state.detail.episode_run_time) && state.detail.episode_run_time.length > 0) {
+        dRt = parseInt(state.detail.episode_run_time[0], 10) || 0;
+      }
+      if (dRt > 0) knownDur = dRt * 60;
+    }
+    if (knownDur <= 0 && isTv) {
+      knownDur = 2700;
     }
 
     openPlayer({
@@ -11165,7 +11261,8 @@
             var hlsUrl = '/api/online/hls/' + sProvider + '/' + encodeURIComponent(sId);
             var sIdNum2 = (state.detail && state.detail.id) || 0;
             var sPoster2 = (state.detail && state.detail.poster) || '';
-            openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(sName) + '&id=' + sIdNum2 + '&poster=' + encodeURIComponent(sPoster2));
+            var sType2 = (state.detail && state.detail.type) || 'movie';
+            openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(sName) + '&id=' + sIdNum2 + '&poster=' + encodeURIComponent(sPoster2) + '&type=' + encodeURIComponent(sType2));
           } else if (focused.classList.contains('detail-tab')) {
             var tName = focused.getAttribute('data-tab');
             state.detailTab = tName;
