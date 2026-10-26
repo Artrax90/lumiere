@@ -462,13 +462,8 @@
         if (data && data.currentTime !== undefined) {
           if (currentTime > 0 && !isSeeking) {
             var diff = data.currentTime - currentTime;
-            if (diff < -2.0 || diff > 10.0) {
-              if (data.currentTime < 5.0 && currentTime > 20.0) {
-                // False resume offset or loop back to beginning
-                currentTime = data.currentTime;
-                updateTimelineUI();
-                return;
-              }
+            // Suppress tiny backward jitter (< 1.5s) from B-frame reordering/PTS fluctuations during normal forward playback
+            if (diff < 0 && diff > -1.5) {
               return;
             }
           }
