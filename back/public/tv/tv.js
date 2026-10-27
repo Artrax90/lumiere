@@ -7142,8 +7142,28 @@
     if (title.indexOf('1080P') !== -1 || title.indexOf('WEB-DL') !== -1 || title.indexOf('BDRIP') !== -1 || title.indexOf('REMUX') !== -1) score += 250;
     if (title.indexOf('720P') !== -1 || title.indexOf('HDTV') !== -1) score += 100;
 
-    // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
-    if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+    var isMovie = Boolean(state.detail && state.detail.type === 'movie');
+    if (isMovie) {
+      if (/\b\d{1,2}\s*сезон/i.test(title) || /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(title) || /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(title) || /\bs0*\d{1,2}(?:e\d+)?\b/i.test(title) || /\bсери[яий]\s*[:#№]?\s*\d+\s*[-–—]\s*\d+/i.test(title) || /серии\s*:\s*\d+\s*[-–—]\s*\d+/i.test(title) || /\b\d+\s*[-–—]\s*\d+\s*(сери|эпизод)/i.test(title) || /\b\d+\s*сери[яий]\b/i.test(title)) {
+        score -= 50000;
+      }
+      var targetYr = parseInt((state.detail && state.detail.year) || (state.activeMovie && state.activeMovie.year) || 0, 10);
+      if (targetYr > 0) {
+        var yMatch = title.match(/\b(19\d\d|20\d\d)\b/);
+        if (yMatch) {
+          var torYr = parseInt(yMatch[1], 10);
+          var yDiff = Math.abs(torYr - targetYr);
+          if (yDiff > 1) {
+            score -= 50000;
+          } else if (yDiff === 0) {
+            score += 2000;
+          }
+        }
+      }
+    } else {
+      // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
+      if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+    }
 
     // Native MKV / MP4 container bonus (direct HW playback on TV, 0% CPU on server)
     if (title.indexOf('.MKV') !== -1 || title.indexOf('[MKV]') !== -1 || title.indexOf('.MP4') !== -1 || title.indexOf('[MP4]') !== -1 || title.indexOf('HEVC') !== -1 || title.indexOf('H.264') !== -1 || title.indexOf('AVC') !== -1) score += 300;
@@ -7467,13 +7487,15 @@
 
     var tmdbParam = title.id ? '&tmdbId=' + title.id : '';
     var typeParam = '&type=' + (title.type || (state.detail && state.detail.type) || 'movie');
+    var yearVal = title.year || (state.detail && state.detail.year) || (state.activeMovie && state.activeMovie.year) || 0;
+    var yearParam = yearVal ? '&year=' + yearVal : '';
 
     var merged = [];
     var seen = {};
     var pending = queries.length;
 
     queries.forEach(function(qStr) {
-      apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam, function(err, data) {
+      apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam + yearParam, function(err, data) {
         var list = (data && data.results) ? data.results : [];
         list.forEach(function(item) {
           var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);

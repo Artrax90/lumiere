@@ -766,6 +766,30 @@ export function torrentRoutes(app: FastifyInstance) {
     let targetSeason = season ? parseInt(season, 10) : 0;
     let targetEpisode = episode ? parseInt(episode, 10) : 0;
 
+    let extraAlt = alt;
+    if (tmdbId) {
+      try {
+        const port = process.env.PORT || 3500;
+        const metaRes: any = await fetch(`http://127.0.0.1:${port}/api/${type === 'tv' ? 'tv' : 'movies'}/${tmdbId}`, {
+          signal: AbortSignal.timeout(2000),
+        }).then((r) => r.json()).catch(() => null);
+        if (metaRes) {
+          if (!targetYear) {
+            if (typeof metaRes.year === 'number' && metaRes.year > 1900) {
+              targetYear = metaRes.year;
+            } else if (metaRes.release_date || metaRes.first_air_date) {
+              const yr = parseInt(String(metaRes.release_date || metaRes.first_air_date).slice(0, 4), 10);
+              if (yr > 1900 && yr < 2100) targetYear = yr;
+            }
+          }
+          const orig = metaRes.original_title || metaRes.originalTitle;
+          if (orig && typeof orig === 'string' && !extraAlt) {
+            extraAlt = orig.trim();
+          }
+        }
+      } catch {}
+    }
+
     if (!q) {
       return reply.code(400).send({ error: 'Query required' });
     }
@@ -797,8 +821,8 @@ export function torrentRoutes(app: FastifyInstance) {
         const extraQueries: string[] = [];
 
         // Alternative title (e.g. original English or localized title)
-        if (alt && alt.trim() && alt.trim().toLowerCase() !== q.trim().toLowerCase()) {
-          extraQueries.push(alt.trim());
+        if (extraAlt && extraAlt.trim() && extraAlt.trim().toLowerCase() !== q.trim().toLowerCase()) {
+          extraQueries.push(extraAlt.trim());
         }
 
         // Fetch English title / alternative titles from TMDB if tmdbId provided
@@ -815,10 +839,21 @@ export function torrentRoutes(app: FastifyInstance) {
                 .then((r) => r.json())
                 .catch(() => null),
             ]);
-            if (enRes && (enRes.title || enRes.name)) {
-              const enTitle = String(enRes.title || enRes.name).trim();
-              if (enTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(enTitle)) {
-                extraQueries.push(enTitle);
+            if (enRes) {
+              if (!targetYear) {
+                const dateStr = String(enRes.release_date || enRes.first_air_date || '');
+                if (dateStr && dateStr.length >= 4) {
+                  const parsedY = parseInt(dateStr.slice(0, 4), 10);
+                  if (parsedY > 1900 && parsedY < 2100) {
+                    targetYear = parsedY;
+                  }
+                }
+              }
+              if (enRes.title || enRes.name) {
+                const enTitle = String(enRes.title || enRes.name).trim();
+                if (enTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(enTitle)) {
+                  extraQueries.push(enTitle);
+                }
               }
             }
             const altList = altRes ? (altRes.titles || altRes.results || []) : [];
@@ -949,6 +984,21 @@ export function torrentRoutes(app: FastifyInstance) {
         const key = link.startsWith('magnet:') ? link.split('&')[0].toLowerCase() : (r.Guid || r.Title);
         if (seen.has(key)) continue;
         seen.add(key);
+
+        if (type === 'movie') {
+          const isExplicitSeries =
+            /\b\d{1,2}\s*сезон/i.test(r.Title) ||
+            /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(r.Title) ||
+            /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(r.Title) ||
+            /\bs0*\d{1,2}(?:e\d+)?\b/i.test(r.Title) ||
+            /\bсери[яий]\s*[:#№]?\s*\d+\s*[-–—]\s*\d+/i.test(r.Title) ||
+            /серии\s*:\s*\d+\s*[-–—]\s*\d+/i.test(r.Title) ||
+            /\b\d+\s*[-–—]\s*\d+\s*сери/i.test(r.Title) ||
+            /\b\d+\s*сери[яий]\b/i.test(r.Title);
+          if (isExplicitSeries) {
+            continue;
+          }
+        }
 
         const torrentYear = extractTorrentYear(r.Title);
         if (targetYear > 0 && torrentYear !== null) {
@@ -1108,8 +1158,22 @@ export function torrentRoutes(app: FastifyInstance) {
         if (tracker === 'kinozal' && !hasTrackers) score -= 1000;
 
         if (title.includes('1080P') || title.includes('WEB-DL') || title.includes('BDRIP') || title.includes('REMUX')) score += 250;
-        if (title.includes('720P') || title.includes('HDTV')) score += 100;
-        if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+        if (type === 'tv') {
+          if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+        } else if (type === 'movie') {
+          const isSeriesTorrent =
+            /\b\d{1,2}\s*сезон/i.test(t.title) ||
+            /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(t.title) ||
+            /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(t.title) ||
+            /\bs0*\d{1,2}(?:e\d+)?\b/i.test(t.title) ||
+            /\bсери[яий]\s*[:#№]?\s*\d+\s*[-–—]\s*\d+/i.test(t.title) ||
+            /серии\s*:\s*\d+\s*[-–—]\s*\d+/i.test(t.title) ||
+            /\b\d+\s*[-–—]\s*\d+\s*сери/i.test(t.title) ||
+            /\b\d+\s*сери[яий]\b/i.test(t.title);
+          if (isSeriesTorrent) {
+            score -= 50000;
+          }
+        }
 
         // Native MKV / MP4 container bonus (direct HW playback on TV, 0% CPU on server)
         if (title.includes('.MKV') || title.includes('[MKV]') || title.includes('.MP4') || title.includes('[MP4]') || title.includes('HEVC') || title.includes('H.264') || title.includes('AVC')) score += 300;
