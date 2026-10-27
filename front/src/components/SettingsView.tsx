@@ -1368,6 +1368,10 @@ function TmdbConfig() {
   const [token, setToken] = useState('');
   const [proxyUrl, setProxyUrl] = useState('');
   const [maskedToken, setMaskedToken] = useState('');
+  const [kpToken, setKpToken] = useState('');
+  const [maskedKpToken, setMaskedKpToken] = useState('');
+  const [showKpToken, setShowKpToken] = useState(false);
+  const [kpConfigured, setKpConfigured] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [online, setOnline] = useState<boolean | null>(null);
   const [statusMessage, setStatusMessage] = useState('');
@@ -1384,6 +1388,8 @@ function TmdbConfig() {
       const data = await res.json();
       setConfigured(data.configured);
       setMaskedToken(data.tokenMasked || '');
+      setMaskedKpToken(data.kpTokenMasked || '');
+      setKpConfigured(Boolean(data.kpConfigured));
       setProxyUrl(data.proxyUrl || '');
       setOnline(data.online);
       setStatusMessage(data.message || '');
@@ -1408,13 +1414,19 @@ function TmdbConfig() {
     if (e) e.preventDefault();
     setSaving(true);
     try {
+      const payload: any = {
+        proxyUrl: proxyUrl.trim(),
+      };
+      if (token.trim()) {
+        payload.token = token.trim();
+      }
+      if (kpToken.trim()) {
+        payload.kpToken = kpToken.trim();
+      }
       const res = await serverFetch('/api/settings/tmdb', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: token.trim() || undefined,
-          proxyUrl: proxyUrl.trim(),
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -1423,8 +1435,31 @@ function TmdbConfig() {
       setOnline(data.online);
       setStatusMessage(data.message);
       if (data.tokenMasked) setMaskedToken(data.tokenMasked);
+      if (data.kpTokenMasked !== undefined) setMaskedKpToken(data.kpTokenMasked);
+      if (data.kpConfigured !== undefined) setKpConfigured(Boolean(data.kpConfigured));
       setToken('');
-      showToast(data.online ? 'success' : 'error', data.message || 'Настройки TMDB успешно сохранены');
+      setKpToken('');
+      showToast(data.online ? 'success' : 'error', data.message || 'Настройки каталогов успешно сохранены');
+    } catch (err: any) {
+      showToast('error', err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleClearKpToken = async () => {
+    setSaving(true);
+    try {
+      const res = await serverFetch('/api/settings/tmdb', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kpToken: '' }),
+      });
+      const data = await res.json();
+      if (data.kpTokenMasked !== undefined) setMaskedKpToken(data.kpTokenMasked);
+      if (data.kpConfigured !== undefined) setKpConfigured(Boolean(data.kpConfigured));
+      setKpToken('');
+      showToast('success', 'API-токен Кинопоиска удален');
     } catch (err: any) {
       showToast('error', err.message);
     } finally {
@@ -1567,6 +1602,87 @@ function TmdbConfig() {
                 Очистить поле
               </button>
             )}
+          </div>
+        </div>
+
+        {/* Kinopoisk Token Section */}
+        <div className="rounded-[16px] border border-white/[0.08] bg-white/[0.02] p-5">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="text-[14px] font-medium text-white/85 flex items-center gap-2">
+              <Key className="h-4 w-4 text-orange-400" strokeWidth={1.5} />
+              API-токен Кинопоиск (kinopoiskapiunofficial.tech)
+            </label>
+            <div className="flex items-center gap-2">
+              {kpConfigured ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-400">
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  Подключен
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-white/[0.06] border border-white/[0.1] px-2 py-0.5 text-[10px] font-medium text-white/40">
+                  Не настроен
+                </span>
+              )}
+              {maskedKpToken && (
+                <span className="text-[11px] font-mono text-white/40">
+                  Текущий: {maskedKpToken}
+                </span>
+              )}
+            </div>
+          </div>
+          <p className="mb-3 text-[12px] leading-relaxed text-white/45">
+            Используется для расширенного поиска русских фильмов и сериалов, отсутствующих в TMDB. Токен хранится локально в базе данных вашего сервера и нигде не светится.
+          </p>
+
+          <div className="relative">
+            <input
+              type={showKpToken ? 'text' : 'password'}
+              value={kpToken}
+              onChange={(e) => setKpToken(e.target.value)}
+              placeholder={maskedKpToken ? 'Оставьте пустым, чтобы сохранить текущий токен' : 'Вставьте ваш API-токен Кинопоиска...'}
+              className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-3 pr-11 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-amber-300/40 focus:outline-none transition-cinematic"
+            />
+            <button
+              type="button"
+              onClick={() => setShowKpToken(!showKpToken)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-white/35 hover:text-white/75 transition-cinematic"
+              title={showKpToken ? 'Скрыть токен' : 'Показать токен'}
+            >
+              {showKpToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+            </button>
+          </div>
+
+          <div className="mt-3 flex items-center justify-between">
+            <a
+              href="https://kinopoiskapiunofficial.tech/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-[12px] text-amber-300/80 hover:text-amber-200 transition-cinematic hover:underline"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              Получить бесплатный API-токен на kinopoiskapiunofficial.tech
+            </a>
+            <div className="flex items-center gap-2">
+              {kpToken && (
+                <button
+                  type="button"
+                  onClick={() => setKpToken('')}
+                  className="text-[11px] text-white/40 hover:text-white/70 transition-cinematic"
+                >
+                  Очистить поле
+                </button>
+              )}
+              {maskedKpToken && (
+                <button
+                  type="button"
+                  onClick={handleClearKpToken}
+                  className="text-[11px] text-rose-400/70 hover:text-rose-300 transition-cinematic"
+                  title="Удалить сохраненный токен Кинопоиска"
+                >
+                  Сбросить токен
+                </button>
+              )}
+            </div>
           </div>
         </div>
 

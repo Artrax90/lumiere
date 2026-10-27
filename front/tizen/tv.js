@@ -8640,13 +8640,13 @@
         var targetCol2 = Math.min(nextLen - 1, Math.round(oskState.col * (nextLen / curRowLen)));
         focusOskKey(oskState.row + 1, targetCol2);
       } else {
-        var tabFocused = focusSearchSourceTab();
-        if (!tabFocused) {
-          var chipEls = getSearchChipElements();
-          if (chipEls.length > 0) {
-            clearOskFocus();
-            focusSearchChip(0);
-          } else {
+        var chipEls = getSearchChipElements();
+        if (chipEls.length > 0) {
+          clearOskFocus();
+          focusSearchChip(0);
+        } else {
+          var tabFocused = focusSearchSourceTab();
+          if (!tabFocused) {
             var firstResult = document.querySelector('#search-results .card');
             if (firstResult) {
               clearOskFocus();
@@ -8751,19 +8751,19 @@
 
     if (isUp) {
       clearSearchChipFocus();
-      var tabFocused = focusSearchSourceTab();
-      if (!tabFocused) {
-        focusOskFromBottom();
-      }
+      focusOskFromBottom();
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
 
     if (isDown) {
-      var firstCard = document.querySelector('#search-results .card');
-      if (firstCard) {
-        clearSearchChipFocus();
-        focusCard(0);
+      clearSearchChipFocus();
+      var tabFocused = focusSearchSourceTab();
+      if (!tabFocused) {
+        var firstCard = document.querySelector('#search-results .card');
+        if (firstCard) {
+          focusCard(0);
+        }
       }
       if (e && e.preventDefault) e.preventDefault();
       return;
@@ -9015,23 +9015,23 @@
 
     if (isUp) {
       clearSearchSourceTabFocus();
-      focusOskFromBottom();
+      var chipEls = getSearchChipElements();
+      if (chipEls.length > 0) {
+        focusSearchChip(0);
+      } else {
+        focusOskFromBottom();
+      }
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
 
     if (isDown) {
       clearSearchSourceTabFocus();
-      var chipEls = getSearchChipElements();
-      if (chipEls.length > 0) {
-        focusSearchChip(0);
-      } else {
-        var firstResult = document.querySelector('#search-results .card');
-        if (firstResult) {
-          firstResult.classList.add('focused');
-          try { firstResult.focus(); } catch(fe) {}
-          state.focusedCard = 0;
-        }
+      var firstResult = document.querySelector('#search-results .card');
+      if (firstResult) {
+        firstResult.classList.add('focused');
+        try { firstResult.focus(); } catch(fe) {}
+        state.focusedCard = 0;
       }
       if (e && e.preventDefault) e.preventDefault();
       return;
@@ -9056,6 +9056,7 @@
             '<span class="search-query-cursor">|</span>' +
           '</div>' +
           '<div class="tv-keyboard" id="tv-keyboard"></div>' +
+          '<div class="search-history-wrap" id="search-history-wrap"></div>' +
           '<div class="search-source-tabs" id="search-source-tabs">' +
             '<button type="button" class="search-source-tab active" id="tab-source-tmdb" data-source="tmdb" tabindex="0">' +
               '<span class="tab-label">TMDB</span>' +
@@ -9066,7 +9067,6 @@
               '<span class="tab-count" id="count-source-kp">(0)</span>' +
             '</button>' +
           '</div>' +
-          '<div class="search-history-wrap" id="search-history-wrap"></div>' +
         '</div>' +
         '<div id="search-results" class="grid"></div>';
     }
@@ -10338,12 +10338,27 @@
         clearCardFocus();
         state.focusedCard = null;
         var tabFocused = focusSearchSourceTab();
-        if (!tabFocused) focusOskFromBottom();
+        if (!tabFocused) {
+          var chipEls = getSearchChipElements();
+          if (chipEls.length > 0) focusSearchChip(0);
+          else focusOskFromBottom();
+        }
         return;
       }
       var searchTabFocused = document.querySelector('.search-source-tab.focused');
       if (searchTabFocused) {
         clearSearchSourceTabFocus();
+        var chipEls2 = getSearchChipElements();
+        if (chipEls2.length > 0) {
+          focusSearchChip(0);
+        } else {
+          focusOskFromBottom();
+        }
+        return;
+      }
+      var searchChipFocused = document.querySelector('.search-chip.focused, #btn-clear-search-history.focused');
+      if (searchChipFocused) {
+        clearSearchChipFocus();
         focusOskFromBottom();
         return;
       }
@@ -11053,12 +11068,12 @@
           if (state.section === 'my') {
             focusMyTab(myState.focusedTabIdx || 0);
           } else if (state.section === 'search') {
-            var chipEls = getSearchChipElements();
-            if (chipEls.length > 0) {
-              focusSearchChip(0);
-            } else {
-              var tabFocused = focusSearchSourceTab();
-              if (!tabFocused) {
+            var tabFocused = focusSearchSourceTab();
+            if (!tabFocused) {
+              var chipEls = getSearchChipElements();
+              if (chipEls.length > 0) {
+                focusSearchChip(0);
+              } else {
                 focusOskFromBottom();
               }
             }

@@ -75,6 +75,14 @@ export class KinopoiskProvider {
     this.token = token.trim();
   }
 
+  hasToken(): boolean {
+    return Boolean(this.token);
+  }
+
+  getToken(): string {
+    return this.token;
+  }
+
   private async fetchApi<T>(endpoint: string, params: Record<string, string> = {}): Promise<T | null> {
     if (!this.token) return null;
     const cacheKey = `${endpoint}?${new URLSearchParams(params).toString()}`;

@@ -124,7 +124,7 @@ app.register(downloadRoutes);
 app.register(syncRoutes, pool);
 app.register(iptvRoutes);
 app.register(adminRoutes, pool);
-settingsRoutes(app, tmdbClient, pool);
+settingsRoutes(app, tmdbClient, pool, kpProvider);
 notificationRoutes(app, provider);
 startNotificationScheduler(provider);
 sessionRoutes(app);
@@ -232,9 +232,10 @@ app.post('/api/setup/admin', async (req, reply) => {
 
 async function loadPersistedSettings() {
   try {
-    const res = await pool.query(`SELECT key, value FROM app_settings WHERE key IN ('tmdb_token', 'tmdb_proxy_url')`);
+    const res = await pool.query(`SELECT key, value FROM app_settings WHERE key IN ('tmdb_token', 'tmdb_proxy_url', 'kinopoisk_token')`);
     let token = config.tmdb.token;
     let proxyUrl = config.tmdb.proxyUrl;
+    let kpToken = config.kinopoisk.token;
     for (const row of res.rows) {
       if (row.key === 'tmdb_token' && row.value) {
         token = row.value;
@@ -242,10 +243,17 @@ async function loadPersistedSettings() {
       if (row.key === 'tmdb_proxy_url') {
         proxyUrl = row.value;
       }
+      if (row.key === 'kinopoisk_token' && row.value) {
+        kpToken = row.value;
+      }
     }
     if (token !== config.tmdb.token || proxyUrl !== config.tmdb.proxyUrl) {
       tmdbClient.updateConfig(token, proxyUrl);
       console.log('Applied TMDB configuration from database');
+    }
+    if (kpToken && kpToken !== config.kinopoisk.token) {
+      kpProvider.updateToken(kpToken);
+      console.log('Applied Kinopoisk token from database');
     }
   } catch (err: any) {
     console.warn('Could not load app settings from database:', err.message);

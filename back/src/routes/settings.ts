@@ -1,10 +1,16 @@
 import type { FastifyInstance } from 'fastify';
 import type { Pool } from 'pg';
 import type { TmdbClient } from '../services/tmdb-client.js';
+import type { KinopoiskProvider } from '../services/metadata/kinopoisk.js';
 import { optionalAuth, requireAuth, type AuthenticatedRequest } from '../middleware/auth.js';
 
-export function settingsRoutes(app: FastifyInstance, tmdbClient: TmdbClient, pool?: Pool) {
-  // Get TMDB configuration & status
+export function settingsRoutes(
+  app: FastifyInstance,
+  tmdbClient: TmdbClient,
+  pool?: Pool,
+  kpProvider?: KinopoiskProvider
+) {
+  // Get TMDB & Kinopoisk configuration & status
   app.get('/api/settings/tmdb', { preHandler: optionalAuth }, async (req: AuthenticatedRequest) => {
     const config = tmdbClient.getConfig();
     const isAdmin = req.user?.role === 'admin';
@@ -18,6 +24,16 @@ export function settingsRoutes(app: FastifyInstance, tmdbClient: TmdbClient, poo
       }
     }
 
+    let kpTokenMasked = '';
+    const kpToken = kpProvider ? kpProvider.getToken() : '';
+    if (kpToken) {
+      if (kpToken.length > 10) {
+        kpTokenMasked = `${kpToken.slice(0, 4)}••••••••${kpToken.slice(-4)}`;
+      } else {
+        kpTokenMasked = '••••••••';
+      }
+    }
+
     const test = await tmdbClient.testConnection();
 
     return {
@@ -28,16 +44,22 @@ export function settingsRoutes(app: FastifyInstance, tmdbClient: TmdbClient, poo
       isConfiguredProxy: Boolean(config.proxyUrl),
       online: test.ok,
       message: test.message,
+      kpConfigured: Boolean(kpToken),
+      kpTokenMasked: isAdmin ? kpTokenMasked : '',
     };
   });
 
-  // Update TMDB configuration (Admin only)
+  // Update TMDB & Kinopoisk configuration (Admin only)
   app.post('/api/settings/tmdb', { preHandler: requireAuth }, async (req: AuthenticatedRequest, reply) => {
     if (req.user?.role !== 'admin') {
       return reply.code(403).send({ error: 'Доступ разрешен только администраторам' });
     }
 
-    const { token, proxyUrl } = req.body as { token?: string; proxyUrl?: string };
+    const { token, proxyUrl, kpToken } = req.body as {
+      token?: string;
+      proxyUrl?: string;
+      kpToken?: string;
+    };
 
     const current = tmdbClient.getConfig();
     const newToken = token !== undefined && token.trim() !== '' ? token.trim() : current.token;
@@ -48,6 +70,24 @@ export function settingsRoutes(app: FastifyInstance, tmdbClient: TmdbClient, poo
     }
 
     tmdbClient.updateConfig(newToken, newProxy);
+
+    // Update Kinopoisk token if supplied
+    if (kpToken !== undefined && kpProvider) {
+      const trimmedKp = kpToken.trim();
+      kpProvider.updateToken(trimmedKp);
+      if (pool) {
+        try {
+          await pool.query(
+            `INSERT INTO app_settings (key, value, updated_at) 
+             VALUES ('kinopoisk_token', $1, NOW()) 
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+            [trimmedKp]
+          );
+        } catch (err: any) {
+          console.warn('Could not persist Kinopoisk token to DB:', err.message);
+        }
+      }
+    }
 
     const test = await tmdbClient.testConnection();
 
@@ -71,12 +111,21 @@ export function settingsRoutes(app: FastifyInstance, tmdbClient: TmdbClient, poo
       }
     }
 
+    const curKp = kpProvider ? kpProvider.getToken() : '';
+    const kpMasked = curKp
+      ? curKp.length > 10
+        ? `${curKp.slice(0, 4)}••••••••${curKp.slice(-4)}`
+        : '••••••••'
+      : '';
+
     return {
       ok: test.ok,
       online: test.ok,
-      message: test.message || (test.ok ? 'Настройки TMDB успешно сохранены' : 'Ошибка подключения к TMDB'),
+      message: test.message || (test.ok ? 'Настройки успешно сохранены' : 'Ошибка подключения к TMDB'),
       proxyUrl: newProxy,
       tokenMasked: newToken.length > 10 ? `${newToken.slice(0, 4)}••••••••${newToken.slice(-4)}` : '••••••••',
+      kpConfigured: Boolean(curKp),
+      kpTokenMasked: kpMasked,
     };
   });
 
