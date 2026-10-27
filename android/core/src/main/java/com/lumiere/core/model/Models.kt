@@ -116,11 +116,19 @@ data class GenreListResponse(
 )
 
 @Serializable
+data class SearchSourceGroup(
+    val results: List<Title> = emptyList(),
+    val count: Int? = 0
+)
+
+@Serializable
 data class TitleListResponse(
     val results: List<Title> = emptyList(),
     val page: Int? = 1,
     val totalPages: Int? = 1,
-    val totalResults: Int? = 0
+    val totalResults: Int? = 0,
+    val tmdb: SearchSourceGroup? = null,
+    val kp: SearchSourceGroup? = null
 )
 
 @Serializable
@@ -172,7 +180,8 @@ data class TorrentItem(
     val ripType: String? = null,
     val audio: String? = null,
     val voiceover: String? = null,
-    val files: List<TorrentFile> = emptyList()
+    val files: List<TorrentFile> = emptyList(),
+    val date: String? = null
 )
 
 @Serializable

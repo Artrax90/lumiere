@@ -15,6 +15,11 @@ import kotlinx.coroutines.flow.update
 
 data class SearchUiState(
     val query: String = "",
+    val activeSource: String = "tmdb", // "tmdb" or "kp"
+    val tmdbResults: List<Title> = emptyList(),
+    val tmdbCount: Int = 0,
+    val kpResults: List<Title> = emptyList(),
+    val kpCount: Int = 0,
     val results: List<Title> = emptyList(),
     val isLoading: Boolean = false,
     val errorMessage: String? = null
@@ -62,12 +67,32 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
         updateQuery("")
     }
 
+    fun setSource(source: String) {
+        if (_uiState.value.activeSource == source) return
+        val activeList = if (source == "kp") _uiState.value.kpResults else _uiState.value.tmdbResults
+        _uiState.update {
+            it.copy(
+                activeSource = source,
+                results = activeList
+            )
+        }
+    }
+
     private fun updateQuery(newQuery: String) {
         _uiState.update { it.copy(query = newQuery) }
 
         searchJob?.cancel()
         if (newQuery.trim().length < 2) {
-            _uiState.update { it.copy(results = emptyList(), isLoading = false) }
+            _uiState.update {
+                it.copy(
+                    results = emptyList(),
+                    tmdbResults = emptyList(),
+                    tmdbCount = 0,
+                    kpResults = emptyList(),
+                    kpCount = 0,
+                    isLoading = false
+                )
+            }
             return
         }
 
@@ -79,8 +104,32 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             val api = networkClient?.createApiService(serverUrl) ?: return@launch
 
             try {
-                val res = api.searchTitles(newQuery.trim())
-                _uiState.update { it.copy(results = res.results, isLoading = false) }
+                val res = api.searchTitles(query = newQuery.trim(), source = "all")
+                val tmdbList = res.tmdb?.results ?: res.results
+                val tmdbCnt = res.tmdb?.count ?: tmdbList.size
+                val kpList = res.kp?.results ?: emptyList()
+                val kpCnt = res.kp?.count ?: kpList.size
+
+                var targetSource = _uiState.value.activeSource
+                if (targetSource == "tmdb" && tmdbList.isEmpty() && kpList.isNotEmpty()) {
+                    targetSource = "kp"
+                } else if (targetSource == "kp" && kpList.isEmpty() && tmdbList.isNotEmpty()) {
+                    targetSource = "tmdb"
+                }
+
+                val activeList = if (targetSource == "kp") kpList else tmdbList
+
+                _uiState.update {
+                    it.copy(
+                        activeSource = targetSource,
+                        tmdbResults = tmdbList,
+                        tmdbCount = tmdbCnt,
+                        kpResults = kpList,
+                        kpCount = kpCnt,
+                        results = activeList,
+                        isLoading = false
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(

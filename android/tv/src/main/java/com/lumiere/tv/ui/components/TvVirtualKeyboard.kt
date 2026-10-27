@@ -38,7 +38,7 @@ fun TvVirtualKeyboard(
     modifier: Modifier = Modifier,
     firstKeyFocusRequester: FocusRequester? = null
 ) {
-    var layout by remember { mutableStateOf(KeyboardLayout.ENGLISH) }
+    var layout by remember { mutableStateOf(KeyboardLayout.RUSSIAN) }
     var isUpperCase by remember { mutableStateOf(false) }
 
     val digits = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0")

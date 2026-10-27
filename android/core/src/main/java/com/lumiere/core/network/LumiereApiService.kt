@@ -133,7 +133,8 @@ interface LumiereApiService {
     @GET("/api/search")
     suspend fun searchTitles(
         @Query("q") query: String,
-        @Query("lang") lang: String = "ru"
+        @Query("lang") lang: String = "ru",
+        @Query("source") source: String? = null
     ): TitleListResponse
 
     @GET("/api/torrents/search")
