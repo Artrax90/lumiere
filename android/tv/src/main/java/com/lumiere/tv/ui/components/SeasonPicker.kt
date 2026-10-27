@@ -31,6 +31,7 @@ fun SeasonPicker(
     resolveImageUrl: (String?) -> String,
     onEpisodeClick: (Episode) -> Unit,
     lastWatchedEpisodeNum: Int? = null,
+    fallbackPosterUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
     val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
@@ -93,9 +94,10 @@ fun SeasonPicker(
                 horizontalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 items(episodes, key = { it.id ?: "${it.season}-${it.episode}" }) { ep ->
+                    val epThumb = ep.thumbnail.orEmpty().ifBlank { fallbackPosterUrl.orEmpty() }
                     EpisodeCard(
                         episode = ep,
-                        thumbnailUrl = resolveImageUrl(ep.thumbnail),
+                        thumbnailUrl = resolveImageUrl(epThumb),
                         isLastWatched = ep.episode == lastWatchedEpisodeNum,
                         onClick = { onEpisodeClick(ep) }
                     )
@@ -144,13 +146,24 @@ private fun EpisodeCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(110.dp)
+                    .background(Color(0xFF1E293B)),
+                contentAlignment = Alignment.Center
             ) {
-                AsyncImage(
-                    model = thumbnailUrl,
-                    contentDescription = episode.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                if (thumbnailUrl.isNotBlank()) {
+                    AsyncImage(
+                        model = thumbnailUrl,
+                        contentDescription = episode.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    Text(
+                        text = "▶ Серия ${episode.episode}",
+                        fontSize = 14.sp,
+                        color = LumiereGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
 
                 // Episode Number Badge
                 Box(

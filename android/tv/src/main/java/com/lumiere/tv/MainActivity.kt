@@ -309,7 +309,7 @@ class MainActivity : ComponentActivity() {
                             com.lumiere.tv.ui.search.SearchScreen(
                                 onBackClick = { navController.popBackStack() },
                                 onTitleClick = { title ->
-                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie", title.source))
                                 }
                             )
                         }
@@ -345,7 +345,7 @@ class MainActivity : ComponentActivity() {
                             com.lumiere.tv.ui.profile.ProfileScreen(
                                 onBackClick = { navController.popBackStack() },
                                 onTitleClick = { title ->
-                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie"))
+                                    navController.navigate(Screen.Details.createRoute(title.id, title.type ?: "movie", title.source))
                                 },
                                 onSwitchProfileClick = {
                                     navController.navigate(Screen.Profiles.route)
@@ -361,14 +361,16 @@ class MainActivity : ComponentActivity() {
                             route = Screen.Details.route,
                             arguments = listOf(
                                 navArgument("id") { type = NavType.LongType },
-                                navArgument("type") { type = NavType.StringType; defaultValue = "movie" }
+                                navArgument("type") { type = NavType.StringType; defaultValue = "movie" },
+                                navArgument("source") { type = NavType.StringType; nullable = true; defaultValue = null }
                             )
                         ) { backStackEntry ->
                             val id = backStackEntry.arguments?.getLong("id") ?: 0L
                             val type = backStackEntry.arguments?.getString("type") ?: "movie"
+                            val source = backStackEntry.arguments?.getString("source")
                             val app = (androidx.compose.ui.platform.LocalContext.current.applicationContext as android.app.Application)
-                            val detailsViewModel = remember(id, type) {
-                                com.lumiere.tv.ui.details.DetailsViewModel(app, id, type)
+                            val detailsViewModel = remember(id, type, source) {
+                                com.lumiere.tv.ui.details.DetailsViewModel(app, id, type, source)
                             }
 
                             com.lumiere.tv.ui.details.DetailsScreen(

@@ -186,4 +186,65 @@ class LumiereApiTest {
         assertEquals("Первый канал HD", response.channels[0].name)
         assertEquals("Общие", response.channels[0].group)
     }
+
+    @Test
+    fun testTorrentSearchResponseParsing() {
+        val raw = """
+            {
+                "torrents": [
+                    {
+                        "title": "Звезды",
+                        "magnet": "magnet:?xt=urn:btih:abb0111fb8d14a78f8bd4cc817b4e207997d22c7",
+                        "size": 3629247365,
+                        "sizeFormatted": "3.4 GB",
+                        "seeders": 5,
+                        "date": "2021-12-09T20:21:00"
+                    }
+                ]
+            }
+        """.trimIndent()
+        val response = json.decodeFromString<TorrentSearchResponse>(raw)
+        assertEquals(1, response.torrents.size)
+        val t = response.torrents[0]
+        println("Decoded torrent: size=${t.size}, sizeFormatted=${t.sizeFormatted}, sizeBytes=${t.sizeBytes}, date=${t.date}")
+        assertNotNull(t.date)
+        assertEquals("2021-12-09T20:21:00", t.date)
+    }
+
+    private fun parseTorrentDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return 0L
+        dateStr.toLongOrNull()?.let { return if (it < 10000000000L) it * 1000L else it }
+        try {
+            return java.time.Instant.parse(dateStr).toEpochMilli()
+        } catch (_: Exception) {}
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd",
+            "EEE, dd MMM yyyy HH:mm:ss z",
+            "EEE, dd MMM yyyy HH:mm:ss Z"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val parsed = sdf.parse(dateStr)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return 0L
+    }
+
+    @Test
+    fun testParseTorrentDate() {
+        val d1 = "2021-12-09T20:21:00"
+        val d2 = "2024-05-25T02:00:06.7196213Z"
+        val ms1 = parseTorrentDate(d1)
+        val ms2 = parseTorrentDate(d2)
+        println("d1 ms: $ms1, d2 ms: $ms2")
+        assertTrue("ms1 should be > 0", ms1 > 0)
+        assertTrue("ms2 should be > 0", ms2 > 0)
+    }
 }

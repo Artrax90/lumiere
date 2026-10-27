@@ -77,9 +77,9 @@ fun TorrentDialog(
             }
             when (sortBy) {
                 "seeds" -> list.sortedByDescending { it.seeders ?: 0 }
-                "size" -> list.sortedByDescending { it.sizeBytes ?: 0L }
+                "size" -> list.sortedByDescending { TorrentMetaParser.parseSizeBytes(it) }
                 "date" -> list.sortedWith(
-                    compareByDescending<TorrentItem> { parseTorrentDate(it.date) }
+                    compareByDescending<TorrentItem> { TorrentMetaParser.parseTorrentDate(it.date) }
                         .thenByDescending { it.seeders ?: 0 }
                 )
                 else -> list.sortedByDescending { (it.seeders ?: 0) * 10 + if ((it.title.contains("4k", true) || it.title.contains("2160p", true))) 50 else 0 }
@@ -494,20 +494,20 @@ fun TorrentRowItem(
                 }
 
                 // Date Badge
-                val dateText = remember(item.date) { formatTorrentDate(item.date) }
+                val dateText = remember(item.date) { TorrentMetaParser.formatTorrentDate(item.date) }
                 if (!dateText.isNullOrBlank()) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0x18FFFFFF))
-                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(6.dp))
+                            .background(Color(0x2A0284C7))
+                            .border(1.dp, Color(0x6638BDF8), RoundedCornerShape(6.dp))
                             .padding(horizontal = 7.dp, vertical = 3.dp)
                     ) {
                         Text(
                             text = "📅 $dateText",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = Color(0xFFCBD5E1)
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7DD3FC)
                         )
                     }
                 }
@@ -557,36 +557,5 @@ private fun BadgePill(
     }
 }
 
-private fun parseTorrentDate(dateStr: String?): Long {
-    if (dateStr.isNullOrBlank()) return 0L
-    dateStr.toLongOrNull()?.let { return if (it < 10000000000L) it * 1000L else it }
-    try {
-        return java.time.Instant.parse(dateStr).toEpochMilli()
-    } catch (_: Exception) {}
-    val formats = listOf(
-        "yyyy-MM-dd'T'HH:mm:ss.SSSX",
-        "yyyy-MM-dd'T'HH:mm:ssX",
-        "yyyy-MM-dd'T'HH:mm:ss",
-        "yyyy-MM-dd HH:mm:ss",
-        "yyyy-MM-dd",
-        "EEE, dd MMM yyyy HH:mm:ss z",
-        "EEE, dd MMM yyyy HH:mm:ss Z"
-    )
-    for (fmt in formats) {
-        try {
-            val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
-            sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
-            val parsed = sdf.parse(dateStr)
-            if (parsed != null) return parsed.time
-        } catch (_: Exception) {}
-    }
-    return 0L
-}
 
-private fun formatTorrentDate(dateStr: String?): String? {
-    val ms = parseTorrentDate(dateStr)
-    if (ms <= 0L) return null
-    val sdf = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault())
-    return sdf.format(java.util.Date(ms))
-}
 

@@ -529,6 +529,7 @@ fun DetailsScreen(
                                     episodes = state.episodes,
                                     resolveImageUrl = { viewModel.resolveImageUrl(it) },
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
+                                    fallbackPosterUrl = title.backdrop.orEmpty().ifBlank { title.poster.orEmpty() },
                                     onEpisodeClick = { ep ->
                                         viewModel.playEpisodeDirectly(ep) { streamUrl, epTitle, subtitle, isHls ->
                                             val startPos = if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
@@ -542,19 +543,27 @@ fun DetailsScreen(
                                 )
                             } else {
                                 // Torrents Tab View with Filters & Sort
-                                val filteredTorrents = remember(state.torrents, qualityFilter, sortBy) {
+                                val filteredTorrents = remember(state.torrents, qualityFilter, sortBy, state.selectedSeason) {
                                     val list = state.torrents.filter { item ->
+                                        val matchesSeason = if (mediaType == "tv" && state.selectedSeason > 0) {
+                                            TorrentMetaParser.matchesTorrentSeason(item.title, state.selectedSeason)
+                                        } else true
                                         val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
-                                        when (qualityFilter) {
+                                        val matchesQuality = when (qualityFilter) {
                                             "4k" -> meta.resolution == "4K UHD"
                                             "1080p" -> meta.resolution == "1080p"
                                             "720p" -> meta.resolution == "720p"
                                             else -> true
                                         }
+                                        matchesSeason && matchesQuality
                                     }
                                     when (sortBy) {
                                         "seeds" -> list.sortedByDescending { it.seeders ?: 0 }
-                                        "size" -> list.sortedByDescending { it.sizeBytes ?: 0L }
+                                        "size" -> list.sortedByDescending { TorrentMetaParser.parseSizeBytes(it) }
+                                        "date" -> list.sortedWith(
+                                            compareByDescending<com.lumiere.core.model.TorrentItem> { TorrentMetaParser.parseTorrentDate(it.date) }
+                                                .thenByDescending { it.seeders ?: 0 }
+                                        )
                                         else -> list.sortedByDescending { (it.seeders ?: 0) * 10 + if ((it.title.contains("4k", true) || it.title.contains("2160p", true))) 50 else 0 }
                                     }
                                 }
@@ -616,8 +625,9 @@ fun DetailsScreen(
                                             ) {
                                                 Text("Сортировка:", fontSize = 11.sp, color = TextMuted)
                                                 listOf(
-                                                    "seeds" to "По сидам",
                                                     "score" to "По рейтингу",
+                                                    "seeds" to "По сидам",
+                                                    "date" to "По дате",
                                                     "size" to "По размеру"
                                                 ).forEach { (id, label) ->
                                                     val isSelected = sortBy == id

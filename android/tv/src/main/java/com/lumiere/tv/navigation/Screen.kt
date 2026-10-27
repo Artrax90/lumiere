@@ -18,9 +18,10 @@ sealed class Screen(val route: String) {
     data object Notifications : Screen("notifications")
     data object Profile : Screen("profile")
 
-    data object Details : Screen("details/{id}/{type}") {
-        fun createRoute(id: Long, type: String = "movie"): String {
-            return "details/$id/$type"
+    data object Details : Screen("details/{id}/{type}?source={source}") {
+        fun createRoute(id: Long, type: String = "movie", source: String? = null): String {
+            val srcParam = if (!source.isNullOrBlank()) "?source=$source" else ""
+            return "details/$id/$type$srcParam"
         }
     }
 

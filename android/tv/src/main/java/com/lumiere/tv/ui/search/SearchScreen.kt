@@ -45,6 +45,20 @@ fun SearchScreen(
     val coroutineScope = rememberCoroutineScope()
     val keyboardFocusRequester = remember { FocusRequester() }
 
+    val shouldLoadMore by remember {
+        derivedStateOf {
+            val totalItems = gridState.layoutInfo.totalItemsCount
+            val lastVisible = gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
+            totalItems > 0 && lastVisible >= totalItems - 6
+        }
+    }
+
+    LaunchedEffect(shouldLoadMore) {
+        if (shouldLoadMore) {
+            viewModel.loadMoreResults()
+        }
+    }
+
     BackHandler {
         if (gridState.firstVisibleItemIndex > 1) {
             coroutineScope.launch {
@@ -230,12 +244,28 @@ fun SearchScreen(
                 }
             }
         } else if (state.results.isNotEmpty()) {
-            items(state.results, key = { "${it.id}_${it.type ?: "movie"}" }) { title ->
+            items(state.results, key = { "${it.id}_${it.type ?: "movie"}_${it.source ?: ""}" }) { title ->
                 MediaCard(
                     title = title,
                     posterUrl = viewModel.resolvePosterUrl(title.poster),
                     onClick = { onTitleClick(title) }
                 )
+            }
+            if (state.isLoadingMore) {
+                item(span = { GridItemSpan(5) }) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(64.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Загрузка следующих результатов...",
+                            color = LumiereGold,
+                            fontSize = 14.sp
+                        )
+                    }
+                }
             }
         } else if (state.query.trim().length >= 2) {
             item(span = { GridItemSpan(5) }) {

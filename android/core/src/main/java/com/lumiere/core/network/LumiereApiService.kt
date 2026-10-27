@@ -134,8 +134,20 @@ interface LumiereApiService {
     suspend fun searchTitles(
         @Query("q") query: String,
         @Query("lang") lang: String = "ru",
-        @Query("source") source: String? = null
+        @Query("source") source: String? = null,
+        @Query("page") page: Int? = 1
     ): TitleListResponse
+
+    @GET("/api/kp/{id}")
+    suspend fun getKpDetails(
+        @Path("id") id: Long
+    ): Title
+
+    @GET("/api/kp/{id}/season/{season}")
+    suspend fun getKpSeasonEpisodes(
+        @Path("id") id: Long,
+        @Path("season") season: Int
+    ): SeasonResponse
 
     @GET("/api/torrents/search")
     suspend fun searchTorrents(

@@ -93,7 +93,8 @@ data class Title(
     val progress: Double? = null,
     val videoUrl: String? = null,
     val directUrl: String? = null,
-    val hlsUrl: String? = null
+    val hlsUrl: String? = null,
+    val source: String? = null
 )
 
 @Serializable

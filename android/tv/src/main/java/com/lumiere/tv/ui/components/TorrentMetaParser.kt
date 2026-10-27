@@ -185,6 +185,87 @@ object TorrentMetaParser {
         return ""
     }
 
+    fun parseSizeBytes(item: com.lumiere.core.model.TorrentItem): Long {
+        val sb = item.sizeBytes
+        if (sb != null && sb > 0L) return sb
+        item.size?.toLongOrNull()?.let { if (it > 0L) return it }
+        val formatted = item.sizeFormatted
+        if (!formatted.isNullOrBlank()) {
+            val clean = formatted.replace(',', '.').trim()
+            val match = Regex("""([\d.]+)""").find(clean)
+            val num = match?.value?.toDoubleOrNull() ?: 0.0
+            val lower = clean.lowercase()
+            return when {
+                lower.contains("тб") || lower.contains("tb") -> (num * 1024L * 1024L * 1024L * 1024L).toLong()
+                lower.contains("гб") || lower.contains("gb") -> (num * 1024L * 1024L * 1024L).toLong()
+                lower.contains("мб") || lower.contains("mb") -> (num * 1024L * 1024L).toLong()
+                lower.contains("кб") || lower.contains("kb") -> (num * 1024L).toLong()
+                else -> num.toLong()
+            }
+        }
+        return 0L
+    }
+
+    fun parseTorrentDate(dateStr: String?): Long {
+        if (dateStr.isNullOrBlank()) return 0L
+        dateStr.toLongOrNull()?.let { return if (it < 10000000000L) it * 1000L else it }
+        try {
+            return java.time.Instant.parse(dateStr).toEpochMilli()
+        } catch (_: Exception) {}
+        try {
+            return java.time.LocalDateTime.parse(dateStr).atZone(java.time.ZoneOffset.UTC).toInstant().toEpochMilli()
+        } catch (_: Exception) {}
+        val formats = listOf(
+            "yyyy-MM-dd'T'HH:mm:ss.SSSX",
+            "yyyy-MM-dd'T'HH:mm:ssX",
+            "yyyy-MM-dd'T'HH:mm:ss.SSS",
+            "yyyy-MM-dd'T'HH:mm:ss",
+            "yyyy-MM-dd HH:mm:ss",
+            "yyyy-MM-dd",
+            "EEE, dd MMM yyyy HH:mm:ss z",
+            "EEE, dd MMM yyyy HH:mm:ss Z"
+        )
+        for (fmt in formats) {
+            try {
+                val sdf = java.text.SimpleDateFormat(fmt, java.util.Locale.US)
+                sdf.timeZone = java.util.TimeZone.getTimeZone("UTC")
+                val parsed = sdf.parse(dateStr)
+                if (parsed != null) return parsed.time
+            } catch (_: Exception) {}
+        }
+        return 0L
+    }
+
+    fun formatTorrentDate(dateStr: String?): String? {
+        val ms = parseTorrentDate(dateStr)
+        if (ms <= 0L) return null
+        val sdf = java.text.SimpleDateFormat("dd.MM.yyyy", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(ms))
+    }
+
+    fun detectMaxSeason(torrents: List<com.lumiere.core.model.TorrentItem>): Int {
+        var maxSeason = 1
+        val seasonRegexes = listOf(
+            Regex("""(?:сезон[ыа]?|seasons?)\s*[:.]?\s*(\d{1,2})""", RegexOption.IGNORE_CASE),
+            Regex("""(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон|season)""", RegexOption.IGNORE_CASE),
+            Regex("""(\d{1,2})\s*(?:-?й|-ый)?\s*сезон""", RegexOption.IGNORE_CASE),
+            Regex("""\b[sS]0?(\d{1,2})\b"""),
+            Regex("""\b(\d{1,2})[xх]\d{1,3}\b""", RegexOption.IGNORE_CASE)
+        )
+        for (t in torrents) {
+            val title = t.title
+            for (regex in seasonRegexes) {
+                regex.findAll(title).forEach { match ->
+                    val s1 = match.groups[1]?.value?.toIntOrNull()
+                    val s2 = match.groups.get(2)?.value?.toIntOrNull()
+                    if (s1 != null && s1 in 1..40) maxSeason = maxOf(maxSeason, s1)
+                    if (s2 != null && s2 in 1..40) maxSeason = maxOf(maxSeason, s2)
+                }
+            }
+        }
+        return maxSeason
+    }
+
     fun matchesTorrentSeason(title: String, seasonNum: Int): Boolean {
         if (title.isBlank() || seasonNum <= 0) return true
         val lower = title.lowercase()

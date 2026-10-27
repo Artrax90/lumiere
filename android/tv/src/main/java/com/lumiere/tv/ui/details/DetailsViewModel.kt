@@ -42,7 +42,8 @@ data class DetailsUiState(
 class DetailsViewModel(
     application: Application,
     private val mediaId: Long,
-    private val mediaType: String
+    private val mediaType: String,
+    private val source: String? = null
 ) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences(application.applicationContext)
@@ -76,7 +77,9 @@ class DetailsViewModel(
             val api = networkClient!!.createApiService(serverUrl)
 
             try {
-                val details = if (mediaType == "tv") {
+                val details = if (source == "kp") {
+                    api.getKpDetails(mediaId)
+                } else if (mediaType == "tv") {
                     api.getTvDetails(mediaId)
                 } else {
                     api.getMovieDetails(mediaId)
@@ -175,10 +178,57 @@ class DetailsViewModel(
             val api = networkClient?.createApiService(serverUrl) ?: return@launch
 
             try {
-                val seasonRes = api.getSeasonEpisodes(mediaId, season)
-                _uiState.update { it.copy(episodes = seasonRes.episodes) }
-            } catch (_: Exception) {}
+                val seasonRes = if (source == "kp") {
+                    api.getKpSeasonEpisodes(mediaId, season)
+                } else {
+                    api.getSeasonEpisodes(mediaId, season)
+                }
+                if (seasonRes.episodes.isNotEmpty()) {
+                    _uiState.update { it.copy(episodes = seasonRes.episodes) }
+                } else {
+                    synthesizeEpisodesForSeason(season)
+                }
+            } catch (_: Exception) {
+                synthesizeEpisodesForSeason(season)
+            }
         }
+    }
+
+    private fun synthesizeEpisodesForSeason(season: Int) {
+        val matchingTorrents = _uiState.value.torrents.filter {
+            com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season)
+        }
+        var maxEp = 1
+        val epRangeRegex = Regex("""(\d{1,3})\s*[-–—]\s*(\d{1,3})\s*(?:выпуск|сери)""", RegexOption.IGNORE_CASE)
+        val singleEpRegex = Regex("""(?:выпуск|сери[яий]|ep|episode)\s*[:.]?\s*(\d{1,3})""", RegexOption.IGNORE_CASE)
+        for (t in matchingTorrents) {
+            epRangeRegex.find(t.title)?.let { m ->
+                val end = m.groups[2]?.value?.toIntOrNull() ?: 1
+                if (end in 1..200) maxEp = maxOf(maxEp, end)
+            }
+            singleEpRegex.find(t.title)?.let { m ->
+                val ep = m.groups[1]?.value?.toIntOrNull() ?: 1
+                if (ep in 1..200) maxEp = maxOf(maxEp, ep)
+            }
+        }
+        val count = if (maxEp > 1) maxEp else 8
+        val posterFallback = _uiState.value.title?.backdrop.orEmpty().ifBlank { _uiState.value.title?.poster.orEmpty() }
+        val synth = (1..count).map { epNum ->
+            Episode(
+                id = "tv-$mediaId-s${season}e$epNum",
+                seriesId = mediaId,
+                season = season,
+                episode = epNum,
+                title = "$epNum выпуск",
+                synopsis = null,
+                runtime = null,
+                thumbnail = posterFallback,
+                aired = null,
+                isAired = true,
+                progress = null
+            )
+        }
+        _uiState.update { it.copy(episodes = synth) }
     }
 
     private fun searchTorrents(titleName: String, year: Int?) {
@@ -190,7 +240,7 @@ class DetailsViewModel(
             try {
                 var torrentsRes = api.searchTorrents(
                     query = titleName,
-                    tmdbId = mediaId,
+                    tmdbId = if (source == "kp") null else mediaId,
                     type = mediaType,
                     year = year
                 )
@@ -201,12 +251,21 @@ class DetailsViewModel(
                     try {
                         torrentsRes = api.searchTorrents(
                             query = orig,
-                            tmdbId = mediaId,
+                            tmdbId = if (source == "kp") null else mediaId,
                             type = mediaType,
                             year = year
                         )
                         list = torrentsRes.torrents.ifEmpty { torrentsRes.results }
                     } catch (_: Exception) {}
+                }
+
+                // Detect true seasons count across all torrents
+                if (mediaType == "tv") {
+                    val detectedMaxSeason = com.lumiere.tv.ui.components.TorrentMetaParser.detectMaxSeason(list)
+                    val currentCount = _uiState.value.title?.seasonsCount ?: 1
+                    if (detectedMaxSeason > currentCount) {
+                        _uiState.update { it.copy(title = it.title?.copy(seasonsCount = detectedMaxSeason)) }
+                    }
                 }
 
                 _uiState.update { it.copy(isSearchingTorrents = false, torrents = list) }
