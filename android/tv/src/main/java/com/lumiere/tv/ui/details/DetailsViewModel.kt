@@ -195,19 +195,20 @@ class DetailsViewModel(
     }
 
     private fun synthesizeEpisodesForSeason(season: Int) {
+        val showYr = _uiState.value.title?.year
         val matchingTorrents = _uiState.value.torrents.filter {
-            com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season)
+            com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season, showYr)
         }
         var maxEp = 1
         val epRangeRegex = Regex("""(\d{1,3})\s*[-–—]\s*(\d{1,3})\s*(?:выпуск|сери)""", RegexOption.IGNORE_CASE)
         val singleEpRegex = Regex("""(?:выпуск|сери[яий]|ep|episode)\s*[:.]?\s*(\d{1,3})""", RegexOption.IGNORE_CASE)
         for (t in matchingTorrents) {
             epRangeRegex.find(t.title)?.let { m ->
-                val end = m.groups[2]?.value?.toIntOrNull() ?: 1
+                val end = m.groupValues.getOrNull(2)?.toIntOrNull() ?: 1
                 if (end in 1..200) maxEp = maxOf(maxEp, end)
             }
             singleEpRegex.find(t.title)?.let { m ->
-                val ep = m.groups[1]?.value?.toIntOrNull() ?: 1
+                val ep = m.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
                 if (ep in 1..200) maxEp = maxOf(maxEp, ep)
             }
         }
@@ -235,9 +236,13 @@ class DetailsViewModel(
         viewModelScope.launch {
             _uiState.update { it.copy(isSearchingTorrents = true) }
             val serverUrl = preferences.serverUrl.first().orEmpty()
-            val api = networkClient?.createApiService(serverUrl) ?: return@launch
+            val api = networkClient?.createApiService(serverUrl) ?: run {
+                _uiState.update { it.copy(isSearchingTorrents = false) }
+                return@launch
+            }
 
             try {
+                android.util.Log.d("LumiereDetails", "Searching torrents for $titleName (mediaId=$mediaId, source=$source, year=$year)")
                 var torrentsRes = api.searchTorrents(
                     query = titleName,
                     tmdbId = if (source == "kp") null else mediaId,
@@ -246,30 +251,57 @@ class DetailsViewModel(
                 )
                 var list = torrentsRes.torrents.ifEmpty { torrentsRes.results }
 
+                // Fallback 1: If searching with tmdbId yielded 0 results, retry without tmdbId
+                if (list.isEmpty() && source != "kp") {
+                    try {
+                        torrentsRes = api.searchTorrents(
+                            query = titleName,
+                            tmdbId = null,
+                            type = mediaType,
+                            year = year
+                        )
+                        list = torrentsRes.torrents.ifEmpty { torrentsRes.results }
+                    } catch (e: Exception) {
+                        android.util.Log.w("LumiereDetails", "Fallback search without tmdbId failed: ${e.message}")
+                    }
+                }
+
+                // Fallback 2: Retry with original title if different
                 val orig = _uiState.value.title?.originalTitle
                 if (list.isEmpty() && !orig.isNullOrBlank() && orig != titleName) {
                     try {
                         torrentsRes = api.searchTorrents(
                             query = orig,
-                            tmdbId = if (source == "kp") null else mediaId,
+                            tmdbId = null,
                             type = mediaType,
                             year = year
                         )
                         list = torrentsRes.torrents.ifEmpty { torrentsRes.results }
-                    } catch (_: Exception) {}
+                    } catch (e: Exception) {
+                        android.util.Log.w("LumiereDetails", "Fallback search with originalTitle failed: ${e.message}")
+                    }
                 }
+
+                android.util.Log.d("LumiereDetails", "Torrents search finished: found ${list.size} torrents for $titleName")
 
                 // Detect true seasons count across all torrents
                 if (mediaType == "tv") {
-                    val detectedMaxSeason = com.lumiere.tv.ui.components.TorrentMetaParser.detectMaxSeason(list)
+                    val detectedMaxSeason = com.lumiere.tv.ui.components.TorrentMetaParser.detectMaxSeason(list, year)
                     val currentCount = _uiState.value.title?.seasonsCount ?: 1
                     if (detectedMaxSeason > currentCount) {
+                        android.util.Log.d("LumiereDetails", "Updating seasonsCount from $currentCount to $detectedMaxSeason for $titleName")
                         _uiState.update { it.copy(title = it.title?.copy(seasonsCount = detectedMaxSeason)) }
                     }
                 }
 
                 _uiState.update { it.copy(isSearchingTorrents = false, torrents = list) }
-            } catch (_: Exception) {
+
+                // If currently viewed season has no episodes, synthesize them now using the torrents
+                if (mediaType == "tv" && _uiState.value.episodes.isEmpty()) {
+                    loadSeason(_uiState.value.selectedSeason)
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("LumiereDetails", "Torrents search error: ${e.message}", e)
                 _uiState.update { it.copy(isSearchingTorrents = false) }
             }
         }
@@ -347,6 +379,12 @@ class DetailsViewModel(
     }
 
     fun openTorrentDialog(episode: Episode? = null) {
+        if (_uiState.value.torrents.isEmpty() && !_uiState.value.isSearchingTorrents) {
+            val t = _uiState.value.title
+            if (t != null) {
+                searchTorrents(t.name, t.year)
+            }
+        }
         _uiState.update { it.copy(showTorrentDialog = true, selectedEpisode = episode) }
     }
 

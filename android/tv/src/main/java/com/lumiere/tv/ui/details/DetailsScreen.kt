@@ -544,9 +544,9 @@ fun DetailsScreen(
                             } else {
                                 // Torrents Tab View with Filters & Sort
                                 val filteredTorrents = remember(state.torrents, qualityFilter, sortBy, state.selectedSeason) {
-                                    val list = state.torrents.filter { item ->
+                                    var list = state.torrents.filter { item ->
                                         val matchesSeason = if (mediaType == "tv" && state.selectedSeason > 0) {
-                                            TorrentMetaParser.matchesTorrentSeason(item.title, state.selectedSeason)
+                                            TorrentMetaParser.matchesTorrentSeason(item.title, state.selectedSeason, title.year)
                                         } else true
                                         val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
                                         val matchesQuality = when (qualityFilter) {
@@ -556,6 +556,9 @@ fun DetailsScreen(
                                             else -> true
                                         }
                                         matchesSeason && matchesQuality
+                                    }
+                                    if (list.isEmpty() && state.torrents.isNotEmpty()) {
+                                        list = state.torrents
                                     }
                                     when (sortBy) {
                                         "seeds" -> list.sortedByDescending { it.seeders ?: 0 }

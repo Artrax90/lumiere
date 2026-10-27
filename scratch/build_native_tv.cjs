@@ -70,10 +70,17 @@ try {
 console.log('\n--- Checking for Connected ADB Devices ---');
 if (fs.existsSync(adbPath)) {
   try {
-    try {
-      execSync(`"${adbPath}" connect 192.168.1.128:5555`, { encoding: 'utf8', timeout: 4000 });
-    } catch {}
-    const devicesOutput = execSync(`"${adbPath}" devices`, { encoding: 'utf8' });
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`Connecting to 192.168.1.128:5555 (attempt ${attempt})...`);
+        const connOut = execSync(`"${adbPath}" connect 192.168.1.128:5555`, { encoding: 'utf8', timeout: 15000 });
+        console.log(connOut.trim());
+        if (connOut.includes('connected')) break;
+      } catch (err) {
+        console.warn(`Connect attempt ${attempt} notice:`, err.message);
+      }
+    }
+    const devicesOutput = execSync(`"${adbPath}" devices`, { encoding: 'utf8', timeout: 10000 });
     const lines = devicesOutput.split('\n').filter(l => l.trim().length > 0 && !l.startsWith('List of'));
     const connectedDevices = lines.map(l => l.split('\t')[0].trim()).filter(id => id.length > 0 && !id.includes('offline'));
     
@@ -81,8 +88,15 @@ if (fs.existsSync(adbPath)) {
       console.log(`Found ${connectedDevices.length} connected device(s): ${connectedDevices.join(', ')}`);
       for (const dev of connectedDevices) {
         console.log(`Installing Lumiere-tv.apk on device ${dev}...`);
-        execSync(`"${adbPath}" -s ${dev} install -r "${path.join(rootDir, 'Lumiere-tv.apk')}"`, { stdio: 'inherit' });
+        execSync(`"${adbPath}" -s ${dev} install -r "${path.join(rootDir, 'Lumiere-tv.apk')}"`, { stdio: 'inherit', timeout: 60000 });
         console.log(`[✔] Installed successfully on ${dev}`);
+        try {
+          execSync(`"${adbPath}" -s ${dev} shell am force-stop com.lumiere.tv`, { timeout: 10000 });
+          execSync(`"${adbPath}" -s ${dev} shell am start -n com.lumiere.tv/.MainActivity`, { timeout: 10000 });
+          console.log(`[✔] Restarted com.lumiere.tv on ${dev}`);
+        } catch (restartErr) {
+          console.warn('App restart notice:', restartErr.message);
+        }
       }
     } else {
       console.log('No ADB devices currently connected. To install directly to your Android TV stick / box:');

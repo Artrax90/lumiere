@@ -247,4 +247,24 @@ class LumiereApiTest {
         assertTrue("ms1 should be > 0", ms1 > 0)
         assertTrue("ms2 should be > 0", ms2 > 0)
     }
+
+    @Test
+    fun testRealTorrentsDecoding() {
+        val zvezdyFile = java.io.File("../../scratch/zvezdy_torrents.json")
+        assertTrue("zvezdyFile should exist", zvezdyFile.exists())
+        val content = zvezdyFile.readText()
+        val parsed = json.decodeFromString<TorrentSearchResponse>(content)
+        val list = parsed.torrents.ifEmpty { parsed.results }
+        println("Zvezdy torrents parsed successfully: ${list.size}")
+        assertTrue(list.isNotEmpty())
+
+        val houseFile = java.io.File("../../scratch/house_torrents.json")
+        assertTrue("houseFile should exist", houseFile.exists())
+        val contentH = houseFile.readText()
+        val parsedH = json.decodeFromString<TorrentSearchResponse>(contentH)
+        val listH = parsedH.torrents.ifEmpty { parsedH.results }
+        println("House torrents parsed successfully: ${listH.size}")
+        assertTrue(listH.isNotEmpty())
+    }
 }
+

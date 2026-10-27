@@ -243,47 +243,99 @@ object TorrentMetaParser {
         return sdf.format(java.util.Date(ms))
     }
 
-    fun detectMaxSeason(torrents: List<com.lumiere.core.model.TorrentItem>): Int {
-        var maxSeason = 1
+    fun detectMaxSeason(torrents: List<com.lumiere.core.model.TorrentItem>, showYear: Int? = null): Int {
+        if (torrents.isEmpty()) return 1
+        val seasonCounts = mutableMapOf<Int, Int>()
         val seasonRegexes = listOf(
-            Regex("""(?:сезон[ыа]?|seasons?)\s*[:.]?\s*(\d{1,2})""", RegexOption.IGNORE_CASE),
-            Regex("""(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон|season)""", RegexOption.IGNORE_CASE),
             Regex("""(\d{1,2})\s*(?:-?й|-ый)?\s*сезон""", RegexOption.IGNORE_CASE),
+            Regex("""(?:^|[^\d])сезон\s*[:.]?\s*(\d{1,2})\b(?!\s*выпуск|\s*сери)""", RegexOption.IGNORE_CASE),
+            Regex("""(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон|season)""", RegexOption.IGNORE_CASE),
             Regex("""\b[sS]0?(\d{1,2})\b"""),
-            Regex("""\b(\d{1,2})[xх]\d{1,3}\b""", RegexOption.IGNORE_CASE)
+            Regex("""\[\s*0?(\d{1,2})[xх]\d{1,3}""", RegexOption.IGNORE_CASE),
+            Regex("""\b0?(\d{1,2})[xх]\d{1,3}\b""", RegexOption.IGNORE_CASE)
         )
+
         for (t in torrents) {
             val title = t.title
             for (regex in seasonRegexes) {
                 regex.findAll(title).forEach { match ->
-                    val s1 = match.groups[1]?.value?.toIntOrNull()
-                    val s2 = match.groups.get(2)?.value?.toIntOrNull()
-                    if (s1 != null && s1 in 1..40) maxSeason = maxOf(maxSeason, s1)
-                    if (s2 != null && s2 in 1..40) maxSeason = maxOf(maxSeason, s2)
+                    val s1 = if (match.groupValues.size > 1) match.groupValues[1].toIntOrNull() else null
+                    val s2 = if (match.groupValues.size > 2) match.groupValues[2].toIntOrNull() else null
+                    if (s1 != null && s1 in 1..40) {
+                        seasonCounts[s1] = (seasonCounts[s1] ?: 0) + 1
+                    }
+                    if (s2 != null && s2 in 1..40) {
+                        seasonCounts[s2] = (seasonCounts[s2] ?: 0) + 1
+                    }
                 }
             }
         }
-        return maxSeason
+
+        var yearMax = 1
+        if (showYear != null && showYear >= 1990) {
+            val yearRegex = Regex("""[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]""")
+            for (t in torrents) {
+                yearRegex.find(t.title)?.let { m ->
+                    val y = if (m.groupValues.size > 1) m.groupValues[1].toIntOrNull() ?: 0 else 0
+                    if (y in showYear..2035 && y != 1080 && y != 2160) {
+                        yearMax = maxOf(yearMax, y - showYear + 1)
+                    }
+                }
+            }
+        }
+
+        var maxConsecutive = 1
+        while ((seasonCounts[maxConsecutive + 1] ?: 0) >= 2 || (maxConsecutive + 1 <= yearMax && (seasonCounts[maxConsecutive + 1] ?: 0) >= 1)) {
+            maxConsecutive++
+        }
+        return maxOf(maxConsecutive, minOf(yearMax, 35))
     }
 
-    fun matchesTorrentSeason(title: String, seasonNum: Int): Boolean {
+    fun matchesTorrentSeason(title: String, seasonNum: Int, showYear: Int? = null): Boolean {
         if (title.isBlank() || seasonNum <= 0) return true
         val lower = title.lowercase()
 
-        // Season range e.g. "сезоны 1-4", "1-4 сезон"
+        // 1. Season range e.g. "сезоны 1-4", "1-4 сезон", "seasons 1-3"
         val rangeRegex = Regex("""(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})|(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)""", RegexOption.IGNORE_CASE)
         val mRange = rangeRegex.find(lower)
         if (mRange != null) {
-            val s1 = (mRange.groups[1]?.value ?: mRange.groups[3]?.value)?.toIntOrNull() ?: 1
-            val s2 = (mRange.groups[2]?.value ?: mRange.groups[4]?.value)?.toIntOrNull() ?: 1
+            val s1 = (if (mRange.groupValues.size > 1 && mRange.groupValues[1].isNotBlank()) mRange.groupValues[1]
+                      else if (mRange.groupValues.size > 3) mRange.groupValues[3] else null)?.toIntOrNull() ?: 1
+            val s2 = (if (mRange.groupValues.size > 2 && mRange.groupValues[2].isNotBlank()) mRange.groupValues[2]
+                      else if (mRange.groupValues.size > 4) mRange.groupValues[4] else null)?.toIntOrNull() ?: 1
             return seasonNum in s1..s2
         }
 
-        // Single season e.g. "19 сезон", "сезон 19", "s02", "2x05"
-        val sRegex = Regex("""(?:^|[^\d])s0?(\d{1,2})(?:e\d+|\b)|(\d{1,2})[-–—\s]*(?:й|-й)?\s*сезон|(?:^|[^\d])сезон\s*[:.]?\s*(\d{1,2})|(?:^|[^\d])season\s*[:.]?\s*(\d{1,2})|\b(\d{1,2})[xх]\d+\b""", RegexOption.IGNORE_CASE)
+        // 2. Multi-year range: e.g. (2024-2026), (2005-2012)
+        val yrRange = Regex("""[\(\[\/\s\.\-](\d{4})\s*[-–—]\s*(\d{4})[\)\]\/\s\.\-]""").find(lower)
+        if (yrRange != null && showYear != null && showYear >= 1990) {
+            val yStart = if (yrRange.groupValues.size > 1) yrRange.groupValues[1].toIntOrNull() ?: 0 else 0
+            val yEnd = if (yrRange.groupValues.size > 2) yrRange.groupValues[2].toIntOrNull() ?: 0 else 0
+            if (yStart in 1990..2035 && yEnd > yStart) {
+                val sStart = maxOf(1, yStart - showYear + 1)
+                val sEnd = maxOf(sStart, yEnd - showYear + 1)
+                if (seasonNum in sStart..sEnd) return true
+            }
+        }
+
+        // 3. Year correlation for annual TV shows (e.g. 2026 -> Season 3 if show started in 2024)
+        if (showYear != null && showYear >= 1990) {
+            val singleYr = Regex("""[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]""").find(lower)
+            if (singleYr != null) {
+                val y = if (singleYr.groupValues.size > 1) singleYr.groupValues[1].toIntOrNull() ?: 0 else 0
+                if (y in showYear..2035 && y != 1080 && y != 2160) {
+                    val mappedSeason = y - showYear + 1
+                    if (mappedSeason == seasonNum) return true
+                }
+            }
+        }
+
+        // 4. Single season patterns:
+        // Negative lookahead (?!\s*выпуск|\s*сери) ensures "2 сезон: 8 выпуск" does NOT match as season 8
+        val sRegex = Regex("""(?:^|[^\d])s0?(\d{1,2})(?:e\d+|\b)|(\d{1,2})[-–—\s]*(?:й|-й)?\s*сезон|(?:^|[^\d])сезон\s*[:.]?\s*(\d{1,2})\b(?!\s*выпуск|\s*сери)|(?:^|[^\d])season\s*[:.]?\s*(\d{1,2})\b|\[\s*0?(\d{1,2})[xх]\d+|\b0?(\d{1,2})[xх]\d+\b""", RegexOption.IGNORE_CASE)
         val mS = sRegex.find(lower)
         if (mS != null) {
-            val single = (mS.groups[1] ?: mS.groups[2] ?: mS.groups[3] ?: mS.groups[4] ?: mS.groups[5])?.value?.toIntOrNull()
+            val single = mS.groupValues.drop(1).firstOrNull { it.isNotBlank() }?.toIntOrNull()
             if (single != null) {
                 return single == seasonNum
             }
@@ -303,23 +355,23 @@ object TorrentMetaParser {
         val exactRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)0?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
         val mExact = exactRegex.find(lower)
         if (mExact != null) {
-            return mExact.groups[1]?.value?.toIntOrNull() == epNum
+            return mExact.groupValues.getOrNull(1)?.toIntOrNull() == epNum
         }
 
         // Range e.g. "s02e01-10", "2x01-08"
         val rangeRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)\s*0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
         val mRange = rangeRegex.find(lower)
         if (mRange != null) {
-            val rStart = mRange.groups[1]?.value?.toIntOrNull() ?: 0
-            val rEnd = mRange.groups[2]?.value?.toIntOrNull() ?: 0
+            val rStart = mRange.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
+            val rEnd = mRange.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
             return epNum in rStart..rEnd
         }
 
         // Russian range: "1-10 серии", "1-10 выпуск"
         val ruRange = Regex("""\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)""", RegexOption.IGNORE_CASE).find(lower)
         if (ruRange != null) {
-            val rStart = ruRange.groups[1]?.value?.toIntOrNull() ?: 0
-            val rEnd = ruRange.groups[2]?.value?.toIntOrNull() ?: 0
+            val rStart = ruRange.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
+            val rEnd = ruRange.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
             return epNum in rStart..rEnd
         }
 
@@ -333,29 +385,29 @@ object TorrentMetaParser {
         val lower = cleanName.lowercase()
 
         // S01E05
-        Regex("""[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b""").find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let { return it }
+        Regex("""[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
 
         // 01x05
-        Regex("""\b\d{1,2}[xх](\d{1,3})\b""").find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let { return it }
+        Regex("""\b\d{1,2}[xх](\d{1,3})\b""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
 
         // "серия 5", "эпизод 5", "выпуск 5", "ep. 5"
-        Regex("""(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE).find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let { return it }
+        Regex("""(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
 
         // "5 серия", "13 выпуск"
-        Regex("""\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b""", RegexOption.IGNORE_CASE).find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let { return it }
+        Regex("""\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
 
         // Bracketed number e.g. "[05]" or "[05v2]"
-        Regex("""\[0*(\d{1,3})[a-zA-Z0-9_\-]*\]""").find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let {
+        Regex("""\[0*(\d{1,3})[a-zA-Z0-9_\-]*\]""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
             if (it < 700) return it
         }
 
         // Leading number e.g. "05 - Title.mkv" or "05.mkv"
-        Regex("""^(?:\[[^\]]*\]\s*)?0*(\d{1,3})[\s._\-]""").find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let {
+        Regex("""^(?:\[[^\]]*\]\s*)?0*(\d{1,3})[\s._\-]""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
             if (it < 700) return it
         }
 
         // Just number before extension e.g. "05.mkv" or "Show.05.mkv"
-        Regex("""(?:^|[\s._\-])0*(\d{1,3})\.(?:mkv|avi|mp4|ts|m4v)$""").find(lower)?.groups?.get(1)?.value?.toIntOrNull()?.let {
+        Regex("""(?:^|[\s._\-])0*(\d{1,3})\.(?:mkv|avi|mp4|ts|m4v)$""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
             if (it < 700) return it
         }
 
