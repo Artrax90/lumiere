@@ -18,9 +18,9 @@ interface EpisodeDetailsProps {
 export default function EpisodeDetails({ episode, series: initialSeries, onBack, onPlay, onSelectEpisode }: EpisodeDetailsProps) {
   const { t } = useTranslation();
   const [imgLoaded, setImgLoaded] = useState(false);
-  const { data: fetchedSeries, loading: seriesLoading } = useDetails(initialSeries ? null : episode.seriesId, 'tv');
+  const { data: fetchedSeries, loading: seriesLoading } = useDetails(initialSeries ? null : episode.seriesId, 'tv', initialSeries?.source);
   const series = initialSeries || fetchedSeries;
-  const { data: seasonEpisodes } = useSeason(episode.seriesId, episode.season);
+  const { data: seasonEpisodes } = useSeason(episode.seriesId, episode.season, series?.source);
   const currentIdx = seasonEpisodes.findIndex((e) => e.id === episode.id);
   const prevEp = currentIdx > 0 ? seasonEpisodes[currentIdx - 1] : null;
   const nextEp = currentIdx < seasonEpisodes.length - 1 ? seasonEpisodes[currentIdx + 1] : null;

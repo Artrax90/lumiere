@@ -78,7 +78,14 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
   const [isListening, setIsListening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const { data: searchResults, loading: searchLoading } = useSearch(query, 250);
+  const {
+    data: searchResults,
+    loading: searchLoading,
+    tmdbData,
+    kpData,
+    activeSource,
+    switchSource,
+  } = useSearch(query, 250);
   const { data: genres } = useGenres('movie');
   const { data: trendingTitles, loading: trendingLoading } = useTrending('movie');
 
@@ -271,6 +278,47 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
         {/* ================================================================ */}
         {query.trim() ? (
           <div className="mt-8 animate-fade-in">
+            {/* Search Source Tabs: TMDB & Kinopoisk */}
+            <div className="flex items-center gap-2.5 mb-6">
+              <button
+                type="button"
+                onClick={() => switchSource('tmdb')}
+                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer ${
+                  activeSource === 'tmdb'
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-[0_4px_16px_rgba(232,193,112,0.35)] scale-[1.02]'
+                    : 'bg-white/[0.05] text-white/70 hover:bg-white/[0.1] hover:text-white border border-white/[0.08]'
+                }`}
+              >
+                <span>TMDB</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                    activeSource === 'tmdb' ? 'bg-black/20 text-black' : 'bg-white/10 text-white/70'
+                  }`}
+                >
+                  ({tmdbData.count})
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => switchSource('kp')}
+                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer ${
+                  activeSource === 'kp'
+                    ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-[0_4px_16px_rgba(232,193,112,0.35)] scale-[1.02]'
+                    : 'bg-white/[0.05] text-white/70 hover:bg-white/[0.1] hover:text-white border border-white/[0.08]'
+                }`}
+              >
+                <span>Кинопоиск</span>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                    activeSource === 'kp' ? 'bg-black/20 text-black' : 'bg-white/10 text-white/70'
+                  }`}
+                >
+                  ({kpData.count})
+                </span>
+              </button>
+            </div>
+
             {/* Filter & Sort Bar */}
             <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/[0.06]">
               {/* Type Category Tabs */}

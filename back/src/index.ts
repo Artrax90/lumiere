@@ -8,6 +8,7 @@ import { dirname, join } from 'path';
 import { config } from './config.js';
 import { TmdbClient } from './services/tmdb-client.js';
 import { TmdbProvider } from './services/metadata/tmdb.js';
+import { KinopoiskProvider } from './services/metadata/kinopoisk.js';
 import { movieRoutes } from './routes/movies.js';
 import { tvRoutes } from './routes/tv.js';
 import { searchRoutes } from './routes/search.js';
@@ -108,10 +109,11 @@ await app.register(cors, {
 
 const tmdbClient = new TmdbClient(config.tmdb.token, config.tmdb.proxyUrl);
 const provider = new TmdbProvider(tmdbClient);
+const kpProvider = new KinopoiskProvider(config.kinopoisk.token);
 
 app.register(movieRoutes, provider);
 app.register(tvRoutes, provider);
-app.register(searchRoutes, provider);
+app.register(searchRoutes, { provider, kpProvider });
 app.register(genreRoutes, provider);
 app.register(imageRoutes, { tmdbClient });
 app.register(authRoutes);

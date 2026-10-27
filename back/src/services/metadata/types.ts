@@ -3,6 +3,8 @@ import type { Lang } from '../tmdb-client.js';
 export interface Title {
   id: number;
   tmdbId: number;
+  source?: 'tmdb' | 'kp';
+  kpId?: number;
   name: string;
   type: 'movie' | 'tv' | 'anime';
   year: number;

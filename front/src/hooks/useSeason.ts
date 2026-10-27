@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiFetch, type Episode } from '@/api/client';
 
-export function useSeason(tvId: number | null, seasonNumber: number | null) {
+export function useSeason(tvId: number | null, seasonNumber: number | null, source?: 'tmdb' | 'kp') {
   const [data, setData] = useState<Episode[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,7 +15,10 @@ export function useSeason(tvId: number | null, seasonNumber: number | null) {
     let cancelled = false;
     setLoading(true);
 
-    apiFetch<{ episodes: Episode[] }>(`/api/tv/${tvId}/season/${seasonNumber}`)
+    const isKp = source === 'kp';
+    const path = isKp ? `/api/kp/${tvId}/season/${seasonNumber}` : `/api/tv/${tvId}/season/${seasonNumber}`;
+
+    apiFetch<{ episodes: Episode[] }>(path)
       .then((res) => {
         if (!cancelled) {
           setData(res.episodes);
@@ -30,7 +33,7 @@ export function useSeason(tvId: number | null, seasonNumber: number | null) {
       });
 
     return () => { cancelled = true; };
-  }, [tvId, seasonNumber]);
+  }, [tvId, seasonNumber, source]);
 
   return { data, loading, error };
 }

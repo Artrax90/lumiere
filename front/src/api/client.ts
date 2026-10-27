@@ -5,6 +5,8 @@ export type MediaType = 'movie' | 'tv' | 'anime' | 'show' | 'documentary' | 'liv
 export interface Title {
   id: number;
   tmdbId?: number;
+  source?: 'tmdb' | 'kp';
+  kpId?: number;
   name: string;
   type: MediaType;
   year: number;

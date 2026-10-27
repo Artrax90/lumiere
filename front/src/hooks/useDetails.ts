@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiFetch, type Title } from '@/api/client';
 
-export function useDetails(id: number | null, mediaType: 'movie' | 'tv' = 'movie') {
+export function useDetails(id: number | null, mediaType: 'movie' | 'tv' = 'movie', source?: 'tmdb' | 'kp') {
   const [data, setData] = useState<Title | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -15,10 +15,15 @@ export function useDetails(id: number | null, mediaType: 'movie' | 'tv' = 'movie
     let cancelled = false;
     setLoading(true);
 
-    const basePath = mediaType === 'movie' ? '/api/movies' : '/api/tv';
-    apiFetch<Title>(`${basePath}/${id}`)
+    const isKp = source === 'kp';
+    const path = isKp ? `/api/kp/${id}` : (mediaType === 'movie' ? `/api/movies/${id}` : `/api/tv/${id}`);
+    apiFetch<Title>(path)
       .then((res) => {
         if (!cancelled) {
+          if (isKp && res) {
+            res.source = 'kp';
+            res.kpId = res.id;
+          }
           setData(res);
           setLoading(false);
         }
@@ -31,7 +36,7 @@ export function useDetails(id: number | null, mediaType: 'movie' | 'tv' = 'movie
       });
 
     return () => { cancelled = true; };
-  }, [id, mediaType]);
+  }, [id, mediaType, source]);
 
   return { data, loading, error };
 }

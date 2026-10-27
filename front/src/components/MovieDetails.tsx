@@ -198,7 +198,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
 
   const hasSavedProgress = savedTorrent && savedPosition > 30; // At least 30 seconds watched
 
-  const { data: details } = useDetails(title.id, title.type === 'tv' ? 'tv' : 'movie');
+  const { data: details } = useDetails(title.id, title.type === 'tv' ? 'tv' : 'movie', title.source);
   const displayTitle = details || title;
 
   const handleOpenTrailer = async () => {

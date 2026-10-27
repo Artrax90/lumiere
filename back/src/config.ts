@@ -7,6 +7,9 @@ export const config = {
     token: process.env.TMDB_TOKEN || process.env.TMDB_API_KEY || '',
     proxyUrl: process.env.TMDB_PROXY_URL || undefined,
   },
+  kinopoisk: {
+    token: process.env.KINOPOISK_TOKEN || '3b3fd373-4ff5-4011-a5cf-cf096b9e8f78',
+  },
   cors: {
     origin: true,
   },

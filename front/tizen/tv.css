@@ -4696,3 +4696,64 @@ body.player-active .section {
   transform: scale(1.08) !important;
 }
 
+/* ========== Search Source Tabs (TMDB & Kinopoisk) ========== */
+.search-source-tabs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 18px;
+  margin: 18px 0 14px 0;
+  width: 100%;
+}
+
+.search-source-tab {
+  background: rgba(255, 255, 255, 0.08);
+  border: 2px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+  padding: 10px 24px;
+  color: #ffffff;
+  font-size: 20px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+.search-source-tab .tab-label {
+  letter-spacing: 0.5px;
+}
+
+.search-source-tab .tab-count {
+  background: rgba(0, 0, 0, 0.4);
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.search-source-tab.active {
+  background: rgba(232, 193, 112, 0.2);
+  border-color: #e8c170;
+  color: #e8c170;
+}
+
+.search-source-tab.active .tab-count {
+  background: rgba(232, 193, 112, 0.3);
+  color: #ffffff;
+}
+
+.search-source-tab.focused,
+.search-source-tab:focus {
+  background: rgba(232, 193, 112, 0.4) !important;
+  border-color: #ffffff !important;
+  color: #ffffff !important;
+  transform: scale(1.08);
+  box-shadow: 0 0 24px rgba(232, 193, 112, 0.6) !important;
+  outline: none !important;
+}
+
+

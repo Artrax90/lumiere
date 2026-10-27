@@ -4543,8 +4543,9 @@
     renderDetailLoading(title);
 
     // Fetch full details
+    var isKp = (title.source === 'kp' || title.isKp || !!title.kpId);
     var type = (!isMovieType && (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name)))) ? 'tv' : 'movies';
-    var cacheKey = type + '_' + title.id;
+    var cacheKey = (isKp ? 'kp_' : (type + '_')) + title.id;
     if (state._detailCache && state._detailCache[cacheKey]) {
       var cached = state._detailCache[cacheKey];
       state.detail = cached;
@@ -4556,9 +4557,14 @@
     // Loading state
     renderDetailLoading(title);
 
-    apiFetch('/api/' + type + '/' + title.id, function(err, data) {
+    var detailUrl = isKp ? ('/api/kp/' + (title.kpId || title.id)) : ('/api/' + type + '/' + title.id);
+    apiFetch(detailUrl, function(err, data) {
       if (!state._detailCache) state._detailCache = {};
       if (data && data.id) {
+        if (isKp) {
+          data.source = 'kp';
+          data.kpId = data.id;
+        }
         state._detailCache[cacheKey] = data;
         state.detail = data;
         state.detailLoadedId = data.id;
@@ -6161,7 +6167,12 @@
 
     container.innerHTML = '<p class="detail-loading-text">Загрузка серий ' + seasonNum + ' сезона...</p>';
 
-    apiFetch('/api/tv/' + showId + '/season/' + seasonNum, function(err, data) {
+    var isKp = (title && (title.source === 'kp' || title.isKp || !!title.kpId)) ||
+               (state.detail && (state.detail.source === 'kp' || state.detail.isKp || !!state.detail.kpId));
+    var kpId = (title && title.kpId) || (state.detail && state.detail.kpId) || showId;
+    var epUrl = isKp ? ('/api/kp/' + kpId + '/season/' + seasonNum) : ('/api/tv/' + showId + '/season/' + seasonNum);
+
+    apiFetch(epUrl, function(err, data) {
       if (err || !data || !data.episodes || data.episodes.length === 0) {
         container.innerHTML = '<p class="detail-empty-text">Серии ' + seasonNum + ' сезона не найдены</p>';
         return;
@@ -8629,17 +8640,20 @@
         var targetCol2 = Math.min(nextLen - 1, Math.round(oskState.col * (nextLen / curRowLen)));
         focusOskKey(oskState.row + 1, targetCol2);
       } else {
-        var chipEls = getSearchChipElements();
-        if (chipEls.length > 0) {
-          clearOskFocus();
-          focusSearchChip(0);
-        } else {
-          var firstResult = document.querySelector('#search-results .card');
-          if (firstResult) {
+        var tabFocused = focusSearchSourceTab();
+        if (!tabFocused) {
+          var chipEls = getSearchChipElements();
+          if (chipEls.length > 0) {
             clearOskFocus();
-            firstResult.classList.add('focused');
-            firstResult.focus();
-            state.focusedCard = 0;
+            focusSearchChip(0);
+          } else {
+            var firstResult = document.querySelector('#search-results .card');
+            if (firstResult) {
+              clearOskFocus();
+              firstResult.classList.add('focused');
+              firstResult.focus();
+              state.focusedCard = 0;
+            }
           }
         }
       }
@@ -8737,7 +8751,10 @@
 
     if (isUp) {
       clearSearchChipFocus();
-      focusOskFromBottom();
+      var tabFocused = focusSearchSourceTab();
+      if (!tabFocused) {
+        focusOskFromBottom();
+      }
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
@@ -8840,6 +8857,194 @@
     }
   }
 
+  var searchSourceState = {
+    activeSource: 'tmdb',
+    tmdbResults: [],
+    kpResults: [],
+    tmdbCount: 0,
+    kpCount: 0,
+    focusedTabIdx: -1
+  };
+
+  function setupSearchSourceTabs() {
+    var tmdbTab = document.getElementById('tab-source-tmdb');
+    var kpTab = document.getElementById('tab-source-kp');
+
+    if (tmdbTab) {
+      tmdbTab.onclick = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        switchSearchSource('tmdb');
+      };
+    }
+    if (kpTab) {
+      kpTab.onclick = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        switchSearchSource('kp');
+      };
+    }
+  }
+
+  function updateSearchSourceBadges() {
+    var tmdbCountEl = document.getElementById('count-source-tmdb');
+    var kpCountEl = document.getElementById('count-source-kp');
+    if (tmdbCountEl) tmdbCountEl.textContent = '(' + (searchSourceState.tmdbCount || 0) + ')';
+    if (kpCountEl) kpCountEl.textContent = '(' + (searchSourceState.kpCount || 0) + ')';
+  }
+
+  function updateSearchSourceTabStyles() {
+    var tmdbTab = document.getElementById('tab-source-tmdb');
+    var kpTab = document.getElementById('tab-source-kp');
+    if (tmdbTab) {
+      if (searchSourceState.activeSource === 'tmdb') {
+        tmdbTab.classList.add('active');
+      } else {
+        tmdbTab.classList.remove('active');
+      }
+    }
+    if (kpTab) {
+      if (searchSourceState.activeSource === 'kp') {
+        kpTab.classList.add('active');
+      } else {
+        kpTab.classList.remove('active');
+      }
+    }
+  }
+
+  function switchSearchSource(source) {
+    if (source !== 'tmdb' && source !== 'kp') source = 'tmdb';
+    searchSourceState.activeSource = source;
+    updateSearchSourceTabStyles();
+    renderCurrentSearchResults();
+  }
+
+  function renderCurrentSearchResults() {
+    var container = document.getElementById('search-results');
+    if (!container) return;
+
+    var items = (searchSourceState.activeSource === 'kp') ? searchSourceState.kpResults : searchSourceState.tmdbResults;
+    if (!items || items.length === 0) {
+      var srcName = (searchSourceState.activeSource === 'kp') ? 'Кинопоиске' : 'TMDB';
+      var q = (oskState && oskState.query && oskState.query.trim()) || '';
+      if (!q) {
+        container.innerHTML = '';
+      } else {
+        container.innerHTML = '<p class="detail-empty-text">Ничего не найдено в ' + srcName + '</p>';
+      }
+      return;
+    }
+
+    container.innerHTML = '';
+    items.slice(0, 30).forEach(function(t, i) {
+      var card = createCard(t, i);
+      if (searchSourceState.activeSource === 'kp') {
+        card.setAttribute('data-source', 'kp');
+        card.setAttribute('data-kpid', t.id);
+        t.source = 'kp';
+        t.kpId = t.id;
+        card._titleData = t;
+      }
+      container.appendChild(card);
+    });
+  }
+
+  function clearSearchSourceTabFocus() {
+    searchSourceState.focusedTabIdx = -1;
+    var tabs = document.querySelectorAll('.search-source-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.remove('focused');
+    }
+  }
+
+  function focusSearchSourceTab(idx) {
+    clearOskFocus();
+    clearNavFocus();
+    clearCardFocus();
+    clearSearchChipFocus();
+    state.focusedCard = null;
+
+    var tabs = document.querySelectorAll('.search-source-tab');
+    if (!tabs || tabs.length === 0) return false;
+
+    if (idx === undefined || idx === null || idx < 0) {
+      idx = (searchSourceState.activeSource === 'kp') ? 1 : 0;
+    }
+    idx = Math.max(0, Math.min(idx, 1));
+    searchSourceState.focusedTabIdx = idx;
+
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.remove('focused');
+    }
+    if (tabs[idx]) {
+      tabs[idx].classList.add('focused');
+      try { tabs[idx].focus(); } catch(e) {}
+      return true;
+    }
+    return false;
+  }
+
+  function handleSearchSourceTabKeys(code, e, targetFocus) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+
+    var curIdx = searchSourceState.focusedTabIdx;
+    if (curIdx < 0) {
+      curIdx = (targetFocus && targetFocus.getAttribute('data-source') === 'kp') ? 1 : 0;
+    }
+
+    if (isLeft) {
+      if (curIdx > 0) {
+        focusSearchSourceTab(0);
+        switchSearchSource('tmdb');
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (curIdx < 1) {
+        focusSearchSourceTab(1);
+        switchSearchSource('kp');
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      clearSearchSourceTabFocus();
+      focusOskFromBottom();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      clearSearchSourceTabFocus();
+      var chipEls = getSearchChipElements();
+      if (chipEls.length > 0) {
+        focusSearchChip(0);
+      } else {
+        var firstResult = document.querySelector('#search-results .card');
+        if (firstResult) {
+          firstResult.classList.add('focused');
+          try { firstResult.focus(); } catch(fe) {}
+          state.focusedCard = 0;
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      var source = (curIdx === 1) ? 'kp' : 'tmdb';
+      switchSearchSource(source);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
   function setupSearch() {
     var secSearch = document.getElementById('sec-search');
     if (secSearch && !document.getElementById('tv-keyboard')) {
@@ -8851,6 +9056,16 @@
             '<span class="search-query-cursor">|</span>' +
           '</div>' +
           '<div class="tv-keyboard" id="tv-keyboard"></div>' +
+          '<div class="search-source-tabs" id="search-source-tabs">' +
+            '<button type="button" class="search-source-tab active" id="tab-source-tmdb" data-source="tmdb" tabindex="0">' +
+              '<span class="tab-label">TMDB</span>' +
+              '<span class="tab-count" id="count-source-tmdb">(0)</span>' +
+            '</button>' +
+            '<button type="button" class="search-source-tab" id="tab-source-kp" data-source="kp" tabindex="0">' +
+              '<span class="tab-label">Кинопоиск</span>' +
+              '<span class="tab-count" id="count-source-kp">(0)</span>' +
+            '</button>' +
+          '</div>' +
           '<div class="search-history-wrap" id="search-history-wrap"></div>' +
         '</div>' +
         '<div id="search-results" class="grid"></div>';
@@ -8858,28 +9073,67 @@
     renderOsk();
     updateOskQueryDisplay();
     renderRecentSearches();
+    setupSearchSourceTabs();
+    updateSearchSourceBadges();
+    updateSearchSourceTabStyles();
   }
 
   function performSearch(query) {
     var container = document.getElementById('search-results');
     if (!container) return;
 
+    if (!query || !query.trim()) {
+      searchSourceState.tmdbResults = [];
+      searchSourceState.kpResults = [];
+      searchSourceState.tmdbCount = 0;
+      searchSourceState.kpCount = 0;
+      searchSourceState.activeSource = 'tmdb';
+      updateSearchSourceBadges();
+      updateSearchSourceTabStyles();
+      container.innerHTML = '';
+      return;
+    }
+
     apiFetch('/api/search?q=' + encodeURIComponent(query), function(err, data) {
       if (err || !data) {
+        searchSourceState.tmdbResults = [];
+        searchSourceState.kpResults = [];
+        searchSourceState.tmdbCount = 0;
+        searchSourceState.kpCount = 0;
+        updateSearchSourceBadges();
+        updateSearchSourceTabStyles();
         container.innerHTML = '<p class="detail-empty-text">Ничего не найдено</p>';
         return;
       }
 
-      var results = data.results || [];
-      if (results.length === 0) {
-        container.innerHTML = '<p class="detail-empty-text">Ничего не найдено</p>';
-        return;
-      }
+      var tmdbData = data.tmdb || {};
+      var kpData = data.kp || {};
 
-      container.innerHTML = '';
-      results.slice(0, 24).forEach(function(t, i) {
-        container.appendChild(createCard(t, i));
+      var tmdbResults = Array.isArray(tmdbData.results) ? tmdbData.results : (data.results || []);
+      var kpResults = Array.isArray(kpData.results) ? kpData.results : [];
+
+      kpResults.forEach(function(it) {
+        it.source = 'kp';
+        it.kpId = it.id;
       });
+
+      var tmdbCount = (typeof tmdbData.count === 'number') ? tmdbData.count : tmdbResults.length;
+      var kpCount = (typeof kpData.count === 'number') ? kpData.count : kpResults.length;
+
+      searchSourceState.tmdbResults = tmdbResults;
+      searchSourceState.kpResults = kpResults;
+      searchSourceState.tmdbCount = tmdbCount;
+      searchSourceState.kpCount = kpCount;
+
+      if (tmdbResults.length === 0 && kpResults.length > 0) {
+        searchSourceState.activeSource = 'kp';
+      } else if (tmdbResults.length > 0 && searchSourceState.activeSource !== 'kp') {
+        searchSourceState.activeSource = 'tmdb';
+      }
+
+      updateSearchSourceBadges();
+      updateSearchSourceTabStyles();
+      renderCurrentSearchResults();
     });
   }
 
@@ -10077,12 +10331,19 @@
       return;
     }
 
-    // 3. If in search section and on results cards, return focus to OSK
+    // 3. If in search section and on results cards, return focus to tabs or OSK
     if (state.section === 'search') {
       var searchCardFocused = document.querySelector('#search-results .card.focused');
       if (searchCardFocused) {
         clearCardFocus();
         state.focusedCard = null;
+        var tabFocused = focusSearchSourceTab();
+        if (!tabFocused) focusOskFromBottom();
+        return;
+      }
+      var searchTabFocused = document.querySelector('.search-source-tab.focused');
+      if (searchTabFocused) {
+        clearSearchSourceTabFocus();
         focusOskFromBottom();
         return;
       }
@@ -10606,6 +10867,7 @@
 
     var isOnNav = !!(targetFocus && targetFocus.classList.contains('nav-btn') && targetFocus.classList.contains('focused'));
     var isOnChip = (state.section === 'search' && !!(targetFocus && (targetFocus.classList.contains('search-chip') || targetFocus.id === 'btn-clear-search-history')));
+    var isOnSearchTab = (state.section === 'search' && !!(targetFocus && targetFocus.classList.contains('search-source-tab')));
     var isOnIptv = (state.section === 'iptv' && !!(targetFocus && (targetFocus.classList.contains('iptv-ch-item') || targetFocus.classList.contains('iptv-cat-item') || targetFocus.classList.contains('iptv-action-btn') || targetFocus.classList.contains('iptv-epg-item') || targetFocus.classList.contains('iptv-channel'))));
     var isOnCard = !!(targetFocus && targetFocus.classList.contains('card'));
     var isOnShelfTab = !!(targetFocus && targetFocus.classList.contains('shelf-tab'));
@@ -10622,6 +10884,11 @@
     // If focused on OSK, route keys directly to handleOskKeys
     if (isOnOsk) {
       handleOskKeys(code, e);
+      return;
+    }
+
+    if (isOnSearchTab) {
+      handleSearchSourceTabKeys(code, e, targetFocus);
       return;
     }
 
@@ -10790,7 +11057,10 @@
             if (chipEls.length > 0) {
               focusSearchChip(0);
             } else {
-              focusOskFromBottom();
+              var tabFocused = focusSearchSourceTab();
+              if (!tabFocused) {
+                focusOskFromBottom();
+              }
             }
           } else {
             focusNav(state.focusedNav || 0);
