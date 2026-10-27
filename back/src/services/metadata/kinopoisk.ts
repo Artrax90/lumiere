@@ -16,6 +16,22 @@ export interface KinopoiskSearchFilm {
   posterUrlPreview?: string;
 }
 
+export interface KinopoiskV22Film {
+  kinopoiskId: number;
+  imdbId?: string;
+  nameRu?: string;
+  nameEn?: string;
+  nameOriginal?: string;
+  countries?: Array<{ country: string }>;
+  genres?: Array<{ genre: string }>;
+  ratingKinopoisk?: number;
+  ratingImdb?: number;
+  year?: number;
+  type?: string;
+  posterUrl?: string;
+  posterUrlPreview?: string;
+}
+
 export interface KinopoiskFilmDetails {
   kinopoiskId: number;
   nameRu?: string;
@@ -110,6 +126,32 @@ export class KinopoiskProvider {
     return `/api/image?url=${encodeURIComponent(url)}`;
   }
 
+  mapV22Film(film: KinopoiskV22Film): Title {
+    const isTv = this.mapType(film.type) === 'tv';
+    const parsedYear = film.year || 0;
+    const score = film.ratingKinopoisk || film.ratingImdb || 0;
+    const poster = this.proxyImage(film.posterUrlPreview || film.posterUrl);
+
+    return {
+      id: film.kinopoiskId,
+      tmdbId: 0,
+      source: 'kp',
+      kpId: film.kinopoiskId,
+      name: film.nameRu || film.nameOriginal || film.nameEn || '',
+      originalTitle: film.nameOriginal || film.nameEn || '',
+      type: isTv ? 'tv' : 'movie',
+      year: parsedYear,
+      runtime: '—',
+      rating: '',
+      score: score > 0 ? parseFloat(score.toFixed(1)) : 0,
+      genres: (film.genres || []).map((g) => g.genre).filter(Boolean),
+      description: '',
+      backdrop: poster,
+      poster: poster,
+      logoText: film.nameRu || film.nameOriginal || film.nameEn || '',
+    };
+  }
+
   mapSearchFilm(film: KinopoiskSearchFilm): Title {
     const isTv = this.mapType(film.type) === 'tv';
     const parsedYear = parseInt(film.year || '0', 10) || 0;
@@ -137,29 +179,80 @@ export class KinopoiskProvider {
   }
 
   async search(query: string, page = 1): Promise<TitleResult> {
-    if (!query.trim()) {
+    const trimmed = query.trim();
+    if (!trimmed) {
       return { results: [], page: 1, totalPages: 0, totalResults: 0 };
     }
 
+    // 1. Primary: Use v2.2/films which searches specifically by title keyword
     const data = await this.fetchApi<{
+      total?: number;
+      totalPages?: number;
+      items?: KinopoiskV22Film[];
+    }>('/api/v2.2/films', {
+      keyword: trimmed,
+      page: String(page),
+    });
+
+    if (data && Array.isArray(data.items) && data.items.length > 0) {
+      const results = data.items.map((f) => this.mapV22Film(f));
+
+      // Sort by relevance to title query
+      const qLower = trimmed.toLowerCase();
+      results.sort((a, b) => {
+        const aName = (a.name || '').toLowerCase();
+        const bName = (b.name || '').toLowerCase();
+        const aExact = aName === qLower ? 1 : 0;
+        const bExact = bName === qLower ? 1 : 0;
+        if (aExact !== bExact) return bExact - aExact;
+
+        const aStarts = aName.startsWith(qLower) ? 1 : 0;
+        const bStarts = bName.startsWith(qLower) ? 1 : 0;
+        if (aStarts !== bStarts) return bStarts - aStarts;
+
+        const aIncludes = aName.includes(qLower) ? 1 : 0;
+        const bIncludes = bName.includes(qLower) ? 1 : 0;
+        if (aIncludes !== bIncludes) return bIncludes - aIncludes;
+
+        return (b.score || 0) - (a.score || 0);
+      });
+
+      return {
+        results,
+        page,
+        totalPages: data.totalPages || 1,
+        totalResults: data.total || results.length,
+      };
+    }
+
+    // 2. Fallback to v2.1 if v2.2 returned nothing, but strictly filter by title matching
+    // (Prevents unrelated movies like "Вверх" where keyword only appears in plot description)
+    const v21Data = await this.fetchApi<{
       pagesCount?: number;
       searchFilmsCountResult?: number;
       films?: KinopoiskSearchFilm[];
     }>('/api/v2.1/films/search-by-keyword', {
-      keyword: query.trim(),
+      keyword: trimmed,
       page: String(page),
     });
 
-    if (!data || !Array.isArray(data.films)) {
+    if (!v21Data || !Array.isArray(v21Data.films)) {
       return { results: [], page: 1, totalPages: 0, totalResults: 0 };
     }
 
-    const results = data.films.map((f) => this.mapSearchFilm(f));
+    const qLower = trimmed.toLowerCase();
+    const matchedFilms = v21Data.films.filter((f) => {
+      const ru = (f.nameRu || '').toLowerCase();
+      const en = (f.nameEn || '').toLowerCase();
+      return ru.includes(qLower) || en.includes(qLower);
+    });
+
+    const results = matchedFilms.map((f) => this.mapSearchFilm(f));
     return {
       results,
       page,
-      totalPages: data.pagesCount || 1,
-      totalResults: data.searchFilmsCountResult || results.length,
+      totalPages: 1,
+      totalResults: results.length,
     };
   }
 
