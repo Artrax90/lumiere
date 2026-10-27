@@ -279,19 +279,19 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
         {query.trim() ? (
           <div className="mt-8 animate-fade-in">
             {/* Search Source Tabs: TMDB & Kinopoisk */}
-            <div className="flex items-center gap-2.5 mb-6">
+            <div className="flex items-center gap-3 mb-6">
               <button
                 type="button"
                 onClick={() => switchSource('tmdb')}
-                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer ${
+                className={`flex items-center gap-2.5 rounded-xl px-6 py-2.5 text-[15px] font-semibold transition-all duration-200 cursor-pointer ${
                   activeSource === 'tmdb'
                     ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-[0_4px_16px_rgba(232,193,112,0.35)] scale-[1.02]'
-                    : 'bg-white/[0.05] text-white/70 hover:bg-white/[0.1] hover:text-white border border-white/[0.08]'
+                    : 'bg-white/[0.06] text-white/75 hover:bg-white/[0.12] hover:text-white border border-white/[0.1]'
                 }`}
               >
                 <span>TMDB</span>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                  className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${
                     activeSource === 'tmdb' ? 'bg-black/20 text-black' : 'bg-white/10 text-white/70'
                   }`}
                 >
@@ -302,15 +302,15 @@ export default function SearchView({ onSelect, initialQuery = '' }: SearchViewPr
               <button
                 type="button"
                 onClick={() => switchSource('kp')}
-                className={`flex items-center gap-2 rounded-xl px-5 py-2.5 text-[14px] font-semibold transition-all duration-200 cursor-pointer ${
+                className={`flex items-center gap-2.5 rounded-xl px-6 py-2.5 text-[15px] font-semibold transition-all duration-200 cursor-pointer ${
                   activeSource === 'kp'
                     ? 'bg-gradient-to-r from-amber-400 to-amber-500 text-black shadow-[0_4px_16px_rgba(232,193,112,0.35)] scale-[1.02]'
-                    : 'bg-white/[0.05] text-white/70 hover:bg-white/[0.1] hover:text-white border border-white/[0.08]'
+                    : 'bg-white/[0.06] text-white/75 hover:bg-white/[0.12] hover:text-white border border-white/[0.1]'
                 }`}
               >
                 <span>Кинопоиск</span>
                 <span
-                  className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${
+                  className={`rounded-full px-2.5 py-0.5 text-[12px] font-bold ${
                     activeSource === 'kp' ? 'bg-black/20 text-black' : 'bg-white/10 text-white/70'
                   }`}
                 >
