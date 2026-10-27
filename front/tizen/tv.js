@@ -9446,12 +9446,8 @@
     var isOnTopBtn = !!focusedBtn || notifState.focusedIndex === -1;
 
     if (isBack) {
-      if (notifState.focusedIndex >= 0) {
-        focusNotificationElement('topBtn', 0);
-      } else {
-        clearAllFocus();
-        focusNav(8);
-      }
+      clearAllFocus();
+      focusNav(8);
       if (e && e.preventDefault) e.preventDefault();
       return;
     }
@@ -9872,6 +9868,7 @@
       return;
     }
     if (section === 'home') {
+      state._homeArrivalTimestamp = Date.now();
       loadAndApplyHomeShelves();
     }
     if (section !== 'iptv' && typeof stopPreview === 'function') {
@@ -10182,6 +10179,7 @@
     if (modal && modal.parentNode) {
       modal.parentNode.removeChild(modal);
     }
+    state._homeArrivalTimestamp = Date.now();
     if (!noNavFocus) {
       focusNav(0);
     }
@@ -10331,142 +10329,63 @@
       return;
     }
 
-    // 3. If in search section and on results cards, return focus to tabs or OSK
-    if (state.section === 'search') {
-      var searchCardFocused = document.querySelector('#search-results .card.focused');
-      if (searchCardFocused) {
-        clearCardFocus();
-        state.focusedCard = null;
-        var tabFocused = focusSearchSourceTab();
-        if (!tabFocused) {
-          var chipEls = getSearchChipElements();
-          if (chipEls.length > 0) focusSearchChip(0);
-          else focusOskFromBottom();
-        }
-        return;
-      }
-      var searchTabFocused = document.querySelector('.search-source-tab.focused');
-      if (searchTabFocused) {
-        clearSearchSourceTabFocus();
-        var chipEls2 = getSearchChipElements();
-        if (chipEls2.length > 0) {
-          focusSearchChip(0);
-        } else {
-          focusOskFromBottom();
-        }
-        return;
-      }
-      var searchChipFocused = document.querySelector('.search-chip.focused, #btn-clear-search-history.focused');
-      if (searchChipFocused) {
-        clearSearchChipFocus();
-        focusOskFromBottom();
-        return;
-      }
-      var oskFocused = document.querySelector('.osk-key.focused');
-      if (oskFocused) {
-        if (oskState.query && oskState.query.length > 0) {
-          oskState.query = '';
-          updateOskQueryDisplay();
-          var sRes = document.getElementById('search-results');
-          if (sRes) sRes.innerHTML = '';
-          return;
-        }
-        clearOskFocus();
-        focusNav(1); // "Поиск" nav button
-        return;
-      }
-      // If already on "Поиск" nav button or in Search -> return to Home!
-      switchSection('home');
-      focusNav(0);
+    // 3. If in IPTV virtual keyboard: close it
+    if (iptvOskState && iptvOskState.isOpen) {
+      closeIptvOsk();
       return;
     }
 
-    // 4. If in IPTV:
-    if (state.section === 'iptv') {
-      if (iptvOskState && iptvOskState.isOpen) {
-        closeIptvOsk();
-        return;
-      }
-      if (iptvState.searchQuery && iptvState.searchQuery.length > 0) {
-        iptvState.searchQuery = '';
-        updateIptvOskQueryDisplay();
-        iptvState.focusedCh = 0;
-        renderIptv();
-        focusIptvChannel(0);
-        return;
-      }
-      if (iptvState.focusedCol === 2) {
-        iptvState.focusedCol = 1;
-        if (iptvState.focusedCh < 0) iptvState.focusedCh = 0;
-        focusIptvChannel(iptvState.focusedCh || 0);
-        return;
-      }
-      if (iptvState.focusedCol === 1) {
-        iptvState.focusedCol = 0;
-        focusIptvCategory(iptvState.focusedCat || 0);
-        return;
-      }
-      if (iptvState.focusedCol === 0) {
-        iptvState.focusedCol = -1;
-        clearIptvFocus();
-        focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
-        return;
-      }
-      // Return to Home from IPTV top nav!
-      if (typeof stopPreview === 'function') stopPreview();
-      iptvState.focusedCol = -1;
-      clearIptvFocus();
-      switchSection('home');
-      focusNav(0);
+    // 4. If in collections section and viewing specific collection contents: exit to collections list
+    if (state.section === 'collections' && state.inCollectionDetail) {
+      state.inCollectionDetail = false;
+      renderCollectionsSection();
       return;
     }
 
-    // 4b. If in Notifications:
-    if (state.section === 'notifications') {
-      if (notifState.focusedIndex >= 0) {
-        focusNotificationElement('topBtn', 0);
-        return;
+    // Helper to find nav button index by section name
+    function getNavIndexForSection(sec) {
+      var btns = document.querySelectorAll('.nav-btn');
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute('data-section') === sec) return i;
       }
-      var isNavActive = !!document.querySelector('.nav-btn.focused');
-      if (!isNavActive) {
-        clearAllFocus();
-        focusNav(8);
-        return;
-      }
-      switchSection('home');
-      focusNav(0);
-      return;
+      return 0;
     }
 
-    // 4.9. If in collections section:
-    if (state.section === 'collections') {
-      if (state.inCollectionDetail) {
-        state.inCollectionDetail = false;
-        renderCollectionsSection();
-        return;
-      }
-      switchSection('home');
-      focusNav(0);
-      return;
-    }
+    // 5. Check if focus is CURRENTLY on the top navigation bar
+    var navFocusedBtn = document.querySelector('.nav-btn.focused') || 
+      (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('nav-btn') ? document.activeElement : null);
 
-    // 5. If on card, go back to top nav
-    var cardFocused = document.querySelector('.card.focused');
-    if (cardFocused) {
+    // LEVEL 1: Focus is anywhere INSIDE page content -> jump directly to current section's top nav button!
+    if (!navFocusedBtn) {
+      clearAllFocus();
       clearCardFocus();
+      clearSearchSourceTabFocus();
+      clearSearchChipFocus();
+      clearOskFocus();
+      clearIptvFocus();
+      if (typeof stopPreview === 'function') stopPreview();
       state.focusedCard = null;
-      focusNav(state.focusedNav || 0);
+
+      var targetNavIdx = getNavIndexForSection(state.section);
+      focusNav(targetNavIdx);
       return;
     }
 
-    // 6. If on top nav of any non-home section, return to Home!
+    // LEVEL 2: Focus IS on Top Nav button of a NON-HOME section -> return to "Главная"!
     if (state.section !== 'home') {
+      clearAllFocus();
       switchSection('home');
       focusNav(0);
+      state._homeArrivalTimestamp = Date.now();
       return;
     }
 
-    // 7. If already on Home top nav, show exit confirmation modal!
+    // LEVEL 3: Focus IS on "Главная" in Top Nav -> show exit confirmation modal
+    if (now - (state._homeArrivalTimestamp || 0) < 1000) {
+      console.log('[Lumiere] Ignoring Back key immediately after arriving on Home');
+      return;
+    }
+
     showExitConfirmModal();
   }
 

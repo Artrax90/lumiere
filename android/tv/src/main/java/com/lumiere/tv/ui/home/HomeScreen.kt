@@ -1,11 +1,14 @@
 package com.lumiere.tv.ui.home
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.launch
@@ -49,6 +52,14 @@ fun HomeScreen(
     }
 
     val homeFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    var isTopBarFocused by remember { mutableStateOf(false) }
+
+    androidx.activity.compose.BackHandler(enabled = !isTopBarFocused) {
+        try {
+            homeFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
+
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -75,28 +86,34 @@ fun HomeScreen(
             .background(BackgroundDark)
     ) {
         // Persistent Top Bar
-        TvTopBar(
-            currentDestination = currentTab,
-            firstItemFocusRequester = homeFocusRequester,
-            onNavigate = { dest ->
-                when (dest) {
-                    TvNavDestination.HOME -> { currentTab = TvNavDestination.HOME }
-                    TvNavDestination.MOVIES -> onMoviesClick()
-                    TvNavDestination.SERIES -> onSeriesClick()
-                    TvNavDestination.COLLECTIONS -> onCollectionsClick()
-                    TvNavDestination.IPTV -> onIptvClick()
-                    TvNavDestination.MY -> onMyClick()
-                    TvNavDestination.DOWNLOADS -> onDownloadsClick()
-                    TvNavDestination.SEARCH -> onSearchClick()
-                    TvNavDestination.SETTINGS -> onSettingsClick()
-                }
-            },
-            profileName = state.profileName,
-            profileAvatar = resolvePosterUrl(state.profileAvatar),
-            onProfileClick = onProfileClick,
-            unreadNotificationsCount = state.unreadNotificationsCount,
-            onNotificationsClick = onNotificationsClick
-        )
+        Box(
+            modifier = Modifier.onFocusChanged { focusState ->
+                isTopBarFocused = focusState.hasFocus
+            }
+        ) {
+            TvTopBar(
+                currentDestination = currentTab,
+                firstItemFocusRequester = homeFocusRequester,
+                onNavigate = { dest ->
+                    when (dest) {
+                        TvNavDestination.HOME -> { currentTab = TvNavDestination.HOME }
+                        TvNavDestination.MOVIES -> onMoviesClick()
+                        TvNavDestination.SERIES -> onSeriesClick()
+                        TvNavDestination.COLLECTIONS -> onCollectionsClick()
+                        TvNavDestination.IPTV -> onIptvClick()
+                        TvNavDestination.MY -> onMyClick()
+                        TvNavDestination.DOWNLOADS -> onDownloadsClick()
+                        TvNavDestination.SEARCH -> onSearchClick()
+                        TvNavDestination.SETTINGS -> onSettingsClick()
+                    }
+                },
+                profileName = state.profileName,
+                profileAvatar = resolvePosterUrl(state.profileAvatar),
+                onProfileClick = onProfileClick,
+                unreadNotificationsCount = state.unreadNotificationsCount,
+                onNotificationsClick = onNotificationsClick
+            )
+        }
 
         // Main Scrolling Catalog with persistent in-memory rows to eliminate recreation lag and focus crash
         val scrollState = rememberScrollState()
