@@ -4970,6 +4970,8 @@
   }
 
   function hideDetail() {
+    if (state.inPersonModal) closePersonModal();
+    if (state.inAllCastModal) closeAllCastModal();
     var now = Date.now();
     lastBackTimestamp = now;
     state.modalCloseTimestamp = now;
@@ -5520,7 +5522,7 @@
     if (allBtn) {
       allBtn.addEventListener('click', function() {
         if (state.detail && state.detail.cast && state.detail.cast.length > 0) {
-          openPersonModal(state.detail.cast[0].id, state.detail.cast[0].name);
+          openAllCastModal(state.detail.cast);
         }
       });
     }
@@ -5532,7 +5534,7 @@
 
     // Remember previously focused element to return focus on modal close
     var activeEl = document.activeElement;
-    state.personModalReturnEl = (activeEl && activeEl !== document.body) ? activeEl : document.querySelector('.detail-actor-card.focused');
+    state.personModalReturnEl = (activeEl && activeEl !== document.body) ? activeEl : (document.querySelector('.all-cast-card.focused') || document.querySelector('.detail-actor-card.focused'));
 
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
@@ -5627,6 +5629,9 @@
               var mType = card.getAttribute('data-movie-type');
               if (mId) {
                 closePersonModal();
+                if (state.inAllCastModal) {
+                  closeAllCastModal();
+                }
                 showDetail({ id: parseInt(mId, 10), type: mType || 'movie' });
               }
             });
@@ -5663,14 +5668,23 @@
     // Restore focus to what opened the modal
     var target = state.personModalReturnEl;
     if (target && document.body.contains(target) && target.id !== 'detail-back-btn') {
-      setDetailFocus(target);
-    } else {
-      var firstActor = document.querySelector('.detail-actor-card');
-      if (firstActor) {
-        setDetailFocus(firstActor);
+      if (state.inAllCastModal) {
+        focusAllCastCard(target);
       } else {
-        var playBtn = document.getElementById('detail-play');
-        if (playBtn) setDetailFocus(playBtn);
+        setDetailFocus(target);
+      }
+    } else {
+      if (state.inAllCastModal) {
+        var firstAllCast = document.querySelector('.all-cast-card');
+        if (firstAllCast) focusAllCastCard(firstAllCast);
+      } else {
+        var firstActor = document.querySelector('.detail-actor-card');
+        if (firstActor) {
+          setDetailFocus(firstActor);
+        } else {
+          var playBtn = document.getElementById('detail-play');
+          if (playBtn) setDetailFocus(playBtn);
+        }
       }
     }
   }
@@ -5778,6 +5792,258 @@
         var idxR = cards.indexOf(focusedCard);
         if ((idxR % COLS < COLS - 1) && (idxR + 1 < cards.length)) {
           focusCardItem(cards[idxR + 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
+  // ========== All Cast Modal ==========
+  function openAllCastModal(castList) {
+    var modal = document.getElementById('all-cast-modal');
+    if (!modal) return;
+
+    var cast = castList || (state.detail && state.detail.cast) || [];
+    if (!cast || cast.length === 0) return;
+
+    // Remember previously focused element to return focus on modal close
+    var activeEl = document.activeElement;
+    state.allCastModalReturnEl = (activeEl && activeEl !== document.body) ? activeEl : document.getElementById('detail-all-cast-btn');
+
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    state.inAllCastModal = true;
+
+    var countEl = document.getElementById('all-cast-count');
+    if (countEl) {
+      var n = cast.length;
+      var word = 'актёров';
+      if (n % 10 === 1 && n % 100 !== 11) {
+        word = 'актёр';
+      } else if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) {
+        word = 'актёра';
+      }
+      countEl.textContent = n + ' ' + word;
+    }
+
+    var grid = document.getElementById('all-cast-grid');
+    if (grid) {
+      grid.scrollTop = 0;
+      var h = '';
+      cast.forEach(function(c, idx) {
+        var avatar = imgUrl(c.image);
+        var pId = c.id || '';
+        var rawRole = c.role || '';
+        var cleanRole = rawRole.indexOf('/') !== -1 ? rawRole.split('/')[0].trim() : rawRole;
+        h += '<div class="all-cast-card" data-idx="' + idx + '" data-person-id="' + pId + '" data-person-name="' + esc(c.name) + '" tabindex="0">';
+        h += '<div class="all-cast-card-photo">';
+        if (c.image) {
+          h += '<img src="' + esc(avatar) + '" class="all-cast-card-img" onerror="this.style.display=\'none\'" loading="lazy">';
+        } else {
+          h += '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.3);font-size:32px;">👤</div>';
+        }
+        h += '</div>';
+        h += '<div class="all-cast-card-name">' + esc(c.name || 'Неизвестный') + '</div>';
+        if (cleanRole) h += '<div class="all-cast-card-role">' + esc(cleanRole) + '</div>';
+        h += '</div>';
+      });
+      grid.innerHTML = h;
+
+      // Bind click handlers to cards
+      var cards = grid.querySelectorAll('.all-cast-card');
+      cards.forEach(function(card) {
+        card.addEventListener('click', function() {
+          var pId = card.getAttribute('data-person-id');
+          var pName = card.getAttribute('data-person-name');
+          if (pId) {
+            focusAllCastCard(card);
+            openPersonModal(pId, pName);
+          }
+        });
+      });
+    }
+
+    var backBtn = document.getElementById('all-cast-modal-back');
+    if (backBtn) {
+      backBtn.onclick = function() {
+        closeAllCastModal();
+      };
+    }
+
+    modal.onclick = function(e) {
+      if (e.target === modal) {
+        closeAllCastModal();
+      }
+    };
+
+    // Auto-focus first card in grid after modal opens
+    setTimeout(function() {
+      var firstCard = document.querySelector('.all-cast-card');
+      if (firstCard) {
+        focusAllCastCard(firstCard);
+      } else if (backBtn) {
+        backBtn.classList.add('focused');
+        try { backBtn.focus(); } catch(e) {}
+      }
+    }, 50);
+  }
+
+  function focusAllCastCard(card) {
+    if (!card) return;
+    var allCastModal = document.getElementById('all-cast-modal');
+    if (allCastModal) {
+      var prevFocused = allCastModal.querySelectorAll('.focused');
+      prevFocused.forEach(function(el) { el.classList.remove('focused'); });
+    }
+
+    card.classList.add('focused');
+    try { card.focus({ preventScroll: true }); } catch(e) {
+      try { card.focus(); } catch(e2) {}
+    }
+
+    var grid = document.getElementById('all-cast-grid');
+    if (grid) {
+      var cardTop = card.offsetTop;
+      var cardHeight = card.offsetHeight;
+      var gridScroll = grid.scrollTop;
+      var gridHeight = grid.clientHeight;
+      if (cardTop < gridScroll) {
+        grid.scrollTop = Math.max(0, cardTop - 16);
+      } else if (cardTop + cardHeight > gridScroll + gridHeight) {
+        grid.scrollTop = cardTop + cardHeight - gridHeight + 16;
+      }
+    }
+  }
+
+  function closeAllCastModal() {
+    var modal = document.getElementById('all-cast-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
+    state.inAllCastModal = false;
+
+    // Cooldown timestamp so duplicate back events from TV remote do not close the detail view!
+    var now = Date.now();
+    lastBackTimestamp = now;
+    state.modalCloseTimestamp = now;
+
+    // Clear focused classes inside modal
+    if (modal) {
+      var modalFocused = modal.querySelectorAll('.focused');
+      modalFocused.forEach(function(el) { el.classList.remove('focused'); });
+    }
+
+    // Guarantee that $detail is visible
+    if (!$detail) $detail = document.getElementById('detail');
+    if ($detail) {
+      $detail.classList.remove('hidden');
+      $detail.style.display = 'block';
+    }
+
+    // Restore focus to what opened all-cast modal (typically #detail-all-cast-btn)
+    var target = state.allCastModalReturnEl;
+    if (target && document.body.contains(target) && target.id !== 'detail-back-btn') {
+      setDetailFocus(target);
+    } else {
+      var allBtn = document.getElementById('detail-all-cast-btn');
+      if (allBtn) {
+        setDetailFocus(allBtn);
+      } else {
+        var firstActor = document.querySelector('.detail-actor-card');
+        if (firstActor) setDetailFocus(firstActor);
+        else {
+          var playBtn = document.getElementById('detail-play');
+          if (playBtn) setDetailFocus(playBtn);
+        }
+      }
+    }
+  }
+
+  function handleAllCastModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      var now = Date.now();
+      lastBackTimestamp = now;
+      state.modalCloseTimestamp = now;
+      closeAllCastModal();
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      return true;
+    }
+
+    var cards = Array.from(document.querySelectorAll('.all-cast-card'));
+    var backBtn = document.getElementById('all-cast-modal-back');
+    var focusedCard = document.querySelector('.all-cast-card.focused');
+    var isBackFocused = backBtn && backBtn.classList.contains('focused');
+    var COLS = 6;
+
+    if (code === 13 || code === 29443 || code === 65385 || code === 65376 || key === 'Enter') {
+      if (isBackFocused) {
+        closeAllCastModal();
+      } else if (focusedCard) {
+        focusedCard.click();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 38 || key === 'ArrowUp') {
+      if (focusedCard) {
+        var idxU = cards.indexOf(focusedCard);
+        if (idxU >= COLS) {
+          focusAllCastCard(cards[idxU - COLS]);
+        } else {
+          // In top row, go to Back button
+          focusedCard.classList.remove('focused');
+          if (backBtn) {
+            backBtn.classList.add('focused');
+            try { backBtn.focus(); } catch(ex) {}
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 40 || key === 'ArrowDown') {
+      if (isBackFocused && cards.length > 0) {
+        backBtn.classList.remove('focused');
+        focusAllCastCard(cards[0]);
+      } else if (focusedCard) {
+        var idxD = cards.indexOf(focusedCard);
+        var targetD = idxD + COLS;
+        if (targetD < cards.length) {
+          focusAllCastCard(cards[targetD]);
+        } else {
+          var lastRowStart = Math.floor(cards.length / COLS) * COLS;
+          if (idxD < lastRowStart && cards.length - 1 >= lastRowStart) {
+            focusAllCastCard(cards[cards.length - 1]);
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 37 || key === 'ArrowLeft') {
+      if (focusedCard) {
+        var idxL = cards.indexOf(focusedCard);
+        if (idxL % COLS > 0) {
+          focusAllCastCard(cards[idxL - 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 39 || key === 'ArrowRight') {
+      if (focusedCard) {
+        var idxR = cards.indexOf(focusedCard);
+        if ((idxR % COLS < COLS - 1) && (idxR + 1 < cards.length)) {
+          focusAllCastCard(cards[idxR + 1]);
         }
       }
       if (e && e.preventDefault) e.preventDefault();
@@ -9765,6 +10031,13 @@
       return;
     }
 
+    // -0.4. If all cast modal open, close it and return
+    var allCastModal = document.getElementById('all-cast-modal');
+    if (state.inAllCastModal || (allCastModal && !allCastModal.classList.contains('hidden') && allCastModal.style.display !== 'none')) {
+      closeAllCastModal();
+      return;
+    }
+
     // 0. If torrent confirmation modal open, close it
     var confirmModal = document.getElementById('torrent-confirm-modal');
     if (confirmModal) {
@@ -10069,6 +10342,14 @@
       var isPersonModalOpen = state.inPersonModal || (personModalEl && !personModalEl.classList.contains('hidden') && personModalEl.style.display !== 'none');
       if (isPersonModalOpen) {
         handlePersonModalKey(code, key, e);
+        return;
+      }
+
+      // All Cast modal active: route all keys directly (including Back key!)
+      var allCastModalEl = document.getElementById('all-cast-modal');
+      var isAllCastModalOpen = state.inAllCastModal || (allCastModalEl && !allCastModalEl.classList.contains('hidden') && allCastModalEl.style.display !== 'none');
+      if (isAllCastModalOpen) {
+        handleAllCastModalKey(code, key, e);
         return;
       }
 
@@ -11268,6 +11549,11 @@
           }
           if (isDetailBack) {
             hideDetail();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isAllCast) {
+            focused.click();
             if (e && e.preventDefault) e.preventDefault();
             return;
           }
