@@ -21,6 +21,7 @@ data class SearchUiState(
     val kpResults: List<Title> = emptyList(),
     val kpCount: Int = 0,
     val results: List<Title> = emptyList(),
+    val searchHistory: List<String> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val errorMessage: String? = null
@@ -48,6 +49,11 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
                 baseUrlProvider = { serverUrl },
                 tokenProvider = { token }
             )
+        }
+        viewModelScope.launch {
+            preferences.searchHistory.collect { history ->
+                _uiState.update { it.copy(searchHistory = history) }
+            }
         }
     }
 
@@ -154,6 +160,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
                 val activeList = if (targetSource == "kp") kpList else tmdbList
 
+                if (activeList.isNotEmpty()) {
+                    preferences.addSearchQuery(qTrim)
+                }
+
                 _uiState.update {
                     it.copy(
                         activeSource = targetSource,
@@ -237,4 +247,27 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
     fun resolvePosterUrl(poster: String?): String {
         return networkClient?.resolveImageUrl(poster) ?: poster.orEmpty()
     }
+
+    fun onSelectHistory(query: String) {
+        updateQuery(query)
+    }
+
+    fun onRemoveHistory(query: String) {
+        viewModelScope.launch {
+            preferences.removeSearchQuery(query)
+        }
+    }
+
+    fun onClearHistory() {
+        viewModelScope.launch {
+            preferences.clearSearchHistory()
+        }
+    }
+
+    fun recordQuery(query: String) {
+        viewModelScope.launch {
+            preferences.addSearchQuery(query)
+        }
+    }
 }
+

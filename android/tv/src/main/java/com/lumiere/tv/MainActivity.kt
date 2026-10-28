@@ -54,6 +54,11 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -88,6 +93,17 @@ class MainActivity : ComponentActivity() {
                         serverUrl.isNullOrBlank() -> Screen.Connect.route
                         activeProfileId == null || activeProfileId == 0L -> Screen.Profiles.route
                         else -> Screen.Home.route
+                    }
+                }
+
+                val intentRoute = intent?.getStringExtra("route")
+                LaunchedEffect(intentRoute, startDestination) {
+                    if (!intentRoute.isNullOrBlank() && startDestination == Screen.Home.route) {
+                        try {
+                            navController.navigate(intentRoute)
+                        } catch (e: Exception) {
+                            android.util.Log.e("LumiereTV", "Failed to navigate to intentRoute: $intentRoute", e)
+                        }
                     }
                 }
 

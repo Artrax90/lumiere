@@ -30,14 +30,24 @@ fun SeasonPicker(
     episodes: List<Episode>,
     resolveImageUrl: (String?) -> String,
     onEpisodeClick: (Episode) -> Unit,
+    isLoadingEpisodes: Boolean = false,
+    lastWatchedSeason: Int? = null,
     lastWatchedEpisodeNum: Int? = null,
     fallbackPosterUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
     val episodesListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
-    androidx.compose.runtime.LaunchedEffect(episodes, lastWatchedEpisodeNum) {
-        if (episodes.isNotEmpty() && lastWatchedEpisodeNum != null) {
+    androidx.compose.runtime.LaunchedEffect(selectedSeason) {
+        try {
+            episodesListState.scrollToItem(0)
+        } catch (_: Exception) {}
+    }
+
+    val isViewingWatchedSeason = lastWatchedSeason != null && selectedSeason == lastWatchedSeason
+
+    androidx.compose.runtime.LaunchedEffect(episodes, lastWatchedEpisodeNum, isViewingWatchedSeason) {
+        if (episodes.isNotEmpty() && lastWatchedEpisodeNum != null && isViewingWatchedSeason) {
             val targetIdx = episodes.indexOfFirst { it.episode == lastWatchedEpisodeNum }
             if (targetIdx >= 0) {
                 try {
@@ -59,35 +69,77 @@ fun SeasonPicker(
             ) {
                 items((1..seasonsCount).toList()) { seasonNum ->
                     val isSelected = seasonNum == selectedSeason
-                    val tabShape = RoundedCornerShape(10.dp)
+                    val tabShape = RoundedCornerShape(12.dp)
                     Button(
                         onClick = { onSeasonSelect(seasonNum) },
                         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                         colors = ButtonDefaults.colors(
-                            containerColor = if (isSelected) Color(0x22FFFFFF) else SurfaceDark,
-                            contentColor = if (isSelected) LumiereGold else TextSecondary,
-                            focusedContainerColor = LumiereGold,
-                            focusedContentColor = BackgroundDark
+                            containerColor = if (isSelected) LumiereGold else Color(0x18FFFFFF),
+                            contentColor = if (isSelected) BackgroundDark else TextPrimary,
+                            focusedContainerColor = if (isSelected) LumiereGold else Color(0x33FFFFFF),
+                            focusedContentColor = if (isSelected) BackgroundDark else Color.White
                         ),
                         border = ButtonDefaults.border(
                             focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
-                            border = Border.None
+                            border = Border(
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) LumiereGold else Color(0x22FFFFFF)
+                                ),
+                                shape = tabShape
+                            )
                         ),
                         shape = ButtonDefaults.shape(tabShape),
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp)
                     ) {
-                        Text(
-                            text = "Сезон $seasonNum",
-                            style = MaterialTheme.typography.labelLarge,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(BackgroundDark)
+                                )
+                            }
+                            Text(
+                                text = "Сезон $seasonNum",
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = if (isSelected) FontWeight.ExtraBold else FontWeight.Medium
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // Episodes Horizontal Carousel
-        if (episodes.isNotEmpty()) {
+        // Episodes Horizontal Carousel or Loading State
+        if (isLoadingEpisodes) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(180.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    androidx.compose.material3.CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = LumiereGold,
+                        strokeWidth = 2.5.dp
+                    )
+                    Text(
+                        text = "Загрузка серий $selectedSeason сезона...",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = TextSecondary
+                    )
+                }
+            }
+        } else if (episodes.isNotEmpty()) {
             LazyRow(
                 state = episodesListState,
                 contentPadding = PaddingValues(horizontal = 32.dp),
@@ -98,10 +150,23 @@ fun SeasonPicker(
                     EpisodeCard(
                         episode = ep,
                         thumbnailUrl = resolveImageUrl(epThumb),
-                        isLastWatched = ep.episode == lastWatchedEpisodeNum,
+                        isLastWatched = isViewingWatchedSeason && (ep.episode == lastWatchedEpisodeNum),
                         onClick = { onEpisodeClick(ep) }
                     )
                 }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(100.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Серии для $selectedSeason сезона пока не найдены",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = TextSecondary
+                )
             }
         }
     }
@@ -175,7 +240,7 @@ private fun EpisodeCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "Серия ${episode.episode}",
+                        text = "С${episode.season} · Э${episode.episode}",
                         fontSize = 11.sp,
                         color = LumiereGold,
                         fontWeight = FontWeight.Bold
@@ -210,7 +275,7 @@ private fun EpisodeCard(
                 verticalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = episode.title ?: "Серия ${episode.episode}",
+                    text = episode.title ?: "Сезон ${episode.season} · Серия ${episode.episode}",
                     style = MaterialTheme.typography.titleMedium,
                     color = TextPrimary,
                     maxLines = 1,

@@ -19,6 +19,7 @@ data class DetailsUiState(
     val title: Title? = null,
     val selectedSeason: Int = 1,
     val episodes: List<Episode> = emptyList(),
+    val isLoadingEpisodes: Boolean = false,
     val torrents: List<TorrentItem> = emptyList(),
     val similarTitles: List<Title> = emptyList(),
     val isSearchingTorrents: Boolean = false,
@@ -33,6 +34,7 @@ data class DetailsUiState(
     val isFavorite: Boolean = false,
     val isInWatchlist: Boolean = false,
     val isSubscribed: Boolean = false,
+    val lastWatchedSeason: Int? = null,
     val lastWatchedEpisodeNum: Int? = null,
     val savedProgressSec: Long = 0L,
     val lastPlayedTorrentMagnet: String? = null,
@@ -109,7 +111,13 @@ class DetailsViewModel(
                             finalProgress = epPos
                         }
                     }
-                    _uiState.update { it.copy(selectedSeason = savedSeason, lastWatchedEpisodeNum = savedEp) }
+                    _uiState.update {
+                        it.copy(
+                            selectedSeason = savedSeason,
+                            lastWatchedSeason = savedSeason,
+                            lastWatchedEpisodeNum = savedEp
+                        )
+                    }
                     loadSeason(savedSeason)
                 }
 
@@ -168,27 +176,36 @@ class DetailsViewModel(
     }
 
     fun selectSeason(season: Int) {
-        _uiState.update { it.copy(selectedSeason = season) }
+        if (_uiState.value.selectedSeason == season && _uiState.value.episodes.isNotEmpty()) return
+        _uiState.update { it.copy(selectedSeason = season, episodes = emptyList(), isLoadingEpisodes = true) }
         loadSeason(season)
     }
 
     private fun loadSeason(season: Int) {
         viewModelScope.launch {
+            _uiState.update { it.copy(isLoadingEpisodes = true) }
             val serverUrl = preferences.serverUrl.first().orEmpty()
-            val api = networkClient?.createApiService(serverUrl) ?: return@launch
+            val api = networkClient?.createApiService(serverUrl) ?: run {
+                _uiState.update { it.copy(isLoadingEpisodes = false) }
+                return@launch
+            }
 
             try {
+                android.util.Log.d("LumiereDetails", "Loading season $season for mediaId $mediaId (source=$source)")
                 val seasonRes = if (source == "kp") {
                     api.getKpSeasonEpisodes(mediaId, season)
                 } else {
                     api.getSeasonEpisodes(mediaId, season)
                 }
                 if (seasonRes.episodes.isNotEmpty()) {
-                    _uiState.update { it.copy(episodes = seasonRes.episodes) }
+                    android.util.Log.d("LumiereDetails", "Season $season fetched from API: ${seasonRes.episodes.size} episodes")
+                    _uiState.update { it.copy(episodes = seasonRes.episodes, isLoadingEpisodes = false) }
                 } else {
+                    android.util.Log.d("LumiereDetails", "Season $season API returned 0 episodes, synthesizing from torrents...")
                     synthesizeEpisodesForSeason(season)
                 }
-            } catch (_: Exception) {
+            } catch (e: Exception) {
+                android.util.Log.w("LumiereDetails", "Season $season API error: ${e.message}, synthesizing from torrents...")
                 synthesizeEpisodesForSeason(season)
             }
         }
@@ -202,8 +219,21 @@ class DetailsViewModel(
         var maxEp = 1
         val epRangeRegex = Regex("""(\d{1,3})\s*[-–—]\s*(\d{1,3})\s*(?:выпуск|сери)""", RegexOption.IGNORE_CASE)
         val singleEpRegex = Regex("""(?:выпуск|сери[яий]|ep|episode)\s*[:.]?\s*(\d{1,3})""", RegexOption.IGNORE_CASE)
+        val sxRangeRegex = Regex("""\b\d{1,2}[xх](\d{1,3})\s*[-–—]\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE)
+        val sxSingleRegex = Regex("""\b\d{1,2}[xх](\d{1,3})\b""", RegexOption.IGNORE_CASE)
+        val seRangeRegex = Regex("""\b[sS]\d{1,2}[eE](\d{1,3})\s*[-–—]\s*[eE]?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
+        val seSingleRegex = Regex("""\b[sS]\d{1,2}[eE](\d{1,3})\b""", RegexOption.IGNORE_CASE)
+
         for (t in matchingTorrents) {
             epRangeRegex.find(t.title)?.let { m ->
+                val end = m.groupValues.getOrNull(2)?.toIntOrNull() ?: 1
+                if (end in 1..200) maxEp = maxOf(maxEp, end)
+            }
+            sxRangeRegex.find(t.title)?.let { m ->
+                val end = m.groupValues.getOrNull(2)?.toIntOrNull() ?: 1
+                if (end in 1..200) maxEp = maxOf(maxEp, end)
+            }
+            seRangeRegex.find(t.title)?.let { m ->
                 val end = m.groupValues.getOrNull(2)?.toIntOrNull() ?: 1
                 if (end in 1..200) maxEp = maxOf(maxEp, end)
             }
@@ -211,16 +241,27 @@ class DetailsViewModel(
                 val ep = m.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
                 if (ep in 1..200) maxEp = maxOf(maxEp, ep)
             }
+            sxSingleRegex.find(t.title)?.let { m ->
+                val ep = m.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
+                if (ep in 1..200) maxEp = maxOf(maxEp, ep)
+            }
+            seSingleRegex.find(t.title)?.let { m ->
+                val ep = m.groupValues.getOrNull(1)?.toIntOrNull() ?: 1
+                if (ep in 1..200) maxEp = maxOf(maxEp, ep)
+            }
         }
         val count = if (maxEp > 1) maxEp else 8
         val posterFallback = _uiState.value.title?.backdrop.orEmpty().ifBlank { _uiState.value.title?.poster.orEmpty() }
+        val isShow = matchingTorrents.any { it.title.contains("выпуск", ignoreCase = true) } ||
+                     _uiState.value.title?.genres?.any { it.contains("ток-шоу", ignoreCase = true) || it.contains("шоу", ignoreCase = true) } == true
+        val epLabel = if (isShow) "Выпуск" else "Серия"
         val synth = (1..count).map { epNum ->
             Episode(
                 id = "tv-$mediaId-s${season}e$epNum",
                 seriesId = mediaId,
                 season = season,
                 episode = epNum,
-                title = "$epNum выпуск",
+                title = "Сезон $season · $epLabel $epNum",
                 synopsis = null,
                 runtime = null,
                 thumbnail = posterFallback,
@@ -229,7 +270,7 @@ class DetailsViewModel(
                 progress = null
             )
         }
-        _uiState.update { it.copy(episodes = synth) }
+        _uiState.update { it.copy(episodes = synth, isLoadingEpisodes = false) }
     }
 
     private fun searchTorrents(titleName: String, year: Int?) {
@@ -296,9 +337,13 @@ class DetailsViewModel(
 
                 _uiState.update { it.copy(isSearchingTorrents = false, torrents = list) }
 
-                // If currently viewed season has no episodes, synthesize them now using the torrents
-                if (mediaType == "tv" && _uiState.value.episodes.isEmpty()) {
-                    loadSeason(_uiState.value.selectedSeason)
+                // If currently viewed season has no episodes or has synthetic episodes, update them now with torrents info
+                if (mediaType == "tv") {
+                    val currentEps = _uiState.value.episodes
+                    val isSynthetic = currentEps.isEmpty() || currentEps.all { it.synopsis == null && it.runtime == null }
+                    if (isSynthetic) {
+                        synthesizeEpisodesForSeason(_uiState.value.selectedSeason)
+                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("LumiereDetails", "Torrents search error: ${e.message}", e)

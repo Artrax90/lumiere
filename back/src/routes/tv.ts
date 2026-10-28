@@ -136,7 +136,11 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
   app.get('/api/tv/:id/season/:seasonNumber', async (req) => {
     const { id, seasonNumber } = req.params as { id: string; seasonNumber: string };
     const { lang } = req.query as { lang?: Lang };
-    const episodes = await provider.seasonDetails(parseInt(id), parseInt(seasonNumber), lang);
-    return { episodes };
+    try {
+      const episodes = await provider.seasonDetails(parseInt(id), parseInt(seasonNumber), lang);
+      return { episodes: episodes || [] };
+    } catch {
+      return { episodes: [] };
+    }
   });
 }

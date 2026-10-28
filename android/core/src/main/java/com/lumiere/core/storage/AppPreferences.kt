@@ -23,6 +23,21 @@ class AppPreferences(private val context: Context) {
         private val KEY_LAST_WATCHED_TMDB_ID = longPreferencesKey("last_watched_tmdb_id")
         private val KEY_LAST_WATCHED_MEDIA_TYPE = stringPreferencesKey("last_watched_media_type")
         private val KEY_LAST_WATCHED_POSITION = longPreferencesKey("last_watched_position")
+        private val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history_json")
+    }
+
+    val searchHistory: Flow<List<String>> = context.dataStore.data.map { prefs ->
+        val json = prefs[KEY_SEARCH_HISTORY]
+        if (!json.isNullOrBlank()) {
+            try {
+                val array = org.json.JSONArray(json)
+                (0 until array.length()).map { array.getString(it) }
+            } catch (_: Exception) {
+                emptyList()
+            }
+        } else {
+            emptyList()
+        }
     }
 
     val serverUrl: Flow<String?> = context.dataStore.data.map { prefs ->
@@ -188,4 +203,55 @@ class AppPreferences(private val context: Context) {
         }
         return if (!magnet.isNullOrBlank()) Pair(magnet, title.orEmpty()) else null
     }
+
+    suspend fun addSearchQuery(query: String) {
+        val trimmed = query.trim()
+        if (trimmed.length < 2) return
+        context.dataStore.edit { prefs ->
+            val json = prefs[KEY_SEARCH_HISTORY]
+            val currentList = if (!json.isNullOrBlank()) {
+                try {
+                    val array = org.json.JSONArray(json)
+                    (0 until array.length()).map { array.getString(it) }.toMutableList()
+                } catch (_: Exception) {
+                    mutableListOf()
+                }
+            } else {
+                mutableListOf()
+            }
+            // Remove if already exists (case-insensitive)
+            currentList.removeAll { it.equals(trimmed, ignoreCase = true) }
+            // Add to head
+            currentList.add(0, trimmed)
+            // Limit to max 15 items
+            val truncated = currentList.take(15)
+            val newArray = org.json.JSONArray()
+            truncated.forEach { newArray.put(it) }
+            prefs[KEY_SEARCH_HISTORY] = newArray.toString()
+        }
+    }
+
+    suspend fun removeSearchQuery(query: String) {
+        val trimmed = query.trim()
+        context.dataStore.edit { prefs ->
+            val json = prefs[KEY_SEARCH_HISTORY]
+            if (!json.isNullOrBlank()) {
+                try {
+                    val array = org.json.JSONArray(json)
+                    val currentList = (0 until array.length()).map { array.getString(it) }.toMutableList()
+                    currentList.removeAll { it.equals(trimmed, ignoreCase = true) }
+                    val newArray = org.json.JSONArray()
+                    currentList.forEach { newArray.put(it) }
+                    prefs[KEY_SEARCH_HISTORY] = newArray.toString()
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.dataStore.edit { prefs ->
+            prefs.remove(KEY_SEARCH_HISTORY)
+        }
+    }
 }
+

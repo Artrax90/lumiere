@@ -513,8 +513,15 @@ fun DetailsScreen(
                                     shape = ButtonDefaults.shape(tabShape),
                                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
                                 ) {
+                                    val seasonTorrentCount = remember(state.torrents, state.selectedSeason) {
+                                        if (mediaType == "tv" && state.selectedSeason > 0) {
+                                            state.torrents.count { TorrentMetaParser.matchesTorrentSeason(it.title, state.selectedSeason, title.year) }
+                                        } else {
+                                            state.torrents.size
+                                        }
+                                    }
                                     Text(
-                                        text = if (state.torrents.isNotEmpty()) "Торренты (${state.torrents.size})" else "Торренты",
+                                        text = if (seasonTorrentCount > 0) "Торренты ($seasonTorrentCount)" else if (state.torrents.isNotEmpty()) "Торренты (${state.torrents.size})" else "Торренты",
                                         style = MaterialTheme.typography.titleMedium,
                                         fontWeight = if (isTorrentsTab) FontWeight.Bold else FontWeight.Medium
                                     )
@@ -523,11 +530,13 @@ fun DetailsScreen(
 
                             if (seriesTab == "episodes") {
                                 SeasonPicker(
-                                    seasonsCount = title.seasonsCount ?: 1,
+                                    seasonsCount = maxOf(title.seasonsCount ?: 1, state.selectedSeason),
                                     selectedSeason = state.selectedSeason,
                                     onSeasonSelect = { viewModel.selectSeason(it) },
                                     episodes = state.episodes,
+                                    isLoadingEpisodes = state.isLoadingEpisodes,
                                     resolveImageUrl = { viewModel.resolveImageUrl(it) },
+                                    lastWatchedSeason = state.lastWatchedSeason,
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
                                     fallbackPosterUrl = title.backdrop.orEmpty().ifBlank { title.poster.orEmpty() },
                                     onEpisodeClick = { ep ->
@@ -544,21 +553,26 @@ fun DetailsScreen(
                             } else {
                                 // Torrents Tab View with Filters & Sort
                                 val filteredTorrents = remember(state.torrents, qualityFilter, sortBy, state.selectedSeason) {
-                                    var list = state.torrents.filter { item ->
-                                        val matchesSeason = if (mediaType == "tv" && state.selectedSeason > 0) {
+                                    val seasonList = if (mediaType == "tv" && state.selectedSeason > 0) {
+                                        val filtered = state.torrents.filter { item ->
                                             TorrentMetaParser.matchesTorrentSeason(item.title, state.selectedSeason, title.year)
-                                        } else true
+                                        }
+                                        filtered.ifEmpty { state.torrents }
+                                    } else {
+                                        state.torrents
+                                    }
+
+                                    var list = seasonList.filter { item ->
                                         val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
-                                        val matchesQuality = when (qualityFilter) {
+                                        when (qualityFilter) {
                                             "4k" -> meta.resolution == "4K UHD"
                                             "1080p" -> meta.resolution == "1080p"
                                             "720p" -> meta.resolution == "720p"
                                             else -> true
                                         }
-                                        matchesSeason && matchesQuality
                                     }
-                                    if (list.isEmpty() && state.torrents.isNotEmpty()) {
-                                        list = state.torrents
+                                    if (list.isEmpty() && seasonList.isNotEmpty()) {
+                                        list = seasonList
                                     }
                                     when (sortBy) {
                                         "seeds" -> list.sortedByDescending { it.seeders ?: 0 }
