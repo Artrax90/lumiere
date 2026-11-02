@@ -746,6 +746,42 @@ export function extractTorrentYear(title: string): number | null {
   return null;
 }
 
+export function normalizeTitleForMatch(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .replace(/[._\-–—/\\:,;!?'"()\[\]{}]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function matchesTorrentTitle(torrentTitle: string, targetTitles: string[]): boolean {
+  if (!targetTitles || targetTitles.length === 0) return true;
+  const normTorrent = ' ' + normalizeTitleForMatch(torrentTitle) + ' ';
+
+  for (const rawTarget of targetTitles) {
+    if (!rawTarget || typeof rawTarget !== 'string') continue;
+    const normTarget = normalizeTitleForMatch(rawTarget);
+    if (!normTarget || normTarget.length < 2) continue;
+
+    // 1. Exact phrase match with word boundaries
+    if (normTorrent.includes(' ' + normTarget + ' ')) {
+      return true;
+    }
+
+    // 2. If target has multiple words (e.g. "Ведьмин лес" or "Fight Club"),
+    // check if all significant words appear in the torrent title
+    const targetWords = normTarget.split(' ').filter((w) => w.length > 1);
+    if (targetWords.length > 1) {
+      const allFound = targetWords.every((w) => normTorrent.includes(' ' + w + ' '));
+      if (allFound) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export function torrentRoutes(app: FastifyInstance) {
   // Proactively check and optimize TorrServer cache & peer limits
   ensureTorrServerOptimized().catch(() => {});
@@ -767,6 +803,10 @@ export function torrentRoutes(app: FastifyInstance) {
     let targetEpisode = episode ? parseInt(episode, 10) : 0;
 
     let extraAlt = alt;
+    const validTitleVariants: string[] = [];
+    if (q && q.trim()) validTitleVariants.push(q.trim());
+    if (alt && alt.trim()) validTitleVariants.push(alt.trim());
+
     if (tmdbId) {
       try {
         const port = process.env.PORT || 3500;
@@ -783,8 +823,13 @@ export function torrentRoutes(app: FastifyInstance) {
             }
           }
           const orig = metaRes.original_title || metaRes.originalTitle;
-          if (orig && typeof orig === 'string' && !extraAlt) {
-            extraAlt = orig.trim();
+          if (orig && typeof orig === 'string') {
+            if (!extraAlt) extraAlt = orig.trim();
+            if (!validTitleVariants.includes(orig.trim())) validTitleVariants.push(orig.trim());
+          }
+          const ruName = metaRes.name || metaRes.title;
+          if (ruName && typeof ruName === 'string' && !validTitleVariants.includes(ruName.trim())) {
+            validTitleVariants.push(ruName.trim());
           }
         }
       } catch {}
@@ -851,6 +896,7 @@ export function torrentRoutes(app: FastifyInstance) {
               }
               if (enRes.title || enRes.name) {
                 const enTitle = String(enRes.title || enRes.name).trim();
+                if (!validTitleVariants.includes(enTitle)) validTitleVariants.push(enTitle);
                 if (enTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(enTitle)) {
                   extraQueries.push(enTitle);
                 }
@@ -859,6 +905,9 @@ export function torrentRoutes(app: FastifyInstance) {
             const altList = altRes ? (altRes.titles || altRes.results || []) : [];
             for (const item of altList) {
               const aTitle = String(item.title || item.name || '').trim();
+              if (aTitle && !validTitleVariants.includes(aTitle)) {
+                validTitleVariants.push(aTitle);
+              }
               if (aTitle && aTitle.toLowerCase() !== q.trim().toLowerCase() && !extraQueries.includes(aTitle)) {
                 extraQueries.push(aTitle);
               }
@@ -978,6 +1027,16 @@ export function torrentRoutes(app: FastifyInstance) {
       const seen = new Set<string>();
       let results: TorrentItem[] = [];
 
+      // Expand main parts for multi-title queries (e.g. "Человек-паук: Нет пути домой" -> "Человек-паук")
+      for (const t of [...validTitleVariants]) {
+        if (t.includes(':') || t.includes(' — ') || t.includes(' - ')) {
+          const mainPart = t.split(/\s*[:—]\s*|\s+-\s+/)[0]?.trim();
+          if (mainPart && mainPart.length >= 3 && !validTitleVariants.includes(mainPart)) {
+            validTitleVariants.push(mainPart);
+          }
+        }
+      }
+
       for (const r of rawResults) {
         const link = r.MagnetUri || r.Link || '';
         if (!link) continue;
@@ -998,6 +1057,11 @@ export function torrentRoutes(app: FastifyInstance) {
           if (isExplicitSeries) {
             continue;
           }
+        }
+
+        // Validate title relevance (Word/Phrase Match) to discard off-target torrents
+        if (validTitleVariants.length > 0 && !matchesTorrentTitle(r.Title, validTitleVariants)) {
+          continue;
         }
 
         const torrentYear = extractTorrentYear(r.Title);
