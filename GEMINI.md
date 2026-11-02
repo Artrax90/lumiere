@@ -12,3 +12,18 @@
 2. **Android Mobile APK (`Lumiere.apk` / `Lumiere-debug.apk`)**: компиляция/подпись через Gradle/uber-apk-signer, размещение в корне и `back/public/apk/`.
 3. **Android TV APK (`Lumiere-tv.apk` / `Lumiere-tv-debug.apk`)**: нативная сборка Android TV версии через `node scratch/build_native_tv.cjs` или `cd android && ./gradlew.bat :tv:assembleDebug`, размещение в корне и `back/public/apk/`.
 4. **Синхронизация с сервером**: файлы приложений должны копироваться в контейнер `lumiere-app` в `/app/public/` для доступности скачивания пользователями.
+
+## 📺 ВЕРСИИ ANDROID TV (v1 и v2)
+- **v1 (Старая / боевая версия)**:
+  - Модуль Gradle: `:tv` (`android/tv/`)
+  - Пакет приложения: `com.lumiere.tv`
+  - Файлы сборки: `Lumiere-tv.apk` (и `Lumiere-tv-debug.apk`)
+  - Скрипт сборки: `node scratch/build_native_tv.cjs`
+  - Статус: боевая, стабильная версия. Не трогать при экспериментальных работах.
+- **v2 (Новая версия)**:
+  - Модуль Gradle: `:tv2` (`android/tv2/`)
+  - Пакет приложения: `com.lumiere.tv2`
+  - Файлы сборки: `Lumiere-tv_v2.apk`
+  - Скрипт сборки: `node scratch/build_native_tv_v2.cjs`
+  - Статус: новая версия (актёры, карточки 1-в-1 как в WGT, плавные анимации лаунчера, разворачиваемые описания).
+

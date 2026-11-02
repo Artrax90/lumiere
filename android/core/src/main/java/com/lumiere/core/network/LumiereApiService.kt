@@ -257,4 +257,11 @@ interface LumiereApiService {
 
     @POST("/api/sessions/stop")
     suspend fun stopSession(@Body request: SessionStopRequest): SimpleActionResponse
+
+    @GET("/api/person/{id}")
+    suspend fun getPersonDetails(
+        @Path("id") id: Long,
+        @Query("lang") lang: String = "ru"
+    ): PersonDetails
 }
+

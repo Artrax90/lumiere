@@ -135,6 +135,13 @@
               '</div>' +
             '</div>' +
           '</div>' +
+          '<div class="osd-top-right">' +
+            '<div id="osd-end-time-badge" class="osd-end-time-badge" style="display:none;">' +
+              '<svg class="osd-end-time-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#e8c170" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>' +
+              '<span class="osd-end-time-label">Конец в</span>' +
+              '<span id="osd-end-time-val" class="osd-end-time-val">--:--</span>' +
+            '</div>' +
+          '</div>' +
         '</div>' +
         '<div id="center-indicator">' +
           '<span id="center-indicator-icon">\u25b6</span>' +
@@ -6115,43 +6122,134 @@
     }, duration || 3500);
   }
 
-  // Extract episode number from filename
-  function extractEpisodeNumber(fileName, fallbackIndex, seasonNum) {
-    if (!fileName) return (fallbackIndex != null ? fallbackIndex + 1 : 1);
-    var s = fileName.toLowerCase();
-
-    // S01E05 or S1E5 or s01.e05
-    var m = s.match(/[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b/);
-    if (m) return parseInt(m[1], 10);
-
-    // 01x05 or 1x5 or 01х05
-    m = s.match(/\b\d{1,2}[xх](\d{1,3})\b/);
-    if (m) return parseInt(m[1], 10);
-
-    // Explicit "серия 5", "эпизод 5", "выпуск 5", "ep. 5", "ep5"
-    m = s.match(/(?:сери[яий]|эпизод|серия:|эпизод:|выпуск|выпуск:|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b/i);
-    if (m) return parseInt(m[1], 10);
-
-    // "5 серия", "05 серия", "13 выпуск"
-    m = s.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b/i);
-    if (m) return parseInt(m[1], 10);
-
-    // Match season-episode pattern like "22-13", "22.13", "22_13"
-    if (seasonNum != null) {
-      var sPadded = (seasonNum < 10 ? '0' + seasonNum : '' + seasonNum);
-      var seReg = new RegExp('(?:^|[^\\d])(?:0?' + seasonNum + '|' + sPadded + ')[-._](\\d{1,3})(?:[^\\d]|$)');
-      m = s.match(seReg);
-      if (m) return parseInt(m[1], 10);
+  // Parse season and episode from file object or filename/path
+  function parseTorrentFileMeta(fileOrName) {
+    var pathStr = '';
+    var nameStr = '';
+    if (typeof fileOrName === 'string') {
+      pathStr = fileOrName;
+      nameStr = fileOrName.split('/').pop().split('\\').pop() || fileOrName;
+    } else if (fileOrName && typeof fileOrName === 'object') {
+      pathStr = fileOrName.path || fileOrName.name || '';
+      nameStr = fileOrName.name || (fileOrName.path ? fileOrName.path.split('/').pop().split('\\').pop() : '');
     }
 
-    // Leading number in file name: e.g. "05 - Winter is coming.mkv" or "01. Comedy Club..."
-    m = s.match(/^(?:\[[^\]]*\]\s*)?(\d{1,3})[\s._\-]/);
-    if (m) return parseInt(m[1], 10);
+    var nameLower = (nameStr || '').toLowerCase();
+    var season = null;
+    var episode = null;
 
-    // Number before extension e.g. "Show.05.mkv"
-    m = s.match(/[\s._\-](\d{1,2})\.(?:mkv|avi|mp4|ts|m4v)$/);
-    if (m) return parseInt(m[1], 10);
+    // 1. SxxExx or Sxx.Exx or Sxx_Exx in filename (handles trailing underscores e.g. S01E10_[Kyrazh-Bambej])
+    var m = nameLower.match(/[sS]0?(\d{1,2})[._\-\s]*[eE]0?(\d{1,3})(?=[^0-9]|$)/);
+    if (m) {
+      season = parseInt(m[1], 10);
+      episode = parseInt(m[2], 10);
+    }
 
+    // 2. 01x05 or 1x05 in filename
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,2})[xх]0?(\d{1,3})(?=[^0-9]|$)/);
+      if (m) {
+        season = parseInt(m[1], 10);
+        episode = parseInt(m[2], 10);
+      }
+    }
+
+    // 3. Check directory structure for season if not found in filename (deepest folder upwards)
+    if (season == null && pathStr) {
+      var parts = pathStr.split(/[\/\\]/);
+      parts.pop(); // Remove filename itself
+      for (var i = parts.length - 1; i >= 0; i--) {
+        var folder = parts[i].toLowerCase();
+        // Skip multi-season ranges like "Season 1-12" or "Сезоны 1-4"
+        if (/(?:season|сезон)s?\s*0?\d+\s*[-–—]\s*0?\d+/i.test(folder)) {
+          continue;
+        }
+        var sMatch = folder.match(/(?:^|[\s._\-])(?:season|сезон|s)[\s._\-]*0?(\d{1,2})(?:[\s._\-]|$)/i) ||
+                     folder.match(/^0?(\d{1,2})\s*(?:-?й|-ый)?\s*(?:сезон|season)$/i);
+        if (sMatch) {
+          season = parseInt(sMatch[1], 10);
+          break;
+        }
+      }
+    }
+
+    // 4. Extract episode from filename if not yet found
+    if (episode == null) {
+      m = nameLower.match(/(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*0?(\d{1,3})(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Leading number e.g. "05 - Winter.mkv" or "10. Совокупность лжи.mkv"
+      m = nameLower.match(/^(?:\[[^\]]*\]\s*)?0?(\d{1,3})[\s._\-]/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Number before extension "Show.05.mkv"
+      m = nameLower.match(/[\s._\-]0?(\d{1,2})\.(?:mkv|avi|mp4|ts|m4v)$/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+
+    return { season: season, episode: episode };
+  }
+  window.parseTorrentFileMeta = parseTorrentFileMeta;
+
+  function findTorrentEpisodeFile(files, targetSeason, targetEpisode) {
+    if (!files || files.length === 0) return null;
+
+    // Pass 1: Match BOTH Season and Episode
+    if (targetSeason != null && targetEpisode != null) {
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var meta = parseTorrentFileMeta(f);
+        if (meta.season === targetSeason && meta.episode === targetEpisode) {
+          return f;
+        }
+      }
+    }
+
+    // Pass 2: If season was not explicitly detectable in files, but episode matches,
+    // only use if torrent does NOT have multiple detectable seasons
+    if (targetEpisode != null) {
+      var hasMultipleSeasons = false;
+      var detectedSeasons = {};
+      for (var j = 0; j < Math.min(files.length, 50); j++) {
+        var m = parseTorrentFileMeta(files[j]);
+        if (m.season != null) {
+          detectedSeasons[m.season] = true;
+          if (Object.keys(detectedSeasons).length > 1) {
+            hasMultipleSeasons = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasMultipleSeasons) {
+        for (var k = 0; k < files.length; k++) {
+          var f2 = files[k];
+          var meta2 = parseTorrentFileMeta(f2);
+          if (meta2.episode === targetEpisode) {
+            return f2;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+  window.findTorrentEpisodeFile = findTorrentEpisodeFile;
+
+  // Extract episode number from filename or file object
+  function extractEpisodeNumber(fileOrName, fallbackIndex, seasonNum) {
+    if (!fileOrName) return (fallbackIndex != null ? fallbackIndex + 1 : 1);
+    var meta = parseTorrentFileMeta(fileOrName);
+    if (seasonNum != null && meta.season != null && meta.season !== seasonNum) {
+      return null;
+    }
+    if (meta.episode != null) return meta.episode;
     return (fallbackIndex != null ? fallbackIndex + 1 : 1);
   }
 
@@ -6450,28 +6548,10 @@
           state._lastMagnet = candidate.magnet;
           var matchedFile = null;
 
-          // 1. Try matching with extractEpisodeNumber
-          for (var f = 0; f < files.length; f++) {
-            var fileEp = extractEpisodeNumber(files[f].name, f, seasonNum);
-            if (fileEp === epNum) {
-              matchedFile = files[f];
-              break;
-            }
-          }
+          // 1. Try matching with season & episode precision (checks both file path and name)
+          matchedFile = findTorrentEpisodeFile(files, seasonNum, epNum);
 
-          // 2. Try matching with regex on filename
-          if (!matchedFile) {
-            for (var f2 = 0; f2 < files.length; f2++) {
-              var fn = files[f2].name || '';
-              var epM = fn.match(/\bS\d+E0*(\d+)\b/i) || fn.match(/\[\d+[xх]0*(\d+)\]/i) || fn.match(/\b0*(\d+)\s*(?:серия|выпуск)\b/i) || fn.match(/(?:серия|выпуск)\s*0*(\d+)\b/i);
-              if (epM && parseInt(epM[1], 10) === epNum) {
-                matchedFile = files[f2];
-                break;
-              }
-            }
-          }
-
-          // 3. Fallback: If file name did not contain episode number, but candidate release itself was an exact match for this episode!
+          // 2. Fallback: If file name did not contain episode number, but candidate release itself was an exact match for this episode!
           if (!matchedFile && files.length > 0) {
             var candCheck = checkTorrentEpisode(candidate.title, seasonNum, epNum);
             if (candCheck && candCheck.exact) {
@@ -6479,9 +6559,19 @@
             }
           }
 
-          // 4. Auto-play direct fallback: if autoPlayDirect requested and files length matches episode index
-          if (!matchedFile && autoPlayDirect && files.length >= epNum && epNum > 0) {
-            matchedFile = files[epNum - 1];
+          // 3. Auto-play direct fallback: only if single season torrent and files length matches episode index
+          if (!matchedFile && autoPlayDirect && seasonNum <= 1 && files.length >= epNum && epNum > 0) {
+            var isMultiSeason = false;
+            for (var chk = 0; chk < Math.min(files.length, 30); chk++) {
+              var chkMeta = parseTorrentFileMeta(files[chk]);
+              if (chkMeta.season && chkMeta.season > 1) {
+                isMultiSeason = true;
+                break;
+              }
+            }
+            if (!isMultiSeason) {
+              matchedFile = files[epNum - 1];
+            }
           }
 
           if (matchedFile) {
@@ -7723,15 +7813,12 @@
           } catch(ex) {}
         }
 
-        // 1. If TV series and targetEpisode is known, ALWAYS find matching file by episode number FIRST!
+        // 1. If TV series and targetEpisode is known, ALWAYS find matching file by season & episode FIRST!
         if (targetEpisode != null && videoFiles.length > 0) {
-          for (var vf = 0; vf < videoFiles.length; vf++) {
-            var epNum = extractEpisodeNumber(videoFiles[vf].name, vf, targetSeason);
-            if (epNum === targetEpisode) {
-              targetFile = videoFiles[vf];
-              console.log('[TV] Resume matched episode ' + targetEpisode + ' in videoFiles:', targetFile.name);
-              break;
-            }
+          var matchedResume = findTorrentEpisodeFile(videoFiles, targetSeason, targetEpisode);
+          if (matchedResume) {
+            targetFile = matchedResume;
+            console.log('[TV] Resume matched season ' + targetSeason + ' episode ' + targetEpisode + ' in videoFiles:', targetFile.name);
           }
         }
 

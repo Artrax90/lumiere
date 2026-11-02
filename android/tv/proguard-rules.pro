@@ -22,3 +22,9 @@
 # OkHttp & Coroutines
 -dontwarn okhttp3.**
 -dontwarn kotlinx.coroutines.**
+
+# DataStore & Protobuf
+-keep class androidx.datastore.** { *; }
+-keep class androidx.datastore.preferences.protobuf.** { *; }
+-dontwarn androidx.datastore.**
+

@@ -303,20 +303,13 @@ export default function TvPlayer({ title, initialTime = 0, onExit, onTimeUpdate,
       ? title.videoUrl.replace('/api/torrents/hls', '/api/torrents/proxy')
       : title.videoUrl || '');
   } else {
-    // Android TV: use HLS for torrents and non-web-safe formats so Chromium decodes audio & video cleanly
-    if (isTorrent && !isWebSafeFormat) {
-      rawStreamPath = title.hlsUrl || (title.videoUrl?.includes('/api/torrents/proxy')
-        ? title.videoUrl.replace('/api/torrents/proxy', '/api/torrents/hls')
-        : title.videoUrl || '');
-    } else {
-      rawStreamPath = title.directUrl || title.videoUrl || title.hlsUrl || '';
-    }
+    // Prefer direct stream for smooth seeking and zero server CPU load
+    rawStreamPath = title.directUrl || title.videoUrl || title.hlsUrl || '';
   }
 
   const isHls = !isAvplay && (
     rawStreamPath.includes('.m3u8') ||
-    rawStreamPath.includes('/hls') ||
-    (isTorrent && !isWebSafeFormat)
+    rawStreamPath.includes('/hls')
   );
 
   // Resolution detection

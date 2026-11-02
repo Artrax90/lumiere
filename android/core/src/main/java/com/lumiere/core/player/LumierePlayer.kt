@@ -11,10 +11,18 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.audio.AudioCapabilities
+import androidx.media3.exoplayer.audio.AudioSink
+import androidx.media3.exoplayer.audio.DefaultAudioSink
 import androidx.media3.exoplayer.hls.HlsMediaSource
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import android.os.Handler
+import androidx.media3.exoplayer.Renderer
+import androidx.media3.exoplayer.audio.AudioRendererEventListener
+import androidx.media3.exoplayer.audio.MediaCodecAudioRenderer
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.upstream.LoadErrorHandlingPolicy
 import kotlinx.coroutines.*
@@ -61,25 +69,74 @@ class LumierePlayer(
         )
     }
 
-    private val renderersFactory = DefaultRenderersFactory(context).apply {
+    private val renderersFactory = object : DefaultRenderersFactory(context) {
+        override fun buildAudioRenderers(
+            context: Context,
+            extensionRendererMode: Int,
+            mediaCodecSelector: MediaCodecSelector,
+            enableDecoderFallback: Boolean,
+            audioSink: AudioSink,
+            eventHandler: Handler,
+            eventListener: AudioRendererEventListener,
+            out: ArrayList<Renderer>
+        ) {
+            out.add(
+                object : MediaCodecAudioRenderer(
+                    context,
+                    mediaCodecSelector,
+                    enableDecoderFallback,
+                    eventHandler,
+                    eventListener,
+                    audioSink
+                ) {
+                    override fun shouldUseBypass(format: Format): Boolean {
+                        // Force decoding through MediaCodec (hardware/software PCM);
+                        // NEVER bypass directly to raw HDMI bitstream to eliminate
+                        // Amlogic audio HAL timestamp discontinuities
+                        return false
+                    }
+                }
+            )
+        }
+
+        override fun buildAudioSink(
+            context: Context,
+            enableFloatOutput: Boolean,
+            enableAudioTrackPlaybackParams: Boolean
+        ): AudioSink? {
+            return DefaultAudioSink.Builder()
+                .setAudioCapabilities(AudioCapabilities.DEFAULT_AUDIO_CAPABILITIES)
+                .setEnableFloatOutput(enableFloatOutput)
+                .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
+                .build()
+        }
+    }.apply {
         setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
         setEnableDecoderFallback(true)
         setMediaCodecSelector(MediaCodecSelector.DEFAULT)
     }
 
-    // Strictly bounded buffer for Android TV sticks with limited RAM (1.5GB total)
+    // Clean bounded LoadControl for Android TV:
+    // 3s min buffer, 15s max buffer, 32MB target cap with prioritizeTimeOverSizeThresholds
+    // to ensure stream always buffers at least 3 seconds without starving,
+    // and 2s back-buffer discard to prevent cumulative heap accumulation.
     private val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
             /* minBufferMs = */ 3000,
-            /* maxBufferMs = */ 10000,
-            /* bufferForPlaybackMs = */ 1500,
-            /* bufferForPlaybackAfterRebufferMs = */ 3000
+            /* maxBufferMs = */ 15000,
+            /* bufferForPlaybackMs = */ 1000,
+            /* bufferForPlaybackAfterRebufferMs = */ 2000
         )
-        .setTargetBufferBytes(12 * 1024 * 1024) // 12 MB max buffer in RAM to prevent OOM reboot
-        .setPrioritizeTimeOverSizeThresholds(false)
+        .setTargetBufferBytes(32 * 1024 * 1024)
+        .setPrioritizeTimeOverSizeThresholds(true)
+        .setBackBuffer(
+            /* backBufferDurationMs = */ 2000,
+            /* retainBackBufferFromKeyframe = */ false
+        )
         .build()
 
     val exoPlayer: ExoPlayer = ExoPlayer.Builder(context, renderersFactory)
+
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
         .setAudioAttributes(
@@ -119,6 +176,14 @@ class LumierePlayer(
 
     private var progressJob: Job? = null
     private var pendingInitialSeekMs: Long = 0L
+    private var fallbackDurationMs: Long = 0L
+
+    fun setFallbackDuration(durationMs: Long) {
+        fallbackDurationMs = durationMs
+        if (_durationMs.value <= 0L && durationMs > 0L) {
+            _durationMs.value = durationMs
+        }
+    }
 
     init {
         exoPlayer.addListener(object : Player.Listener {
@@ -129,7 +194,14 @@ class LumierePlayer(
             override fun onPlaybackStateChanged(state: Int) {
                 _playbackState.value = state
                 if (state == Player.STATE_READY) {
-                    _durationMs.value = exoPlayer.duration.coerceAtLeast(0L)
+                    val realDur = exoPlayer.duration
+                    if (realDur > 1000L) {
+                        _durationMs.value = realDur
+                    } else if (fallbackDurationMs > 1000L) {
+                        _durationMs.value = fallbackDurationMs
+                    } else {
+                        _durationMs.value = realDur.coerceAtLeast(0L)
+                    }
                     val pendingSeek = pendingInitialSeekMs
                     if (pendingSeek > 1000L) {
                         pendingInitialSeekMs = 0L
@@ -181,7 +253,12 @@ class LumierePlayer(
                 if (exoPlayer.playbackState == Player.STATE_READY || exoPlayer.isPlaying) {
                     _positionMs.value = exoPlayer.currentPosition.coerceAtLeast(0L)
                     _bufferedMs.value = exoPlayer.bufferedPosition.coerceAtLeast(0L)
-                    _durationMs.value = exoPlayer.duration.coerceAtLeast(0L)
+                    val realDur = exoPlayer.duration
+                    if (realDur > 1000L) {
+                        _durationMs.value = realDur
+                    } else if (fallbackDurationMs > 1000L && _durationMs.value <= 0L) {
+                        _durationMs.value = fallbackDurationMs
+                    }
                 }
                 delay(300)
             }
@@ -192,11 +269,19 @@ class LumierePlayer(
         streamUrl: String,
         isHls: Boolean = streamUrl.contains(".m3u8"),
         startPositionMs: Long = 0L,
-        isLive: Boolean = false
+        isLive: Boolean = false,
+        expectedDurationMs: Long = 0L
     ) {
+        if (expectedDurationMs > 0L) {
+            fallbackDurationMs = expectedDurationMs
+            if (_durationMs.value <= 0L) {
+                _durationMs.value = expectedDurationMs
+            }
+        }
         val uri = Uri.parse(streamUrl)
-        val shouldConfigureLive = isLive || (isHls && startPositionMs == 0L)
+        val shouldConfigureLive = isLive
         val mediaItem = MediaItem.Builder()
+
             .setUri(uri)
             .apply {
                 if (shouldConfigureLive) {
@@ -251,6 +336,7 @@ class LumierePlayer(
 
     fun stop() {
         pendingInitialSeekMs = 0L
+        fallbackDurationMs = 0L
         try {
             exoPlayer.stop()
             exoPlayer.clearMediaItems()

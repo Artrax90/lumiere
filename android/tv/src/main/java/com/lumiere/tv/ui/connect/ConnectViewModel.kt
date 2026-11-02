@@ -37,15 +37,26 @@ class ConnectViewModel(application: Application) : AndroidViewModel(application)
     fun startDiscovery() {
         viewModelScope.launch {
             _uiState.update { it.copy(isScanning = true, errorMessage = null, discoveredServer = null) }
-            val server = discovery.discoverLocalServer { current, total ->
+            val found = discovery.discoverLocalServer { current, total ->
                 _uiState.update { it.copy(scannedCount = current, totalCount = total) }
             }
-            _uiState.update {
-                it.copy(
-                    isScanning = false,
-                    discoveredServer = server,
-                    manualAddress = server?.url?.removePrefix("http://") ?: it.manualAddress
-                )
+            if (found != null) {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        discoveredServer = found,
+                        manualAddress = found.url.removePrefix("http://")
+                    )
+                }
+                // Automatically save and proceed!
+                preferences.setServerUrl(found.url)
+            } else {
+                _uiState.update {
+                    it.copy(
+                        isScanning = false,
+                        discoveredServer = null
+                    )
+                }
             }
         }
     }

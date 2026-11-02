@@ -503,4 +503,43 @@ data class SessionHeartbeatResponse(
     val commands: List<SessionCommandItem> = emptyList()
 )
 
+@Serializable
+data class PersonCredit(
+    val id: Long,
+    val title: String,
+    val type: String = "movie",
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val year: Int? = null,
+    val score: Double? = null,
+    val character: String? = null,
+    val job: String? = null
+) {
+    fun toTitle(): Title = Title(
+        id = id,
+        tmdbId = id,
+        name = title,
+        type = type,
+        year = year,
+        score = score,
+        backdrop = backdrop,
+        poster = poster,
+        overview = character ?: job
+    )
+}
+
+@Serializable
+data class PersonDetails(
+    val id: Long,
+    val name: String,
+    val biography: String? = null,
+    val profile: String? = null,
+    val birthday: String? = null,
+    val deathday: String? = null,
+    val placeOfBirth: String? = null,
+    val knownForDepartment: String? = null,
+    val credits: List<PersonCredit> = emptyList()
+)
+
+
 

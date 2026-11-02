@@ -107,7 +107,30 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             if (initialSeek > 0L) {
                 maxPositionSec = initialSeek / 1000L
             }
-            player.prepare(streamUrl, isHls, initialSeek)
+            player.prepare(
+                streamUrl = streamUrl,
+                isHls = isHls,
+                startPositionMs = initialSeek,
+                isLive = (mediaType == "iptv")
+            )
+
+            // Auto-fetch runtime metadata for fallback duration if mediaId is available
+            if (mediaId > 0L) {
+                launch(Dispatchers.IO) {
+                    try {
+                        val serverUrl = preferences.serverUrl.first().orEmpty()
+                        val api = networkClient?.createApiService(serverUrl)
+                        if (api != null) {
+                            val details = if (mediaType == "tv") api.getTvDetails(mediaId) else api.getMovieDetails(mediaId)
+                            val runtimeStr = details.runtime
+                            val minutes = runtimeStr?.filter { it.isDigit() }?.toLongOrNull() ?: if (mediaType == "tv") 48L else 105L
+                            if (minutes in 5..360) {
+                                player.setFallbackDuration(minutes * 60 * 1000L)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -388,15 +411,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             TorrentStreamRequest(magnet = magnet, title = torrentTitle)
                         )
                         if (streamInfo.files.isNotEmpty()) {
-                            val epPadded = String.format("%02d", episode)
-                            val file = streamInfo.files.find { f ->
-                                com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name) == episode
-                            } ?: streamInfo.files.find { f ->
-                                val name = f.name.lowercase()
-                                name.contains("e${episode}") || name.contains("e$epPadded") ||
-                                name.contains(" $epPadded ") || name.contains(" $epPadded.") ||
-                                name.contains("_${epPadded}_") || name.contains(".${epPadded}.")
-                            }
+                            val file = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                                files = streamInfo.files,
+                                season = season,
+                                episode = episode
+                            )
                             if (file != null) {
                                 val rel = file.streamUrl ?: file.directUrl ?: file.hlsUrl
                                 if (!rel.isNullOrBlank()) {
@@ -404,6 +423,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                                     isHls = rel.contains(".m3u8")
                                 }
                             }
+
                         }
                     } catch (_: Exception) {}
                 }
@@ -430,14 +450,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             val streamInfo = api.getTorrentStreamInfo(
                                 TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
                             )
-                            val epPadded = String.format("%02d", episode)
-                            val file = streamInfo.files.find { f ->
-                                com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name) == episode
-                            } ?: streamInfo.files.find { f ->
-                                val name = f.name.lowercase()
-                                name.contains("e${episode}") || name.contains("e$epPadded") ||
-                                name.contains(" $epPadded ") || name.contains(" $epPadded.")
-                            }
+                            val file = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                                files = streamInfo.files,
+                                season = season,
+                                episode = episode
+                            )
                             if (file != null) {
                                 val rel = file.streamUrl ?: file.directUrl ?: file.hlsUrl
                                 if (!rel.isNullOrBlank()) {
@@ -447,6 +464,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                                     break
                                 }
                             }
+
                         } catch (_: Exception) {}
                     }
                 }

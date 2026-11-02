@@ -104,7 +104,8 @@ fun PlayerControlsOverlay(
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.weight(1f, fill = false)
                 ) {
                     val isBackFocused = activeZone == PlayerZone.TOP
                     Box(
@@ -142,24 +143,33 @@ fun PlayerControlsOverlay(
                         }
                     }
                 }
-            }
 
-            // TorrServer Buffer Banner (Top-Right)
-            if (!torrServerStats.isNullOrBlank()) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 36.dp, end = 32.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Color(0xD907090E))
-                        .border(1.dp, LumiereGoldGlow, RoundedCornerShape(8.dp))
-                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                // Top-Right Badges: TorrServer Stats + End Time Badge
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        text = torrServerStats,
-                        fontSize = 12.sp,
-                        color = LumiereGold,
-                        fontWeight = FontWeight.Medium
+                    if (!torrServerStats.isNullOrBlank()) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xD907090E))
+                                .border(1.dp, LumiereGoldGlow, RoundedCornerShape(8.dp))
+                                .padding(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = torrServerStats,
+                                fontSize = 12.sp,
+                                color = LumiereGold,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+
+                    EndTimeBadge(
+                        positionMs = positionMs,
+                        durationMs = durationMs,
+                        isPlaying = isPlaying
                     )
                 }
             }
@@ -574,3 +584,61 @@ private fun formatTime(ms: Long): String {
         String.format("%02d:%02d", m, s)
     }
 }
+
+@Composable
+fun EndTimeBadge(
+    positionMs: Long,
+    durationMs: Long,
+    isPlaying: Boolean,
+    modifier: Modifier = Modifier
+) {
+    if (durationMs <= 60_000L) return
+
+    var wallClockMs by remember { mutableLongStateOf(System.currentTimeMillis()) }
+
+    // When paused, update wall clock time periodically (every 5 seconds)
+    LaunchedEffect(isPlaying) {
+        if (!isPlaying) {
+            while (true) {
+                kotlinx.coroutines.delay(5000L)
+                wallClockMs = System.currentTimeMillis()
+            }
+        }
+    }
+
+    val endTimeStr = remember(if (isPlaying) positionMs else wallClockMs, durationMs) {
+        val remainingMs = (durationMs - positionMs).coerceAtLeast(0L)
+        val cal = java.util.Calendar.getInstance().apply {
+            timeInMillis = (if (isPlaying) System.currentTimeMillis() else wallClockMs) + remainingMs
+        }
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        sdf.format(cal.time)
+    }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(Color(0xD907090E))
+            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Schedule,
+                contentDescription = null,
+                tint = LumiereGold,
+                modifier = Modifier.size(15.dp)
+            )
+            Text(
+                text = "Конец в $endTimeStr",
+                fontSize = 13.sp,
+                color = TextPrimary,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+

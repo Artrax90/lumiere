@@ -388,39 +388,107 @@ object TorrentMetaParser {
         return true
     }
 
+    data class FileMeta(val season: Int?, val episode: Int?)
+
+    fun parseFileMeta(name: String, path: String? = null): FileMeta {
+        val cleanName = name.substringAfterLast('/').substringAfterLast('\\')
+        val lower = cleanName.lowercase()
+        var season: Int? = null
+        var episode: Int? = null
+
+        // 1. SxxExx or Sxx.Exx or Sxx_Exx in filename (handles trailing underscores e.g. S01E10_[Kyrazh-Bambej])
+        val sxxExx = Regex("""[sS]0?(\d{1,2})[._\-\s]*[eE]0?(\d{1,3})(?=[^0-9]|$)""").find(lower)
+        if (sxxExx != null) {
+            season = sxxExx.groupValues.getOrNull(1)?.toIntOrNull()
+            episode = sxxExx.groupValues.getOrNull(2)?.toIntOrNull()
+        }
+
+        // 2. 01x05 or 1x05
+        if (episode == null) {
+            val nxn = Regex("""(?:^|[^0-9])0?(\d{1,2})[xх]0?(\d{1,3})(?=[^0-9]|$)""").find(lower)
+            if (nxn != null) {
+                season = nxn.groupValues.getOrNull(1)?.toIntOrNull()
+                episode = nxn.groupValues.getOrNull(2)?.toIntOrNull()
+            }
+        }
+
+        // 3. Check directory structure if season not yet found
+        val fullPath = path ?: name
+        if (season == null && fullPath.isNotBlank()) {
+            val parts = fullPath.split('/', '\\').dropLast(1)
+            for (part in parts.reversed()) {
+                val folder = part.lowercase()
+                if (Regex("""(?:season|сезон)s?\s*0?\d+\s*[-–—]\s*0?\d+""", RegexOption.IGNORE_CASE).containsMatchIn(folder)) {
+                    continue
+                }
+                val sMatch = Regex("""(?:^|[\s._\-])(?:season|сезон|s)[\s._\-]*0?(\d{1,2})(?:[\s._\-]|$|$)""", RegexOption.IGNORE_CASE).find(folder)
+                    ?: Regex("""^0?(\d{1,2})\s*(?:-?й|-ый)?\s*(?:сезон|season)$""", RegexOption.IGNORE_CASE).find(folder)
+                if (sMatch != null) {
+                    season = sMatch.groupValues.getOrNull(1)?.toIntOrNull()
+                    if (season != null) break
+                }
+            }
+        }
+
+        // 4. Episode regexes if not yet found
+        if (episode == null) {
+            Regex("""(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*0?(\d{1,3})(?=[^0-9]|$)""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
+                episode = it
+            }
+        }
+        if (episode == null) {
+            Regex("""(?:^|[^0-9])0?(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)(?=[^0-9]|$)""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
+                episode = it
+            }
+        }
+        if (episode == null) {
+            Regex("""^(?:\[[^\]]*\]\s*)?0?(\d{1,3})[\s._\-]""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
+                if (it < 700) episode = it
+            }
+        }
+        if (episode == null) {
+            Regex("""(?:^|[\s._\-])0?(\d{1,3})\.(?:mkv|avi|mp4|ts|m4v)$""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
+                if (it < 700) episode = it
+            }
+        }
+
+        return FileMeta(season, episode)
+    }
+
+    fun parseFileMeta(file: com.lumiere.core.model.TorrentFile): FileMeta {
+        val pathStr = file.path ?: file.name
+        val nameStr = file.name.substringAfterLast('/').substringAfterLast('\\')
+        return parseFileMeta(nameStr, pathStr)
+    }
+
+    fun findMatchingFile(files: List<com.lumiere.core.model.TorrentFile>, season: Int, episode: Int): com.lumiere.core.model.TorrentFile? {
+        if (files.isEmpty()) return null
+
+        // Pass 1: exact season and episode match
+        for (f in files) {
+            val meta = parseFileMeta(f)
+            if (meta.season == season && meta.episode == episode) {
+                return f
+            }
+        }
+
+        // Pass 2: If single-season release, match by episode
+        val detectedSeasons = files.take(50).mapNotNull { parseFileMeta(it).season }.distinct()
+        if (detectedSeasons.size <= 1) {
+            for (f in files) {
+                val meta = parseFileMeta(f)
+                if (meta.episode == episode) {
+                    return f
+                }
+            }
+        }
+
+        return null
+    }
+
     fun extractEpisodeNumber(fileName: String, fallbackIndex: Int = 0): Int {
         if (fileName.isBlank()) return fallbackIndex + 1
-        // Strip folder paths so "Season 1/05.mkv" becomes "05.mkv"
-        val cleanName = fileName.substringAfterLast('/').substringAfterLast('\\')
-        val lower = cleanName.lowercase()
-
-        // S01E05
-        Regex("""[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-
-        // 01x05
-        Regex("""\b\d{1,2}[xх](\d{1,3})\b""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-
-        // "серия 5", "эпизод 5", "выпуск 5", "ep. 5"
-        Regex("""(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-
-        // "5 серия", "13 выпуск"
-        Regex("""\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b""", RegexOption.IGNORE_CASE).find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let { return it }
-
-        // Bracketed number e.g. "[05]" or "[05v2]"
-        Regex("""\[0*(\d{1,3})[a-zA-Z0-9_\-]*\]""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
-            if (it < 700) return it
-        }
-
-        // Leading number e.g. "05 - Title.mkv" or "05.mkv"
-        Regex("""^(?:\[[^\]]*\]\s*)?0*(\d{1,3})[\s._\-]""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
-            if (it < 700) return it
-        }
-
-        // Just number before extension e.g. "05.mkv" or "Show.05.mkv"
-        Regex("""(?:^|[\s._\-])0*(\d{1,3})\.(?:mkv|avi|mp4|ts|m4v)$""").find(lower)?.groupValues?.getOrNull(1)?.toIntOrNull()?.let {
-            if (it < 700) return it
-        }
-
-        return fallbackIndex + 1
+        val meta = parseFileMeta(fileName)
+        return meta.episode ?: (fallbackIndex + 1)
     }
 }

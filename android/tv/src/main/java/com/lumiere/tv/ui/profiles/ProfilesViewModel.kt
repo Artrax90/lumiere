@@ -77,18 +77,9 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                     pinError = null
                 )
             }
-        } else if (profile.isKids) {
-            // Kids profiles can quick login without password/PIN
-            performQuickLogin(profile, pin = null, onSuccess = onSuccess)
         } else {
-            // Adult/regular profile requires password!
-            _uiState.update {
-                it.copy(
-                    selectedProfileForPassword = profile,
-                    selectedProfileForPin = null,
-                    passwordError = null
-                )
-            }
+            // TV quick login: direct 1-click login for profiles without PIN
+            performQuickLogin(profile, pin = null, onSuccess = onSuccess)
         }
     }
 
@@ -160,7 +151,13 @@ class ProfilesViewModel(application: Application) : AndroidViewModel(application
                 if (profile.hasPin) {
                     _uiState.update { it.copy(pinError = "Неверный PIN-код", isAuthenticating = false) }
                 } else {
-                    _uiState.update { it.copy(errorMessage = "Ошибка входа: ${e.message}", isAuthenticating = false) }
+                    _uiState.update {
+                        it.copy(
+                            isAuthenticating = false,
+                            selectedProfileForPassword = profile,
+                            passwordError = e.message
+                        )
+                    }
                 }
             }
         }

@@ -1,7 +1,11 @@
 package com.lumiere.tv.ui.player
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
 import android.view.KeyEvent
 import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
@@ -17,12 +21,22 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+
+private fun Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -66,6 +80,15 @@ fun PlayerScreen(
     val audioBtnIndex = if (hasAudio) 5 else -1
     val subBtnIndex = if (hasSubs) (if (hasAudio) 6 else 5) else -1
     val totalBottomButtons = 5 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
+
+    val context = LocalContext.current
+    DisposableEffect(context) {
+        val activity = context.findActivity()
+        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        onDispose {
+            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
 
     LaunchedEffect(title, subtitle) {
         viewModel.setInitialMetadata(title, subtitle)
@@ -325,11 +348,8 @@ fun PlayerScreen(
                 PlayerView(context).apply {
                     this.player = player.exoPlayer
                     useController = false
-                    setBackgroundColor(android.graphics.Color.BLACK)
+                    keepScreenOn = true
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    (videoSurfaceView as? android.view.SurfaceView)?.apply {
-                        setZOrderMediaOverlay(true)
-                    }
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
@@ -339,9 +359,7 @@ fun PlayerScreen(
             onRelease = { playerView ->
                 playerView.player = null
             },
-            modifier = Modifier
-                .fillMaxSize()
-                .background(Color.Black)
+            modifier = Modifier.fillMaxSize()
         )
 
         // Central Buffering / Loading Overlay - instant, zero transition lag

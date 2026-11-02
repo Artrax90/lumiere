@@ -23,3 +23,4 @@ dependencyResolutionManagement {
 rootProject.name = "lumiere-android"
 include(":core")
 include(":tv")
+include(":tv2")

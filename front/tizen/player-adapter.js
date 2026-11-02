@@ -118,10 +118,18 @@
           if (self._duration && calculatedTime > self._duration) {
             calculatedTime = self._duration;
           }
-          // Suppress tiny backward jitter (< 1.5s) from B-frame reordering during normal forward playback
+          // Strict monotonic forward playback guard:
+          // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, EOF loop)
           if (self._lastReportedTime > 0 && !self._isSeeking) {
             var diff = calculatedTime - self._lastReportedTime;
-            if (diff < 0 && diff > -1.5) {
+            if (diff < 0) {
+              if (calculatedTime < 5.0 && self._lastReportedTime > 20.0) {
+                self._lastReportedTime = calculatedTime;
+              } else {
+                return;
+              }
+            }
+            if (diff > 15.0) {
               return;
             }
           }
@@ -218,7 +226,14 @@
             }
             if (self._lastReportedTime > 0 && !self._isSeeking) {
               var diff = nowSec - self._lastReportedTime;
-              if (diff < 0 && diff > -1.5) {
+              if (diff < 0) {
+                if (nowSec < 5.0 && self._lastReportedTime > 20.0) {
+                  self._lastReportedTime = nowSec;
+                } else {
+                  return;
+                }
+              }
+              if (diff > 15.0) {
                 return;
               }
             }
@@ -232,7 +247,7 @@
         var dur = webapis.avplay.getDuration();
         if (dur && dur > 60000 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
           var durSec = dur / 1000;
-          if (Math.abs(durSec - self._duration) > 5) {
+          if (self._duration <= 0 || (Math.abs(durSec - self._duration) > 15 && Math.abs(durSec - self._duration) <= 120)) {
             self._duration = durSec;
             self._emit('durationChange', { duration: self._duration });
           }
@@ -523,11 +538,18 @@
       if (self._duration && self._currentTime > self._duration) {
         self._currentTime = self._duration;
       }
-      // Update duration from video element if not already known
-      if (!self._duration && $video.duration && isFinite($video.duration) && $video.duration > 0) {
-        self._duration = (self._seekOffset || 0) + $video.duration;
-        self._emit('durationChange', { duration: self._duration });
+      if (self._lastReportedTime > 0 && !self._isSeeking) {
+        var diff = self._currentTime - self._lastReportedTime;
+        if (diff < 0) {
+          if (self._currentTime < 5.0 && self._lastReportedTime > 20.0) {
+            self._lastReportedTime = self._currentTime;
+          } else {
+            return;
+          }
+        }
+        if (diff > 15.0) return;
       }
+      self._lastReportedTime = self._currentTime;
       self._emit('timeUpdate', { currentTime: self._currentTime });
     };
     $video.onloadedmetadata = function() {

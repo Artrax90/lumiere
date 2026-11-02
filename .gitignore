@@ -39,6 +39,9 @@ out.txt
 .tempmediaStorage/
 .user_uploaded/
 *.crdownload
+~$*
+*.xlsx
+current_user_state.png
 
 # Python
 __pycache__/

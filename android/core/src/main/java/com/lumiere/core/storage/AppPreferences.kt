@@ -4,11 +4,20 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.*
 import androidx.datastore.preferences.preferencesDataStore
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.catch
+import java.io.IOException
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "lumiere_prefs")
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "lumiere_prefs",
+    corruptionHandler = ReplaceFileCorruptionHandler {
+        android.util.Log.e("AppPreferences", "Preferences proto corrupted! Replacing with empty preferences.", it)
+        emptyPreferences()
+    }
+)
 
 class AppPreferences(private val context: Context) {
 
@@ -26,7 +35,16 @@ class AppPreferences(private val context: Context) {
         private val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history_json")
     }
 
-    val searchHistory: Flow<List<String>> = context.dataStore.data.map { prefs ->
+    private val safeData: Flow<Preferences> = context.dataStore.data.catch { exception ->
+        if (exception is IOException) {
+            android.util.Log.e("AppPreferences", "Error reading preferences: ${exception.message}", exception)
+            emit(emptyPreferences())
+        } else {
+            throw exception
+        }
+    }
+
+    val searchHistory: Flow<List<String>> = safeData.map { prefs ->
         val json = prefs[KEY_SEARCH_HISTORY]
         if (!json.isNullOrBlank()) {
             try {
@@ -40,44 +58,44 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    val serverUrl: Flow<String?> = context.dataStore.data.map { prefs ->
+    val serverUrl: Flow<String?> = safeData.map { prefs ->
         prefs[KEY_SERVER_URL]
     }
 
-    val accessToken: Flow<String?> = context.dataStore.data.map { prefs ->
+    val accessToken: Flow<String?> = safeData.map { prefs ->
         prefs[KEY_ACCESS_TOKEN]
     }
 
-    val refreshToken: Flow<String?> = context.dataStore.data.map { prefs ->
+    val refreshToken: Flow<String?> = safeData.map { prefs ->
         prefs[KEY_REFRESH_TOKEN]
     }
 
-    val activeProfileId: Flow<Long?> = context.dataStore.data.map { prefs ->
+    val activeProfileId: Flow<Long?> = safeData.map { prefs ->
         prefs[KEY_PROFILE_ID]
     }
 
-    val activeProfileName: Flow<String?> = context.dataStore.data.map { prefs ->
+    val activeProfileName: Flow<String?> = safeData.map { prefs ->
         prefs[KEY_PROFILE_NAME]
     }
 
-    val activeProfileAvatar: Flow<String?> = context.dataStore.data.map { prefs ->
+    val activeProfileAvatar: Flow<String?> = safeData.map { prefs ->
         prefs[KEY_PROFILE_AVATAR]
     }
 
-    val isKids: Flow<Boolean> = context.dataStore.data.map { prefs ->
+    val isKids: Flow<Boolean> = safeData.map { prefs ->
         prefs[KEY_IS_KIDS] ?: false
     }
 
-    val lastWatchedTmdbId: Flow<Long?> = context.dataStore.data.map { prefs ->
+    val lastWatchedTmdbId: Flow<Long?> = safeData.map { prefs ->
         prefs[KEY_LAST_WATCHED_TMDB_ID]
     }
 
     suspend fun getServerUrlSync(): String? {
-        return context.dataStore.data.first()[KEY_SERVER_URL]
+        return safeData.first()[KEY_SERVER_URL]
     }
 
     suspend fun getAccessTokenSync(): String? {
-        return context.dataStore.data.first()[KEY_ACCESS_TOKEN]
+        return safeData.first()[KEY_ACCESS_TOKEN]
     }
 
     suspend fun setServerUrl(url: String) {

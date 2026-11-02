@@ -1,0 +1,55 @@
+package com.lumiere.tv.navigation
+
+import java.net.URLEncoder
+import java.nio.charset.StandardCharsets
+
+sealed class Screen(val route: String) {
+    data object Connect : Screen("connect")
+    data object Profiles : Screen("profiles")
+    data object Home : Screen("home")
+    data object Movies : Screen("movies")
+    data object Shows : Screen("shows")
+    data object Collections : Screen("collections")
+    data object Search : Screen("search")
+    data object Iptv : Screen("iptv")
+    data object My : Screen("my")
+    data object Downloads : Screen("downloads")
+    data object Settings : Screen("settings")
+    data object Notifications : Screen("notifications")
+    data object Profile : Screen("profile")
+
+    data object Details : Screen("details/{id}/{type}?source={source}") {
+        fun createRoute(id: Long, type: String = "movie", source: String? = null): String {
+            val srcParam = if (!source.isNullOrBlank()) "?source=$source" else ""
+            return "details/$id/$type$srcParam"
+        }
+    }
+
+    data object Player : Screen("player?url={url}&title={title}&subtitle={subtitle}&hls={hls}&mediaId={mediaId}&mediaType={mediaType}&season={season}&episode={episode}&startPosition={startPosition}&poster={poster}") {
+        fun createRoute(
+            streamUrl: String,
+            title: String,
+            subtitle: String = "",
+            isHls: Boolean = false,
+            mediaId: Long = 0L,
+            mediaType: String = "movie",
+            season: Int = 0,
+            episode: Int = 0,
+            startPositionMs: Long = 0L,
+            poster: String = ""
+        ): String {
+            val encUrl = URLEncoder.encode(streamUrl, StandardCharsets.UTF_8.toString())
+            val encTitle = URLEncoder.encode(title, StandardCharsets.UTF_8.toString())
+            val encSub = URLEncoder.encode(subtitle, StandardCharsets.UTF_8.toString())
+            val encPoster = URLEncoder.encode(poster, StandardCharsets.UTF_8.toString())
+            return "player?url=$encUrl&title=$encTitle&subtitle=$encSub&hls=$isHls&mediaId=$mediaId&mediaType=$mediaType&season=$season&episode=$episode&startPosition=$startPositionMs&poster=$encPoster"
+        }
+    }
+
+    data object Person : Screen("person/{id}?name={name}") {
+        fun createRoute(id: Long, name: String = ""): String {
+            val encName = URLEncoder.encode(name, StandardCharsets.UTF_8.toString())
+            return "person/$id?name=$encName"
+        }
+    }
+}

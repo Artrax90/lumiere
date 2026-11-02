@@ -5,13 +5,15 @@ const path = require('path');
 const rootDir = path.resolve(__dirname, '..');
 const androidDir = path.join(rootDir, 'android');
 const javaHome = 'C:\\Users\\Artrax\\jdk-21\\jdk-21.0.5+11';
-const builtApk = path.join(androidDir, 'tv/build/outputs/apk/debug/tv-debug.apk');
+const targetBuildType = process.argv.includes('--debug') ? 'debug' : 'release';
+const gradleTask = targetBuildType === 'debug' ? ':tv:assembleDebug' : ':tv:assembleRelease';
+const builtApk = path.join(androidDir, `tv/build/outputs/apk/${targetBuildType}/tv-${targetBuildType}.apk`);
 const adbPath = fs.existsSync('C:\\Users\\Artrax\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe')
   ? 'C:\\Users\\Artrax\\AppData\\Local\\Android\\Sdk\\platform-tools\\adb.exe'
   : path.join(rootDir, 'scratch/platform-tools/adb.exe');
 
 console.log('==================================================');
-console.log('       BUILDING NATIVE ANDROID TV APP             ');
+console.log(`       BUILDING NATIVE ANDROID TV APP (${targetBuildType.toUpperCase()})       `);
 console.log('==================================================');
 
 const env = {
@@ -21,9 +23,9 @@ const env = {
 };
 
 const gradlew = path.join(androidDir, 'gradlew.bat');
-console.log(`Running: ${gradlew} :tv:assembleDebug in ${androidDir}`);
+console.log(`Running: ${gradlew} ${gradleTask} in ${androidDir}`);
 
-const buildRes = spawnSync(gradlew, [':tv:assembleDebug', '--no-daemon'], {
+const buildRes = spawnSync(gradlew, [gradleTask, '--no-daemon'], {
   cwd: androidDir,
   env,
   stdio: 'inherit',

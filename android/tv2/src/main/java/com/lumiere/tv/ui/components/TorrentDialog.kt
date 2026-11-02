@@ -1,0 +1,570 @@
+package com.lumiere.tv.ui.components
+
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.graphics.Color
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import androidx.tv.material3.*
+import com.lumiere.core.model.TorrentItem
+import com.lumiere.tv.theme.*
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TorrentDialog(
+    torrents: List<TorrentItem>,
+    isLoading: Boolean,
+    selectedMagnet: String? = null,
+    onTorrentSelected: (TorrentItem) -> Unit,
+    onDismiss: () -> Unit
+) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(
+            dismissOnBackPress = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val coroutineScope = rememberCoroutineScope()
+        val firstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+
+        androidx.activity.compose.BackHandler {
+            if (listState.firstVisibleItemIndex > 0) {
+                coroutineScope.launch {
+                    listState.scrollToItem(0)
+                    try {
+                        firstItemFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
+            } else {
+                onDismiss()
+            }
+        }
+
+        var qualityFilter by remember { mutableStateOf("all") } // "all", "4k", "1080p", "720p"
+        var sortBy by remember { mutableStateOf("score") } // "score", "seeds", "date", "size"
+
+        val filteredAndSortedTorrents = remember(torrents, qualityFilter, sortBy) {
+            val list = torrents.filter { item ->
+                val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
+                when (qualityFilter) {
+                    "4k" -> meta.resolution == "4K UHD"
+                    "1080p" -> meta.resolution == "1080p"
+                    "720p" -> meta.resolution == "720p"
+                    else -> true
+                }
+            }
+            when (sortBy) {
+                "seeds" -> list.sortedByDescending { it.seeders ?: 0 }
+                "size" -> list.sortedByDescending { TorrentMetaParser.parseSizeBytes(it) }
+                "date" -> list.sortedWith(
+                    compareByDescending<TorrentItem> { TorrentMetaParser.parseTorrentDate(it.date) }
+                        .thenByDescending { it.seeders ?: 0 }
+                )
+                else -> list.sortedByDescending { item ->
+                    val tLower = item.title.lowercase()
+                    val isLegacy = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
+                                   tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
+                                   tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
+                    val isHd = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
+                               tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
+                               tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265")) && !isLegacy
+                    (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0)
+                }
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(0.92f)
+                .height(620.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(BackgroundDark)
+                .border(1.dp, SurfaceBorder, RoundedCornerShape(20.dp))
+                .padding(horizontal = 28.dp, vertical = 20.dp)
+        ) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                // 1. Header with Close Button
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text(
+                                text = "Выберите раздачу для просмотра",
+                                style = MaterialTheme.typography.titleLarge,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+                            if (torrents.isNotEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .background(Color(0x33E8C170))
+                                        .border(1.dp, Color(0x66E8C170), CircleShape)
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text(
+                                        text = "${filteredAndSortedTorrents.size} из ${torrents.size}",
+                                        fontSize = 11.sp,
+                                        color = LumiereGold,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                            }
+                        }
+                        Text(
+                            text = "Прямой онлайн-просмотр через TorrServer без предварительной загрузки",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = TextSecondary
+                        )
+                    }
+
+                    val closeShape = RoundedCornerShape(10.dp)
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                        colors = OutlinedButtonDefaults.colors(
+                            focusedContainerColor = Color(0x22FFFFFF),
+                            focusedContentColor = TextPrimary
+                        ),
+                        border = OutlinedButtonDefaults.border(
+                            border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = closeShape),
+                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = closeShape)
+                        ),
+                        shape = OutlinedButtonDefaults.shape(closeShape),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Закрыть",
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // 2. Filters & Sort Controls Row (like in WGT and Web)
+                if (torrents.isNotEmpty()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(SurfaceDark)
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Quality Filters
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Качество:", fontSize = 11.sp, color = TextMuted)
+                            listOf(
+                                "all" to "Все",
+                                "4k" to "4K",
+                                "1080p" to "1080p",
+                                "720p" to "720p"
+                            ).forEach { (id, label) ->
+                                val isSelected = qualityFilter == id
+                                val filterShape = RoundedCornerShape(8.dp)
+                                Button(
+                                    onClick = { qualityFilter = id },
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                                    colors = ButtonDefaults.colors(
+                                        containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+                                        contentColor = if (isSelected) LumiereGold else TextSecondary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
+                                    ),
+                                    border = ButtonDefaults.border(
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterShape),
+                                        border = Border.None
+                                    ),
+                                    shape = ButtonDefaults.shape(filterShape),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
+                                ) {
+                                    Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        }
+
+                        // Sort Controls
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("Сортировка:", fontSize = 11.sp, color = TextMuted)
+                            listOf(
+                                "score" to "По рейтингу",
+                                "seeds" to "По сидам",
+                                "date" to "По дате",
+                                "size" to "По размеру"
+                            ).forEach { (id, label) ->
+                                val isSelected = sortBy == id
+                                val sortShape = RoundedCornerShape(8.dp)
+                                Button(
+                                    onClick = { sortBy = id },
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                                    colors = ButtonDefaults.colors(
+                                        containerColor = if (isSelected) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+                                        contentColor = if (isSelected) LumiereGold else TextSecondary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
+                                    ),
+                                    border = ButtonDefaults.border(
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = sortShape),
+                                        border = Border.None
+                                    ),
+                                    shape = ButtonDefaults.shape(sortShape),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
+                                ) {
+                                    Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+
+                // 3. Torrents Content List
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = "Поиск доступных раздач...",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = LumiereGold
+                        )
+                    }
+                } else if (filteredAndSortedTorrents.isEmpty()) {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            text = if (torrents.isEmpty()) "Раздачи не найдены" else "Нет раздач с выбранным качеством",
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = TextSecondary
+                        )
+                    }
+                } else {
+                    var launchingMagnet by remember { mutableStateOf<String?>(null) }
+
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        itemsIndexed(filteredAndSortedTorrents, key = { _, item -> item.magnet ?: item.title }) { index, item ->
+                            val isLaunching = launchingMagnet == item.magnet
+                            val isSelected = !selectedMagnet.isNullOrBlank() && item.magnet == selectedMagnet
+                            TorrentRowItem(
+                                item = item,
+                                isLaunching = isLaunching,
+                                isSelected = isSelected,
+                                modifier = if (index == 0) Modifier.focusRequester(firstItemFocusRequester) else Modifier,
+                                onClick = {
+                                    launchingMagnet = item.magnet
+                                    onTorrentSelected(item)
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+fun TorrentRowItem(
+    item: TorrentItem,
+    isLaunching: Boolean = false,
+    isSelected: Boolean = false,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val meta = remember(item.title, item.audio, item.quality) {
+        TorrentMetaParser.parse(item.title, item.audio, item.quality)
+    }
+
+    val cardShape = RoundedCornerShape(12.dp)
+    Card(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .wrapContentHeight(),
+        colors = CardDefaults.colors(
+            containerColor = when {
+                isLaunching -> Color(0x33E8C170)
+                isSelected -> Color(0x22E8C170)
+                else -> SurfaceVariantDark
+            },
+            focusedContainerColor = SurfaceDark
+        ),
+        border = CardDefaults.border(
+            focusedBorder = Border(
+                border = BorderStroke(2.dp, LumiereGold),
+                shape = cardShape
+            ),
+            border = Border(
+                border = BorderStroke(1.dp, if (isLaunching || isSelected) LumiereGold else SurfaceBorder),
+                shape = cardShape
+            )
+        ),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1f),
+        shape = CardDefaults.shape(cardShape)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Title (2 lines max, full details visible)
+                Text(
+                    text = item.title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = TextPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    lineHeight = 17.sp
+                )
+
+                if (isLaunching) {
+                    Text(
+                        text = "⚡ Подключение к TorrServer и запуск потока...",
+                        fontSize = 11.sp,
+                        color = LumiereGold,
+                        fontWeight = FontWeight.Bold
+                    )
+                } else {
+                    // Rich Badges Row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (isSelected) {
+                            BadgePill(
+                                text = "✓ ТЕКУЩИЙ",
+                                bgColor = Color(0x33E8C170),
+                                borderColor = LumiereGold,
+                                textColor = LumiereGold
+                            )
+                        }
+
+                        // Tracker Pill
+                        val tracker = item.tracker
+                        if (!tracker.isNullOrBlank()) {
+                            BadgePill(
+                                text = tracker.uppercase(),
+                                bgColor = Color(0x22FFFFFF),
+                                borderColor = Color(0x44FFFFFF),
+                                textColor = Color(0xFFE2E8F0)
+                            )
+                        }
+
+                        // Rip Type
+                        if (meta.ripType != null) {
+                            BadgePill(
+                                text = meta.ripType,
+                                bgColor = Color(0x2238BDF8),
+                                borderColor = Color(0x5538BDF8),
+                                textColor = Color(0xFF7DD3FC)
+                            )
+                        }
+
+                        // Video Codec
+                        if (meta.codec != null) {
+                            BadgePill(
+                                text = meta.codec,
+                                bgColor = Color(0x222DD4BF),
+                                borderColor = Color(0x552DD4BF),
+                                textColor = Color(0xFF5EEAD4)
+                            )
+                        }
+
+                        // Dubbing / Voiceover Studios
+                        if (meta.voices.isNotEmpty()) {
+                            meta.voices.take(3).forEach { voice ->
+                                BadgePill(
+                                    text = voice,
+                                    bgColor = Color(0x28A855F7),
+                                    borderColor = Color(0x66A855F7),
+                                    textColor = Color(0xFFD8B4FE)
+                                )
+                            }
+                        }
+
+                        // Audio Format / Channels
+                        if (meta.audioFormat != null) {
+                            BadgePill(
+                                text = meta.audioFormat,
+                                bgColor = Color(0x22F43F5E),
+                                borderColor = Color(0x55F43F5E),
+                                textColor = Color(0xFFFDA4AF)
+                            )
+                        }
+
+                        // Subtitles
+                        if (meta.subtitles != null) {
+                            BadgePill(
+                                text = meta.subtitles,
+                                bgColor = Color(0x2264748B),
+                                borderColor = Color(0x4464748B),
+                                textColor = Color(0xFFCBD5E1)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.width(16.dp))
+
+            // Right Cluster: Quality, HDR, Seeds, Size
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // Resolution Badge
+                val res = meta.resolution ?: item.quality ?: "1080p"
+                val is4k = res.contains("4k", true) || res.contains("2160", true)
+                BadgePill(
+                    text = res,
+                    bgColor = if (is4k) Color(0x33E8C170) else Color(0x2210B981),
+                    borderColor = if (is4k) LumiereGold else Color(0x6610B981),
+                    textColor = if (is4k) LumiereGold else Color(0xFF6EE7B7),
+                    isBold = true
+                )
+
+                // HDR / DV Badge
+                if (meta.hdr != null) {
+                    val isDv = meta.hdr.contains("Vision", true)
+                    BadgePill(
+                        text = meta.hdr,
+                        bgColor = if (isDv) Color(0x33C084FC) else Color(0x22A855F7),
+                        borderColor = if (isDv) Color(0x88C084FC) else Color(0x66A855F7),
+                        textColor = if (isDv) Color(0xFFF0ABFC) else Color(0xFFE9D5FF),
+                        isBold = true
+                    )
+                }
+
+                // File Size
+                val sizeText = remember(item) {
+                    TorrentMetaParser.formatSizeSmart(item.sizeFormatted, item.sizeBytes, item.size)
+                }
+                if (!sizeText.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0x18FFFFFF))
+                            .border(1.dp, Color(0x33FFFFFF), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = sizeText,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = TextPrimary
+                        )
+                    }
+                }
+
+                // Date Badge
+                val dateText = remember(item.date) { TorrentMetaParser.formatTorrentDate(item.date) }
+                if (!dateText.isNullOrBlank()) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Color(0x2A0284C7))
+                            .border(1.dp, Color(0x6638BDF8), RoundedCornerShape(6.dp))
+                            .padding(horizontal = 7.dp, vertical = 3.dp)
+                    ) {
+                        Text(
+                            text = "📅 $dateText",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF7DD3FC)
+                        )
+                    }
+                }
+
+                // Seeders
+                val seeds = item.seeders ?: 0
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0x2210B981))
+                        .border(1.dp, Color(0x6610B981), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "⚡ $seeds",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF6EE7B7)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun BadgePill(
+    text: String,
+    bgColor: Color,
+    borderColor: Color,
+    textColor: Color,
+    isBold: Boolean = false
+) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(5.dp))
+            .background(bgColor)
+            .border(1.dp, borderColor, RoundedCornerShape(5.dp))
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            fontSize = 10.sp,
+            fontWeight = if (isBold) FontWeight.Bold else FontWeight.Medium
+        )
+    }
+}
+
+
+

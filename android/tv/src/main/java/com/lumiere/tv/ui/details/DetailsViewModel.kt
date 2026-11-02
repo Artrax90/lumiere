@@ -396,7 +396,13 @@ class DetailsViewModel(
             val currentProgress = _uiState.value.savedProgressSec.takeIf { it > 0L }
                 ?: preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
 
-            if (currentProgress > 0L && savedTorrent != null && savedTorrent.first.isNotBlank()) {
+            val isSavedLegacy = savedTorrent?.second?.lowercase()?.let {
+                it.contains("xvid") || it.contains(".avi") || it.contains("dlrip") ||
+                it.contains("web-dlrip") || it.contains("dvdrip") || it.contains("satrip") ||
+                it.contains("bdrip") || (it.contains("avi") && !it.contains("davinci"))
+            } ?: false
+
+            if (currentProgress > 0L && savedTorrent != null && savedTorrent.first.isNotBlank() && !isSavedLegacy) {
                 val matchingTorrent = _uiState.value.torrents.find { it.magnet == savedTorrent.first }
                     ?: TorrentItem(
                         title = savedTorrent.second.ifBlank { _uiState.value.title?.name ?: "Видео" },
@@ -417,6 +423,17 @@ class DetailsViewModel(
                 }
 
                 playTorrent(matchingTorrent, onStreamReady)
+            } else if (mediaType == "tv") {
+                val targetEpNum = _uiState.value.lastWatchedEpisodeNum
+                    ?: preferences.getLastWatchedSeriesEpisode(mediaId)
+                    ?: 1
+                val targetEp = _uiState.value.episodes.find { it.episode == targetEpNum }
+                    ?: Episode(
+                        season = _uiState.value.selectedSeason,
+                        episode = targetEpNum,
+                        title = "Серия $targetEpNum"
+                    )
+                playEpisodeDirectly(targetEp, onStreamReady)
             } else {
                 openTorrentDialog()
             }
@@ -478,21 +495,19 @@ class DetailsViewModel(
                 }
 
                 val ep = _uiState.value.selectedEpisode
-                val file = if (ep != null && streamInfo.files.size > 1) {
-                    val epPadded = String.format("%02d", ep.episode)
-                    streamInfo.files.find { f ->
-                        val extracted = com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name)
-                        extracted == ep.episode
-                    } ?: streamInfo.files.find { f ->
-                        val name = f.name.lowercase()
-                        name.contains("e${ep.episode}") || name.contains("e$epPadded") || name.contains(" $epPadded ") || name.contains(" $epPadded.")
-                    } ?: streamInfo.files.firstOrNull()
+                val seasonNum = (ep?.season?.takeIf { it > 0 }) ?: _uiState.value.selectedSeason
+                val file = if (ep != null && streamInfo.files.isNotEmpty()) {
+                    com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                        files = streamInfo.files,
+                        season = seasonNum,
+                        episode = ep.episode
+                    ) ?: streamInfo.files.firstOrNull()
                 } else {
                     streamInfo.files.firstOrNull()
                 }
 
-                // Prefer direct TorrServer stream (MP4/MKV) which ExoPlayer hardware decodes cleanly with byte-range requests
                 val relativeUrl = file?.streamUrl ?: file?.directUrl ?: file?.hlsUrl
+
                 if (relativeUrl.isNullOrBlank()) {
                     _uiState.update {
                         it.copy(
@@ -580,19 +595,47 @@ class DetailsViewModel(
                     .sortedWith(
                         compareByDescending<TorrentItem> {
                             if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(it.title, episode.season, episode.episode)) 100 else 0
-                        }.thenByDescending { it.seeders ?: 0 }
+                        }
+                        .thenByDescending {
+                            val tLower = it.title.lowercase()
+                            val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
+                                              tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
+                                              tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
+                            val isModern = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
+                                           tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
+                                           tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265") ||
+                                           tLower.contains("web-dl") || tLower.contains("webrip")) && !isLegacyAvi
+                            if (isLegacyAvi) -50 else if (isModern) 50 else 0
+                        }
+                        .thenByDescending { it.seeders ?: 0 }
                     )
 
-                val listToProbe = seasonCandidates.ifEmpty { torrents.sortedByDescending { it.seeders ?: 0 } }
+                val listToProbe = seasonCandidates.ifEmpty {
+                    torrents.sortedWith(
+                        compareByDescending<TorrentItem> {
+                            val tLower = it.title.lowercase()
+                            val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
+                                              tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
+                                              tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
+                            val isModern = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
+                                           tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
+                                           tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265") ||
+                                           tLower.contains("web-dl") || tLower.contains("webrip")) && !isLegacyAvi
+                            if (isLegacyAvi) -50 else if (isModern) 50 else 0
+                        }.thenByDescending { it.seeders ?: 0 }
+                    )
+                }
                 _uiState.update { it.copy(activeTorrent = listToProbe.firstOrNull()) }
 
                 var foundStreamUrl: String? = null
                 var matchedTorrent: TorrentItem? = null
+                var fallbackAviUrl: String? = null
+                var fallbackAviTorrent: TorrentItem? = null
                 val epPadded = String.format("%02d", episode.episode)
                 val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm")
 
                 // 3. Probe top candidates with highest seeders, waiting for TorrServer to resolve metadata
-                for (cand in listToProbe.take(3)) {
+                for (cand in listToProbe.take(5)) {
                     _uiState.update { it.copy(activeTorrent = cand) }
                     try {
                         var streamInfo = api.getTorrentStreamInfo(TorrentStreamRequest(magnet = cand.magnet, title = cand.title))
@@ -613,35 +656,38 @@ class DetailsViewModel(
                             val matchedFile = if (videoFiles.size == 1) {
                                 videoFiles[0]
                             } else {
-                                // 1. Try exact regex extraction
-                                videoFiles.find { f ->
-                                    val extracted = com.lumiere.tv.ui.components.TorrentMetaParser.extractEpisodeNumber(f.name)
-                                    extracted == episode.episode
-                                } ?: // 2. Try substring match (e01, 01., e1)
-                                videoFiles.find { f ->
-                                    val name = f.name.lowercase().substringAfterLast('/')
-                                    name.contains("e${episode.episode}") || name.contains("e$epPadded") || name.contains(" $epPadded ") || name.contains(" $epPadded.") || name.startsWith("$epPadded ") || name.startsWith("$epPadded.")
-                                } ?: // 3. Try positional match in sorted episode files
-                                if (videoFiles.size >= episode.episode) {
-                                    val sortedVideos = videoFiles.sortedWith(compareBy { it.name.lowercase() })
-                                    sortedVideos.getOrNull(episode.episode - 1)
-                                } else {
-                                    videoFiles.firstOrNull()
-                                }
+                                com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                                    files = videoFiles,
+                                    season = episode.season,
+                                    episode = episode.episode
+                                ) ?: videoFiles.firstOrNull()
                             }
 
                             if (matchedFile != null) {
                                 val rel = matchedFile.streamUrl ?: matchedFile.directUrl ?: matchedFile.hlsUrl
                                 if (!rel.isNullOrBlank()) {
-                                    foundStreamUrl = rel
-                                    matchedTorrent = cand
-                                    break
+                                    val isAvi = matchedFile.name.lowercase().endsWith(".avi")
+                                    if (isAvi) {
+                                        if (fallbackAviUrl == null) {
+                                            fallbackAviUrl = rel
+                                            fallbackAviTorrent = cand
+                                        }
+                                    } else {
+                                        foundStreamUrl = rel
+                                        matchedTorrent = cand
+                                        break
+                                    }
                                 }
                             }
                         }
                     } catch (_: Exception) {
                         // Continue probing next candidate
                     }
+                }
+
+                if (foundStreamUrl == null && fallbackAviUrl != null) {
+                    foundStreamUrl = fallbackAviUrl
+                    matchedTorrent = fallbackAviTorrent
                 }
 
                 if (foundStreamUrl != null && matchedTorrent != null) {

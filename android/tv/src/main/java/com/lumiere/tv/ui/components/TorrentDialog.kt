@@ -82,7 +82,16 @@ fun TorrentDialog(
                     compareByDescending<TorrentItem> { TorrentMetaParser.parseTorrentDate(it.date) }
                         .thenByDescending { it.seeders ?: 0 }
                 )
-                else -> list.sortedByDescending { (it.seeders ?: 0) * 10 + if ((it.title.contains("4k", true) || it.title.contains("2160p", true))) 50 else 0 }
+                else -> list.sortedByDescending { item ->
+                    val tLower = item.title.lowercase()
+                    val isLegacy = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
+                                   tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
+                                   tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
+                    val isHd = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
+                               tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
+                               tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265")) && !isLegacy
+                    (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0)
+                }
             }
         }
 

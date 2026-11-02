@@ -63,6 +63,9 @@
   var seekDebounceTimer = null;
   var iptvStatsTimer = null;
   var resumeTimer = null;
+  var endTimeInterval = null;
+  var $endTimeBadge = null;
+  var $endTimeVal = null;
 
   // Binge-Watching & Autoplay state
   var torrentLink = '';
@@ -77,27 +80,133 @@
   var nextEpInterval = null;
   var nextEpBtnIndex = 0; // 0 = now, 1 = cancel
 
+  // Parse season and episode from file object or filename/path
+  function parseTorrentFileMeta(fileOrName) {
+    var pathStr = '';
+    var nameStr = '';
+    if (typeof fileOrName === 'string') {
+      pathStr = fileOrName;
+      nameStr = fileOrName.split('/').pop().split('\\').pop() || fileOrName;
+    } else if (fileOrName && typeof fileOrName === 'object') {
+      pathStr = fileOrName.path || fileOrName.name || '';
+      nameStr = fileOrName.name || (fileOrName.path ? fileOrName.path.split('/').pop().split('\\').pop() : '');
+    }
+
+    var nameLower = (nameStr || '').toLowerCase();
+    var season = null;
+    var episode = null;
+
+    // 1. SxxExx or Sxx.Exx or Sxx_Exx in filename (handles trailing underscores e.g. S01E10_[Kyrazh-Bambej])
+    var m = nameLower.match(/[sS]0?(\d{1,2})[._\-\s]*[eE]0?(\d{1,3})(?=[^0-9]|$)/);
+    if (m) {
+      season = parseInt(m[1], 10);
+      episode = parseInt(m[2], 10);
+    }
+
+    // 2. 01x05 or 1x05 in filename
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,2})[xх]0?(\d{1,3})(?=[^0-9]|$)/);
+      if (m) {
+        season = parseInt(m[1], 10);
+        episode = parseInt(m[2], 10);
+      }
+    }
+
+    // 3. Check directory structure for season if not found in filename (deepest folder upwards)
+    if (season == null && pathStr) {
+      var parts = pathStr.split(/[\/\\]/);
+      parts.pop(); // Remove filename itself
+      for (var i = parts.length - 1; i >= 0; i--) {
+        var folder = parts[i].toLowerCase();
+        // Skip multi-season ranges like "Season 1-12" or "Сезоны 1-4"
+        if (/(?:season|сезон)s?\s*0?\d+\s*[-–—]\s*0?\d+/i.test(folder)) {
+          continue;
+        }
+        var sMatch = folder.match(/(?:^|[\s._\-])(?:season|сезон|s)[\s._\-]*0?(\d{1,2})(?:[\s._\-]|$)/i) ||
+                     folder.match(/^0?(\d{1,2})\s*(?:-?й|-ый)?\s*(?:сезон|season)$/i);
+        if (sMatch) {
+          season = parseInt(sMatch[1], 10);
+          break;
+        }
+      }
+    }
+
+    // 4. Extract episode from filename if not yet found
+    if (episode == null) {
+      m = nameLower.match(/(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*0?(\d{1,3})(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Leading number e.g. "05 - Winter.mkv" or "10. Совокупность лжи.mkv"
+      m = nameLower.match(/^(?:\[[^\]]*\]\s*)?0?(\d{1,3})[\s._\-]/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Number before extension "Show.05.mkv"
+      m = nameLower.match(/[\s._\-]0?(\d{1,2})\.(?:mkv|avi|mp4|ts|m4v)$/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+
+    return { season: season, episode: episode };
+  }
+  window.parseTorrentFileMeta = parseTorrentFileMeta;
+
+  function findTorrentEpisodeFile(files, targetSeason, targetEpisode) {
+    if (!files || files.length === 0) return null;
+
+    // Pass 1: Match BOTH Season and Episode
+    if (targetSeason != null && targetEpisode != null) {
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var meta = parseTorrentFileMeta(f);
+        if (meta.season === targetSeason && meta.episode === targetEpisode) {
+          return f;
+        }
+      }
+    }
+
+    // Pass 2: If season was not explicitly detectable in files, but episode matches,
+    // only use if torrent does NOT have multiple detectable seasons
+    if (targetEpisode != null) {
+      var hasMultipleSeasons = false;
+      var detectedSeasons = {};
+      for (var j = 0; j < Math.min(files.length, 50); j++) {
+        var m = parseTorrentFileMeta(files[j]);
+        if (m.season != null) {
+          detectedSeasons[m.season] = true;
+          if (Object.keys(detectedSeasons).length > 1) {
+            hasMultipleSeasons = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasMultipleSeasons) {
+        for (var k = 0; k < files.length; k++) {
+          var f2 = files[k];
+          var meta2 = parseTorrentFileMeta(f2);
+          if (meta2.episode === targetEpisode) {
+            return f2;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+  window.findTorrentEpisodeFile = findTorrentEpisodeFile;
+
   function extractEpNumber(fileName, fallbackIndex, seasonNum) {
     if (!fileName) return (fallbackIndex != null ? fallbackIndex + 1 : 1);
-    var s = fileName.toLowerCase();
-    var m = s.match(/[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b/);
-    if (m) return parseInt(m[1], 10);
-    m = s.match(/\b\d{1,2}[xх](\d{1,3})\b/);
-    if (m) return parseInt(m[1], 10);
-    m = s.match(/(?:сери[яий]|эпизод|серия:|эпизод:|выпуск|выпуск:|ep\.?|episode\.?)\s*[:]?\s*(\d{1,3})\b/i);
-    if (m) return parseInt(m[1], 10);
-    m = s.match(/\b(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)\b/i);
-    if (m) return parseInt(m[1], 10);
-    if (seasonNum != null) {
-      var sPadded = (seasonNum < 10 ? '0' + seasonNum : '' + seasonNum);
-      var seReg = new RegExp('(?:^|[^\\d])(?:0?' + seasonNum + '|' + sPadded + ')[-._](\\d{1,3})(?:[^\\d]|$)');
-      m = s.match(seReg);
-      if (m) return parseInt(m[1], 10);
+    var meta = parseTorrentFileMeta(fileName);
+    if (seasonNum != null && meta.season != null && meta.season !== seasonNum) {
+      return null;
     }
-    m = s.match(/^(?:\[[^\]]*\]\s*)?(\d{1,3})[\s._\-]/);
-    if (m) return parseInt(m[1], 10);
-    m = s.match(/[\s._\-](\d{1,2})\.(?:mkv|avi|mp4|ts|m4v)$/);
-    if (m) return parseInt(m[1], 10);
+    if (meta.episode != null) return meta.episode;
     return (fallbackIndex != null ? fallbackIndex + 1 : 1);
   }
 
@@ -186,6 +295,8 @@
     $popupHeader = document.getElementById('popup-header');
     $popupList = document.getElementById('popup-list');
     $subtitleOverlay = document.getElementById('subtitle-overlay');
+    $endTimeBadge = document.getElementById('osd-end-time-badge');
+    $endTimeVal = document.getElementById('osd-end-time-val');
 
     // Cache top buttons (only Back button remains on top)
     topBtns = [];
@@ -213,6 +324,11 @@
     lastSeekKeyTime = 0;
     lastSeekDirection = 0;
     seekHoldCount = 0;
+
+    if (endTimeInterval) clearInterval(endTimeInterval);
+    endTimeInterval = setInterval(function() {
+      updateEndTimeUI();
+    }, 5000);
 
     // Parameters
     params = params || {};
@@ -311,26 +427,28 @@
     var targetNextS = curSeason;
     var baseTitle = pTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
 
-    // 1. Check torrentFiles by episode number (most accurate!)
+    // 1. Check torrentFiles by season & episode number
     if (mediaType === 'tv' && torrentFiles && torrentFiles.length > 0) {
-      for (var tfi = 0; tfi < torrentFiles.length; tfi++) {
-        var tf = torrentFiles[tfi];
-        if (!tf || !tf.name) continue;
-        if (tf.name && /\.(srt|nfo|txt|jpg|png|torrent)$/i.test(tf.name)) continue;
-        if (/\bsample\b/i.test(tf.name) && !/episode/i.test(tf.name)) continue;
-
-        var epParsed = extractEpNumber(tf.name, tfi, curSeason);
-        if (epParsed === targetNextE) {
-          nextFile = tf;
-          nextFile.season = targetNextS;
-          nextFile.episode = targetNextE;
-          console.log('[Player] Next episode matched by episode number (' + targetNextE + '):', nextFile.name);
-          break;
+      // First try next episode in CURRENT season
+      var nextEpFile = findTorrentEpisodeFile(torrentFiles, targetNextS, targetNextE);
+      if (nextEpFile) {
+        nextFile = nextEpFile;
+        nextFile.season = targetNextS;
+        nextFile.episode = targetNextE;
+        console.log('[Player] Next episode matched by S' + targetNextS + 'E' + targetNextE + ':', nextFile.name);
+      } else {
+        // Current season may have ended! Check if Season (targetNextS + 1) Episode 1 exists in this torrent!
+        var nextSeasonEp1 = findTorrentEpisodeFile(torrentFiles, targetNextS + 1, 1);
+        if (nextSeasonEp1) {
+          nextFile = nextSeasonEp1;
+          nextFile.season = targetNextS + 1;
+          nextFile.episode = 1;
+          console.log('[Player] Transition to next season S' + (targetNextS + 1) + 'E1 matched:', nextFile.name);
         }
       }
     }
 
-    // 2. Check torrentFiles by index relative to current file
+    // 2. Check torrentFiles by index relative to current file ONLY if same season or single season torrent
     if (!nextFile && torrentFiles && torrentFiles.length > 1 && torrentFileIndex >= 0) {
       var currArrIdx = -1;
       for (var fi = 0; fi < torrentFiles.length; fi++) {
@@ -350,10 +468,13 @@
       if (currArrIdx >= 0 && currArrIdx + 1 < torrentFiles.length) {
         var cand = torrentFiles[currArrIdx + 1];
         if (cand && cand.name && !/\.(srt|nfo|txt|jpg|png|torrent)$/i.test(cand.name) && !/\bsample\b/i.test(cand.name)) {
-          nextFile = cand;
-          nextFile.season = targetNextS;
-          nextFile.episode = extractEpNumber(cand.name, currArrIdx + 1, curSeason) || targetNextE;
-          console.log('[Player] Next episode matched by file index from torrent files:', nextFile.name);
+          var candMeta = parseTorrentFileMeta(cand);
+          if (!candMeta.season || candMeta.season === targetNextS || candMeta.season === targetNextS + 1) {
+            nextFile = cand;
+            nextFile.season = candMeta.season || targetNextS;
+            nextFile.episode = candMeta.episode || (nextFile.season !== targetNextS ? 1 : targetNextE);
+            console.log('[Player] Next episode matched by file index from torrent files:', nextFile.name, 'S' + nextFile.season + 'E' + nextFile.episode);
+          }
         }
       }
     }
@@ -462,8 +583,16 @@
         if (data && data.currentTime !== undefined) {
           if (currentTime > 0 && !isSeeking) {
             var diff = data.currentTime - currentTime;
-            // Suppress tiny backward jitter (< 1.5s) from B-frame reordering/PTS fluctuations during normal forward playback
-            if (diff < 0 && diff > -1.5) {
+            // Suppress backward jitter during normal forward playback
+            if (diff < 0) {
+              if (data.currentTime < 5.0 && currentTime > 20.0) {
+                currentTime = data.currentTime;
+                updateTimelineUI();
+                return;
+              }
+              return;
+            }
+            if (diff > 15.0) {
               return;
             }
           }
@@ -485,8 +614,11 @@
 
       player.on('durationChange', function(data) {
         if (data && data.duration && data.duration > 60) {
-          if (duration > 60 && data.duration < duration && Math.abs(data.duration - duration) > 120) {
-            return; // Never let partial HLS chunk overwrite full movie/series duration!
+          if (duration > 60) {
+            if (Math.abs(data.duration - duration) <= 15) return;
+            if (data.duration < duration && Math.abs(data.duration - duration) > 120) {
+              return; // Never let partial HLS chunk overwrite full movie/series duration!
+            }
           }
           duration = data.duration;
           if ($timeTotal) $timeTotal.textContent = fmtTime(duration);
@@ -850,13 +982,14 @@
       // If nextFile was not set yet, attempt dynamic resolution right now from title / state
       var pTitle = (typeof movieTitle === 'string') ? movieTitle : '';
       var sMatch = pTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || pTitle.match(/\bS([0-9]+)E([0-9]+)\b/i) || pTitle.match(/\b([0-9]+)x([0-9]+)\b/i);
-      var curS = sMatch ? parseInt(sMatch[1], 10) : 1;
-      var curE = sMatch ? parseInt(sMatch[2], 10) : 1;
+      var curS = sMatch ? parseInt(sMatch[1], 10) : (curSeason || 1);
+      var curE = sMatch ? parseInt(sMatch[2], 10) : (curEpisode || 1);
       if (!sMatch && movieId) {
         try {
-          var ltObj = JSON.parse(localStorage.getItem('last_torrents') || '{}')[movieId];
+          var ltKey = getUserStorageKey('last_torrents');
+          var ltObj = JSON.parse(localStorage.getItem(ltKey) || localStorage.getItem('last_torrents') || '{}')[movieId];
           if (ltObj && ltObj.episode) {
-            curS = parseInt(ltObj.season || 1, 10);
+            curS = parseInt(ltObj.season || curSeason || 1, 10);
             curE = parseInt(ltObj.episode, 10);
             sMatch = true;
           }
@@ -1022,6 +1155,30 @@
     }
   }
 
+  function updateEndTimeUI(overrideTime) {
+    if (!$endTimeBadge) {
+      $endTimeBadge = document.getElementById('osd-end-time-badge');
+      $endTimeVal = document.getElementById('osd-end-time-val');
+    }
+    if (!$endTimeBadge) return;
+    if (!duration || duration <= 60) {
+      $endTimeBadge.style.display = 'none';
+      return;
+    }
+    var t = (overrideTime !== undefined) ? overrideTime : currentTime;
+    var remainingSec = Math.max(0, duration - t);
+    var endTimestamp = Date.now() + (remainingSec * 1000);
+    var endDate = new Date(endTimestamp);
+    var hours = endDate.getHours();
+    var mins = endDate.getMinutes();
+    var hh = hours < 10 ? '0' + hours : String(hours);
+    var mm = mins < 10 ? '0' + mins : String(mins);
+    if ($endTimeVal) {
+      $endTimeVal.textContent = hh + ':' + mm;
+    }
+    $endTimeBadge.style.display = 'flex';
+  }
+
   function updateTimelineUI(overrideTime) {
     var t = (overrideTime !== undefined) ? overrideTime : currentTime;
     if ($timeCurrent) $timeCurrent.textContent = fmtTime(t);
@@ -1037,6 +1194,8 @@
       if ($fill) $fill.style.width = '0%';
       if ($thumb) $thumb.style.left = '0%';
     }
+
+    updateEndTimeUI(t);
   }
 
   // ========== Center Action Flash Indicator ==========
@@ -2083,6 +2242,8 @@
       if (centerFlashTimer) { clearTimeout(centerFlashTimer); centerFlashTimer = null; }
       if (seekDebounceTimer) { clearTimeout(seekDebounceTimer); seekDebounceTimer = null; }
       if (nextEpInterval) { clearInterval(nextEpInterval); nextEpInterval = null; }
+      if (endTimeInterval) { clearInterval(endTimeInterval); endTimeInterval = null; }
+      if ($endTimeBadge) $endTimeBadge.style.display = 'none';
       nextEpOverlayVisible = false;
       nextEpDismissed = false;
       var $nextOv = document.getElementById('next-ep-overlay');
