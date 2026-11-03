@@ -820,13 +820,19 @@ class DetailsViewModel(
                             }.ifEmpty { streamInfo.files }
 
                             val matchedFile = if (videoFiles.size == 1) {
-                                videoFiles[0]
+                                val singleMeta = com.lumiere.tv.ui.components.TorrentMetaParser.parseFileMeta(videoFiles[0])
+                                val singleTitleMatches = com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(cand.title, episode.season, episode.episode)
+                                if (singleMeta.episode == episode.episode || singleTitleMatches) {
+                                    videoFiles[0]
+                                } else {
+                                    null
+                                }
                             } else {
                                 com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
                                     files = videoFiles,
                                     season = episode.season,
                                     episode = episode.episode
-                                ) ?: videoFiles.firstOrNull()
+                                )
                             }
 
                             if (matchedFile != null) {

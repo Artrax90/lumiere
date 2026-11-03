@@ -2,11 +2,6 @@
 <SignedInfo>
 <CanonicalizationMethod Algorithm="http://www.w3.org/2001/10/xml-exc-c14n#"></CanonicalizationMethod>
 <SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#rsa-sha512"></SignatureMethod>
-<Reference URI="Lumiere.wgt">
-<DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>WfbyaOLehEggysIyDA4w7u3glraBuaMgVckaGzSkYiybTKfcAMKPeCLeOzk6xd387ZhUTfXb6tgr
-5TeQgleDeg==</DigestValue>
-</Reference>
 <Reference URI="Lumiere.wgt.bak">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
 <DigestValue>7DBg8CTJ69p3jueL+JM0fg3Lp+cPHf5Igu09nFquNfP0LwLbhZfhBQLDUYrqcGRCzIYJOsdClK59
@@ -14,8 +9,8 @@ YQ5YYcf4Ng==</DigestValue>
 </Reference>
 <Reference URI="author-signature.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
-<DigestValue>06Tac3Jbka6g1djd6AfzB+yqznRGVHegXDfg08sA6/NSuVacATaYbeonBigCLzI2UKK0p6oDPVoU
-T8gtmtt+1g==</DigestValue>
+<DigestValue>8ndEjSLNzfliqpyEzC7LYoNpksKJ/hAvq2WQmFaFQDY1kDAMzPFPmEt3IFS4oPgpgZ7MFXWH+//R
+uoHlV2Ekjw==</DigestValue>
 </Reference>
 <Reference URI="config.xml">
 <DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha512"></DigestMethod>
@@ -77,11 +72,11 @@ GyvKX9Snig==</DigestValue>
 </Reference>
 </SignedInfo>
 <SignatureValue>
-Di10T/nThr0fkY1gElJp0WtxuZBw8+cGqbjKT4l/jsz0kqt+xa5h7zXE0n9qkzi6YpTSKO9c28FT
-KZC9xfj79Ckr48RKprdYe8TReK7ZC4XWvh254TVMqDaNPU8J4AGa3Y8iMhV3kXiiy9kmbzRPF8N1
-gwtIjcMrrH8UEF67t80fAXju2YGu1JdRglt3k08dV8y8KgJTNkE5mgx2PnB9CocLCui2CH6WST34
-eFJtAtFbefUjwY4c17bM2cRyKg1HMe3NjtgSijEGTiQUvxOwlbwcNK2FIQcKEHPf+4EsaBSUP1bU
-zUiheZ9T5gioypXm375VtyxTl1dAC+g1HHLJjg==
+FArA/UkOHh9nxom4IJssSbOuUwOe3EvUmz+9bVRIS2HnGwbWJOwqQMSZwui27B1eKFk5Y+uUP1eP
+y4ihwOx0ZqSFZNht26QzE3h0qoNMr5dRQDIWvWxxr5QfZBfajkLxfp6y+jfTkhxxVWfYGihKoaxK
+Z/Bxtt3wD2CXraVMFuFGje1jVQe6AuM8i6LdPda/KdWw0+KHPBT/cU9ztAPTLlwoKmbGyx03xB9l
+wZUk+/XmdcEKtIth/58rlRBEYP2tl8NHp6yJa+0/C8NT0Qr2URO9mvAtdENYAn9NQVFc6qGephik
+bqbqSkzChgK4xOvxwSmEcfsUq7OO2Zm9XIHtmA==
 </SignatureValue>
 <KeyInfo>
 <X509Data>
