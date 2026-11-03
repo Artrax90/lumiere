@@ -233,8 +233,9 @@ class DetailsViewModel(
                     api.getSeasonEpisodes(mediaId, season)
                 }
                 if (seasonRes.episodes.isNotEmpty()) {
-                    android.util.Log.d("LumiereDetails", "Season $season fetched from API: ${seasonRes.episodes.size} episodes")
-                    _uiState.update { it.copy(episodes = seasonRes.episodes, isLoadingEpisodes = false) }
+                    val filteredEpisodes = com.lumiere.core.model.EpisodeUtils.filterAiredEpisodes(seasonRes.episodes)
+                    android.util.Log.d("LumiereDetails", "Season $season fetched from API: ${seasonRes.episodes.size} raw, ${filteredEpisodes.size} aired episodes")
+                    _uiState.update { it.copy(episodes = filteredEpisodes, isLoadingEpisodes = false) }
                 } else {
                     android.util.Log.d("LumiereDetails", "Season $season API returned 0 episodes, synthesizing from torrents...")
                     synthesizeEpisodesForSeason(season)

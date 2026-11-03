@@ -144,9 +144,62 @@ data class Episode(
     val runtime: String? = null,
     val thumbnail: String? = null,
     val aired: String? = null,
-    val isAired: Boolean? = true,
+    val isAired: Boolean? = null,
     val progress: Double? = null
 )
+
+object EpisodeUtils {
+    /**
+     * Filters episodes to only return those that have actually aired,
+     * matching the web/WGT logic in SeasonTorrentBrowser.tsx.
+     * Future/unreleased episodes are filtered out unless NO episodes have aired yet.
+     */
+    fun filterAiredEpisodes(episodes: List<Episode>): List<Episode> {
+        if (episodes.isEmpty()) return emptyList()
+
+        val today = try {
+            java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+        } catch (_: Exception) {
+            ""
+        }
+
+        var maxAiredNum = 0
+        var hasAnyDates = false
+
+        for (ep in episodes) {
+            val dStr = ep.aired?.take(10).orEmpty()
+            if (dStr.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) {
+                hasAnyDates = true
+                if (today.isNotBlank() && dStr <= today && ep.episode > maxAiredNum) {
+                    maxAiredNum = ep.episode
+                }
+            }
+        }
+
+        val aired = mutableListOf<Episode>()
+        for (ep in episodes) {
+            val isAired = when {
+                ep.isAired != null -> ep.isAired == true
+                ep.aired != null && ep.aired != "—" && ep.aired != "-" -> {
+                    val dStr = ep.aired.take(10)
+                    if (dStr.matches(Regex("""\d{4}-\d{2}-\d{2}"""))) {
+                        if (today.isNotBlank()) dStr <= today else true
+                    } else {
+                        true
+                    }
+                }
+                hasAnyDates && maxAiredNum > 0 -> ep.episode <= maxAiredNum
+                else -> true
+            }
+
+            if (isAired) {
+                aired.add(ep)
+            }
+        }
+
+        return if (aired.isNotEmpty()) aired else episodes
+    }
+}
 
 @Serializable
 data class SeasonResponse(
