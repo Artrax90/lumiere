@@ -397,6 +397,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 val api = networkClient?.createApiService(serverUrl) ?: return@launch
 
+                val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm", ".mov")
+
                 // 1. Check last played torrent for this season
                 val lastTorrentPair = preferences.getLastPlayedTorrent(activeMediaId, season)
                     ?: preferences.getLastPlayedTorrent(activeMediaId, 0)
@@ -407,12 +409,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 if (lastTorrentPair != null) {
                     val (magnet, torrentTitle) = lastTorrentPair
                     try {
-                        val streamInfo = api.getTorrentStreamInfo(
+                        var streamInfo = api.getTorrentStreamInfo(
                             TorrentStreamRequest(magnet = magnet, title = torrentTitle)
                         )
+                        var attempts = 0
+                        while (streamInfo.files.isEmpty() && attempts < 5) {
+                            delay(800)
+                            attempts++
+                            streamInfo = api.getTorrentStreamInfo(
+                                TorrentStreamRequest(magnet = magnet, title = torrentTitle)
+                            )
+                        }
+
                         if (streamInfo.files.isNotEmpty()) {
+                            val videoFiles = streamInfo.files.filter { f ->
+                                val l = f.name.lowercase()
+                                videoExtensions.any { l.endsWith(it) } && !l.contains("sample")
+                            }.ifEmpty { streamInfo.files }
+
                             val file = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
-                                files = streamInfo.files,
+                                files = videoFiles,
                                 season = season,
                                 episode = episode
                             )
@@ -421,14 +437,14 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                                 if (!rel.isNullOrBlank()) {
                                     matchedUrl = if (rel.startsWith("http")) rel else "$serverUrl$rel"
                                     isHls = rel.contains(".m3u8")
+                                    preferences.setLastPlayedTorrent(activeMediaId, season, magnet, torrentTitle)
                                 }
                             }
-
                         }
                     } catch (_: Exception) {}
                 }
 
-                // 2. If not found in current torrent, search torrents matching season & episode
+                // 2. If not found in current torrent, search torrents matching season & episode, preserving voiceover
                 if (matchedUrl == null) {
                     val searchRes = api.searchTorrents(
                         query = activeTitle,
@@ -437,21 +453,58 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                         year = null
                     )
                     val torrents = searchRes.torrents.ifEmpty { searchRes.results }
+
+                    val preferredMeta = lastTorrentPair?.second?.let {
+                        com.lumiere.tv.ui.components.TorrentMetaParser.parse(it)
+                    }
+                    val preferredVoices = preferredMeta?.voices.orEmpty()
+                    val preferredRes = preferredMeta?.resolution
+
                     val candidates = torrents.filter {
                         com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season)
                     }.sortedWith(
-                        compareByDescending<TorrentItem> {
-                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(it.title, season, episode)) 100 else 0
+                        compareByDescending<TorrentItem> { cand ->
+                            var score = 0
+                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(cand.title, season, episode)) {
+                                score += 1000
+                            }
+                            val candMeta = com.lumiere.tv.ui.components.TorrentMetaParser.parse(cand.title)
+                            if (preferredVoices.isNotEmpty() && candMeta.voices.any { v -> preferredVoices.any { pv -> pv.equals(v, ignoreCase = true) } }) {
+                                score += 500
+                            }
+                            if (!preferredRes.isNullOrBlank() && candMeta.resolution.equals(preferredRes, ignoreCase = true)) {
+                                score += 100
+                            }
+                            val tLower = cand.title.lowercase()
+                            val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
+                                              tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
+                                              tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
+                            if (isLegacyAvi) score -= 300
+                            score
                         }.thenByDescending { it.seeders ?: 0 }
                     )
 
-                    for (cand in candidates.take(3)) {
+                    for (cand in candidates.take(5)) {
                         try {
-                            val streamInfo = api.getTorrentStreamInfo(
+                            var streamInfo = api.getTorrentStreamInfo(
                                 TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
                             )
+                            var attempts = 0
+                            while (streamInfo.files.isEmpty() && attempts < 5) {
+                                delay(800)
+                                attempts++
+                                streamInfo = api.getTorrentStreamInfo(
+                                    TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
+                                )
+                            }
+
+                            val videoFiles = streamInfo.files.filter { f ->
+                                val l = f.name.lowercase()
+                                videoExtensions.any { l.endsWith(it) } && !l.contains("sample")
+                            }.ifEmpty { streamInfo.files }
+
                             val file = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
-                                files = streamInfo.files,
+                                files = videoFiles,
                                 season = season,
                                 episode = episode
                             )
@@ -464,7 +517,6 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                                     break
                                 }
                             }
-
                         } catch (_: Exception) {}
                     }
                 }

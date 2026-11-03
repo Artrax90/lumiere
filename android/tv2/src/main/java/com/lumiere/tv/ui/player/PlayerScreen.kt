@@ -95,6 +95,12 @@ fun PlayerScreen(
         }
     }
 
+    LaunchedEffect(playbackState) {
+        if (playbackState == androidx.media3.common.Player.STATE_ENDED && mediaType == "tv") {
+            viewModel.nextEpisodeOrEnd()
+        }
+    }
+
     LaunchedEffect(isPlaying) {
         val window = context.findActivity()?.window
         while (isActive) {

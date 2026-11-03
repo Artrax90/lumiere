@@ -539,10 +539,16 @@ fun DetailsScreen(
                                     resolveImageUrl = { viewModel.resolveImageUrl(it) },
                                     lastWatchedSeason = state.lastWatchedSeason,
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
+                                    watchedEpisodes = state.watchedEpisodes,
+                                    episodeProgress = state.episodeProgress,
                                     fallbackPosterUrl = title.backdrop.orEmpty().ifBlank { title.poster.orEmpty() },
                                     onEpisodeClick = { ep ->
                                         viewModel.playEpisodeDirectly(ep) { streamUrl, epTitle, subtitle, isHls ->
-                                            val startPos = if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
+                                            val epKey = "${ep.season}_${ep.episode}"
+                                            val isWatched = state.watchedEpisodes.contains(epKey)
+                                            val startPos = if (isWatched) {
+                                                0L
+                                            } else if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
                                                 (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                                             } else {
                                                 0L

@@ -464,8 +464,14 @@ object TorrentMetaParser {
     fun findMatchingFile(files: List<com.lumiere.core.model.TorrentFile>, season: Int, episode: Int): com.lumiere.core.model.TorrentFile? {
         if (files.isEmpty()) return null
 
+        val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm", ".mov")
+        val validFiles = files.filter { f ->
+            val l = f.name.lowercase()
+            videoExtensions.any { l.endsWith(it) } && !l.contains("sample")
+        }.ifEmpty { files }
+
         // Pass 1: exact season and episode match
-        for (f in files) {
+        for (f in validFiles) {
             val meta = parseFileMeta(f)
             if (meta.season == season && meta.episode == episode) {
                 return f
@@ -473,9 +479,9 @@ object TorrentMetaParser {
         }
 
         // Pass 2: If single-season release, match by episode
-        val detectedSeasons = files.take(50).mapNotNull { parseFileMeta(it).season }.distinct()
+        val detectedSeasons = validFiles.take(50).mapNotNull { parseFileMeta(it).season }.distinct()
         if (detectedSeasons.size <= 1) {
-            for (f in files) {
+            for (f in validFiles) {
                 val meta = parseFileMeta(f)
                 if (meta.episode == episode) {
                     return f

@@ -433,8 +433,8 @@ class DetailsViewModel(
                     }
                 } catch (_: Exception) {}
             }
-            val season = if (mediaType == "tv") _uiState.value.selectedSeason else 0
-            val savedEp = if (mediaType == "tv") _uiState.value.lastWatchedEpisodeNum else null
+            val season = if (mediaType == "tv") (preferences.getLastWatchedSeriesSeason(mediaId) ?: _uiState.value.selectedSeason) else 0
+            val savedEp = if (mediaType == "tv") (preferences.getLastWatchedSeriesEpisode(mediaId) ?: _uiState.value.lastWatchedEpisodeNum) else null
             if (mediaType == "tv" && savedEp != null) {
                 val epPos = preferences.getEpisodePlaybackPosition(mediaId, season, savedEp)
                 if (epPos != null) {
@@ -442,15 +442,49 @@ class DetailsViewModel(
                 }
             }
             val lastTorrent = preferences.getLastPlayedTorrent(mediaId, season)
+                ?: preferences.getLastPlayedTorrent(mediaId, 0)
+            val updatedWatched = if (mediaType == "tv") preferences.getWatchedEpisodes(mediaId) else emptySet()
             _uiState.update {
                 it.copy(
                     savedProgressSec = finalProgress,
                     lastPlayedTorrentMagnet = lastTorrent?.first,
-                    lastPlayedTorrentTitle = lastTorrent?.second
+                    lastPlayedTorrentTitle = lastTorrent?.second,
+                    selectedSeason = if (mediaType == "tv") (preferences.getLastWatchedSeriesSeason(mediaId) ?: it.selectedSeason) else it.selectedSeason,
+                    lastWatchedSeason = if (mediaType == "tv") (preferences.getLastWatchedSeriesSeason(mediaId) ?: it.lastWatchedSeason) else it.lastWatchedSeason,
+                    lastWatchedEpisodeNum = if (mediaType == "tv") (savedEp ?: it.lastWatchedEpisodeNum) else it.lastWatchedEpisodeNum,
+                    watchedEpisodes = if (mediaType == "tv") updatedWatched else it.watchedEpisodes
                 )
+            }
+
+            if (mediaType == "tv" && serverUrl.isNotBlank() && networkClient != null) {
+                viewModelScope.launch {
+                    try {
+                        val api = networkClient!!.createApiService(serverUrl)
+                        val serverEpisodesResp = api.getSeriesWatchedEpisodes(mediaId.toString())
+                        val combinedWatched = preferences.getWatchedEpisodes(mediaId).toMutableSet()
+                        val progressMap = _uiState.value.episodeProgress.toMutableMap()
+                        for (item in serverEpisodesResp.episodes) {
+                            val key = "${item.season}_${item.episode}"
+                            if (item.completed) combinedWatched.add(key)
+                            if (item.duration > 0L) {
+                                val pct = item.watchedSeconds.toFloat() / item.duration.toFloat()
+                                progressMap[key] = pct.coerceIn(0f, 1f)
+                            }
+                        }
+                        preferences.saveWatchedEpisodes(mediaId, combinedWatched)
+                        _uiState.update {
+                            it.copy(
+                                watchedEpisodes = combinedWatched,
+                                episodeProgress = progressMap
+                            )
+                        }
+                    } catch (_: Exception) {}
+                }
             }
         }
     }
+
+    
 
     fun playResumeOrOpenDialog(
         onStreamReady: (streamUrl: String, title: String, subtitle: String, isHls: Boolean) -> Unit
@@ -468,7 +502,7 @@ class DetailsViewModel(
                 it.contains("bdrip") || (it.contains("avi") && !it.contains("davinci"))
             } ?: false
 
-            if (currentProgress > 0L && savedTorrent != null && savedTorrent.first.isNotBlank() && !isSavedLegacy) {
+            if (savedTorrent != null && savedTorrent.first.isNotBlank() && !isSavedLegacy) {
                 val matchingTorrent = _uiState.value.torrents.find { it.magnet == savedTorrent.first }
                     ?: TorrentItem(
                         title = savedTorrent.second.ifBlank { _uiState.value.title?.name ?: "Видео" },
@@ -741,7 +775,62 @@ class DetailsViewModel(
             }
 
             try {
-                // 1. Ensure torrents list
+                val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm", ".mov")
+
+                // Step 0: Check if user already had a selected torrent for this series/season
+                val savedTorrent = preferences.getLastPlayedTorrent(mediaId, episode.season)
+                    ?: preferences.getLastPlayedTorrent(mediaId, 0)
+
+                if (savedTorrent != null && savedTorrent.first.isNotBlank()) {
+                    val (savedMagnet, savedTitle) = savedTorrent
+                    try {
+                        var streamInfo = api.getTorrentStreamInfo(TorrentStreamRequest(magnet = savedMagnet, title = savedTitle))
+                        var attempts = 0
+                        while (streamInfo.files.isEmpty() && attempts < 5) {
+                            delay(800)
+                            attempts++
+                            streamInfo = api.getTorrentStreamInfo(TorrentStreamRequest(magnet = savedMagnet, title = savedTitle))
+                        }
+                        if (streamInfo.files.isNotEmpty()) {
+                            val videoFiles = streamInfo.files.filter { f ->
+                                val l = f.name.lowercase()
+                                videoExtensions.any { l.endsWith(it) } && !l.contains("sample")
+                            }.ifEmpty { streamInfo.files }
+
+                            val matchedFile = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                                files = videoFiles,
+                                season = episode.season,
+                                episode = episode.episode
+                            )
+                            if (matchedFile != null) {
+                                val rel = matchedFile.streamUrl ?: matchedFile.directUrl ?: matchedFile.hlsUrl
+                                if (!rel.isNullOrBlank()) {
+                                    val fullUrl = if (rel.startsWith("http")) rel else "$serverUrl$rel"
+                                    val playTitle = _uiState.value.title?.name ?: savedTitle
+                                    val subTitle = "Сезон ${episode.season}, Серия ${episode.episode}: ${episode.title.orEmpty()}"
+
+                                    preferences.setLastWatchedSeries(mediaId, episode.season, episode.episode)
+                                    preferences.setLastPlayedTorrent(mediaId, episode.season, savedMagnet, savedTitle)
+                                    _uiState.update {
+                                        it.copy(
+                                            isStartingStream = false,
+                                            showTorrentDialog = false,
+                                            activeTorrent = null,
+                                            selectedSeason = episode.season,
+                                            lastWatchedEpisodeNum = episode.episode,
+                                            lastPlayedTorrentMagnet = savedMagnet,
+                                            lastPlayedTorrentTitle = savedTitle
+                                        )
+                                    }
+                                    onStreamReady(fullUrl, playTitle, subTitle, rel.contains(".m3u8"))
+                                    return@launch
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+
+                // Step 1: Ensure torrents list
                 var torrents = _uiState.value.torrents
                 if (torrents.isEmpty()) {
                     val titleName = _uiState.value.title?.name.orEmpty()
@@ -756,39 +845,55 @@ class DetailsViewModel(
                     return@launch
                 }
 
-                // 2. Filter & sort candidates matching this season, prioritized by highest seeders
+                // Step 2: Prioritize candidates matching preferred voiceover/resolution from savedTorrent
+                val preferredMeta = savedTorrent?.second?.let {
+                    com.lumiere.tv.ui.components.TorrentMetaParser.parse(it)
+                }
+                val preferredVoices = preferredMeta?.voices.orEmpty()
+                val preferredRes = preferredMeta?.resolution
+
                 val seasonCandidates = torrents
                     .filter { com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, episode.season) }
                     .sortedWith(
-                        compareByDescending<TorrentItem> {
-                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(it.title, episode.season, episode.episode)) 100 else 0
-                        }
-                        .thenByDescending {
-                            val tLower = it.title.lowercase()
+                        compareByDescending<TorrentItem> { cand ->
+                            var score = 0
+                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(cand.title, episode.season, episode.episode)) {
+                                score += 1000
+                            }
+                            val candMeta = com.lumiere.tv.ui.components.TorrentMetaParser.parse(cand.title)
+                            if (preferredVoices.isNotEmpty() && candMeta.voices.any { v -> preferredVoices.any { pv -> pv.equals(v, ignoreCase = true) } }) {
+                                score += 500
+                            }
+                            if (!preferredRes.isNullOrBlank() && candMeta.resolution.equals(preferredRes, ignoreCase = true)) {
+                                score += 100
+                            }
+                            val tLower = cand.title.lowercase()
                             val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
                                               tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
                                               tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
-                            val isModern = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
-                                           tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
-                                           tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265") ||
-                                           tLower.contains("web-dl") || tLower.contains("webrip")) && !isLegacyAvi
-                            if (isLegacyAvi) -50 else if (isModern) 50 else 0
+                            if (isLegacyAvi) score -= 300
+                            score
                         }
                         .thenByDescending { it.seeders ?: 0 }
                     )
 
                 val listToProbe = seasonCandidates.ifEmpty {
                     torrents.sortedWith(
-                        compareByDescending<TorrentItem> {
-                            val tLower = it.title.lowercase()
+                        compareByDescending<TorrentItem> { cand ->
+                            var score = 0
+                            val candMeta = com.lumiere.tv.ui.components.TorrentMetaParser.parse(cand.title)
+                            if (preferredVoices.isNotEmpty() && candMeta.voices.any { v -> preferredVoices.any { pv -> pv.equals(v, ignoreCase = true) } }) {
+                                score += 500
+                            }
+                            if (!preferredRes.isNullOrBlank() && candMeta.resolution.equals(preferredRes, ignoreCase = true)) {
+                                score += 100
+                            }
+                            val tLower = cand.title.lowercase()
                             val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
                                               tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
                                               tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
-                            val isModern = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
-                                           tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
-                                           tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265") ||
-                                           tLower.contains("web-dl") || tLower.contains("webrip")) && !isLegacyAvi
-                            if (isLegacyAvi) -50 else if (isModern) 50 else 0
+                            if (isLegacyAvi) score -= 300
+                            score
                         }.thenByDescending { it.seeders ?: 0 }
                     )
                 }
@@ -798,26 +903,23 @@ class DetailsViewModel(
                 var matchedTorrent: TorrentItem? = null
                 var fallbackAviUrl: String? = null
                 var fallbackAviTorrent: TorrentItem? = null
-                val epPadded = String.format("%02d", episode.episode)
-                val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm")
 
-                // 3. Probe top candidates with highest seeders, waiting for TorrServer to resolve metadata
+                // Step 3: Probe top candidates with retry loop
                 for (cand in listToProbe.take(5)) {
                     _uiState.update { it.copy(activeTorrent = cand) }
                     try {
                         var streamInfo = api.getTorrentStreamInfo(TorrentStreamRequest(magnet = cand.magnet, title = cand.title))
-                        
-                        // Wait up to 6 seconds for TorrServer to download torrent info dictionary if empty
                         var attempts = 0
-                        while (streamInfo.files.isEmpty() && attempts < 6) {
-                            delay(1000)
+                        while (streamInfo.files.isEmpty() && attempts < 5) {
+                            delay(800)
                             attempts++
                             streamInfo = api.getTorrentStreamInfo(TorrentStreamRequest(magnet = cand.magnet, title = cand.title))
                         }
 
                         if (streamInfo.files.isNotEmpty()) {
                             val videoFiles = streamInfo.files.filter { f ->
-                                videoExtensions.any { ext -> f.name.lowercase().endsWith(ext) }
+                                val l = f.name.lowercase()
+                                videoExtensions.any { l.endsWith(it) } && !l.contains("sample")
                             }.ifEmpty { streamInfo.files }
 
                             val matchedFile = if (videoFiles.size == 1) {
@@ -853,9 +955,7 @@ class DetailsViewModel(
                                 }
                             }
                         }
-                    } catch (_: Exception) {
-                        // Continue probing next candidate
-                    }
+                    } catch (_: Exception) {}
                 }
 
                 if (foundStreamUrl == null && fallbackAviUrl != null) {
@@ -884,7 +984,6 @@ class DetailsViewModel(
 
                     onStreamReady(fullUrl, playTitle, subTitle, foundStreamUrl.contains(".m3u8"))
                 } else {
-                    // Fallback to opening torrent selection dialog if auto-resolve could not find exact file
                     _uiState.update { it.copy(isStartingStream = false, showTorrentDialog = true, activeTorrent = null) }
                 }
             } catch (e: Exception) {
@@ -899,6 +998,8 @@ class DetailsViewModel(
             }
         }
     }
+
+    
 
     fun toggleFavorite() {
         viewModelScope.launch {
