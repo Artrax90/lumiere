@@ -1170,25 +1170,50 @@ export function torrentRoutes(app: FastifyInstance) {
               new RegExp(`s0*${targetSeason}e0*${targetEpisode}\\b`, 'i').test(t.title) ||
               new RegExp(`\\bep?0*${targetEpisode}\\b`, 'i').test(t.title);
 
+            // Check season & episode pack ranges, e.g. [05x01-08], s05e01-08, 05х01-08, 1-8 серии, 1-8 из 16
+            const sxRangeMatch =
+              t.title.match(/(?:\[|\b)(?:s0*(\d{1,2})[._\-\s]*e|0*(\d{1,2})[xх])0*(\d{1,3})\s*[-–—]\s*(?:e|0*)(\d{1,3})\b/i);
+            const epRangeMatch =
+              t.title.match(/(\d+)\s*[-–—]\s*(\d+)\s*(?:выпуск|сери)/i) ||
+              t.title.match(/(?:выпуск|сери[яий]|эпизод[ыа]?)\s*[:#№]?\s*(\d+)\s*[-–—]\s*(\d+)/i) ||
+              t.title.match(/(\d+)\s*[-–—]\s*(\d+)\s*из\s*\d+/i);
+
             if (exactEp) {
-              score += 10000; // Best match: specific episode!
-            } else {
-              // Check if pack range includes the episode e.g. 1-20 выпуски
-              const epRangeMatch = t.title.match(/(\d+)\s*[-–—]\s*(\d+)\s*(?:выпуск|сери)/i);
-              if (epRangeMatch) {
-                const e1 = parseInt(epRangeMatch[1], 10);
-                const e2 = parseInt(epRangeMatch[2], 10);
-                if (targetEpisode >= Math.min(e1, e2) && targetEpisode <= Math.max(e1, e2)) {
-                  score += 4000; // Pack containing the episode
+              score += 12000; // Best match: specific episode!
+            } else if (sxRangeMatch) {
+              const sxSeason = parseInt(sxRangeMatch[1] || sxRangeMatch[2], 10);
+              if (!targetSeason || sxSeason === targetSeason) {
+                const e1 = parseInt(sxRangeMatch[3], 10);
+                const e2 = parseInt(sxRangeMatch[4], 10);
+                const minE = Math.min(e1, e2);
+                const maxE = Math.max(e1, e2);
+                if (targetEpisode >= minE && targetEpisode <= maxE) {
+                  score += 8000; // Pack containing this episode
+                  if (targetEpisode === maxE) {
+                    score += 4000; // Latest released episode in ongoing season!
+                  }
                 } else {
-                  score -= 15000; // Pack does NOT contain the episode (e.g. 1-10 when target is 13)
+                  score -= 35000; // Pack lacks this episode (e.g. 01-03 when asking for 08)
+                }
+              }
+            } else if (epRangeMatch) {
+              const e1 = parseInt(epRangeMatch[1], 10);
+              const e2 = parseInt(epRangeMatch[2], 10);
+              const minE = Math.min(e1, e2);
+              const maxE = Math.max(e1, e2);
+              if (targetEpisode >= minE && targetEpisode <= maxE) {
+                score += 8000; // Pack containing the episode
+                if (targetEpisode === maxE) {
+                  score += 3000;
                 }
               } else {
-                const otherEpMatch = t.title.match(/\b(\d{1,3})\s*(?:выпуск|сери[яий]|эпизод)/i) ||
-                                     t.title.match(/(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\\s*(\d{1,3})\b/i);
-                if (otherEpMatch && parseInt(otherEpMatch[1], 10) !== targetEpisode) {
-                  score -= 20000;
-                }
+                score -= 35000; // Pack does NOT contain the episode
+              }
+            } else {
+              const otherEpMatch = t.title.match(/\b(\d{1,3})\s*(?:выпуск|сери[яий]|эпизод)/i) ||
+                                   t.title.match(/(?:выпуск|сери[яий]|эпизод)\s*[:#№]?\\s*(\d{1,3})\b/i);
+              if (otherEpMatch && parseInt(otherEpMatch[1], 10) !== targetEpisode) {
+                score -= 25000;
               }
             }
           }
@@ -1198,7 +1223,10 @@ export function torrentRoutes(app: FastifyInstance) {
           const torrentYear = extractTorrentYear(t.title);
           if (torrentYear !== null) {
             if (type === 'tv') {
-              if (torrentYear >= targetYear) {
+              if (torrentYear < targetYear - 1) {
+                // TV series released prior to this show's inception are older franchises/reboots (e.g. 2005 cartoon vs 2024 series)
+                score -= 40000;
+              } else if (torrentYear >= targetYear) {
                 score += 300;
               }
             } else {

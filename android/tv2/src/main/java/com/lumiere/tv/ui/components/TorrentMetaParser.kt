@@ -361,13 +361,15 @@ object TorrentMetaParser {
         if (torrentTitle.isBlank() || epNum <= 0) return true
         val lower = torrentTitle.lowercase()
 
-        // 1. Range e.g. "s02e01-10", "2x01-08", "[05x01-08]"
-        val rangeRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)\s*0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
+        // 1. Range e.g. "s02e01-10", "2x01-08", "[05x01-08]", "05х01-08", "s05e01-e08"
+        val rangeRegex = Regex("""(?:\b|\[)(?:0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)0?(\d{1,3})\s*[-–—]\s*(?:e|0*)(\d{1,3})\b""", RegexOption.IGNORE_CASE)
         val mRange = rangeRegex.find(lower)
         if (mRange != null) {
             val rStart = mRange.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
             val rEnd = mRange.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
-            return epNum in rStart..rEnd
+            val minEp = minOf(rStart, rEnd)
+            val maxEp = maxOf(rStart, rEnd)
+            return epNum in minEp..maxEp
         }
 
         // 2. Russian range: "1-10 серии", "1-10 выпуск"

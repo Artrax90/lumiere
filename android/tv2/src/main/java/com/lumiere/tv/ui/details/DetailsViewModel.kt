@@ -602,7 +602,7 @@ class DetailsViewModel(
     }
 
     fun setSeriesTab(tab: String) {
-        _uiState.update { it.copy(seriesTab = tab) }
+        _uiState.update { it.copy(seriesTab = tab, selectedEpisode = if (tab == "torrents") null else it.selectedEpisode) }
     }
 
     fun setTorrentQualityFilter(filter: String) {
@@ -637,7 +637,8 @@ class DetailsViewModel(
                     } catch (_: Exception) {}
                 }
 
-                val ep = _uiState.value.selectedEpisode
+                val isTorrentsTab = _uiState.value.seriesTab == "torrents"
+                val ep = if (isTorrentsTab) null else _uiState.value.selectedEpisode
                 val seasonNum = (ep?.season?.takeIf { it > 0 }) ?: _uiState.value.selectedSeason
                 val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm")
                 val videoFiles = streamInfo.files.filter { f ->
