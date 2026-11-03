@@ -52,6 +52,14 @@ fun HomeScreen(
     }
 
     val homeFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val continueWatchingFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val recommendationsFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val trendingMoviesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val netflixMoviesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val popularMoviesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val netflixSeriesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val trendingSeriesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+    val popularSeriesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     var isTopBarFocused by remember { mutableStateOf(false) }
 
     androidx.activity.compose.BackHandler(enabled = !isTopBarFocused) {
@@ -80,11 +88,34 @@ fun HomeScreen(
         } catch (_: Exception) {}
     }
 
+    // Main Scrolling Catalog with persistent in-memory rows to eliminate recreation lag and focus crash
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
+        val (activeFirstRowState, activeFirstRowFocusRequester) = when {
+            state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME ->
+                continueWatchingState to continueWatchingFocusRequester
+            state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME ->
+                recommendationsState to recommendationsFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.trendingMovies.isNotEmpty() ->
+                trendingMoviesState to trendingMoviesFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.netflixMovies.isNotEmpty() ->
+                netflixMoviesState to netflixMoviesFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.popularMovies.isNotEmpty() ->
+                popularMoviesState to popularMoviesFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.netflixSeries.isNotEmpty() ->
+                netflixSeriesState to netflixSeriesFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.trendingSeries.isNotEmpty() ->
+                trendingSeriesState to trendingSeriesFocusRequester
+            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.popularSeries.isNotEmpty() ->
+                popularSeriesState to popularSeriesFocusRequester
+            else -> null to null
+        }
+
         // Persistent Top Bar
         Box(
             modifier = Modifier.onFocusChanged { focusState ->
@@ -94,6 +125,20 @@ fun HomeScreen(
             TvTopBar(
                 currentDestination = currentTab,
                 firstItemFocusRequester = homeFocusRequester,
+                downFocusRequester = activeFirstRowFocusRequester,
+                onDownFromTopBar = {
+                    coroutineScope.launch {
+                        if (scrollState.value > 0) {
+                            scrollState.scrollTo(0)
+                        }
+                        if (activeFirstRowState != null && activeFirstRowState.firstVisibleItemIndex > 0) {
+                            activeFirstRowState.scrollToItem(0)
+                        }
+                        try {
+                            activeFirstRowFocusRequester?.requestFocus()
+                        } catch (_: Exception) {}
+                    }
+                },
                 onNavigate = { dest ->
                     when (dest) {
                         TvNavDestination.HOME -> { currentTab = TvNavDestination.HOME }
@@ -115,8 +160,6 @@ fun HomeScreen(
             )
         }
 
-        // Main Scrolling Catalog with persistent in-memory rows to eliminate recreation lag and focus crash
-        val scrollState = rememberScrollState()
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -132,7 +175,9 @@ fun HomeScreen(
                     items = state.continueWatching,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = continueWatchingState
+                    rowState = continueWatchingState,
+                    firstItemFocusRequester = continueWatchingFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
             }
 
@@ -144,7 +189,9 @@ fun HomeScreen(
                     items = state.recommendations,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = recommendationsState
+                    rowState = recommendationsState,
+                    firstItemFocusRequester = recommendationsFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
             }
 
@@ -157,7 +204,9 @@ fun HomeScreen(
                     items = state.trendingMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = trendingMoviesState
+                    rowState = trendingMoviesState,
+                    firstItemFocusRequester = trendingMoviesFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
 
                 // Netflix Movies Row with interactive Week / All Time switcher
@@ -185,7 +234,9 @@ fun HomeScreen(
                                 }
                             )
                         },
-                        rowState = netflixMoviesState
+                        rowState = netflixMoviesState,
+                        firstItemFocusRequester = netflixMoviesFocusRequester,
+                        upFocusRequester = homeFocusRequester
                     )
                 }
 
@@ -195,7 +246,9 @@ fun HomeScreen(
                     items = state.popularMovies,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = popularMoviesState
+                    rowState = popularMoviesState,
+                    firstItemFocusRequester = popularMoviesFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
             }
 
@@ -226,7 +279,9 @@ fun HomeScreen(
                                 }
                             )
                         },
-                        rowState = netflixSeriesState
+                        rowState = netflixSeriesState,
+                        firstItemFocusRequester = netflixSeriesFocusRequester,
+                        upFocusRequester = homeFocusRequester
                     )
                 }
 
@@ -236,7 +291,9 @@ fun HomeScreen(
                     items = state.trendingSeries,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = trendingSeriesState
+                    rowState = trendingSeriesState,
+                    firstItemFocusRequester = trendingSeriesFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
 
                 // Top Rated Series
@@ -245,7 +302,9 @@ fun HomeScreen(
                     items = state.popularSeries,
                     resolvePosterUrl = resolvePosterUrl,
                     onTitleClick = onTitleClick,
-                    rowState = popularSeriesState
+                    rowState = popularSeriesState,
+                    firstItemFocusRequester = popularSeriesFocusRequester,
+                    upFocusRequester = homeFocusRequester
                 )
             }
         }

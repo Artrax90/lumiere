@@ -13,6 +13,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import com.lumiere.core.model.Title
@@ -30,6 +36,8 @@ fun MediaRow(
     badgeColor: Color = Color(0xFFE50914),
     headerAction: @Composable (() -> Unit)? = null,
     rowState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
+    firstItemFocusRequester: FocusRequester? = null,
+    upFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
@@ -93,11 +101,33 @@ fun MediaRow(
                 items = distinctItems,
                 key = { index, item -> "${item.id}_${item.type}_$index" },
                 contentType = { _, _ -> "media_card" }
-            ) { _, item ->
+            ) { index, item ->
+                val cardModifier = if (index == 0 && firstItemFocusRequester != null) {
+                    Modifier
+                        .focusRequester(firstItemFocusRequester)
+                        .then(
+                            if (upFocusRequester != null) {
+                                Modifier
+                                    .focusProperties { up = upFocusRequester }
+                                    .onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown &&
+                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                                        ) {
+                                            upFocusRequester.requestFocus()
+                                        } else {
+                                            false
+                                        }
+                                    }
+                            } else Modifier
+                        )
+                } else {
+                    Modifier
+                }
                 MediaCard(
                     title = item,
                     posterUrl = resolvePosterUrl(item.poster),
-                    onClick = { onTitleClick(item) }
+                    onClick = { onTitleClick(item) },
+                    modifier = cardModifier
                 )
             }
         }

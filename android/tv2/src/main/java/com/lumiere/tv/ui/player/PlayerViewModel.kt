@@ -292,9 +292,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val currentSec = if (rawSec > 0L) rawSec else maxPositionSec
         val durSec = player.durationMs.value / 1000L
 
-        // Episode/film completed if within 60s of end OR >= 90% watched (credits roll!)
+        // Episode/film completed if within 60s of end OR >= 85% watched (matching WGT & Web)
         val isCompleted = durSec > 60L && (
-            (durSec - currentSec <= 60L) || (currentSec.toDouble() / durSec.toDouble() >= 0.90)
+            (durSec - currentSec <= 60L) || (currentSec.toDouble() / durSec.toDouble() >= 0.85)
         )
         val effectiveSec = if (isCompleted) 0L else currentSec
 
@@ -305,8 +305,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         GlobalScope.launch(Dispatchers.IO + NonCancellable) {
             try {
                 if (mediaType == "tv" && episode > 0) {
-                    preferences.setEpisodePlaybackPosition(mediaId, season, episode, effectiveSec)
+                    preferences.setEpisodePlaybackPosition(mediaId, season, episode, effectiveSec, durSec)
                     if (isCompleted) {
+                        preferences.setEpisodeWatched(mediaId, season, episode, true)
                         preferences.setLastWatchedSeries(mediaId, season, episode + 1)
                         preferences.setPlaybackPosition(mediaId, mediaType, 0L)
                     } else {
@@ -320,6 +321,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 if (serverUrl.isNotBlank()) {
                     val api = networkClient?.createApiService(serverUrl)
+                    if (mediaType == "tv" && episode > 0 && isCompleted) {
+                        try {
+                            api?.markEpisodeWatched(
+                                com.lumiere.core.model.MarkEpisodeWatchedRequest(
+                                    mediaId = mediaId.toString(),
+                                    mediaTitle = title,
+                                    season = season,
+                                    episode = episode,
+                                    completed = true
+                                )
+                            )
+                        } catch (_: Exception) {}
+                    }
                     api?.saveWatchProgress(
                         com.lumiere.core.model.WatchProgressRequest(
                             tmdbId = mediaId,

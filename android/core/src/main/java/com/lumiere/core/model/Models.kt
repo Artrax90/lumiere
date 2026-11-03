@@ -541,5 +541,30 @@ data class PersonDetails(
     val credits: List<PersonCredit> = emptyList()
 )
 
+@Serializable
+data class WatchedEpisodeItem(
+    val season: Int,
+    val episode: Int,
+    val watchedSeconds: Long = 0L,
+    val duration: Long = 0L,
+    val completed: Boolean = false,
+    val lastWatchedAt: String? = null
+)
+
+@Serializable
+data class SeriesWatchedEpisodesResponse(
+    val mediaId: String? = null,
+    val episodes: List<WatchedEpisodeItem> = emptyList()
+)
+
+@Serializable
+data class MarkEpisodeWatchedRequest(
+    val mediaId: String,
+    val mediaTitle: String = "",
+    val season: Int,
+    val episode: Int,
+    val completed: Boolean
+)
+
 
 

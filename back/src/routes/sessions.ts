@@ -191,13 +191,13 @@ export function sessionRoutes(app: FastifyInstance) {
 
         // Sync to playback_history if (currentTime > 5 or duration > 0 or mediaType === 'iptv')
         if (currentTime > 5 || duration > 0 || mediaType === 'iptv') {
-          const isCompleted = duration > 0 && currentTime / duration >= 0.9;
+          const isCompleted = duration > 0 && ((duration > 60 && currentTime >= duration - 60) || currentTime / duration >= 0.85);
           
           // Check for existing playback_history row for this item within the last 4 hours
           let existingRes;
           if (userId) {
             existingRes = await pool.query(
-              `SELECT id, watched_seconds FROM playback_history 
+              `SELECT id, watched_seconds, completed FROM playback_history 
                WHERE user_id = $1 AND media_id = $2 AND media_type = $3 AND season = $4 AND episode = $5 
                AND ended_at > NOW() - INTERVAL '4 hours' 
                ORDER BY ended_at DESC LIMIT 1`,
@@ -205,7 +205,7 @@ export function sessionRoutes(app: FastifyInstance) {
             );
           } else {
             existingRes = await pool.query(
-              `SELECT id, watched_seconds FROM playback_history 
+              `SELECT id, watched_seconds, completed FROM playback_history 
                WHERE media_id = $1 AND media_type = $2 AND season = $3 AND episode = $4 
                AND ended_at > NOW() - INTERVAL '4 hours' 
                ORDER BY ended_at DESC LIMIT 1`,
@@ -215,6 +215,8 @@ export function sessionRoutes(app: FastifyInstance) {
 
           if (existingRes.rows.length > 0) {
             const histId = existingRes.rows[0].id;
+            const prevCompleted = !!existingRes.rows[0].completed;
+            const newCompleted = prevCompleted || isCompleted;
             await pool.query(
               `UPDATE playback_history SET 
                 watched_seconds = GREATEST(watched_seconds, $1),
@@ -224,7 +226,7 @@ export function sessionRoutes(app: FastifyInstance) {
                 device_name = $5,
                 ended_at = CURRENT_TIMESTAMP
                WHERE id = $6`,
-              [currentTime, duration, isCompleted, deviceType, deviceName, histId]
+              [currentTime, duration, newCompleted, deviceType, deviceName, histId]
             );
           } else {
             await pool.query(
@@ -572,6 +574,116 @@ export function sessionRoutes(app: FastifyInstance) {
         }
         return { success: true };
       } catch (err: any) {
+        return reply.code(500).send({ error: err.message });
+      }
+    }
+  );
+
+  // 8. Get watched episodes summary for a series
+  app.get(
+    '/api/sessions/episodes/:mediaId',
+    { preHandler: [optionalAuth] },
+    async (req: AuthenticatedRequest, reply) => {
+      const { mediaId } = req.params as { mediaId: string };
+      const query = req.query as { userId?: string };
+      const targetUserId = req.user?.userId || (query.userId ? Number(query.userId) : null);
+
+      try {
+        await ensureSessionTables();
+        const sql = `
+          SELECT season, episode,
+                 MAX(watched_seconds) as watched_seconds,
+                 MAX(duration) as duration,
+                 BOOL_OR(completed) as completed,
+                 MAX(ended_at) as last_watched_at
+          FROM playback_history
+          WHERE (media_id = $1 OR media_id = $2)
+            AND media_type = 'tv'
+            AND season > 0 AND episode > 0
+            AND ($3::integer IS NULL OR user_id = $3::integer OR user_id IS NULL)
+          GROUP BY season, episode
+          ORDER BY season, episode
+        `;
+        const result = await pool.query(sql, [String(mediaId), Number(mediaId) || 0, targetUserId]);
+
+        return {
+          mediaId,
+          episodes: result.rows.map((r: any) => ({
+            season: Number(r.season),
+            episode: Number(r.episode),
+            watchedSeconds: Number(r.watched_seconds || 0),
+            duration: Number(r.duration || 0),
+            completed: !!r.completed,
+            lastWatchedAt: r.last_watched_at,
+          })),
+        };
+      } catch (err: any) {
+        console.error('[Sessions] get series episodes error:', err.message);
+        return reply.code(500).send({ error: err.message, episodes: [] });
+      }
+    }
+  );
+
+  // 9. Mark episode watched / unwatched manually
+  app.post(
+    '/api/sessions/episodes/mark-watched',
+    { preHandler: [optionalAuth] },
+    async (req: AuthenticatedRequest, reply) => {
+      const user = req.user;
+      const body = req.body as {
+        mediaId: string | number;
+        mediaTitle?: string;
+        season: number;
+        episode: number;
+        completed: boolean;
+      };
+
+      const mediaId = String(body.mediaId || '');
+      const mediaTitle = body.mediaTitle || 'Сериал';
+      const season = Number(body.season || 0);
+      const episode = Number(body.episode || 0);
+      const completed = !!body.completed;
+      const userId = user?.userId || null;
+
+      if (!mediaId || season <= 0 || episode <= 0) {
+        return reply.code(400).send({ error: 'Missing mediaId, season, or episode' });
+      }
+
+      try {
+        await ensureSessionTables();
+        if (completed) {
+          const existing = await pool.query(
+            `SELECT id FROM playback_history 
+             WHERE media_id = $1 AND media_type = 'tv' AND season = $2 AND episode = $3
+             ${userId ? 'AND (user_id = $4 OR user_id IS NULL)' : ''}
+             ORDER BY ended_at DESC LIMIT 1`,
+            userId ? [mediaId, season, episode, userId] : [mediaId, season, episode]
+          );
+
+          if (existing.rows.length > 0) {
+            await pool.query(
+              `UPDATE playback_history SET completed = true, ended_at = CURRENT_TIMESTAMP WHERE id = $1`,
+              [existing.rows[0].id]
+            );
+          } else {
+            await pool.query(
+              `INSERT INTO playback_history (
+                user_id, device_type, device_name, media_type, media_id,
+                media_title, season, episode, watched_seconds, duration, completed
+              ) VALUES ($1, 'tv', 'Smart TV', 'tv', $2, $3, $4, $5, 1000, 1000, true)`,
+              [userId, mediaId, mediaTitle, season, episode]
+            );
+          }
+        } else {
+          await pool.query(
+            `UPDATE playback_history SET completed = false WHERE media_id = $1 AND season = $2 AND episode = $3`,
+            [mediaId, season, episode]
+          );
+        }
+
+        return { success: true, mediaId, season, episode, completed };
+      } catch (err: any) {
+        console.error('[Sessions] mark episode watched error:', err.message);
         return reply.code(500).send({ error: err.message });
       }
     }

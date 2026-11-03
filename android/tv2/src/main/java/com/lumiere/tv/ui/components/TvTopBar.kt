@@ -13,9 +13,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -46,6 +50,9 @@ fun TvTopBar(
     unreadNotificationsCount: Int = 0,
     onNotificationsClick: () -> Unit = {},
     firstItemFocusRequester: FocusRequester? = null,
+    downFocusRequester: FocusRequester? = null,
+    onDownFromTopBar: (() -> Unit)? = null,
+    onDownFromHome: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -70,6 +77,28 @@ fun TvTopBar(
             val base = serverUrl.orEmpty().trimEnd('/')
             if (base.isNotBlank()) "$base/${rawAvatar.trimStart('/')}" else rawAvatar
         }
+    }
+
+    val handleDown = onDownFromTopBar ?: onDownFromHome
+    val downModifier = remember(downFocusRequester, handleDown) {
+        if (downFocusRequester != null || handleDown != null) {
+            Modifier
+                .focusProperties { down = downFocusRequester ?: FocusRequester.Default }
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                    ) {
+                        if (handleDown != null) {
+                            handleDown()
+                            true
+                        } else {
+                            downFocusRequester?.requestFocus() ?: false
+                        }
+                    } else {
+                        false
+                    }
+                }
+        } else Modifier
     }
 
     Row(
@@ -108,43 +137,57 @@ fun TvTopBar(
                 label = "Главная",
                 selected = currentDestination == TvNavDestination.HOME,
                 onClick = { onNavigate(TvNavDestination.HOME) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.HOME) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.HOME) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "Фильмы",
                 selected = currentDestination == TvNavDestination.MOVIES,
                 onClick = { onNavigate(TvNavDestination.MOVIES) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.MOVIES) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.MOVIES) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "Сериалы",
                 selected = currentDestination == TvNavDestination.SERIES,
                 onClick = { onNavigate(TvNavDestination.SERIES) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.SERIES) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.SERIES) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "IPTV",
                 selected = currentDestination == TvNavDestination.IPTV,
                 onClick = { onNavigate(TvNavDestination.IPTV) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.IPTV) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.IPTV) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "Моё",
                 selected = currentDestination == TvNavDestination.MY,
                 onClick = { onNavigate(TvNavDestination.MY) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.MY) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.MY) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "Подборки",
                 selected = currentDestination == TvNavDestination.COLLECTIONS,
                 onClick = { onNavigate(TvNavDestination.COLLECTIONS) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.COLLECTIONS) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.COLLECTIONS) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
             TopBarItem(
                 label = "Скачанное",
                 selected = currentDestination == TvNavDestination.DOWNLOADS,
                 onClick = { onNavigate(TvNavDestination.DOWNLOADS) },
-                modifier = if (firstItemFocusRequester != null && currentDestination == TvNavDestination.DOWNLOADS) Modifier.focusRequester(firstItemFocusRequester) else Modifier
+                modifier = Modifier
+                    .then(if (firstItemFocusRequester != null && currentDestination == TvNavDestination.DOWNLOADS) Modifier.focusRequester(firstItemFocusRequester) else Modifier)
+                    .then(downModifier)
             )
         }
 
@@ -169,7 +212,9 @@ fun TvTopBar(
                 ),
                 shape = ButtonDefaults.shape(CircleShape),
                 contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier
+                    .size(34.dp)
+                    .then(downModifier)
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
@@ -197,7 +242,9 @@ fun TvTopBar(
                     ),
                     shape = ButtonDefaults.shape(CircleShape),
                     contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.fillMaxSize()
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .then(downModifier)
                 ) {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Icon(
@@ -244,7 +291,9 @@ fun TvTopBar(
                 ),
                 shape = ButtonDefaults.shape(CircleShape),
                 contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier
+                    .size(34.dp)
+                    .then(downModifier)
             ) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
@@ -270,7 +319,8 @@ fun TvTopBar(
                     border = Border.None
                 ),
                 shape = ButtonDefaults.shape(RoundedCornerShape(16.dp)),
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp)
+                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 3.dp),
+                modifier = Modifier.then(downModifier)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

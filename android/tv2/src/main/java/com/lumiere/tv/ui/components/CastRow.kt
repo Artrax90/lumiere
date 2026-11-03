@@ -36,6 +36,11 @@ import coil3.request.ImageRequest
 import com.lumiere.core.model.CastMember
 import com.lumiere.tv.theme.*
 
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+
 /**
  * 4x2 Grid of 8 Cast cards on the right side of the upper hero (1-to-1 matching WGT)
  */
@@ -46,6 +51,7 @@ fun CastSectionWgt(
     resolveImageUrl: (String?) -> String,
     onActorClick: (personId: Long, personName: String) -> Unit,
     onOpenAllCast: () -> Unit,
+    bottomFocusRequester: androidx.compose.ui.focus.FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     if (cast.isEmpty()) return
@@ -64,33 +70,33 @@ fun CastSectionWgt(
         ) {
             Text(
                 text = "В главных ролях",
-                style = MaterialTheme.typography.titleLarge,
+                fontSize = 16.sp,
                 color = Color.White,
                 fontWeight = FontWeight.Bold
             )
 
             if (cast.size > 8) {
-                val btnShape = RoundedCornerShape(12.dp)
+                val btnShape = RoundedCornerShape(10.dp)
                 OutlinedButton(
                     onClick = onOpenAllCast,
-                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.06f),
+                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
                     colors = OutlinedButtonDefaults.colors(
-                        containerColor = Color(0x22E5A93C),
+                        containerColor = Color(0x18E5A93C),
                         focusedContainerColor = LumiereGold,
                         focusedContentColor = BackgroundDark,
                         contentColor = LumiereGold
                     ),
                     border = OutlinedButtonDefaults.border(
-                        border = Border(BorderStroke(1.dp, LumiereGold.copy(alpha = 0.4f)), shape = btnShape),
-                        focusedBorder = Border(BorderStroke(2.dp, Color.White), shape = btnShape)
+                        border = Border(BorderStroke(0.5.dp, LumiereGold.copy(alpha = 0.4f)), shape = btnShape),
+                        focusedBorder = Border(BorderStroke(1.5.dp, Color.White), shape = btnShape)
                     ),
                     shape = OutlinedButtonDefaults.shape(btnShape),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                 ) {
                     Text(
                         text = "Все актеры ›",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold
                     )
                 }
             }
@@ -101,12 +107,29 @@ fun CastSectionWgt(
         val row1 = remember(top8) { top8.take(4) }
         val row2 = remember(top8) { if (top8.size > 4) top8.drop(4).take(4) else emptyList() }
 
+        val bottomModifier = if (bottomFocusRequester != null) {
+            Modifier
+                .focusProperties { down = bottomFocusRequester }
+                .onKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                    ) {
+                        try {
+                            bottomFocusRequester.requestFocus()
+                        } catch (_: Exception) {}
+                        true
+                    } else {
+                        false
+                    }
+                }
+        } else Modifier
+
         Column(
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
             Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 row1.forEach { actor ->
@@ -117,7 +140,9 @@ fun CastSectionWgt(
                             val aId = actor.id ?: 0L
                             if (aId > 0L) onActorClick(aId, actor.name)
                         },
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (row2.isEmpty()) bottomModifier else Modifier)
                     )
                 }
                 repeat(4 - row1.size) {
@@ -127,7 +152,7 @@ fun CastSectionWgt(
 
             if (row2.isNotEmpty()) {
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     row2.forEach { actor ->
@@ -138,7 +163,9 @@ fun CastSectionWgt(
                                 val aId = actor.id ?: 0L
                                 if (aId > 0L) onActorClick(aId, actor.name)
                             },
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier
+                                .weight(1f)
+                                .then(bottomModifier)
                         )
                     }
                     repeat(4 - row2.size) {
@@ -168,44 +195,44 @@ fun WgtActorCard(
         onClick = onClick,
         interactionSource = interactionSource,
         modifier = modifier
-            .height(175.dp)
+            .height(125.dp)
             .zIndex(if (isFocused) 10f else 0f),
         colors = CardDefaults.colors(
-            containerColor = Color(0x18FFFFFF),
-            focusedContainerColor = SurfaceVariantDark
+            containerColor = Color(0x0CFFFFFF),
+            focusedContainerColor = Color(0x28FFFFFF)
         ),
         border = CardDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.5.dp, LumiereGold),
-                shape = RoundedCornerShape(14.dp)
+                border = BorderStroke(2.dp, LumiereGold),
+                shape = RoundedCornerShape(10.dp)
             ),
             border = Border(
-                border = BorderStroke(1.dp, SurfaceBorder.copy(alpha = 0.4f)),
-                shape = RoundedCornerShape(14.dp)
+                border = BorderStroke(0.5.dp, Color(0x18FFFFFF)),
+                shape = RoundedCornerShape(10.dp)
             )
         ),
-        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.06f, pressedScale = 1.02f),
+        scale = CardDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1.02f),
         glow = CardDefaults.glow(
             focusedGlow = Glow(
                 elevationColor = Color(0x66E5A93C),
-                elevation = 14.dp
+                elevation = 12.dp
             )
         ),
-        shape = CardDefaults.shape(RoundedCornerShape(14.dp))
+        shape = CardDefaults.shape(RoundedCornerShape(10.dp))
     ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(6.dp),
+                .padding(4.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Top
         ) {
-            // Photo (aspect ratio 4:5)
+            // Photo (aspect ratio 1:1)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(4f / 5f)
-                    .clip(RoundedCornerShape(10.dp))
+                    .aspectRatio(1f)
+                    .clip(RoundedCornerShape(8.dp))
                     .background(Color(0x22000000)),
                 contentAlignment = Alignment.Center
             ) {
@@ -214,7 +241,7 @@ fun WgtActorCard(
                     val imageRequest = remember(imageUrl) {
                         ImageRequest.Builder(context)
                             .data(imageUrl)
-                            .size(200, 250)
+                            .size(160, 160)
                             .memoryCacheKey(imageUrl)
                             .diskCacheKey(imageUrl)
                             .build()
@@ -230,23 +257,24 @@ fun WgtActorCard(
                         imageVector = Icons.Default.Person,
                         contentDescription = null,
                         tint = TextMuted,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
             // Actor Name
             Text(
                 text = actor.name,
                 style = MaterialTheme.typography.bodySmall,
                 color = if (isFocused) Color.White else TextPrimary,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center,
-                fontSize = 11.sp
+                fontSize = 10.5.sp,
+                lineHeight = 13.sp
             )
 
             // Character / Role (clean of slash)
@@ -259,7 +287,8 @@ fun WgtActorCard(
                     text = cleanRole,
                     style = MaterialTheme.typography.labelSmall,
                     color = if (isFocused) LumiereGold else TextMuted,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center

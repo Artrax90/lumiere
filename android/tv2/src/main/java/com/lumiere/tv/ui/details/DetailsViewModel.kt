@@ -38,7 +38,9 @@ data class DetailsUiState(
     val lastWatchedEpisodeNum: Int? = null,
     val savedProgressSec: Long = 0L,
     val lastPlayedTorrentMagnet: String? = null,
-    val lastPlayedTorrentTitle: String? = null
+    val lastPlayedTorrentTitle: String? = null,
+    val watchedEpisodes: Set<String> = emptySet(),
+    val episodeProgress: Map<String, Float> = emptyMap()
 )
 
 class DetailsViewModel(
@@ -100,7 +102,7 @@ class DetailsViewModel(
                     }
                 } catch (_: Exception) {}
 
-                // If TV series, fetch saved or season 1 episodes
+                // If TV series, fetch saved or season 1 episodes and watched history
                 var savedSeason = 1
                 if (mediaType == "tv") {
                     savedSeason = preferences.getLastWatchedSeriesSeason(mediaId) ?: 1
@@ -111,14 +113,44 @@ class DetailsViewModel(
                             finalProgress = epPos
                         }
                     }
+                    val cachedWatched = preferences.getWatchedEpisodes(mediaId)
                     _uiState.update {
                         it.copy(
                             selectedSeason = savedSeason,
                             lastWatchedSeason = savedSeason,
-                            lastWatchedEpisodeNum = savedEp
+                            lastWatchedEpisodeNum = savedEp,
+                            watchedEpisodes = cachedWatched
                         )
                     }
                     loadSeason(savedSeason)
+
+                    // Fetch episodes history from backend to sync cross-device (WGT, Web, Android)
+                    viewModelScope.launch {
+                        try {
+                            val serverEpisodesResp = api.getSeriesWatchedEpisodes(mediaId.toString())
+                            val combinedWatched = preferences.getWatchedEpisodes(mediaId).toMutableSet()
+                            val progressMap = mutableMapOf<String, Float>()
+                            for (item in serverEpisodesResp.episodes) {
+                                val key = "${item.season}_${item.episode}"
+                                if (item.completed) {
+                                    combinedWatched.add(key)
+                                }
+                                if (item.duration > 0L) {
+                                    val pct = item.watchedSeconds.toFloat() / item.duration.toFloat()
+                                    progressMap[key] = pct.coerceIn(0f, 1f)
+                                }
+                            }
+                            preferences.saveWatchedEpisodes(mediaId, combinedWatched)
+                            _uiState.update {
+                                it.copy(
+                                    watchedEpisodes = combinedWatched,
+                                    episodeProgress = progressMap
+                                )
+                            }
+                        } catch (e: Exception) {
+                            android.util.Log.w("LumiereDetails", "Failed to fetch watched episodes: ${e.message}")
+                        }
+                    }
                 }
 
                 val lastTorrent = preferences.getLastPlayedTorrent(mediaId, if (mediaType == "tv") savedSeason else 0)
@@ -836,6 +868,40 @@ class DetailsViewModel(
 
     fun resolveImageUrl(path: String?): String {
         return networkClient?.resolveImageUrl(path) ?: path.orEmpty()
+    }
+
+    suspend fun getEpisodeSavedProgress(season: Int, episode: Int): Long {
+        return preferences.getEpisodePlaybackPosition(mediaId, season, episode) ?: 0L
+    }
+
+    fun toggleEpisodeWatched(episode: Episode) {
+        val tag = "${episode.season}_${episode.episode}"
+        val currentlyWatched = _uiState.value.watchedEpisodes.contains(tag)
+        val newWatchedState = !currentlyWatched
+        val newSet = _uiState.value.watchedEpisodes.toMutableSet()
+        if (newWatchedState) {
+            newSet.add(tag)
+        } else {
+            newSet.remove(tag)
+        }
+        _uiState.update { it.copy(watchedEpisodes = newSet) }
+
+        viewModelScope.launch {
+            try {
+                preferences.setEpisodeWatched(mediaId, episode.season, episode.episode, newWatchedState)
+                val serverUrl = preferences.serverUrl.first().orEmpty()
+                val api = networkClient?.createApiService(serverUrl)
+                api?.markEpisodeWatched(
+                    MarkEpisodeWatchedRequest(
+                        mediaId = mediaId.toString(),
+                        mediaTitle = _uiState.value.title?.name.orEmpty(),
+                        season = episode.season,
+                        episode = episode.episode,
+                        completed = newWatchedState
+                    )
+                )
+            } catch (_: Exception) {}
+        }
     }
 }
 

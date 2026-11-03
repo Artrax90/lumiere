@@ -136,7 +136,6 @@ class LumierePlayer(
         .build()
 
     val exoPlayer: ExoPlayer = ExoPlayer.Builder(context, renderersFactory)
-
         .setLoadControl(loadControl)
         .setTrackSelector(trackSelector)
         .setAudioAttributes(
@@ -146,7 +145,11 @@ class LumierePlayer(
                 .build(),
             /* handleAudioFocus = */ true
         )
+        .setWakeMode(C.WAKE_MODE_NETWORK)
         .build()
+
+    var mediaSession: androidx.media3.session.MediaSession? = null
+        private set
 
     private val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
         .setUserAgent("LumiereTV/1.0 ExoPlayer")
@@ -186,6 +189,27 @@ class LumierePlayer(
     }
 
     init {
+        try {
+            val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
+            val sessionActivity = if (launchIntent != null) {
+                android.app.PendingIntent.getActivity(
+                    context,
+                    0,
+                    launchIntent,
+                    android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            } else null
+
+            val builder = androidx.media3.session.MediaSession.Builder(context, exoPlayer)
+                .setId("LumiereMediaSession_${System.currentTimeMillis()}")
+            if (sessionActivity != null) {
+                builder.setSessionActivity(sessionActivity)
+            }
+            mediaSession = builder.build()
+        } catch (e: Throwable) {
+            android.util.Log.w("LumierePlayer", "MediaSession creation notice: ${e.message}")
+        }
+
         exoPlayer.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
@@ -455,6 +479,10 @@ class LumierePlayer(
     fun release() {
         progressJob?.cancel()
         scope.cancel()
+        try {
+            mediaSession?.release()
+            mediaSession = null
+        } catch (_: Throwable) {}
         exoPlayer.release()
     }
 }

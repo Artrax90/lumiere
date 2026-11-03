@@ -27,6 +27,7 @@ fun PinDialog(
     profileName: String,
     errorMessage: String? = null,
     onPinEntered: (String) -> Unit,
+    onUsePassword: (() -> Unit)? = null,
     onDismiss: () -> Unit
 ) {
     androidx.activity.compose.BackHandler(onBack = onDismiss)
@@ -174,23 +175,48 @@ fun PinDialog(
                         }
                     }
 
-                    // Cancel Button
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
-                        colors = OutlinedButtonDefaults.colors(
-                            focusedContainerColor = Color(0x22FFFFFF),
-                            focusedContentColor = TextPrimary
-                        ),
-                        border = OutlinedButtonDefaults.border(
-                            border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = RoundedCornerShape(10.dp)),
-                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp))
-                        ),
-                        shape = OutlinedButtonDefaults.shape(RoundedCornerShape(10.dp)),
-                        contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp),
+                    // Action Buttons
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(top = 8.dp)
                     ) {
-                        Text("Отмена", style = MaterialTheme.typography.labelLarge)
+                        if (onUsePassword != null) {
+                            OutlinedButton(
+                                onClick = onUsePassword,
+                                scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
+                                colors = OutlinedButtonDefaults.colors(
+                                    focusedContainerColor = Color(0x22FFFFFF),
+                                    focusedContentColor = TextPrimary
+                                ),
+                                border = OutlinedButtonDefaults.border(
+                                    border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = RoundedCornerShape(10.dp)),
+                                    focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = RoundedCornerShape(10.dp))
+                                ),
+                                shape = OutlinedButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp)
+                            ) {
+                                Text("Войти по паролю", style = MaterialTheme.typography.labelLarge)
+                            }
+                        }
+
+                        // Cancel Button
+                        OutlinedButton(
+                            onClick = onDismiss,
+                            scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
+                            colors = OutlinedButtonDefaults.colors(
+                                focusedContainerColor = Color(0x22FFFFFF),
+                                focusedContentColor = TextPrimary
+                            ),
+                            border = OutlinedButtonDefaults.border(
+                                border = Border(border = BorderStroke(1.dp, SurfaceBorder), shape = RoundedCornerShape(10.dp)),
+                                focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = RoundedCornerShape(10.dp))
+                            ),
+                            shape = OutlinedButtonDefaults.shape(RoundedCornerShape(10.dp)),
+                            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 10.dp)
+                        ) {
+                            Text("Отмена", style = MaterialTheme.typography.labelLarge)
+                        }
                     }
                 }
             }

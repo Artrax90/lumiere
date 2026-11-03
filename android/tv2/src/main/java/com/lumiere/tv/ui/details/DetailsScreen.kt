@@ -22,7 +22,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextOverflow
+import kotlinx.coroutines.launch
 import androidx.tv.material3.*
 import coil3.compose.AsyncImage
 import com.lumiere.core.model.Title
@@ -48,10 +53,40 @@ fun DetailsScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val title = state.title
+    val isTv = mediaType == "tv"
     val watchFocusRequester = remember { FocusRequester() }
+    val episodesTabFocusRequester = remember { FocusRequester() }
+    val torrentsTabFocusRequester = remember { FocusRequester() }
+    val bottomSectionFocusRequester = if (isTv) episodesTabFocusRequester else torrentsTabFocusRequester
     var showAllCastDialog by remember { mutableStateOf(false) }
 
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    val actionDownModifier = remember(bottomSectionFocusRequester, coroutineScope, listState) {
+        Modifier
+            .focusProperties { down = bottomSectionFocusRequester }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                ) {
+                    try {
+                        bottomSectionFocusRequester.requestFocus()
+                    } catch (_: Exception) {
+                        coroutineScope.launch {
+                            try {
+                                listState.animateScrollToItem(2)
+                                kotlinx.coroutines.delay(50)
+                                bottomSectionFocusRequester.requestFocus()
+                            } catch (_: Exception) {}
+                        }
+                    }
+                    true
+                } else {
+                    false
+                }
+            }
+    }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -141,8 +176,8 @@ fun DetailsScreen(
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 48.dp, vertical = 28.dp),
-                verticalArrangement = Arrangement.spacedBy(28.dp)
+                contentPadding = PaddingValues(horizontal = 36.dp, vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Top Navigation Bar (Back Button - WGT Pill Style)
                 item {
@@ -161,9 +196,9 @@ fun DetailsScreen(
                             focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = backShape)
                         ),
                         shape = OutlinedButtonDefaults.shape(backShape),
-                        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
                     ) {
-                        Text("‹ Назад", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.SemiBold)
+                        Text("‹ Назад", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                     }
                 }
 
@@ -171,13 +206,13 @@ fun DetailsScreen(
                 item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(36.dp),
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
                         verticalAlignment = Alignment.Top
                     ) {
-                        // Left Hero (~55%): Type/Genre, Title, Meta, Actions, Synopsis, DetailSpecsBlock
+                        // Left Hero: Type/Genre, Title, Meta, Actions, Synopsis, DetailSpecsBlock
                         Column(
-                            modifier = Modifier.weight(1.15f),
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             // Type + Genre Label Row
                             val typeLabel = when (title.type) {
@@ -192,32 +227,32 @@ fun DetailsScreen(
                             ) {
                                 Text(
                                     text = typeLabel,
-                                    fontSize = 14.sp,
+                                    fontSize = 13.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = LumiereGold
                                 )
                                 if (!firstGenre.isNullOrBlank()) {
                                     Text(
                                         text = "—",
-                                        fontSize = 14.sp,
+                                        fontSize = 13.sp,
                                         color = TextMuted
                                     )
                                     Text(
                                         text = firstGenre,
-                                        fontSize = 14.sp,
+                                        fontSize = 13.sp,
                                         fontWeight = FontWeight.Medium,
                                         color = TextSecondary
                                     )
                                 }
                             }
 
-                            // Big Title (matching WGT h1.detail-title)
+                            // Big Title (crisp & proportional)
                             Text(
                                 text = title.name,
                                 style = MaterialTheme.typography.displayMedium.copy(
-                                    fontSize = 38.sp,
-                                    lineHeight = 44.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontSize = 28.sp,
+                                    lineHeight = 34.sp,
+                                    fontWeight = FontWeight.Bold
                                 ),
                                 color = TextPrimary
                             )
@@ -234,12 +269,12 @@ fun DetailsScreen(
                                             .clip(RoundedCornerShape(6.dp))
                                             .background(Color(0xD907090E))
                                             .border(1.dp, LumiereGoldGlow, RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                            .padding(horizontal = 7.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = "★ ${String.format("%.1f", score)}",
                                             color = LumiereGold,
-                                            fontSize = 13.sp,
+                                            fontSize = 12.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
@@ -249,7 +284,7 @@ fun DetailsScreen(
                                 if (year != null && year > 0) {
                                     Text(
                                         text = "· 📅 $year",
-                                        style = MaterialTheme.typography.titleMedium,
+                                        fontSize = 13.sp,
                                         color = TextSecondary
                                     )
                                 }
@@ -258,7 +293,7 @@ fun DetailsScreen(
                                 if (!runtime.isNullOrBlank()) {
                                     Text(
                                         text = "· ⏱ $runtime",
-                                        style = MaterialTheme.typography.titleMedium,
+                                        fontSize = 13.sp,
                                         color = TextSecondary
                                     )
                                 }
@@ -275,220 +310,228 @@ fun DetailsScreen(
                                         Text(
                                             text = ageRating,
                                             color = TextSecondary,
-                                            fontSize = 11.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold
                                         )
                                     }
                                 }
                             }
 
-                            // Action Buttons Row (Matching WGT pills + circular icons)
-                            androidx.compose.foundation.lazy.LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            // Action Buttons Row (Single Row fitting all 6 buttons seamlessly)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp)
                             ) {
                                 val actionPillShape = RoundedCornerShape(32.dp)
                                 val actionCircleShape = RoundedCornerShape(26.dp)
 
                                 // 1. Play Button (Primary)
-                                item {
-                                    Button(
-                                        onClick = {
-                                            viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
-                                                val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
-                                                val sNum = if (mediaType == "tv") state.selectedSeason else 0
-                                                val eNum = if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0
-                                                onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
-                                            }
-                                        },
-                                        modifier = Modifier.focusRequester(watchFocusRequester),
-                                        scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                        colors = ButtonDefaults.colors(
-                                            containerColor = Color.White,
-                                            contentColor = Color(0xFF0B0C10),
-                                            focusedContainerColor = LumiereGold,
-                                            focusedContentColor = BackgroundDark
-                                        ),
-                                        border = ButtonDefaults.border(
-                                            focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = actionPillShape),
-                                            border = Border.None
-                                        ),
-                                        shape = ButtonDefaults.shape(actionPillShape),
-                                        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 10.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.PlayArrow,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        val watchButtonText = when {
-                                            state.isStartingStream -> "Запуск..."
-                                            state.savedProgressSec > 60L -> {
-                                                val minutes = state.savedProgressSec / 60
-                                                "Продолжить (${minutes} мин)"
-                                            }
-                                            else -> "Смотреть"
+                                Button(
+                                    onClick = {
+                                        viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
+                                            val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                            val sNum = if (mediaType == "tv") state.selectedSeason else 0
+                                            val eNum = if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0
+                                            onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
                                         }
-                                        Text(
-                                            text = watchButtonText,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
+                                    },
+                                    modifier = Modifier
+                                        .focusRequester(watchFocusRequester)
+                                        .then(actionDownModifier),
+                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                                    colors = ButtonDefaults.colors(
+                                        containerColor = Color.White,
+                                        contentColor = Color(0xFF0B0C10),
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
+                                    ),
+                                    border = ButtonDefaults.border(
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape),
+                                        border = Border.None
+                                    ),
+                                    shape = ButtonDefaults.shape(actionPillShape),
+                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    val watchButtonText = when {
+                                        state.isStartingStream -> "Запуск..."
+                                        state.savedProgressSec > 60L -> {
+                                            val minutes = state.savedProgressSec / 60
+                                            "Продолжить (${minutes} мин)"
+                                        }
+                                        else -> "Смотреть"
                                     }
+                                    Text(
+                                        text = watchButtonText,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
 
                                 // 2. Watchlist ("Буду смотреть")
-                                item {
-                                    OutlinedButton(
-                                        onClick = { viewModel.toggleWatchlist() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                        colors = OutlinedButtonDefaults.colors(
-                                            containerColor = if (state.isInWatchlist) Color(0x33E5A93C) else Color(0x20FFFFFF),
-                                            contentColor = if (state.isInWatchlist) LumiereGold else TextPrimary,
-                                            focusedContainerColor = LumiereGold,
-                                            focusedContentColor = BackgroundDark
-                                        ),
-                                        border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, if (state.isInWatchlist) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                            focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = actionCircleShape)
-                                        ),
-                                        shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                        contentPadding = PaddingValues(12.dp)
-                                    ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.toggleWatchlist() },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .then(actionDownModifier),
+                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
+                                    colors = OutlinedButtonDefaults.colors(
+                                        containerColor = if (state.isInWatchlist) Color(0x33E5A93C) else Color(0x20FFFFFF),
+                                        contentColor = if (state.isInWatchlist) LumiereGold else TextPrimary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
+                                    ),
+                                    border = OutlinedButtonDefaults.border(
+                                        border = Border(border = BorderStroke(1.dp, if (state.isInWatchlist) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+                                    ),
+                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = if (state.isInWatchlist) Icons.Default.Check else Icons.Default.Add,
                                             contentDescription = "Буду смотреть",
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
 
                                 // 3. Favorites ("В закладки / Нравится")
-                                item {
-                                    OutlinedButton(
-                                        onClick = { viewModel.toggleFavorite() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                        colors = OutlinedButtonDefaults.colors(
-                                            containerColor = if (state.isFavorite) Color(0x33FF4081) else Color(0x20FFFFFF),
-                                            contentColor = if (state.isFavorite) Color(0xFFFF5252) else TextPrimary,
-                                            focusedContainerColor = Color(0xFFFF5252),
-                                            focusedContentColor = Color.White
-                                        ),
-                                        border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, if (state.isFavorite) Color(0x88FF4081) else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                            focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = actionCircleShape)
-                                        ),
-                                        shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                        contentPadding = PaddingValues(12.dp)
-                                    ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.toggleFavorite() },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .then(actionDownModifier),
+                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
+                                    colors = OutlinedButtonDefaults.colors(
+                                        containerColor = if (state.isFavorite) Color(0x33FF4081) else Color(0x20FFFFFF),
+                                        contentColor = if (state.isFavorite) Color(0xFFFF5252) else TextPrimary,
+                                        focusedContainerColor = Color(0xFFFF5252),
+                                        focusedContentColor = Color.White
+                                    ),
+                                    border = OutlinedButtonDefaults.border(
+                                        border = Border(border = BorderStroke(1.dp, if (state.isFavorite) Color(0x88FF4081) else Color(0x40FFFFFF)), shape = actionCircleShape),
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+                                    ),
+                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = if (state.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                             contentDescription = "В закладки",
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
 
                                 // 4. Notifications Bell ("Следить")
-                                item {
-                                    OutlinedButton(
-                                        onClick = { viewModel.toggleNotificationSubscription() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                        colors = OutlinedButtonDefaults.colors(
-                                            containerColor = if (state.isSubscribed) Color(0x33E5A93C) else Color(0x20FFFFFF),
-                                            contentColor = if (state.isSubscribed) LumiereGold else TextPrimary,
-                                            focusedContainerColor = LumiereGold,
-                                            focusedContentColor = BackgroundDark
-                                        ),
-                                        border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, if (state.isSubscribed) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                            focusedBorder = Border(border = BorderStroke(2.5.dp, Color.White), shape = actionCircleShape)
-                                        ),
-                                        shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                        contentPadding = PaddingValues(12.dp)
-                                    ) {
+                                OutlinedButton(
+                                    onClick = { viewModel.toggleNotificationSubscription() },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .then(actionDownModifier),
+                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
+                                    colors = OutlinedButtonDefaults.colors(
+                                        containerColor = if (state.isSubscribed) Color(0x33E5A93C) else Color(0x20FFFFFF),
+                                        contentColor = if (state.isSubscribed) LumiereGold else TextPrimary,
+                                        focusedContainerColor = LumiereGold,
+                                        focusedContentColor = BackgroundDark
+                                    ),
+                                    border = OutlinedButtonDefaults.border(
+                                        border = Border(border = BorderStroke(1.dp, if (state.isSubscribed) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+                                    ),
+                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
+                                    contentPadding = PaddingValues(0.dp)
+                                ) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Icon(
                                             imageVector = if (state.isSubscribed) Icons.Default.NotificationsActive else Icons.Default.Notifications,
                                             contentDescription = "Следить за новыми сериями или релизом",
-                                            modifier = Modifier.size(20.dp)
+                                            modifier = Modifier.size(16.dp)
                                         )
                                     }
                                 }
 
                                 // 5. Trailer button
-                                item {
-                                    OutlinedButton(
-                                        onClick = {
-                                            viewModel.playTrailer { trailerUrl ->
-                                                onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
-                                            }
-                                        },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                        colors = OutlinedButtonDefaults.colors(
-                                            containerColor = Color(0x20FFFFFF),
-                                            focusedContainerColor = Color(0x40FFFFFF),
-                                            focusedContentColor = TextPrimary
-                                        ),
-                                        border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
-                                            focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionPillShape)
-                                        ),
-                                        shape = OutlinedButtonDefaults.shape(actionPillShape),
-                                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Movie,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Трейлер", style = MaterialTheme.typography.labelLarge)
-                                    }
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.playTrailer { trailerUrl ->
+                                            onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
+                                        }
+                                    },
+                                    modifier = Modifier.then(actionDownModifier),
+                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                                    colors = OutlinedButtonDefaults.colors(
+                                        containerColor = Color(0x20FFFFFF),
+                                        focusedContainerColor = Color(0x40FFFFFF),
+                                        focusedContentColor = TextPrimary
+                                    ),
+                                    border = OutlinedButtonDefaults.border(
+                                        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
+                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionPillShape)
+                                    ),
+                                    shape = OutlinedButtonDefaults.shape(actionPillShape),
+                                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Movie,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Трейлер", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                                 }
 
                                 // 6. All Torrents Modal Button ("Все раздачи")
-                                item {
-                                    OutlinedButton(
-                                        onClick = { viewModel.openTorrentDialog() },
-                                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                        colors = OutlinedButtonDefaults.colors(
-                                            containerColor = Color(0x20FFFFFF),
-                                            focusedContainerColor = Color(0x40FFFFFF),
-                                            focusedContentColor = TextPrimary
-                                        ),
-                                        border = OutlinedButtonDefaults.border(
-                                            border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
-                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape)
-                                        ),
-                                        shape = OutlinedButtonDefaults.shape(actionPillShape),
-                                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Download,
-                                            contentDescription = null,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        val torrentCount = state.torrents.size
-                                        Text(
-                                            text = if (torrentCount > 0) "Все раздачи ($torrentCount)" else "Все раздачи",
-                                            style = MaterialTheme.typography.labelLarge
-                                        )
-                                    }
+                                OutlinedButton(
+                                    onClick = { viewModel.openTorrentDialog() },
+                                    modifier = Modifier.then(actionDownModifier),
+                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                                    colors = OutlinedButtonDefaults.colors(
+                                        containerColor = Color(0x20FFFFFF),
+                                        focusedContainerColor = Color(0x40FFFFFF),
+                                        focusedContentColor = TextPrimary
+                                    ),
+                                    border = OutlinedButtonDefaults.border(
+                                        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
+                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape)
+                                    ),
+                                    shape = OutlinedButtonDefaults.shape(actionPillShape),
+                                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Download,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(15.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    val torrentCount = state.torrents.size
+                                    Text(
+                                        text = if (torrentCount > 0) "Все раздачи ($torrentCount)" else "Все раздачи",
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
                                 }
                             }
 
-                            // Synopsis
+                            // Synopsis (Full text without truncation)
                             val overview = title.overview ?: title.description
                             if (!overview.isNullOrBlank()) {
                                 Text(
                                     text = overview,
-                                    style = MaterialTheme.typography.bodyLarge.copy(
-                                        fontSize = 16.sp,
-                                        lineHeight = 24.sp
-                                    ),
+                                    fontSize = 13.5.sp,
+                                    lineHeight = 19.5.sp,
                                     color = TextSecondary
                                 )
                             }
@@ -497,9 +540,9 @@ fun DetailsScreen(
                             DetailSpecsBlock(title = title)
                         }
 
-                        // Right Hero (~45%): 4x2 Actor Cards Grid
+                        // Right Hero: 4x2 Actor Cards Grid
                         Column(
-                            modifier = Modifier.weight(0.85f)
+                            modifier = Modifier.width(320.dp)
                         ) {
                             if (title.cast.isNotEmpty()) {
                                 CastSectionWgt(
@@ -510,7 +553,8 @@ fun DetailsScreen(
                                     },
                                     onOpenAllCast = {
                                         showAllCastDialog = true
-                                    }
+                                    },
+                                    bottomFocusRequester = bottomSectionFocusRequester
                                 )
                             }
                         }
@@ -522,7 +566,6 @@ fun DetailsScreen(
                     val seriesTab = state.seriesTab
                     val qualityFilter = state.torrentQualityFilter
                     val sortBy = state.torrentSortBy
-                    val isTv = mediaType == "tv"
 
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         // Section Tabs Row: [ Сезоны и серии ] and [ Торренты (count) ]
@@ -536,6 +579,29 @@ fun DetailsScreen(
                                 val isEpisodesTab = seriesTab == "episodes"
                                 Button(
                                     onClick = { viewModel.setSeriesTab("episodes") },
+                                    modifier = Modifier
+                                        .focusRequester(episodesTabFocusRequester)
+                                        .focusProperties { up = watchFocusRequester }
+                                        .onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown &&
+                                                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                                            ) {
+                                                try {
+                                                    watchFocusRequester.requestFocus()
+                                                } catch (_: Exception) {
+                                                    coroutineScope.launch {
+                                                        try {
+                                                            listState.animateScrollToItem(1)
+                                                            kotlinx.coroutines.delay(50)
+                                                            watchFocusRequester.requestFocus()
+                                                        } catch (_: Exception) {}
+                                                    }
+                                                }
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        },
                                     scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
                                     colors = ButtonDefaults.colors(
                                         containerColor = if (isEpisodesTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
@@ -561,6 +627,29 @@ fun DetailsScreen(
                             val isTorrentsTab = !isTv || seriesTab == "torrents"
                             Button(
                                 onClick = { if (isTv) viewModel.setSeriesTab("torrents") },
+                                modifier = Modifier
+                                    .focusRequester(torrentsTabFocusRequester)
+                                    .focusProperties { up = watchFocusRequester }
+                                    .onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown &&
+                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                                        ) {
+                                            try {
+                                                watchFocusRequester.requestFocus()
+                                            } catch (_: Exception) {
+                                                coroutineScope.launch {
+                                                    try {
+                                                        listState.animateScrollToItem(1)
+                                                        kotlinx.coroutines.delay(50)
+                                                        watchFocusRequester.requestFocus()
+                                                    } catch (_: Exception) {}
+                                                }
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
                                 scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
                                 colors = ButtonDefaults.colors(
                                     containerColor = if (isTorrentsTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
@@ -590,6 +679,7 @@ fun DetailsScreen(
                             }
                         }
 
+
                         if (isTv && seriesTab == "episodes") {
                                 SeasonPicker(
                                     seasonsCount = maxOf(title.seasonsCount ?: 1, state.selectedSeason),
@@ -600,10 +690,16 @@ fun DetailsScreen(
                                     resolveImageUrl = { viewModel.resolveImageUrl(it) },
                                     lastWatchedSeason = state.lastWatchedSeason,
                                     lastWatchedEpisodeNum = state.lastWatchedEpisodeNum,
+                                    watchedEpisodes = state.watchedEpisodes,
+                                    episodeProgress = state.episodeProgress,
                                     fallbackPosterUrl = title.backdrop.orEmpty().ifBlank { title.poster.orEmpty() },
                                     onEpisodeClick = { ep ->
                                         viewModel.playEpisodeDirectly(ep) { streamUrl, epTitle, subtitle, isHls ->
-                                            val startPos = if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
+                                            val epKey = "${ep.season}_${ep.episode}"
+                                            val isWatched = state.watchedEpisodes.contains(epKey)
+                                            val startPos = if (isWatched) {
+                                                0L
+                                            } else if (state.selectedSeason == ep.season && state.lastWatchedEpisodeNum == ep.episode) {
                                                 (state.savedProgressSec * 1000L).coerceAtLeast(0L)
                                             } else {
                                                 0L

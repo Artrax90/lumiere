@@ -174,14 +174,46 @@ class AppPreferences(private val context: Context) {
         return context.dataStore.data.first()[longPreferencesKey("pos_${mediaType}_$tmdbId")]
     }
 
-    suspend fun setEpisodePlaybackPosition(tmdbId: Long, season: Int, episode: Int, positionSec: Long) {
+    suspend fun setEpisodePlaybackPosition(tmdbId: Long, season: Int, episode: Int, positionSec: Long, durationSec: Long = 0L) {
         context.dataStore.edit { prefs ->
             prefs[longPreferencesKey("pos_tv_${tmdbId}_s${season}_e${episode}")] = positionSec
+            if (durationSec > 0L) {
+                prefs[longPreferencesKey("dur_tv_${tmdbId}_s${season}_e${episode}")] = durationSec
+            }
         }
     }
 
     suspend fun getEpisodePlaybackPosition(tmdbId: Long, season: Int, episode: Int): Long? {
         return context.dataStore.data.first()[longPreferencesKey("pos_tv_${tmdbId}_s${season}_e${episode}")]
+    }
+
+    suspend fun getEpisodePlaybackDuration(tmdbId: Long, season: Int, episode: Int): Long? {
+        return context.dataStore.data.first()[longPreferencesKey("dur_tv_${tmdbId}_s${season}_e${episode}")]
+    }
+
+    suspend fun getWatchedEpisodes(mediaId: Long): Set<String> {
+        val raw = context.dataStore.data.first()[stringSetPreferencesKey("watched_episodes_$mediaId")]
+        return raw ?: emptySet()
+    }
+
+    suspend fun setEpisodeWatched(mediaId: Long, season: Int, episode: Int, watched: Boolean) {
+        context.dataStore.edit { prefs ->
+            val key = stringSetPreferencesKey("watched_episodes_$mediaId")
+            val current = prefs[key]?.toMutableSet() ?: mutableSetOf()
+            val tag = "${season}_${episode}"
+            if (watched) {
+                current.add(tag)
+            } else {
+                current.remove(tag)
+            }
+            prefs[key] = current
+        }
+    }
+
+    suspend fun saveWatchedEpisodes(mediaId: Long, episodes: Set<String>) {
+        context.dataStore.edit { prefs ->
+            prefs[stringSetPreferencesKey("watched_episodes_$mediaId")] = episodes
+        }
     }
 
     suspend fun setLastWatchedSeries(seriesId: Long, season: Int, episode: Int) {

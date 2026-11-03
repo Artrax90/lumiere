@@ -263,5 +263,16 @@ interface LumiereApiService {
         @Path("id") id: Long,
         @Query("lang") lang: String = "ru"
     ): PersonDetails
+
+    @GET("/api/sessions/episodes/{mediaId}")
+    suspend fun getSeriesWatchedEpisodes(
+        @Path("mediaId") mediaId: String,
+        @Query("userId") userId: Long? = null
+    ): SeriesWatchedEpisodesResponse
+
+    @POST("/api/sessions/episodes/mark-watched")
+    suspend fun markEpisodeWatched(
+        @Body request: MarkEpisodeWatchedRequest
+    ): SimpleActionResponse
 }
 

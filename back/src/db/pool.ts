@@ -750,6 +750,35 @@ function executeFallback(sql: string, params: any[] = []): { rows: any[]; _fallb
       const fourHoursAgo = Date.now() - 4 * 3600 * 1000;
       list = list.filter((h) => new Date(h.ended_at).getTime() > fourHoursAgo);
     }
+    if (/GROUP BY season,\s*episode/i.test(cleanSql)) {
+      if (params[0]) {
+        list = list.filter((h) => String(h.media_id) === String(params[0]) || (params[1] && String(h.media_id) === String(params[1])));
+      }
+      const grouped = new Map<string, any>();
+      for (const item of list) {
+        if (!item.season || !item.episode) continue;
+        const key = `${item.season}_${item.episode}`;
+        const ex = grouped.get(key);
+        if (!ex) {
+          grouped.set(key, {
+            season: item.season,
+            episode: item.episode,
+            watched_seconds: Number(item.watched_seconds || 0),
+            duration: Number(item.duration || 0),
+            completed: !!item.completed,
+            last_watched_at: item.ended_at,
+          });
+        } else {
+          ex.watched_seconds = Math.max(ex.watched_seconds, Number(item.watched_seconds || 0));
+          ex.duration = Math.max(ex.duration, Number(item.duration || 0));
+          ex.completed = ex.completed || !!item.completed;
+          if (new Date(item.ended_at).getTime() > new Date(ex.last_watched_at).getTime()) {
+            ex.last_watched_at = item.ended_at;
+          }
+        }
+      }
+      return { rows: Array.from(grouped.values()).sort((a, b) => a.season !== b.season ? a.season - b.season : a.episode - b.episode) };
+    }
     const mapped = list.map((h) => {
       const u = (db.users || []).find((user) => user.id === h.user_id) || {};
       return {

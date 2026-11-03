@@ -37,12 +37,22 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
+import kotlinx.coroutines.isActive
 import androidx.tv.material3.*
 import coil3.compose.AsyncImage
 import com.lumiere.core.model.IptvChannel
 import com.lumiere.tv.theme.*
 import com.lumiere.tv.ui.components.TvNavDestination
 import com.lumiere.tv.ui.components.TvTopBar
+
+private fun android.content.Context.findActivity(): android.app.Activity? {
+    var ctx = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is android.app.Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
+}
 
 @OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
@@ -56,6 +66,32 @@ fun IptvScreen(
     val state by viewModel.uiState.collectAsState()
     val playerFocusRequester = remember { FocusRequester() }
     val catalogFocusRequester = remember { FocusRequester() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    val isPlaying by viewModel.player.isPlaying.collectAsState()
+
+    DisposableEffect(state.isPlayerMode) {
+        val window = context.findActivity()?.window
+        if (state.isPlayerMode) {
+            window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.decorView?.keepScreenOn = true
+        }
+        onDispose {
+            window?.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.decorView?.keepScreenOn = false
+        }
+    }
+
+    LaunchedEffect(state.isPlayerMode, isPlaying) {
+        if (state.isPlayerMode) {
+            val window = context.findActivity()?.window
+            while (isActive) {
+                window?.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                window?.decorView?.keepScreenOn = true
+                kotlinx.coroutines.delay(20_000L)
+            }
+        }
+    }
 
     LaunchedEffect(state.isPlayerMode, state.isSidebarVisible) {
         kotlinx.coroutines.delay(60)
@@ -236,9 +272,11 @@ fun IptvScreen(
                     PlayerView(context).apply {
                         this.player = viewModel.player.exoPlayer
                         useController = false
+                        keepScreenOn = true
                         setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                         (videoSurfaceView as? android.view.SurfaceView)?.apply {
                             setZOrderMediaOverlay(true)
+                            keepScreenOn = true
                         }
                         layoutParams = ViewGroup.LayoutParams(
                             ViewGroup.LayoutParams.MATCH_PARENT,
@@ -246,7 +284,12 @@ fun IptvScreen(
                         )
                     }
                 },
+                update = { playerView ->
+                    playerView.keepScreenOn = true
+                    (playerView.videoSurfaceView as? android.view.SurfaceView)?.keepScreenOn = true
+                },
                 onRelease = { playerView ->
+                    playerView.keepScreenOn = false
                     playerView.player = null
                 },
                 modifier = Modifier.fillMaxSize()

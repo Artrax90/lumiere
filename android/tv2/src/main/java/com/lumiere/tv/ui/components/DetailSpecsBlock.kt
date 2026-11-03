@@ -34,11 +34,11 @@ fun DetailSpecsBlock(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(Color(0x18FFFFFF))
-            .border(BorderStroke(1.dp, SurfaceBorder.copy(alpha = 0.35f)), RoundedCornerShape(18.dp))
-            .padding(18.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0x350A0E18))
+            .border(BorderStroke(0.5.dp, Color(0x22FFFFFF)), RoundedCornerShape(14.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         // Header
         Row(
@@ -47,30 +47,30 @@ fun DetailSpecsBlock(
         ) {
             Text(
                 text = if (isTv) "О сериале" else "О фильме",
-                fontSize = 17.sp,
+                fontSize = 15.sp,
                 color = LumiereGold,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(10.dp))
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(1.dp)
                     .background(
                         Brush.horizontalGradient(
-                            listOf(LumiereGold.copy(alpha = 0.45f), Color.Transparent)
+                            listOf(LumiereGold.copy(alpha = 0.4f), Color.Transparent)
                         )
                     )
             )
         }
 
         // 2-column specs
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             // Row 1: Director & Country
             val director = title.director
             val countries = title.countries.joinToString(", ")
             if (!director.isNullOrBlank() || countries.isNotBlank()) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (!director.isNullOrBlank()) {
                         SpecItem(label = "Режиссёр", value = director, modifier = Modifier.weight(1f))
                     } else {
@@ -89,7 +89,7 @@ fun DetailSpecsBlock(
             val hasOrig = !orig.isNullOrBlank() && orig != title.name
             val releaseDate = title.releaseDate ?: title.year?.toString()
             if (hasOrig || !releaseDate.isNullOrBlank()) {
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     if (hasOrig && orig != null) {
                         SpecItem(label = "Оригинал", value = orig, isItalic = true, modifier = Modifier.weight(1f))
                     } else {
@@ -114,15 +114,15 @@ fun DetailSpecsBlock(
             if (title.genres.isNotEmpty()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = "ЖАНРЫ",
-                        fontSize = 11.sp,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextMuted,
-                        modifier = Modifier.width(80.dp)
+                        modifier = Modifier.width(68.dp)
                     )
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -131,14 +131,14 @@ fun DetailSpecsBlock(
                         title.genres.take(4).forEach { genre ->
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Color(0x18FFFFFF))
-                                    .border(BorderStroke(1.dp, SurfaceBorder.copy(alpha = 0.5f)), RoundedCornerShape(8.dp))
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    .border(BorderStroke(0.5.dp, Color(0x30FFFFFF)), RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 7.dp, vertical = 2.dp)
                             ) {
                                 Text(
                                     text = genre,
-                                    fontSize = 11.sp,
+                                    fontSize = 10.sp,
                                     color = TextPrimary,
                                     fontWeight = FontWeight.Medium
                                 )
@@ -162,15 +162,15 @@ fun DetailSpecsBlock(
             // Tech Formats
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
                     text = "ФОРМАТЫ",
-                    fontSize = 11.sp,
+                    fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextMuted,
-                    modifier = Modifier.width(80.dp)
+                    modifier = Modifier.width(68.dp)
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     TechBadge("4K UHD", Color(0xFFE5A93C), Color(0x22E5A93C))
@@ -192,19 +192,19 @@ private fun SpecItem(
 ) {
     Row(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalAlignment = Alignment.Top
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
             text = label.uppercase(),
-            fontSize = 11.sp,
+            fontSize = 10.sp,
             fontWeight = FontWeight.Bold,
             color = TextMuted,
-            modifier = Modifier.width(80.dp)
+            modifier = Modifier.width(68.dp)
         )
         Text(
             text = value,
-            fontSize = 12.sp,
+            fontSize = 11.5.sp,
             fontWeight = FontWeight.Medium,
             color = TextPrimary,
             fontStyle = if (isItalic) FontStyle.Italic else FontStyle.Normal,
@@ -218,14 +218,14 @@ private fun SpecItem(
 private fun TechBadge(text: String, textColor: Color, bgColor: Color) {
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
+            .clip(RoundedCornerShape(5.dp))
             .background(bgColor)
-            .border(BorderStroke(1.dp, textColor.copy(alpha = 0.35f)), RoundedCornerShape(6.dp))
-            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .border(BorderStroke(0.5.dp, textColor.copy(alpha = 0.4f)), RoundedCornerShape(5.dp))
+            .padding(horizontal = 5.dp, vertical = 2.dp)
     ) {
         Text(
             text = text,
-            fontSize = 9.sp,
+            fontSize = 8.5.sp,
             fontWeight = FontWeight.Bold,
             color = textColor
         )

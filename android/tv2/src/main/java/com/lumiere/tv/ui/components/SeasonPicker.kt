@@ -36,6 +36,8 @@ fun SeasonPicker(
     isLoadingEpisodes: Boolean = false,
     lastWatchedSeason: Int? = null,
     lastWatchedEpisodeNum: Int? = null,
+    watchedEpisodes: Set<String> = emptySet(),
+    episodeProgress: Map<String, Float> = emptyMap(),
     fallbackPosterUrl: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -150,10 +152,16 @@ fun SeasonPicker(
             ) {
                 items(episodes, key = { it.id ?: "${it.season}-${it.episode}" }) { ep ->
                     val epThumb = ep.thumbnail.orEmpty().ifBlank { fallbackPosterUrl.orEmpty() }
+                    val epTag = "${ep.season}_${ep.episode}"
+                    val isWatched = watchedEpisodes.contains(epTag)
+                    val progress = episodeProgress[epTag] ?: 0f
+                    val isLastWatched = isViewingWatchedSeason && (ep.episode == lastWatchedEpisodeNum)
                     EpisodeCard(
                         episode = ep,
                         thumbnailUrl = resolveImageUrl(epThumb),
-                        isLastWatched = isViewingWatchedSeason && (ep.episode == lastWatchedEpisodeNum),
+                        isWatched = isWatched,
+                        progress = progress,
+                        isLastWatched = isLastWatched && !isWatched,
                         onClick = { onEpisodeClick(ep) }
                     )
                 }
@@ -180,6 +188,8 @@ fun SeasonPicker(
 private fun EpisodeCard(
     episode: Episode,
     thumbnailUrl: String,
+    isWatched: Boolean = false,
+    progress: Float = 0f,
     isLastWatched: Boolean = false,
     onClick: () -> Unit
 ) {
@@ -205,7 +215,7 @@ private fun EpisodeCard(
             border = Border(
                 border = BorderStroke(
                     width = if (isLastWatched) 1.5.dp else 1.dp,
-                    color = if (isLastWatched) LumiereGold.copy(alpha = 0.8f) else SurfaceBorder
+                    color = if (isLastWatched) LumiereGold.copy(alpha = 0.8f) else if (isWatched) Color(0xFF10B981).copy(alpha = 0.5f) else SurfaceBorder
                 ),
                 shape = RoundedCornerShape(16.dp)
             )
@@ -233,6 +243,7 @@ private fun EpisodeCard(
                         model = thumbnailUrl,
                         contentDescription = episode.title,
                         contentScale = ContentScale.Crop,
+                        alpha = if (isWatched) 0.65f else 1.0f,
                         modifier = Modifier.fillMaxSize()
                     )
                 } else {
@@ -261,8 +272,24 @@ private fun EpisodeCard(
                     )
                 }
 
-                // Last Watched badge
-                if (isLastWatched) {
+                // Top-End Badge: Watched (Green) or Last Watched (Gold)
+                if (isWatched) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xFF10B981))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "✔ Просмотрено",
+                            fontSize = 10.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else if (isLastWatched) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopEnd)
@@ -276,6 +303,24 @@ private fun EpisodeCard(
                             fontSize = 10.sp,
                             color = BackgroundDark,
                             fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // Progress bar at the bottom of the thumbnail for partially watched episodes (> 3%)
+                if (!isWatched && progress > 0.03f) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .fillMaxWidth()
+                            .height(3.5.dp)
+                            .background(Color(0x80000000))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(fraction = progress.coerceIn(0f, 1f))
+                                .background(LumiereGold)
                         )
                     }
                 }

@@ -42,6 +42,7 @@ out.txt
 ~$*
 *.xlsx
 current_user_state.png
+/*.png
 
 # Python
 __pycache__/

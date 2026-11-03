@@ -107,10 +107,12 @@ fun ProfilesScreen(
 
         // PIN Dialog Modal
         if (state.selectedProfileForPin != null) {
+            val prof = state.selectedProfileForPin!!
             PinDialog(
-                profileName = state.selectedProfileForPin!!.name,
+                profileName = prof.name,
                 errorMessage = state.pinError,
                 onPinEntered = { pin -> viewModel.submitPin(pin, onProfileChosen) },
+                onUsePassword = { viewModel.switchToPasswordLogin(prof) },
                 onDismiss = { viewModel.dismissPinDialog() }
             )
         }
