@@ -33,6 +33,8 @@ class AppPreferences(private val context: Context) {
         private val KEY_LAST_WATCHED_MEDIA_TYPE = stringPreferencesKey("last_watched_media_type")
         private val KEY_LAST_WATCHED_POSITION = longPreferencesKey("last_watched_position")
         private val KEY_SEARCH_HISTORY = stringPreferencesKey("search_history_json")
+        private val KEY_PREFERRED_VOICEOVER = stringPreferencesKey("preferred_voiceover")
+        private val KEY_HOME_SHELVES = stringPreferencesKey("home_shelves_json")
     }
 
     private val safeData: Flow<Preferences> = context.dataStore.data.catch { exception ->
@@ -301,6 +303,79 @@ class AppPreferences(private val context: Context) {
     suspend fun clearSearchHistory() {
         context.dataStore.edit { prefs ->
             prefs.remove(KEY_SEARCH_HISTORY)
+        }
+    }
+
+    val preferredVoiceover: Flow<String?> = safeData.map { it[KEY_PREFERRED_VOICEOVER] }
+
+    suspend fun getPreferredVoiceover(): String {
+        return safeData.first()[KEY_PREFERRED_VOICEOVER].orEmpty()
+    }
+
+    suspend fun setPreferredVoiceover(voiceover: String) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_PREFERRED_VOICEOVER] = voiceover.trim()
+        }
+    }
+
+    val defaultHomeShelves = listOf(
+        com.lumiere.core.model.HomeShelfItem("continueWatching", "Продолжить просмотр", true),
+        com.lumiere.core.model.HomeShelfItem("recommendations", "Вам может понравиться", true),
+        com.lumiere.core.model.HomeShelfItem("trendingMovies", "В тренде (Фильмы)", true),
+        com.lumiere.core.model.HomeShelfItem("netflixMovies", "Топ фильмы Netflix", true),
+        com.lumiere.core.model.HomeShelfItem("popularMovies", "Популярные фильмы", true),
+        com.lumiere.core.model.HomeShelfItem("trendingTv", "В тренде (Сериалы)", true),
+        com.lumiere.core.model.HomeShelfItem("netflixTv", "Топ сериалы Netflix", true),
+        com.lumiere.core.model.HomeShelfItem("popularTv", "Популярные сериалы", true)
+    )
+
+    fun getHomeShelvesFlow(): Flow<List<com.lumiere.core.model.HomeShelfItem>> = safeData.map { prefs ->
+        val json = prefs[KEY_HOME_SHELVES]
+        if (!json.isNullOrBlank()) {
+            try {
+                val array = org.json.JSONArray(json)
+                val list = mutableListOf<com.lumiere.core.model.HomeShelfItem>()
+                for (i in 0 until array.length()) {
+                    val obj = array.getJSONObject(i)
+                    list.add(
+                        com.lumiere.core.model.HomeShelfItem(
+                            id = obj.getString("id"),
+                            label = obj.optString("label", ""),
+                            enabled = obj.optBoolean("enabled", true)
+                        )
+                    )
+                }
+                val existingIds = list.map { it.id }.toSet()
+                val merged = list.toMutableList()
+                for (def in defaultHomeShelves) {
+                    if (!existingIds.contains(def.id)) {
+                        merged.add(def)
+                    }
+                }
+                merged
+            } catch (_: Exception) {
+                defaultHomeShelves
+            }
+        } else {
+            defaultHomeShelves
+        }
+    }
+
+    suspend fun getHomeShelves(): List<com.lumiere.core.model.HomeShelfItem> {
+        return getHomeShelvesFlow().first()
+    }
+
+    suspend fun saveHomeShelves(shelves: List<com.lumiere.core.model.HomeShelfItem>) {
+        context.dataStore.edit { prefs ->
+            val array = org.json.JSONArray()
+            shelves.forEach { shelf ->
+                val obj = org.json.JSONObject()
+                obj.put("id", shelf.id)
+                obj.put("label", shelf.label)
+                obj.put("enabled", shelf.enabled)
+                array.put(obj)
+            }
+            prefs[KEY_HOME_SHELVES] = array.toString()
         }
     }
 }

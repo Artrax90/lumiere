@@ -76,5 +76,5 @@ conn.on('ready', () => {
   port: 22,
   username: 'artrax',
   password: 'ybeXAS9g3pvP',
-  readyTimeout: 10000,
+  readyTimeout: 30000,
 });

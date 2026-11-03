@@ -91,6 +91,7 @@ data class Title(
     val cast: List<CastMember> = emptyList(),
     val seasonsCount: Int? = null,
     val progress: Double? = null,
+    val episode: String? = null,
     val videoUrl: String? = null,
     val directUrl: String? = null,
     val hlsUrl: String? = null,
@@ -181,6 +182,7 @@ data class TorrentItem(
     val ripType: String? = null,
     val audio: String? = null,
     val voiceover: String? = null,
+    val isPreferredVoiceover: Boolean = false,
     val files: List<TorrentFile> = emptyList(),
     val date: String? = null
 )
@@ -564,6 +566,24 @@ data class MarkEpisodeWatchedRequest(
     val season: Int,
     val episode: Int,
     val completed: Boolean
+)
+
+@Serializable
+data class VoiceoverResponse(
+    val preferredVoiceover: String? = null,
+    val voiceover: String? = null
+)
+
+@Serializable
+data class VoiceoverRequest(
+    val preferredVoiceover: String
+)
+
+@Serializable
+data class HomeShelfItem(
+    val id: String,
+    val label: String,
+    val enabled: Boolean = true
 )
 
 

@@ -106,6 +106,23 @@ export function tvRoutes(app: FastifyInstance, provider: TmdbProvider) {
   app.get('/api/tv/genre/:genreId', getGenreTv);
   app.get('/api/catalog/genre/tv/:genreId', getGenreTv);
 
+  app.get('/api/tv/discover', async (req) => {
+    const { genre, year, page, sortBy, lang } = req.query as {
+      genre?: string;
+      year?: string;
+      page?: string;
+      sortBy?: string;
+      lang?: Lang;
+    };
+    return provider.discover('tv', {
+      genreId: genre ? parseInt(genre, 10) : undefined,
+      year: year ? parseInt(year, 10) : undefined,
+      page: page ? parseInt(page, 10) : 1,
+      sortBy,
+      lang,
+    });
+  });
+
   app.get('/api/tv/:id', async (req) => {
     const { id } = req.params as { id: string };
     const { lang } = req.query as { lang?: Lang };

@@ -144,6 +144,34 @@ export class TmdbProvider implements MetadataProvider {
     };
   }
 
+  async discover(
+    mediaType: 'movie' | 'tv',
+    options: { genreId?: number; year?: number; page?: number; lang?: Lang; sortBy?: string }
+  ): Promise<TitleResult> {
+    const params: Record<string, string> = {
+      sort_by: options.sortBy || 'popularity.desc',
+      page: String(options.page || 1),
+      language: this.client.lang(options.lang),
+    };
+    if (options.genreId) {
+      params.with_genres = String(options.genreId);
+    }
+    if (options.year) {
+      if (mediaType === 'movie') {
+        params.primary_release_year = String(options.year);
+      } else {
+        params.first_air_date_year = String(options.year);
+      }
+    }
+    const data = await this.client.get(`/discover/${mediaType}`, params);
+    return {
+      results: (data.results || []).map((t: TmdbTitle) => this.mapTitle(t, mediaType)),
+      page: data.page || 1,
+      totalPages: data.total_pages || 1,
+      totalResults: data.total_results || 0,
+    };
+  }
+
   private netflixWeeklyCache = new Map<string, { data: TitleResult; expires: number }>();
 
   async netflixTv(page = 1, lang?: Lang, period: 'week' | 'all_time' = 'week'): Promise<TitleResult> {
@@ -256,14 +284,34 @@ export class TmdbProvider implements MetadataProvider {
       page: String(page),
       language: this.client.lang(lang),
     });
-    const results = data.results
-      .filter((t: TmdbTitle) => t.media_type === 'movie' || t.media_type === 'tv')
-      .map((t: TmdbTitle) => this.mapTitle(t, t.media_type as 'movie' | 'tv'));
+    const results: Title[] = [];
+    const seen = new Set<string>();
+
+    for (const t of data.results || []) {
+      if (t.media_type === 'movie' || t.media_type === 'tv') {
+        const key = `${t.media_type}_${t.id}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          results.push(this.mapTitle(t, t.media_type as 'movie' | 'tv'));
+        }
+      } else if (t.media_type === 'person' && Array.isArray(t.known_for)) {
+        for (const k of t.known_for) {
+          if (k.media_type === 'movie' || k.media_type === 'tv') {
+            const key = `${k.media_type}_${k.id}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              results.push(this.mapTitle(k, k.media_type as 'movie' | 'tv'));
+            }
+          }
+        }
+      }
+    }
+
     return {
       results,
-      page: data.page,
-      totalPages: data.total_pages,
-      totalResults: data.total_results,
+      page: data.page || 1,
+      totalPages: data.total_pages || 1,
+      totalResults: data.total_results || results.length,
     };
   }
 

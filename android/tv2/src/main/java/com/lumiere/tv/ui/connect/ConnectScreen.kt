@@ -16,6 +16,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -24,6 +26,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.material3.*
 import com.lumiere.tv.theme.*
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -33,6 +36,16 @@ fun ConnectScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     var isManualMode by remember { mutableStateOf(false) }
+    val connectButtonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(state.discoveredServer, isManualMode) {
+        if (state.discoveredServer != null && !isManualMode) {
+            delay(150)
+            try {
+                connectButtonFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -126,7 +139,9 @@ fun ConnectScreen(
                             focusedContainerColor = Color.White,
                             focusedContentColor = BackgroundDark
                         ),
-                        modifier = Modifier.fillMaxWidth(0.8f)
+                        modifier = Modifier
+                            .fillMaxWidth(0.8f)
+                            .focusRequester(connectButtonFocusRequester)
                     ) {
                         Text("Подключиться", style = MaterialTheme.typography.labelLarge)
                     }

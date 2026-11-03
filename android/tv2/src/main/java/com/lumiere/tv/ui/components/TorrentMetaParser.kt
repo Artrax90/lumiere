@@ -69,7 +69,7 @@ object TorrentMetaParser {
         // 5. Voiceover & Dubbing Studios
         val voices = mutableListOf<String>()
 
-        if (Regex("""\b(дубляж|дублированный|dub|пд)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
+        if (Regex("""\b(дубляж|дублированный|dub|пд)\b|((^|[\s|\[(])d([\s|\]),:]|$))""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {
             voices.add("Дубляж")
         }
         if (Regex("""\b(mvo|мво|многоголосый|пм)\b""", RegexOption.IGNORE_CASE).containsMatchIn(combined)) {

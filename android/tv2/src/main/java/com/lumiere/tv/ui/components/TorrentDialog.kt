@@ -49,6 +49,13 @@ fun TorrentDialog(
         val coroutineScope = rememberCoroutineScope()
         val firstItemFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
+        LaunchedEffect(Unit) {
+            kotlinx.coroutines.delay(150)
+            try {
+                firstItemFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+
         androidx.activity.compose.BackHandler {
             if (listState.firstVisibleItemIndex > 0) {
                 coroutineScope.launch {
@@ -62,13 +69,26 @@ fun TorrentDialog(
             }
         }
 
-        var qualityFilter by remember { mutableStateOf("all") } // "all", "4k", "1080p", "720p"
+        var qualityFilter by remember { mutableStateOf("all") } // "all", "preferred", "4k", "1080p", "720p"
         var sortBy by remember { mutableStateOf("score") } // "score", "seeds", "date", "size"
+
+        val hasPreferredVoiceover = remember(torrents) { torrents.any { it.isPreferredVoiceover } }
+        val qualityOptions = remember(hasPreferredVoiceover) {
+            val base = mutableListOf("all" to "Все")
+            if (hasPreferredVoiceover) {
+                base.add("preferred" to "⭐ Любимая")
+            }
+            base.add("4k" to "4K")
+            base.add("1080p" to "1080p")
+            base.add("720p" to "720p")
+            base
+        }
 
         val filteredAndSortedTorrents = remember(torrents, qualityFilter, sortBy) {
             val list = torrents.filter { item ->
                 val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
                 when (qualityFilter) {
+                    "preferred" -> item.isPreferredVoiceover
                     "4k" -> meta.resolution == "4K UHD"
                     "1080p" -> meta.resolution == "1080p"
                     "720p" -> meta.resolution == "720p"
@@ -90,7 +110,8 @@ fun TorrentDialog(
                     val isHd = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
                                tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
                                tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265")) && !isLegacy
-                    (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0)
+                    val prefBonus = if (item.isPreferredVoiceover) 3000 else 0
+                    (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0) + prefBonus
                 }
             }
         }
@@ -185,12 +206,7 @@ fun TorrentDialog(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("Качество:", fontSize = 11.sp, color = TextMuted)
-                            listOf(
-                                "all" to "Все",
-                                "4k" to "4K",
-                                "1080p" to "1080p",
-                                "720p" to "720p"
-                            ).forEach { (id, label) ->
+                            qualityOptions.forEach { (id, label) ->
                                 val isSelected = qualityFilter == id
                                 val filterShape = RoundedCornerShape(8.dp)
                                 Button(
@@ -380,6 +396,15 @@ fun TorrentRowItem(
                             BadgePill(
                                 text = "✓ ТЕКУЩИЙ",
                                 bgColor = Color(0x33E8C170),
+                                borderColor = LumiereGold,
+                                textColor = LumiereGold
+                            )
+                        }
+
+                        if (item.isPreferredVoiceover) {
+                            BadgePill(
+                                text = "⭐ ЛЮБИМАЯ ОЗВУЧКА",
+                                bgColor = Color(0x33E5A93C),
                                 borderColor = LumiereGold,
                                 textColor = LumiereGold
                             )

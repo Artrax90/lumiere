@@ -710,6 +710,18 @@ fun DetailsScreen(
                                 )
                             } else {
                                 // Torrents Tab View with Filters & Sort
+                                val hasPreferredVoiceover = remember(state.torrents) { state.torrents.any { it.isPreferredVoiceover } }
+                                val qualityOptions = remember(hasPreferredVoiceover) {
+                                    val list = mutableListOf("all" to "Все")
+                                    if (hasPreferredVoiceover) {
+                                        list.add("preferred" to "⭐ Любимая")
+                                    }
+                                    list.add("4k" to "4K")
+                                    list.add("1080p" to "1080p")
+                                    list.add("720p" to "720p")
+                                    list
+                                }
+
                                 val filteredTorrents = remember(state.torrents, qualityFilter, sortBy, state.selectedSeason) {
                                     val seasonList = if (mediaType == "tv" && state.selectedSeason > 0) {
                                         val filtered = state.torrents.filter { item ->
@@ -723,6 +735,7 @@ fun DetailsScreen(
                                     var list = seasonList.filter { item ->
                                         val meta = TorrentMetaParser.parse(item.title, item.audio, item.quality)
                                         when (qualityFilter) {
+                                            "preferred" -> item.isPreferredVoiceover
                                             "4k" -> meta.resolution == "4K UHD"
                                             "1080p" -> meta.resolution == "1080p"
                                             "720p" -> meta.resolution == "720p"
@@ -747,7 +760,8 @@ fun DetailsScreen(
                                             val isHd = (tLower.contains("1080") || tLower.contains("720") || tLower.contains("2160") ||
                                                        tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
                                                        tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265")) && !isLegacy
-                                            (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0)
+                                            val prefBonus = if (item.isPreferredVoiceover) 3000 else 0
+                                            (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0) + prefBonus
                                         }
                                     }
                                 }
@@ -773,12 +787,7 @@ fun DetailsScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Text("Качество:", fontSize = 11.sp, color = TextMuted)
-                                                listOf(
-                                                    "all" to "Все",
-                                                    "4k" to "4K",
-                                                    "1080p" to "1080p",
-                                                    "720p" to "720p"
-                                                ).forEach { (id, label) ->
+                                                qualityOptions.forEach { (id, label) ->
                                                     val isSelected = qualityFilter == id
                                                     val filterShape = RoundedCornerShape(8.dp)
                                                     Button(
@@ -1046,6 +1055,23 @@ fun DetailsScreen(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
+                                if (torrent.isPreferredVoiceover) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(5.dp))
+                                            .background(Color(0x33E5A93C))
+                                            .border(1.dp, LumiereGold, RoundedCornerShape(5.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = "⭐ ЛЮБИМАЯ ОЗВУЧКА",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = LumiereGold
+                                        )
+                                    }
+                                }
+
                                 // Translation / Voice Studio Badges (most important!)
                                 val voices = meta.voices.ifEmpty {
                                     listOfNotNull(torrent.voiceover)

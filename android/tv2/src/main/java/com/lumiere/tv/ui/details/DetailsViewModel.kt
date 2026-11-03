@@ -357,9 +357,39 @@ class DetailsViewModel(
 
                 android.util.Log.d("LumiereDetails", "Torrents search finished: found ${list.size} torrents for $titleName")
 
+                // Mark preferred voiceover
+                val prefVoiceover = preferences.getPreferredVoiceover().trim().lowercase()
+                val mappedList = if (prefVoiceover.isNotBlank()) {
+                    list.map { t ->
+                        val tLower = t.title.lowercase()
+                        val aLower = (t.audio ?: "").lowercase()
+                        val vLower = (t.voiceover ?: "").lowercase()
+                        val meta = com.lumiere.tv.ui.components.TorrentMetaParser.parse(t.title, t.audio, t.quality)
+                        val voiceMatch = meta.voices.any { v ->
+                            v.lowercase().contains(prefVoiceover) || prefVoiceover.contains(v.lowercase())
+                        }
+                        val matches = voiceMatch || when {
+                            prefVoiceover == "дубляж" -> tLower.contains("дубляж") || tLower.contains("dubi") || aLower.contains("дубляж") ||
+                                    Regex("""(^|[\s|\[(])(d|пд)([\s|\]),:]|$)""", RegexOption.IGNORE_CASE).containsMatchIn(tLower)
+                            prefVoiceover.contains("red head sound") || prefVoiceover == "rhs" -> tLower.contains("red head sound") || tLower.contains("rhs")
+                            prefVoiceover.contains("lostfilm") -> tLower.contains("lostfilm")
+                            prefVoiceover.contains("hdrezka") -> tLower.contains("hdrezka") || tLower.contains("rezka")
+                            prefVoiceover.contains("кубик") -> tLower.contains("кубик") || tLower.contains("kubik")
+                            prefVoiceover.contains("пифагор") -> tLower.contains("пифагор")
+                            prefVoiceover.contains("newstudio") -> tLower.contains("newstudio")
+                            prefVoiceover.contains("tvshows") -> tLower.contains("tvshows")
+                            prefVoiceover.contains("кураж") -> tLower.contains("кураж") || tLower.contains("kuraj")
+                            else -> tLower.contains(prefVoiceover) || aLower.contains(prefVoiceover) || vLower.contains(prefVoiceover)
+                        }
+                        t.copy(isPreferredVoiceover = matches)
+                    }
+                } else {
+                    list
+                }
+
                 // Detect true seasons count across all torrents
                 if (mediaType == "tv") {
-                    val detectedMaxSeason = com.lumiere.tv.ui.components.TorrentMetaParser.detectMaxSeason(list, year)
+                    val detectedMaxSeason = com.lumiere.tv.ui.components.TorrentMetaParser.detectMaxSeason(mappedList, year)
                     val currentCount = _uiState.value.title?.seasonsCount ?: 1
                     if (detectedMaxSeason > currentCount) {
                         android.util.Log.d("LumiereDetails", "Updating seasonsCount from $currentCount to $detectedMaxSeason for $titleName")
@@ -367,7 +397,7 @@ class DetailsViewModel(
                     }
                 }
 
-                _uiState.update { it.copy(isSearchingTorrents = false, torrents = list) }
+                _uiState.update { it.copy(isSearchingTorrents = false, torrents = mappedList) }
 
                 // If currently viewed season has no episodes or has synthetic episodes, update them now with torrents info
                 if (mediaType == "tv") {

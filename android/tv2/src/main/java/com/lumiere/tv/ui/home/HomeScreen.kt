@@ -96,24 +96,50 @@ fun HomeScreen(
             .fillMaxSize()
             .background(BackgroundDark)
     ) {
-        val (activeFirstRowState, activeFirstRowFocusRequester) = when {
-            state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME ->
-                continueWatchingState to continueWatchingFocusRequester
-            state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME ->
-                recommendationsState to recommendationsFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.trendingMovies.isNotEmpty() ->
-                trendingMoviesState to trendingMoviesFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.netflixMovies.isNotEmpty() ->
-                netflixMoviesState to netflixMoviesFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) && state.popularMovies.isNotEmpty() ->
-                popularMoviesState to popularMoviesFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.netflixSeries.isNotEmpty() ->
-                netflixSeriesState to netflixSeriesFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.trendingSeries.isNotEmpty() ->
-                trendingSeriesState to trendingSeriesFocusRequester
-            (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) && state.popularSeries.isNotEmpty() ->
-                popularSeriesState to popularSeriesFocusRequester
-            else -> null to null
+        val enabledShelves = remember(state.shelves) {
+            val list = state.shelves.filter { it.enabled }
+            if (list.isNotEmpty()) list else listOf(
+                com.lumiere.core.model.HomeShelfItem("continueWatching", "Продолжить просмотр", true),
+                com.lumiere.core.model.HomeShelfItem("recommendations", "✨ Вам может понравиться", true),
+                com.lumiere.core.model.HomeShelfItem("trendingMovies", "В тренде (Фильмы)", true),
+                com.lumiere.core.model.HomeShelfItem("netflixMovies", "Топ фильмы Netflix", true),
+                com.lumiere.core.model.HomeShelfItem("popularMovies", "Популярные фильмы", true),
+                com.lumiere.core.model.HomeShelfItem("netflixTv", "Топ сериалы Netflix", true),
+                com.lumiere.core.model.HomeShelfItem("trendingTv", "Популярные сериалы", true),
+                com.lumiere.core.model.HomeShelfItem("popularTv", "Новые сезоны", true)
+            )
+        }
+
+        val (activeFirstRowState, activeFirstRowFocusRequester) = run {
+            for (shelf in enabledShelves) {
+                when (shelf.id) {
+                    "continueWatching" -> if (state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME) {
+                        return@run continueWatchingState to continueWatchingFocusRequester
+                    }
+                    "recommendations" -> if (state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME) {
+                        return@run recommendationsState to recommendationsFocusRequester
+                    }
+                    "trendingMovies" -> if (state.trendingMovies.isNotEmpty()) {
+                        return@run trendingMoviesState to trendingMoviesFocusRequester
+                    }
+                    "netflixMovies" -> if (state.netflixMovies.isNotEmpty()) {
+                        return@run netflixMoviesState to netflixMoviesFocusRequester
+                    }
+                    "popularMovies" -> if (state.popularMovies.isNotEmpty()) {
+                        return@run popularMoviesState to popularMoviesFocusRequester
+                    }
+                    "netflixTv" -> if (state.netflixSeries.isNotEmpty()) {
+                        return@run netflixSeriesState to netflixSeriesFocusRequester
+                    }
+                    "trendingTv" -> if (state.trendingSeries.isNotEmpty()) {
+                        return@run trendingSeriesState to trendingSeriesFocusRequester
+                    }
+                    "popularTv" -> if (state.popularSeries.isNotEmpty()) {
+                        return@run popularSeriesState to popularSeriesFocusRequester
+                    }
+                }
+            }
+            null to null
         }
 
         // Persistent Top Bar
@@ -167,145 +193,158 @@ fun HomeScreen(
                 .padding(top = 16.dp, bottom = 48.dp),
             verticalArrangement = Arrangement.spacedBy(32.dp)
         ) {
-
-            // Continue Watching Row
-            if (state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME) {
-                MediaRow(
-                    title = "Продолжить просмотр",
-                    items = state.continueWatching,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = continueWatchingState,
-                    firstItemFocusRequester = continueWatchingFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
-            }
-
-            // Personalized Recommendations: "✨ Вам может понравиться" (based on watched history)
-            if (state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME) {
-                MediaRow(
-                    title = "✨ Вам может понравиться",
-                    subtitle = "На основе просмотренных вами фильмов и сериалов",
-                    items = state.recommendations,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = recommendationsState,
-                    firstItemFocusRequester = recommendationsFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
-            }
-
-            // Movies filter or Home
-            if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.MOVIES) {
-                // Trending Movies
-                MediaRow(
-                    title = "В тренде (Фильмы)",
-                    subtitle = "Самое популярное прямо сейчас",
-                    items = state.trendingMovies,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = trendingMoviesState,
-                    firstItemFocusRequester = trendingMoviesFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
-
-                // Netflix Movies Row with interactive Week / All Time switcher
-                if (state.netflixMovies.isNotEmpty()) {
-                    val subtitle = if (state.netflixMoviesPeriod == "week") {
-                        "Главные кинохиты и оригинальные премьеры этой недели"
-                    } else {
-                        "Культовые шедевры мирового кино с признанием зрителей"
-                    }
-                    MediaRow(
-                        title = "Топ фильмы Netflix",
-                        subtitle = subtitle,
-                        items = state.netflixMovies,
-                        resolvePosterUrl = resolvePosterUrl,
-                        onTitleClick = onTitleClick,
-                        badgeText = "NETFLIX",
-                        headerAction = {
-                            NetflixPeriodSwitcher(
-                                selectedPeriod = state.netflixMoviesPeriod,
-                                onSelectPeriod = { period ->
-                                    viewModel.setNetflixMoviesPeriod(period)
-                                    coroutineScope.launch {
-                                        try { netflixMoviesState.scrollToItem(0) } catch (_: Exception) {}
-                                    }
-                                }
+            enabledShelves.forEach { shelf ->
+                when (shelf.id) {
+                    "continueWatching" -> {
+                        if (state.continueWatching.isNotEmpty() && currentTab == TvNavDestination.HOME) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Продолжить просмотр" },
+                                items = state.continueWatching,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = continueWatchingState,
+                                firstItemFocusRequester = continueWatchingFocusRequester,
+                                upFocusRequester = homeFocusRequester
                             )
-                        },
-                        rowState = netflixMoviesState,
-                        firstItemFocusRequester = netflixMoviesFocusRequester,
-                        upFocusRequester = homeFocusRequester
-                    )
-                }
-
-                // Popular Movies
-                MediaRow(
-                    title = "Популярные фильмы",
-                    items = state.popularMovies,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = popularMoviesState,
-                    firstItemFocusRequester = popularMoviesFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
-            }
-
-            // Series filter or Home
-            if (currentTab == TvNavDestination.HOME || currentTab == TvNavDestination.SERIES) {
-                // Netflix Series Row with interactive Week / All Time switcher
-                if (state.netflixSeries.isNotEmpty()) {
-                    val subtitle = if (state.netflixSeriesPeriod == "week") {
-                        "Горячие тренды и самые обсуждаемые сериалы прямо сейчас"
-                    } else {
-                        "Легендарные рекордсмены по просмотрам и рейтингу за всё время"
+                        }
                     }
-                    MediaRow(
-                        title = "Топ сериалы Netflix",
-                        subtitle = subtitle,
-                        items = state.netflixSeries,
-                        resolvePosterUrl = resolvePosterUrl,
-                        onTitleClick = onTitleClick,
-                        badgeText = "NETFLIX",
-                        headerAction = {
-                            NetflixPeriodSwitcher(
-                                selectedPeriod = state.netflixSeriesPeriod,
-                                onSelectPeriod = { period ->
-                                    viewModel.setNetflixSeriesPeriod(period)
-                                    coroutineScope.launch {
-                                        try { netflixSeriesState.scrollToItem(0) } catch (_: Exception) {}
-                                    }
-                                }
+
+                    "recommendations" -> {
+                        if (state.recommendations.isNotEmpty() && currentTab == TvNavDestination.HOME) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "✨ Вам может понравиться" },
+                                subtitle = "На основе просмотренных вами фильмов и сериалов",
+                                items = state.recommendations,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = recommendationsState,
+                                firstItemFocusRequester = recommendationsFocusRequester,
+                                upFocusRequester = homeFocusRequester
                             )
-                        },
-                        rowState = netflixSeriesState,
-                        firstItemFocusRequester = netflixSeriesFocusRequester,
-                        upFocusRequester = homeFocusRequester
-                    )
+                        }
+                    }
+
+                    "trendingMovies" -> {
+                        if (state.trendingMovies.isNotEmpty()) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "В тренде (Фильмы)" },
+                                subtitle = "Самое популярное прямо сейчас",
+                                items = state.trendingMovies,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = trendingMoviesState,
+                                firstItemFocusRequester = trendingMoviesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
+
+                    "netflixMovies" -> {
+                        if (state.netflixMovies.isNotEmpty()) {
+                            val subtitle = if (state.netflixMoviesPeriod == "week") {
+                                "Главные кинохиты и оригинальные премьеры этой недели"
+                            } else {
+                                "Культовые шедевры мирового кино с признанием зрителей"
+                            }
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Топ фильмы Netflix" },
+                                subtitle = subtitle,
+                                items = state.netflixMovies,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                badgeText = "NETFLIX",
+                                headerAction = {
+                                    NetflixPeriodSwitcher(
+                                        selectedPeriod = state.netflixMoviesPeriod,
+                                        onSelectPeriod = { period ->
+                                            viewModel.setNetflixMoviesPeriod(period)
+                                            coroutineScope.launch {
+                                                try { netflixMoviesState.scrollToItem(0) } catch (_: Exception) {}
+                                            }
+                                        }
+                                    )
+                                },
+                                rowState = netflixMoviesState,
+                                firstItemFocusRequester = netflixMoviesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
+
+                    "popularMovies" -> {
+                        if (state.popularMovies.isNotEmpty()) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Популярные фильмы" },
+                                items = state.popularMovies,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = popularMoviesState,
+                                firstItemFocusRequester = popularMoviesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
+
+                    "netflixTv" -> {
+                        if (state.netflixSeries.isNotEmpty()) {
+                            val subtitle = if (state.netflixSeriesPeriod == "week") {
+                                "Горячие тренды и самые обсуждаемые сериалы прямо сейчас"
+                            } else {
+                                "Легендарные рекордсмены по просмотрам и рейтингу за всё время"
+                            }
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Топ сериалы Netflix" },
+                                subtitle = subtitle,
+                                items = state.netflixSeries,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                badgeText = "NETFLIX",
+                                headerAction = {
+                                    NetflixPeriodSwitcher(
+                                        selectedPeriod = state.netflixSeriesPeriod,
+                                        onSelectPeriod = { period ->
+                                            viewModel.setNetflixSeriesPeriod(period)
+                                            coroutineScope.launch {
+                                                try { netflixSeriesState.scrollToItem(0) } catch (_: Exception) {}
+                                            }
+                                        }
+                                    )
+                                },
+                                rowState = netflixSeriesState,
+                                firstItemFocusRequester = netflixSeriesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
+
+                    "trendingTv" -> {
+                        if (state.trendingSeries.isNotEmpty()) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Популярные сериалы" },
+                                items = state.trendingSeries,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = trendingSeriesState,
+                                firstItemFocusRequester = trendingSeriesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
+
+                    "popularTv" -> {
+                        if (state.popularSeries.isNotEmpty()) {
+                            MediaRow(
+                                title = shelf.label.ifBlank { "Новые сезоны" },
+                                items = state.popularSeries,
+                                resolvePosterUrl = resolvePosterUrl,
+                                onTitleClick = onTitleClick,
+                                rowState = popularSeriesState,
+                                firstItemFocusRequester = popularSeriesFocusRequester,
+                                upFocusRequester = homeFocusRequester
+                            )
+                        }
+                    }
                 }
-
-                // Trending Series
-                MediaRow(
-                    title = "Популярные сериалы",
-                    items = state.trendingSeries,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = trendingSeriesState,
-                    firstItemFocusRequester = trendingSeriesFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
-
-                // Top Rated Series
-                MediaRow(
-                    title = "Новые сезоны",
-                    items = state.popularSeries,
-                    resolvePosterUrl = resolvePosterUrl,
-                    onTitleClick = onTitleClick,
-                    rowState = popularSeriesState,
-                    firstItemFocusRequester = popularSeriesFocusRequester,
-                    upFocusRequester = homeFocusRequester
-                )
             }
         }
     }

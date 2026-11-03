@@ -29,6 +29,8 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
 
+import kotlinx.coroutines.isActive
+
 private fun Context.findActivity(): Activity? {
     var ctx = this
     while (ctx is ContextWrapper) {
@@ -82,11 +84,25 @@ fun PlayerScreen(
     val totalBottomButtons = 5 + (if (hasAudio) 1 else 0) + (if (hasSubs) 1 else 0)
 
     val context = LocalContext.current
-    DisposableEffect(context) {
-        val activity = context.findActivity()
-        activity?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+    DisposableEffect(Unit) {
+        val window = context.findActivity()?.window
+        window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        window?.decorView?.keepScreenOn = true
         onDispose {
-            activity?.window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            window?.decorView?.keepScreenOn = false
+        }
+    }
+
+    LaunchedEffect(isPlaying) {
+        val window = context.findActivity()?.window
+        while (isActive) {
+            if (isPlaying) {
+                window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                window?.decorView?.keepScreenOn = true
+            }
+            kotlinx.coroutines.delay(20_000L)
         }
     }
 
@@ -350,13 +366,19 @@ fun PlayerScreen(
                     useController = false
                     keepScreenOn = true
                     setShutterBackgroundColor(android.graphics.Color.BLACK)
+                    (videoSurfaceView as? android.view.SurfaceView)?.keepScreenOn = true
                     layoutParams = ViewGroup.LayoutParams(
                         ViewGroup.LayoutParams.MATCH_PARENT,
                         ViewGroup.LayoutParams.MATCH_PARENT
                     )
                 }
             },
+            update = { playerView ->
+                playerView.keepScreenOn = true
+                (playerView.videoSurfaceView as? android.view.SurfaceView)?.keepScreenOn = true
+            },
             onRelease = { playerView ->
+                playerView.keepScreenOn = false
                 playerView.player = null
             },
             modifier = Modifier.fillMaxSize()

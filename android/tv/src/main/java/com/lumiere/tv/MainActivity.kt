@@ -97,6 +97,21 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val intentRoute = intent?.getStringExtra("route")
+                val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = currentBackStackEntry?.destination?.route
+
+                DisposableEffect(currentRoute) {
+                    val isPlayback = currentRoute?.startsWith("player") == true || currentRoute?.startsWith("iptv") == true
+                    if (isPlayback) {
+                        window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        window.decorView.keepScreenOn = true
+                    } else {
+                        window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                        window.decorView.keepScreenOn = false
+                    }
+                    onDispose { }
+                }
+
                 LaunchedEffect(intentRoute, startDestination) {
                     if (!intentRoute.isNullOrBlank() && startDestination == Screen.Home.route) {
                         try {

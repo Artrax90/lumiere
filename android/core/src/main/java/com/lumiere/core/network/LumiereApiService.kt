@@ -93,6 +93,24 @@ interface LumiereApiService {
         @Query("lang") lang: String = "ru"
     ): TitleListResponse
 
+    @GET("/api/movies/discover")
+    suspend fun discoverMovies(
+        @Query("genre") genre: Int? = null,
+        @Query("year") year: Int? = null,
+        @Query("sortBy") sortBy: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("lang") lang: String = "ru"
+    ): TitleListResponse
+
+    @GET("/api/tv/discover")
+    suspend fun discoverTv(
+        @Query("genre") genre: Int? = null,
+        @Query("year") year: Int? = null,
+        @Query("sortBy") sortBy: String? = null,
+        @Query("page") page: Int = 1,
+        @Query("lang") lang: String = "ru"
+    ): TitleListResponse
+
     @GET("/api/movies/{id}/recommendations")
     suspend fun getMovieRecommendations(
         @Path("id") id: Long,
@@ -274,5 +292,11 @@ interface LumiereApiService {
     suspend fun markEpisodeWatched(
         @Body request: MarkEpisodeWatchedRequest
     ): SimpleActionResponse
+
+    @GET("/api/user/voiceover")
+    suspend fun getPreferredVoiceover(): VoiceoverResponse
+
+    @POST("/api/user/voiceover")
+    suspend fun setPreferredVoiceover(@Body request: VoiceoverRequest): VoiceoverResponse
 }
 

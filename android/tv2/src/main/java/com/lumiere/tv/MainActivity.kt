@@ -54,13 +54,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val currentIntentRoute = mutableStateOf<String?>(null)
+
     override fun onNewIntent(intent: android.content.Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        currentIntentRoute.value = intent.getStringExtra("route")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        currentIntentRoute.value = intent?.getStringExtra("route")
 
         val preferences = AppPreferences(applicationContext)
 
@@ -96,14 +100,18 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                val intentRoute = intent?.getStringExtra("route")
+                val intentRoute by currentIntentRoute
                 LaunchedEffect(intentRoute, startDestination) {
-                    if (!intentRoute.isNullOrBlank() && startDestination == Screen.Home.route) {
+                    val route = intentRoute
+                    if (!route.isNullOrBlank() && startDestination == Screen.Home.route) {
                         try {
-                            navController.navigate(intentRoute)
+                            navController.navigate(route) {
+                                launchSingleTop = true
+                            }
                         } catch (e: Exception) {
-                            android.util.Log.e("LumiereTV", "Failed to navigate to intentRoute: $intentRoute", e)
+                            android.util.Log.e("LumiereTV", "Failed to navigate to intentRoute: $route", e)
                         }
+                        currentIntentRoute.value = null
                     }
                 }
 

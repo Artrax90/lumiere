@@ -34,7 +34,8 @@ data class HomeUiState(
     val profileName: String? = null,
     val profileAvatar: String? = null,
     val unreadNotificationsCount: Int = 0,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val shelves: List<com.lumiere.core.model.HomeShelfItem> = emptyList()
 ) {
     val netflixMovies: List<Title>
         get() = if (netflixMoviesPeriod == "all_time") netflixMoviesAllTime else netflixMoviesWeek
@@ -53,6 +54,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         loadHomeData()
+        observeHomeShelves()
+    }
+
+    private fun observeHomeShelves() {
+        viewModelScope.launch {
+            preferences.getHomeShelvesFlow().collect { list ->
+                _uiState.update { it.copy(shelves = list) }
+            }
+        }
     }
 
     fun setNetflixMoviesPeriod(period: String) {
