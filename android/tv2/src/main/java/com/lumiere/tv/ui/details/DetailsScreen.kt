@@ -34,6 +34,7 @@ import com.lumiere.core.model.Title
 import com.lumiere.tv.theme.*
 import com.lumiere.tv.ui.components.SeasonPicker
 import com.lumiere.tv.ui.components.TorrentDialog
+import com.lumiere.tv.ui.components.TorrentFilesDialog
 import com.lumiere.tv.ui.components.TorrentMetaParser
 import com.lumiere.tv.ui.components.TorrentRowItem
 import com.lumiere.tv.ui.components.DetailSpecsBlock
@@ -964,6 +965,26 @@ fun DetailsScreen(
                     }
                 },
                 onDismiss = { viewModel.dismissTorrentDialog() }
+            )
+        }
+
+        if (state.showFilesDialog && state.filesDialogTorrent != null) {
+            val currentTorrent = state.filesDialogTorrent!!
+            TorrentFilesDialog(
+                torrent = currentTorrent,
+                files = state.torrentFiles,
+                onFileSelected = { file ->
+                    viewModel.playTorrentFile(file, currentTorrent) { streamUrl, playTitle, subtitle, isHls ->
+                        val meta = com.lumiere.tv.ui.components.TorrentMetaParser.parseFileMeta(file)
+                        val sNum = meta.season ?: state.selectedSeason
+                        val eNum = meta.episode ?: 1
+                        val startPos = if (sNum == state.selectedSeason && eNum == state.lastWatchedEpisodeNum) {
+                            (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                        } else 0L
+                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title?.poster.orEmpty(), sNum, eNum)
+                    }
+                },
+                onDismiss = { viewModel.dismissFilesDialog() }
             )
         }
 

@@ -361,14 +361,7 @@ object TorrentMetaParser {
         if (torrentTitle.isBlank() || epNum <= 0) return true
         val lower = torrentTitle.lowercase()
 
-        // Exact match e.g. "s02e05", "2x05", "s02.e05"
-        val exactRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)0?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
-        val mExact = exactRegex.find(lower)
-        if (mExact != null) {
-            return mExact.groupValues.getOrNull(1)?.toIntOrNull() == epNum
-        }
-
-        // Range e.g. "s02e01-10", "2x01-08"
+        // 1. Range e.g. "s02e01-10", "2x01-08", "[05x01-08]"
         val rangeRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)\s*0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b""", RegexOption.IGNORE_CASE)
         val mRange = rangeRegex.find(lower)
         if (mRange != null) {
@@ -377,12 +370,19 @@ object TorrentMetaParser {
             return epNum in rStart..rEnd
         }
 
-        // Russian range: "1-10 серии", "1-10 выпуск"
+        // 2. Russian range: "1-10 серии", "1-10 выпуск"
         val ruRange = Regex("""\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)""", RegexOption.IGNORE_CASE).find(lower)
         if (ruRange != null) {
             val rStart = ruRange.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
             val rEnd = ruRange.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
             return epNum in rStart..rEnd
+        }
+
+        // 3. Exact single episode match e.g. "s02e05", "2x05", "s02.e05" (excluding ranges)
+        val exactRegex = Regex("""(?:\b0?$seasonNum[xх]|s0?$seasonNum[._\-\s]*e)0?(\d{1,3})(?!\s*[-–—]\s*\d+)\b""", RegexOption.IGNORE_CASE)
+        val mExact = exactRegex.find(lower)
+        if (mExact != null) {
+            return mExact.groupValues.getOrNull(1)?.toIntOrNull() == epNum
         }
 
         return true

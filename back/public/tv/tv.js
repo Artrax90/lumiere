@@ -6131,7 +6131,8 @@
       nameStr = fileOrName.split('/').pop().split('\\').pop() || fileOrName;
     } else if (fileOrName && typeof fileOrName === 'object') {
       pathStr = fileOrName.path || fileOrName.name || '';
-      nameStr = fileOrName.name || (fileOrName.path ? fileOrName.path.split('/').pop().split('\\').pop() : '');
+      var rawName = fileOrName.name || fileOrName.path || '';
+      nameStr = rawName.split('/').pop().split('\\').pop() || rawName;
     }
 
     var nameLower = (nameStr || '').toLowerCase();
@@ -6151,6 +6152,14 @@
       if (m) {
         season = parseInt(m[1], 10);
         episode = parseInt(m[2], 10);
+      }
+    }
+
+    // Standalone season in filename (e.g. S05)
+    if (season == null) {
+      var sAlone = nameLower.match(/(?:^|[\s._\-])[sS]0?(\d{1,2})(?:[\s._\-]|$)/);
+      if (sAlone) {
+        season = parseInt(sAlone[1], 10);
       }
     }
 
@@ -7365,27 +7374,7 @@
     var s = torrentTitle.toLowerCase();
     var epPadded = (epNum < 10 ? '0' + epNum : '' + epNum);
 
-    // 1. Single episode exact patterns: e.g. 22x13, 22х13, s22e13
-    var singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})\\b', 'i');
-    var mSingle = s.match(singleEpReg);
-    if (mSingle) {
-      var foundEp = parseInt(mSingle[1], 10);
-      if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
-      return { matches: false, score: -1000, mismatch: true };
-    }
-
-    // 2. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск'
-    var singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})\\b', 'i');
-    var mRu = s.match(singleRuReg);
-    if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
-      var foundRuEp = parseInt(mRu[1], 10);
-      if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
-      if (s.indexOf('сезон') !== -1 || s.indexOf('season') !== -1) {
-        return { matches: false, score: -1000, mismatch: true };
-      }
-    }
-
-    // 3. Episode range: 22x01-11, 22х01-15, s22e01-10
+    // 1. Episode range: 22x01-11, 22х01-15, s22e01-10 (CHECK RANGE FIRST!)
     var rangeReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)\\s*0?(\\d{1,3})\\s*[-–—]\\s*0?(\\d{1,3})\\b', 'i');
     var mRange = s.match(rangeReg);
     if (mRange) {
@@ -7395,7 +7384,7 @@
       return { matches: false, score: -1000, range: true };
     }
 
-    // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
+    // 2. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
     var ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
     if (ruRange) {
       var rStart = parseInt(ruRange[1], 10);
@@ -7405,6 +7394,26 @@
       }
       if (epNum >= rStart && epNum <= rEnd) return { matches: true, score: 500, range: true };
       return { matches: false, score: -1000, range: true };
+    }
+
+    // 3. Single episode exact patterns: e.g. 22x13, 22х13, s22e13 (guarded against ranges)
+    var singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})(?!\\s*[-–—]\\s*\\d+)\\b', 'i');
+    var mSingle = s.match(singleEpReg);
+    if (mSingle) {
+      var foundEp = parseInt(mSingle[1], 10);
+      if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
+      return { matches: false, score: -1000, mismatch: true };
+    }
+
+    // 4. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск'
+    var singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})\\b', 'i');
+    var mRu = s.match(singleRuReg);
+    if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
+      var foundRuEp = parseInt(mRu[1], 10);
+      if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
+      if (s.indexOf('сезон') !== -1 || s.indexOf('season') !== -1) {
+        return { matches: false, score: -1000, mismatch: true };
+      }
     }
 
     // General season pack without explicit episode numbers (e.g. "Сезон 22")

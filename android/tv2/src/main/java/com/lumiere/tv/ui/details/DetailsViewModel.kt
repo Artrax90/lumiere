@@ -40,7 +40,10 @@ data class DetailsUiState(
     val lastPlayedTorrentMagnet: String? = null,
     val lastPlayedTorrentTitle: String? = null,
     val watchedEpisodes: Set<String> = emptySet(),
-    val episodeProgress: Map<String, Float> = emptyMap()
+    val episodeProgress: Map<String, Float> = emptyMap(),
+    val torrentFiles: List<TorrentFile> = emptyList(),
+    val showFilesDialog: Boolean = false,
+    val filesDialogTorrent: TorrentItem? = null
 )
 
 class DetailsViewModel(
@@ -516,6 +519,49 @@ class DetailsViewModel(
         _uiState.update { it.copy(showTorrentDialog = false, selectedEpisode = null) }
     }
 
+    fun dismissFilesDialog() {
+        _uiState.update { it.copy(showFilesDialog = false, torrentFiles = emptyList(), filesDialogTorrent = null) }
+    }
+
+    fun playTorrentFile(
+        file: TorrentFile,
+        torrent: TorrentItem,
+        onStreamReady: (streamUrl: String, title: String, subtitle: String, isHls: Boolean) -> Unit
+    ) {
+        viewModelScope.launch {
+            _uiState.update { it.copy(showFilesDialog = false, isStartingStream = true, activeTorrent = torrent) }
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            val rel = file.streamUrl ?: file.directUrl ?: file.hlsUrl
+            if (!rel.isNullOrBlank()) {
+                val fullUrl = if (rel.startsWith("http://") || rel.startsWith("https://")) rel else "$serverUrl$rel"
+                val meta = com.lumiere.tv.ui.components.TorrentMetaParser.parseFileMeta(file)
+                val sNum = meta.season ?: _uiState.value.selectedSeason
+                val eNum = meta.episode ?: 1
+                val titleName = _uiState.value.title?.name.orEmpty()
+                val playTitle = if (titleName.isNotBlank()) "$titleName · S${sNum} E$eNum" else torrent.title
+                val subTitle = "Сезон $sNum, Серия $eNum"
+                val isHls = fullUrl.contains(".m3u8")
+
+                if (meta.episode != null) {
+                    preferences.setLastWatchedSeries(mediaId, sNum, eNum)
+                    _uiState.update { it.copy(selectedSeason = sNum, lastWatchedEpisodeNum = eNum) }
+                }
+                preferences.setLastPlayedTorrent(mediaId, sNum, torrent.magnet, torrent.title)
+
+                _uiState.update {
+                    it.copy(
+                        isStartingStream = false,
+                        lastPlayedTorrentMagnet = torrent.magnet,
+                        lastPlayedTorrentTitle = torrent.title
+                    )
+                }
+                onStreamReady(fullUrl, playTitle, subTitle, isHls)
+            } else {
+                _uiState.update { it.copy(isStartingStream = false, errorMessage = "Не удалось запустить файл") }
+            }
+        }
+    }
+
     fun dismissStartingStream() {
         _uiState.update { it.copy(isStartingStream = false, activeTorrent = null) }
     }
@@ -558,49 +604,107 @@ class DetailsViewModel(
 
                 val ep = _uiState.value.selectedEpisode
                 val seasonNum = (ep?.season?.takeIf { it > 0 }) ?: _uiState.value.selectedSeason
-                val file = if (ep != null && streamInfo.files.isNotEmpty()) {
-                    com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
-                        files = streamInfo.files,
+                val videoExtensions = listOf(".mkv", ".mp4", ".avi", ".ts", ".m4v", ".webm")
+                val videoFiles = streamInfo.files.filter { f ->
+                    videoExtensions.any { ext -> f.name.lowercase().endsWith(ext) }
+                }.ifEmpty { streamInfo.files }
+
+                if (ep != null) {
+                    val file = com.lumiere.tv.ui.components.TorrentMetaParser.findMatchingFile(
+                        files = videoFiles,
                         season = seasonNum,
                         episode = ep.episode
-                    ) ?: streamInfo.files.firstOrNull()
-                } else {
-                    streamInfo.files.firstOrNull()
-                }
+                    ) ?: videoFiles.firstOrNull()
 
-                val relativeUrl = file?.streamUrl ?: file?.directUrl ?: file?.hlsUrl
+                    val relativeUrl = file?.streamUrl ?: file?.directUrl ?: file?.hlsUrl
+                    if (relativeUrl.isNullOrBlank()) {
+                        _uiState.update {
+                            it.copy(
+                                isStartingStream = false,
+                                errorMessage = streamInfo.error ?: "В торренте не найдены видеофайлы"
+                            )
+                        }
+                        return@launch
+                    }
 
-                if (relativeUrl.isNullOrBlank()) {
+                    val fullUrl = if (relativeUrl.startsWith("http")) relativeUrl else "$serverUrl$relativeUrl"
+                    val playTitle = _uiState.value.title?.name ?: torrent.title
+                    val subTitle = "Сезон ${ep.season}, Серия ${ep.episode}: ${ep.title.orEmpty()}"
+
+                    preferences.setLastWatchedSeries(mediaId, ep.season, ep.episode)
+                    _uiState.update { it.copy(selectedSeason = ep.season, lastWatchedEpisodeNum = ep.episode) }
+
+                    val curSeason = ep.season
+                    preferences.setLastPlayedTorrent(mediaId, curSeason, torrent.magnet, torrent.title)
+
                     _uiState.update {
                         it.copy(
                             isStartingStream = false,
-                            errorMessage = streamInfo.error ?: "В торренте не найдены видеофайлы"
+                            showTorrentDialog = false,
+                            lastPlayedTorrentMagnet = torrent.magnet,
+                            lastPlayedTorrentTitle = torrent.title
                         )
                     }
-                    return@launch
+                    onStreamReady(fullUrl, playTitle, subTitle, relativeUrl.contains(".m3u8"))
+                } else if (videoFiles.size > 1) {
+                    val curSeason = if (mediaType == "tv") _uiState.value.selectedSeason else 0
+                    preferences.setLastPlayedTorrent(mediaId, curSeason, torrent.magnet, torrent.title)
+                    _uiState.update {
+                        it.copy(
+                            isStartingStream = false,
+                            showTorrentDialog = false,
+                            showFilesDialog = true,
+                            torrentFiles = videoFiles,
+                            filesDialogTorrent = torrent,
+                            lastPlayedTorrentMagnet = torrent.magnet,
+                            lastPlayedTorrentTitle = torrent.title
+                        )
+                    }
+                } else {
+                    val file = videoFiles.firstOrNull() ?: run {
+                        _uiState.update {
+                            it.copy(
+                                isStartingStream = false,
+                                errorMessage = streamInfo.error ?: "В торренте не найдены видеофайлы"
+                            )
+                        }
+                        return@launch
+                    }
+                    val relativeUrl = file.streamUrl ?: file.directUrl ?: file.hlsUrl
+                    if (relativeUrl.isNullOrBlank()) {
+                        _uiState.update {
+                            it.copy(
+                                isStartingStream = false,
+                                errorMessage = streamInfo.error ?: "В торренте не найдены видеофайлы"
+                            )
+                        }
+                        return@launch
+                    }
+
+                    val fullUrl = if (relativeUrl.startsWith("http")) relativeUrl else "$serverUrl$relativeUrl"
+                    val playTitle = _uiState.value.title?.name ?: torrent.title
+                    val meta = com.lumiere.tv.ui.components.TorrentMetaParser.parseFileMeta(file)
+                    val sNum = meta.season ?: seasonNum
+                    val subTitle = if (meta.episode != null) "Сезон $sNum, Серия ${meta.episode}" else ""
+
+                    if (meta.episode != null) {
+                        preferences.setLastWatchedSeries(mediaId, sNum, meta.episode)
+                        _uiState.update { it.copy(selectedSeason = sNum, lastWatchedEpisodeNum = meta.episode) }
+                    }
+
+                    val curSeason = if (mediaType == "tv") sNum else 0
+                    preferences.setLastPlayedTorrent(mediaId, curSeason, torrent.magnet, torrent.title)
+
+                    _uiState.update {
+                        it.copy(
+                            isStartingStream = false,
+                            showTorrentDialog = false,
+                            lastPlayedTorrentMagnet = torrent.magnet,
+                            lastPlayedTorrentTitle = torrent.title
+                        )
+                    }
+                    onStreamReady(fullUrl, playTitle, subTitle, relativeUrl.contains(".m3u8"))
                 }
-
-                val fullUrl = if (relativeUrl.startsWith("http")) relativeUrl else "$serverUrl$relativeUrl"
-                val playTitle = _uiState.value.title?.name ?: torrent.title
-                val subTitle = if (ep != null) "Сезон ${ep.season}, Серия ${ep.episode}: ${ep.title.orEmpty()}" else ""
-
-                if (ep != null) {
-                    preferences.setLastWatchedSeries(mediaId, ep.season, ep.episode)
-                    _uiState.update { it.copy(selectedSeason = ep.season, lastWatchedEpisodeNum = ep.episode) }
-                }
-
-                val curSeason = ep?.season ?: if (mediaType == "tv") _uiState.value.selectedSeason else 0
-                preferences.setLastPlayedTorrent(mediaId, curSeason, torrent.magnet, torrent.title)
-
-                _uiState.update {
-                    it.copy(
-                        isStartingStream = false,
-                        showTorrentDialog = false,
-                        lastPlayedTorrentMagnet = torrent.magnet,
-                        lastPlayedTorrentTitle = torrent.title
-                    )
-                }
-                onStreamReady(fullUrl, playTitle, subTitle, relativeUrl.contains(".m3u8"))
             } catch (e: Exception) {
                 _uiState.update {
                     it.copy(

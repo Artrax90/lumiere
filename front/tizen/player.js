@@ -89,7 +89,8 @@
       nameStr = fileOrName.split('/').pop().split('\\').pop() || fileOrName;
     } else if (fileOrName && typeof fileOrName === 'object') {
       pathStr = fileOrName.path || fileOrName.name || '';
-      nameStr = fileOrName.name || (fileOrName.path ? fileOrName.path.split('/').pop().split('\\').pop() : '');
+      var rawName = fileOrName.name || fileOrName.path || '';
+      nameStr = rawName.split('/').pop().split('\\').pop() || rawName;
     }
 
     var nameLower = (nameStr || '').toLowerCase();
@@ -109,6 +110,14 @@
       if (m) {
         season = parseInt(m[1], 10);
         episode = parseInt(m[2], 10);
+      }
+    }
+
+    // Standalone season in filename (e.g. S05)
+    if (season == null) {
+      var sAlone = nameLower.match(/(?:^|[\s._\-])[sS]0?(\d{1,2})(?:[\s._\-]|$)/);
+      if (sAlone) {
+        season = parseInt(sAlone[1], 10);
       }
     }
 

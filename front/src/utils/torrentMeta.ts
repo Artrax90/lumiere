@@ -647,27 +647,7 @@ export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epN
   if (!torrentTitle || !epNum) return { matches: true, score: 0 };
   const s = torrentTitle.toLowerCase();
 
-  // 1. Single episode exact patterns: e.g. 22x13, 22х13, s22e13, s22.e13
-  const singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})\\b', 'i');
-  const mSingle = s.match(singleEpReg);
-  if (mSingle) {
-    const foundEp = parseInt(mSingle[1], 10);
-    if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
-    return { matches: false, score: -1000, mismatch: true };
-  }
-
-  // 2. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск'
-  const singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})\\b', 'i');
-  const mRu = s.match(singleRuReg);
-  if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
-    const foundRuEp = parseInt(mRu[1], 10);
-    if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
-    if (s.includes('сезон') || s.includes('season')) {
-      return { matches: false, score: -1000, mismatch: true };
-    }
-  }
-
-  // 3. Episode range: 22x01-11, 22х01-15, s22e01-10
+  // 1. Episode range: 22x01-11, 22х01-15, s22e01-10, [05x01-08]
   const rangeReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)\\s*0?(\\d{1,3})\\s*[-–—]\\s*0?(\\d{1,3})\\b', 'i');
   const mRange = s.match(rangeReg);
   if (mRange) {
@@ -677,7 +657,7 @@ export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epN
     return { matches: false, score: -1000, range: true };
   }
 
-  // 4. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
+  // 2. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
   const ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
   if (ruRange) {
     const rStart = parseInt(ruRange[1], 10);
@@ -690,6 +670,26 @@ export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epN
     return { matches: false, score: -1000, range: true };
   }
 
+  // 3. Single episode exact patterns: e.g. 22x13, 22х13, s22e13, s22.e13 (excluding ranges)
+  const singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})(?!\\s*[-–—]\\s*\\d+)\\b', 'i');
+  const mSingle = s.match(singleEpReg);
+  if (mSingle) {
+    const foundEp = parseInt(mSingle[1], 10);
+    if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
+    return { matches: false, score: -1000, mismatch: true };
+  }
+
+  // 4. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск' (excluding ranges)
+  const singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})(?!\\s*[-–—]\\s*\\d+)\\b', 'i');
+  const mRu = s.match(singleRuReg);
+  if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
+    const foundRuEp = parseInt(mRu[1], 10);
+    if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
+    if (s.includes('сезон') || s.includes('season')) {
+      return { matches: false, score: -1000, mismatch: true };
+    }
+  }
+
   // 5. General season pack without explicit episode numbers (e.g. "Сезон 22")
   return { matches: true, score: 100, general: true };
 }
@@ -699,7 +699,8 @@ export function checkTorrentEpisode(torrentTitle: string, seasonNum: number, epN
  */
 export function extractEpisodeNumber(fileName: string, fallbackIndex = 0, seasonNum?: number): number {
   if (!fileName) return fallbackIndex + 1;
-  const s = fileName.toLowerCase();
+  const cleanName = fileName.split('/').pop()?.split('\\').pop() || fileName;
+  const s = cleanName.toLowerCase();
 
   // S01E05 or S1E5 or s01.e05
   let m = s.match(/[sS]\d{1,2}[._\-\s]*[eE](\d{1,3})\b/);
