@@ -173,13 +173,13 @@ fun PlayerScreen(
                         return@onPreviewKeyEvent true
                     }
                     KeyEvent.KEYCODE_MEDIA_FAST_FORWARD, KeyEvent.KEYCODE_MEDIA_STEP_FORWARD -> {
-                        player.seekRelative(10000L)
+                        viewModel.onUserSeek(10000L)
                         viewModel.showControls()
                         activeZone = PlayerZone.TIMELINE
                         return@onPreviewKeyEvent true
                     }
                     KeyEvent.KEYCODE_MEDIA_REWIND, KeyEvent.KEYCODE_MEDIA_STEP_BACKWARD -> {
-                        player.seekRelative(-10000L)
+                        viewModel.onUserSeek(-10000L)
                         viewModel.showControls()
                         activeZone = PlayerZone.TIMELINE
                         return@onPreviewKeyEvent true
@@ -245,13 +245,13 @@ fun PlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                            player.seekRelative(-10000L)
+                            viewModel.onUserSeek(-10000L)
                             viewModel.showControls()
                             activeZone = PlayerZone.TIMELINE
                             true
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                            player.seekRelative(10000L)
+                            viewModel.onUserSeek(10000L)
                             viewModel.showControls()
                             activeZone = PlayerZone.TIMELINE
                             true
@@ -277,11 +277,11 @@ fun PlayerScreen(
                                 PlayerZone.TIMELINE -> {
                                     when (code) {
                                         KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                            player.seekRelative(-10000L)
+                                            viewModel.onUserSeek(-10000L)
                                             true
                                         }
                                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                            player.seekRelative(10000L)
+                                            viewModel.onUserSeek(10000L)
                                             true
                                         }
                                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
@@ -321,9 +321,9 @@ fun PlayerScreen(
                                         KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
                                             when (bottomBtnIndex) {
                                                 0 -> viewModel.previousEpisodeOrStart()
-                                                1 -> player.seekRelative(-10000L)
+                                                1 -> viewModel.onUserSeek(-10000L)
                                                 2 -> player.togglePlayPause()
-                                                3 -> player.seekRelative(10000L)
+                                                3 -> viewModel.onUserSeek(10000L)
                                                 4 -> viewModel.nextEpisodeOrEnd()
                                                 audioBtnIndex -> {
                                                     popupType = "audio"
@@ -453,6 +453,30 @@ fun PlayerScreen(
             }
         }
 
+        // Dynamic Center OSD Seek Badge
+        val currentSeekTarget = uiState.seekTargetMs
+        if (uiState.isSeeking && currentSeekTarget != null) {
+            val sign = if (uiState.seekDeltaSec > 0) "+" else ""
+            val arrow = if (uiState.seekDeltaSec < 0) "◄◄" else "►►"
+            val formattedTarget = formatTime(currentSeekTarget)
+            val deltaText = "$arrow $sign${uiState.seekDeltaSec} сек ($formattedTarget)"
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Color(0xE605070B))
+                    .border(1.5.dp, com.lumiere.tv.theme.LumiereGold, RoundedCornerShape(14.dp))
+                    .padding(horizontal = 28.dp, vertical = 14.dp)
+            ) {
+                androidx.tv.material3.Text(
+                    text = deltaText,
+                    color = com.lumiere.tv.theme.LumiereGold,
+                    style = androidx.tv.material3.MaterialTheme.typography.titleMedium,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                )
+            }
+        }
+
         // TV Controls Overlay
         PlayerControlsOverlay(
             isVisible = uiState.isControlsVisible,
@@ -460,7 +484,7 @@ fun PlayerScreen(
             subtitle = displaySubtitle,
             isPlaying = isPlaying,
             isBuffering = isBuffering,
-            positionMs = positionMs,
+            positionMs = if (uiState.isSeeking && currentSeekTarget != null) currentSeekTarget else positionMs,
             durationMs = durationMs,
             bufferedMs = bufferedMs,
             torrServerStats = uiState.torrServerStats,
@@ -471,7 +495,7 @@ fun PlayerScreen(
             popupType = popupType,
             popupIndex = popupIndex,
             onPlayPauseClick = { player.togglePlayPause() },
-            onSeekRelative = { offset -> player.seekRelative(offset) },
+            onSeekRelative = { offset -> viewModel.onUserSeek(offset) },
             onPreviousClick = { viewModel.previousEpisodeOrStart() },
             onNextClick = { viewModel.nextEpisodeOrEnd() },
             onAudioTrackSelect = { idx -> player.selectAudioTrack(idx) },

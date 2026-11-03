@@ -20,7 +20,10 @@ data class PlayerUiState(
     val currentTitle: String = "",
     val currentSubtitle: String = "",
     val isSwitchingEpisode: Boolean = false,
-    val statusMessage: String? = null
+    val statusMessage: String? = null,
+    val isSeeking: Boolean = false,
+    val seekTargetMs: Long? = null,
+    val seekDeltaSec: Long = 0L
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -62,6 +65,74 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     maxPositionSec = sec
                 }
             }
+        }
+    }
+
+    private var seekDebounceJob: Job? = null
+    private var currentSeekTargetMs: Long = 0L
+    private var accumulatedSeekDeltaSec: Long = 0L
+    private var lastSeekPressTime: Long = 0L
+
+    fun onUserSeek(deltaMs: Long) {
+        val now = System.currentTimeMillis()
+        val dur = player.durationMs.value
+        val maxPos = if (dur > 0L) dur else Long.MAX_VALUE
+
+        val timeSinceLast = now - lastSeekPressTime
+        lastSeekPressTime = now
+        val effectiveDeltaMs = if (timeSinceLast in 1..300) {
+            val absDelta = kotlin.math.abs(accumulatedSeekDeltaSec)
+            val mult = if (absDelta >= 180) 4L
+                       else if (absDelta >= 60) 2L
+                       else 1L
+            deltaMs * mult
+        } else {
+            deltaMs
+        }
+
+        if (!_uiState.value.isSeeking) {
+            currentSeekTargetMs = player.positionMs.value
+            accumulatedSeekDeltaSec = 0L
+        }
+
+        accumulatedSeekDeltaSec += (effectiveDeltaMs / 1000L)
+        val newTarget = (currentSeekTargetMs + effectiveDeltaMs).coerceIn(0L, maxPos)
+        currentSeekTargetMs = newTarget
+
+        _uiState.update {
+            it.copy(
+                isSeeking = true,
+                seekTargetMs = newTarget,
+                seekDeltaSec = accumulatedSeekDeltaSec
+            )
+        }
+        showControls()
+
+        seekDebounceJob?.cancel()
+        seekDebounceJob = viewModelScope.launch {
+            delay(400L)
+            val target = currentSeekTargetMs
+            player.seekTo(target)
+            delay(250L)
+            _uiState.update { it.copy(isSeeking = false, seekTargetMs = null, seekDeltaSec = 0L) }
+            scheduleControlsHide(4000L)
+        }
+    }
+
+    private fun resolveDirectTorrServerUrl(url: String, serverUrl: String): String {
+        if (!url.contains("/api/torrents/proxy")) return url
+        if (url.startsWith("https://")) return url
+        return try {
+            val uri = android.net.Uri.parse(url)
+            val host = uri.host ?: android.net.Uri.parse(serverUrl).host ?: return url
+            val link = uri.getQueryParameter("link") ?: return url
+            val index = uri.getQueryParameter("index") ?: "0"
+            val fileName = uri.pathSegments.lastOrNull()?.takeIf { it != "proxy" } ?: "video.mkv"
+            val encodedFile = java.net.URLEncoder.encode(fileName, "UTF-8")
+            val encodedLink = java.net.URLEncoder.encode(link, "UTF-8")
+            "http://$host:8590/stream/$encodedFile?link=$encodedLink&index=$index&play"
+        } catch (_: Exception) {
+            url
         }
     }
 
@@ -107,8 +178,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
             if (initialSeek > 0L) {
                 maxPositionSec = initialSeek / 1000L
             }
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            val effectiveUrl = resolveDirectTorrServerUrl(streamUrl, serverUrl)
+            android.util.Log.i("PlayerViewModel", "Resolved playback stream URL: $effectiveUrl")
             player.prepare(
-                streamUrl = streamUrl,
+                streamUrl = effectiveUrl,
                 isHls = isHls,
                 startPositionMs = initialSeek,
                 isLive = (mediaType == "iptv")

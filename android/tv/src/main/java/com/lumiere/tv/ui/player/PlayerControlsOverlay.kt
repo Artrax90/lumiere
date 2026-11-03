@@ -573,7 +573,7 @@ private fun TrackItemRow(
     }
 }
 
-private fun formatTime(ms: Long): String {
+internal fun formatTime(ms: Long): String {
     val totalSec = (ms / 1000).coerceAtLeast(0L)
     val h = totalSec / 3600
     val m = (totalSec % 3600) / 60

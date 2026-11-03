@@ -12,6 +12,7 @@ import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.LoadControl
+import androidx.media3.exoplayer.SeekParameters
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.audio.AudioSink
 import androidx.media3.exoplayer.audio.DefaultAudioSink
@@ -122,10 +123,10 @@ class LumierePlayer(
     // and 2s back-buffer discard to prevent cumulative heap accumulation.
     private val loadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            /* minBufferMs = */ 3000,
-            /* maxBufferMs = */ 15000,
-            /* bufferForPlaybackMs = */ 1000,
-            /* bufferForPlaybackAfterRebufferMs = */ 2000
+            /* minBufferMs = */ 2000,
+            /* maxBufferMs = */ 20000,
+            /* bufferForPlaybackMs = */ 500,
+            /* bufferForPlaybackAfterRebufferMs = */ 1000
         )
         .setTargetBufferBytes(32 * 1024 * 1024)
         .setPrioritizeTimeOverSizeThresholds(true)
@@ -137,6 +138,7 @@ class LumierePlayer(
 
     val exoPlayer: ExoPlayer = ExoPlayer.Builder(context, renderersFactory)
         .setLoadControl(loadControl)
+        .setSeekParameters(SeekParameters.CLOSEST_SYNC)
         .setTrackSelector(trackSelector)
         .setAudioAttributes(
             AudioAttributes.Builder()
@@ -151,7 +153,14 @@ class LumierePlayer(
     var mediaSession: androidx.media3.session.MediaSession? = null
         private set
 
-    private val okHttpDataSourceFactory = OkHttpDataSource.Factory(okHttpClient)
+    private val mediaOkHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .connectTimeout(10, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .connectionPool(okhttp3.ConnectionPool(8, 5, java.util.concurrent.TimeUnit.MINUTES))
+        .retryOnConnectionFailure(true)
+        .build()
+
+    private val okHttpDataSourceFactory = OkHttpDataSource.Factory(mediaOkHttpClient)
         .setUserAgent("LumiereTV/1.0 ExoPlayer")
 
     private val dataSourceFactory = DefaultDataSource.Factory(context, okHttpDataSourceFactory)
@@ -211,6 +220,8 @@ class LumierePlayer(
         }
 
         exoPlayer.addListener(object : Player.Listener {
+            private var autoRetryCount = 0
+
             override fun onIsPlayingChanged(isPlaying: Boolean) {
                 _isPlaying.value = isPlaying
             }
@@ -218,6 +229,7 @@ class LumierePlayer(
             override fun onPlaybackStateChanged(state: Int) {
                 _playbackState.value = state
                 if (state == Player.STATE_READY) {
+                    autoRetryCount = 0
                     val realDur = exoPlayer.duration
                     if (realDur > 1000L) {
                         _durationMs.value = realDur
@@ -264,6 +276,25 @@ class LumierePlayer(
                         android.util.Log.e("LumierePlayer", "Failed to seek to live default position: ${e.message}")
                     }
                 }
+
+                val currentPos = _positionMs.value.takeIf { it > 0L } ?: exoPlayer.currentPosition.coerceAtLeast(0L)
+                if (currentPos > 0L && autoRetryCount < 3) {
+                    autoRetryCount++
+                    android.util.Log.w("LumierePlayer", "Auto-recovering from playback error at $currentPos ms (attempt $autoRetryCount/3)...")
+                    scope.launch {
+                        delay(600L)
+                        try {
+                            exoPlayer.seekTo(currentPos)
+                            exoPlayer.prepare()
+                            exoPlayer.play()
+                        } catch (e: Exception) {
+                            android.util.Log.e("LumierePlayer", "Auto-recovery failed: ${e.message}")
+                            _playbackState.value = Player.STATE_IDLE
+                        }
+                    }
+                    return
+                }
+
                 _playbackState.value = Player.STATE_IDLE
             }
         })
