@@ -491,6 +491,37 @@ data class UserHistoryResponse(
 )
 
 @Serializable
+data class GenreStatItem(
+    val name: String,
+    val count: Int = 0,
+    val pct: Int = 100
+)
+
+@Serializable
+data class DeviceStatItem(
+    val type: String = "tv",
+    val name: String = "Smart TV",
+    val count: Int = 0,
+    val seconds: Long = 0L
+)
+
+@Serializable
+data class UserStatsResponse(
+    val success: Boolean = true,
+    val totalWatchSeconds: Long = 0L,
+    val totalWatchMinutes: Long = 0L,
+    val totalWatchHours: Double = 0.0,
+    val watchedCount: Int = 0,
+    val moviesCount: Int = 0,
+    val seriesCount: Int = 0,
+    val episodesCount: Int = 0,
+    val favoritesCount: Int = 0,
+    val primaryDevice: String = "Smart TV",
+    val favoriteGenres: List<GenreStatItem> = emptyList(),
+    val devices: List<DeviceStatItem> = emptyList()
+)
+
+@Serializable
 data class DiskInfo(
     val free: String? = null,
     val total: String? = null

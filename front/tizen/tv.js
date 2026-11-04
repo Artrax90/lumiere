@@ -10156,70 +10156,71 @@
       $emailSub.textContent = (user && user.email) ? user.email : '';
     }
 
-    // Calculate stats from playback_positions
-    var positions = {};
-    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
-
-    var totalSeconds = 0;
-    var watchedCount = 0;
-    var genreCounts = {};
-
-    for (var k in positions) {
-      if (!positions.hasOwnProperty(k)) continue;
-      var pos = positions[k];
-      if (!pos) continue;
-      var t = typeof pos === 'object' ? (pos.time || 0) : Number(pos);
-      if (t > 15) {
-        watchedCount++;
-        var dur = (typeof pos === 'object' && pos.duration > 0) ? pos.duration : 7200;
-        totalSeconds += Math.min(t, dur);
-
-        // Track genres if available
-        if (typeof pos === 'object' && pos.title && Array.isArray(pos.title.genres)) {
-          pos.title.genres.forEach(function(g) {
+    function applyStats(stats) {
+      if (!stats) return;
+      if ($statHours) {
+        var hrs = stats.totalWatchHours !== undefined ? stats.totalWatchHours : (stats.totalWatchSeconds / 3600);
+        $statHours.textContent = hrs >= 1 ? (hrs.toFixed(1) + ' ч') : (Math.round((stats.totalWatchSeconds || 0) / 60) + ' мин');
+      }
+      if ($statCount) {
+        var cntText = stats.watchedCount || 0;
+        if (stats.moviesCount > 0 || stats.seriesCount > 0) {
+          cntText = stats.watchedCount + ' (' + (stats.moviesCount || 0) + ' филм. / ' + (stats.episodesCount || stats.seriesCount || 0) + ' сер.)';
+        }
+        $statCount.textContent = cntText;
+      }
+      if ($statDevice) {
+        var dName = stats.primaryDevice || (window.tizen ? 'Samsung Tizen TV' : 'Samsung Smart TV');
+        $statDevice.textContent = dName;
+      }
+      if ($genresList) {
+        if (Array.isArray(stats.favoriteGenres) && stats.favoriteGenres.length > 0) {
+          var gHtml = '';
+          stats.favoriteGenres.forEach(function(g) {
             var gName = typeof g === 'object' ? (g.name || '') : g;
-            if (gName) {
-              genreCounts[gName] = (genreCounts[gName] || 0) + 1;
-            }
+            var gCount = typeof g === 'object' ? (g.count || 0) : 1;
+            var gPct = typeof g === 'object' ? (g.pct || 100) : 100;
+            gHtml += '<div class="profile-genre-row">' +
+              '<span class="profile-genre-name">' + esc(gName) + '</span>' +
+              '<div class="profile-genre-bar-wrap"><div class="profile-genre-bar" style="width:' + gPct + '%"></div></div>' +
+              '<span class="profile-genre-count">' + gCount + '</span>' +
+              '</div>';
           });
+          $genresList.innerHTML = gHtml;
+        } else {
+          $genresList.innerHTML = '<div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>';
         }
       }
     }
 
-    if ($statHours) {
-      var hrs = (totalSeconds / 3600);
-      $statHours.textContent = hrs >= 1 ? (hrs.toFixed(1) + ' ч') : (Math.round(totalSeconds / 60) + ' мин');
-    }
-    if ($statCount) {
-      $statCount.textContent = watchedCount;
-    }
-    if ($statDevice) {
-      var dName = 'Samsung Smart TV';
-      if (window.tizen) dName = 'Samsung Tizen TV';
-      $statDevice.textContent = dName;
-    }
-
-    if ($genresList) {
-      var sortedGenres = Object.keys(genreCounts).sort(function(a, b) {
-        return genreCounts[b] - genreCounts[a];
-      });
-      if (sortedGenres.length > 0) {
-        var maxG = genreCounts[sortedGenres[0]] || 1;
-        var gHtml = '';
-        sortedGenres.slice(0, 5).forEach(function(g) {
-          var count = genreCounts[g];
-          var pct = Math.round((count / maxG) * 100);
-          gHtml += '<div class="profile-genre-row">' +
-            '<span class="profile-genre-name">' + esc(g) + '</span>' +
-            '<div class="profile-genre-bar-wrap"><div class="profile-genre-bar" style="width:' + pct + '%"></div></div>' +
-            '<span class="profile-genre-count">' + count + '</span>' +
-            '</div>';
-        });
-        $genresList.innerHTML = gHtml;
+    // 1. Fetch unified synchronized stats from backend
+    apiFetch('/api/user/stats', function(err, serverStats) {
+      if (!err && serverStats && serverStats.success) {
+        applyStats(serverStats);
       } else {
-        $genresList.innerHTML = '<div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>';
+        // Fallback to local playback_positions if server offline
+        var positions = {};
+        try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+        var totalSec = 0, count = 0;
+        for (var k in positions) {
+          if (!positions.hasOwnProperty(k)) continue;
+          var pos = positions[k];
+          if (!pos) continue;
+          var t = typeof pos === 'object' ? (pos.time || 0) : Number(pos);
+          if (t > 15) {
+            count++;
+            var dur = (typeof pos === 'object' && pos.duration > 0) ? pos.duration : 7200;
+            totalSec += Math.min(t, dur);
+          }
+        }
+        applyStats({
+          totalWatchSeconds: totalSec,
+          totalWatchHours: totalSec / 3600,
+          watchedCount: count,
+          favoriteGenres: []
+        });
       }
-    }
+    });
   }
 
   // ========== D-pad Navigation ==========
@@ -11034,6 +11035,12 @@
         return;
       }
       if (isUp) {
+        var secPr = document.getElementById('sec-profile');
+        if (secPr && secPr.scrollTop > 50) {
+          secPr.scrollTop = Math.max(0, secPr.scrollTop - 180);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
         focusedProfileBtn.classList.remove('focused');
         focusNav(state.focusedNav);
         if (e && e.preventDefault) e.preventDefault();
@@ -11045,6 +11052,10 @@
         return;
       }
       if (isDown) {
+        var secPr = document.getElementById('sec-profile');
+        if (secPr) {
+          secPr.scrollTop = Math.min(secPr.scrollTop + 180, secPr.scrollHeight);
+        }
         if (e && e.preventDefault) e.preventDefault();
         return;
       }

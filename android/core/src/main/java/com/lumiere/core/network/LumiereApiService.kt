@@ -260,6 +260,9 @@ interface LumiereApiService {
     @GET("/api/user/history")
     suspend fun getUserHistory(): UserHistoryResponse
 
+    @GET("/api/user/stats")
+    suspend fun getUserStats(@Query("userId") userId: Long? = null): UserStatsResponse
+
     @GET("/api/downloads/server/list")
     suspend fun getServerDownloads(): ServerDownloadsResponse
 

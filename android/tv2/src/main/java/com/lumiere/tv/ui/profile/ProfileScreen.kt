@@ -3,6 +3,8 @@ package com.lumiere.tv.ui.profile
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -232,7 +235,9 @@ fun ProfileScreen(
         ) {
             if (selectedTab == "overview") {
                 Column(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .verticalScroll(rememberScrollState()),
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Text(
@@ -244,30 +249,106 @@ fun ProfileScreen(
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        val hours = state.totalWatchMinutes / 60
-                        val mins = state.totalWatchMinutes % 60
-                        val timeStr = if (hours > 0) "${hours}ч ${mins}м" else "${mins} мин"
+                        val timeStr = if (state.totalWatchHours >= 1.0) {
+                            "${state.totalWatchHours} ч"
+                        } else {
+                            "${state.totalWatchMinutes} мин"
+                        }
 
                         StatCard(
                             modifier = Modifier.weight(1f),
                             icon = Icons.Default.Schedule,
                             value = timeStr,
-                            label = "Общее время просмотра"
+                            label = "Время просмотра"
                         )
+
+                        val countLabel = if (state.moviesCount > 0 || state.episodesCount > 0) {
+                            "${state.moviesCount} филм. / ${state.episodesCount} сер."
+                        } else {
+                            "Фильмов и серий"
+                        }
                         StatCard(
                             modifier = Modifier.weight(1f),
                             icon = Icons.Default.PlayArrow,
                             value = "${state.watchedTitlesCount}",
-                            label = "Просмотрено фильмов и серий"
+                            label = countLabel
                         )
+
+                        StatCard(
+                            modifier = Modifier.weight(1f),
+                            icon = Icons.Default.Tv,
+                            value = state.primaryDevice,
+                            label = "Устройство"
+                        )
+
                         StatCard(
                             modifier = Modifier.weight(1f),
                             icon = Icons.Default.Bookmark,
                             value = "${state.favorites.size}",
-                            label = "В закладках и избранном"
+                            label = "В избранном"
                         )
+                    }
+
+                    // Любимые жанры
+                    if (state.favoriteGenres.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(SurfaceDark)
+                                .border(1.dp, SurfaceBorder, RoundedCornerShape(14.dp))
+                                .padding(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Text(
+                                text = "Любимые жанры",
+                                style = MaterialTheme.typography.titleMedium,
+                                color = TextPrimary,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                state.favoriteGenres.forEach { g ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        Text(
+                                            text = g.name,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Medium,
+                                            color = TextPrimary,
+                                            modifier = Modifier.width(140.dp)
+                                        )
+                                        Box(
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .height(8.dp)
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0x22FFFFFF))
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxHeight()
+                                                    .fillMaxWidth(fraction = (g.pct / 100f).coerceIn(0.05f, 1f))
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(LumiereGold)
+                                            )
+                                        }
+                                        Text(
+                                            text = "${g.count}",
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = LumiereGold,
+                                            modifier = Modifier.width(36.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             } else {
@@ -315,23 +396,36 @@ private fun StatCard(
             .clip(RoundedCornerShape(12.dp))
             .background(SurfaceDark)
             .border(1.dp, SurfaceBorder, RoundedCornerShape(12.dp))
-            .padding(18.dp),
+            .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
+                .size(42.dp)
                 .clip(CircleShape)
                 .background(Color(0x22E8C170)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(imageVector = icon, contentDescription = null, tint = LumiereGold, modifier = Modifier.size(22.dp))
+            Icon(imageVector = icon, contentDescription = null, tint = LumiereGold, modifier = Modifier.size(20.dp))
         }
 
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(text = value, fontSize = 20.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
-            Text(text = label, fontSize = 11.sp, color = TextSecondary)
+            Text(
+                text = value,
+                fontSize = if (value.length > 12) 15.sp else 19.sp,
+                fontWeight = FontWeight.Bold,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
+            Text(
+                text = label,
+                fontSize = 11.sp,
+                color = TextSecondary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+            )
         }
     }
 }

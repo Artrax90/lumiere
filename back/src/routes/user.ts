@@ -733,6 +733,186 @@ export function userRoutes(app: FastifyInstance) {
     return { success: true };
   });
 
+  // Get aggregated watch statistics for the current user
+  app.get('/api/user/stats', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
+    const queryUserId = (request.query as any)?.userId;
+    const userId = request.user?.userId || (queryUserId ? Number(queryUserId) : 1);
+
+    try {
+      // 1. Playback history stats
+      const playRes = await pool.query(
+        `SELECT
+           COALESCE(SUM(watched_seconds), 0)::bigint AS total_watch_seconds,
+           COUNT(DISTINCT COALESCE(NULLIF(media_id, ''), media_title))::int AS unique_titles_count,
+           COUNT(*)::int AS total_sessions,
+           COUNT(DISTINCT CASE WHEN media_type = 'movie' THEN COALESCE(NULLIF(media_id, ''), media_title) END)::int AS movies_count,
+           COUNT(DISTINCT CASE WHEN media_type = 'tv' THEN COALESCE(NULLIF(media_id, ''), media_title) END)::int AS series_count,
+           COUNT(CASE WHEN media_type = 'tv' THEN 1 END)::int AS episodes_count
+         FROM playback_history
+         WHERE user_id = $1 AND (watched_seconds >= 15 OR media_type = 'iptv')`,
+        [userId]
+      );
+      const playStats = playRes.rows[0] || {};
+
+      // 2. Watch history stats
+      const watchRes = await pool.query(
+        `SELECT
+           COUNT(DISTINCT tmdb_id)::int AS watch_hist_count,
+           COALESCE(SUM(CASE WHEN progress > 0 THEN progress ELSE 0 END), 0)::bigint AS watch_hist_seconds
+         FROM watch_history
+         WHERE user_id = $1`,
+        [userId]
+      );
+      const watchStats = watchRes.rows[0] || {};
+
+      // 3. Favorites count
+      const favRes = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM favorites WHERE user_id = $1`,
+        [userId]
+      );
+      const favoritesCount = favRes.rows[0]?.count || 0;
+
+      // 4. Devices breakdown
+      const devRes = await pool.query(
+        `SELECT
+           COALESCE(device_type, 'tv') AS device_type,
+           COALESCE(NULLIF(device_name, ''), 'Smart TV') AS device_name,
+           COUNT(*)::int AS count,
+           COALESCE(SUM(watched_seconds), 0)::bigint AS seconds
+         FROM playback_history
+         WHERE user_id = $1 AND watched_seconds >= 15
+         GROUP BY device_type, device_name
+         ORDER BY seconds DESC`,
+        [userId]
+      );
+
+      const devices = devRes.rows.map(r => ({
+        type: r.device_type,
+        name: r.device_name,
+        count: r.count,
+        seconds: Number(r.seconds)
+      }));
+
+      let primaryDevice = 'Smart TV';
+      if (devices.length > 0) {
+        const topDev = devices[0];
+        if (topDev.type === 'tv') primaryDevice = topDev.name.includes('Tizen') ? 'Samsung Tizen TV' : (topDev.name || 'Smart TV');
+        else if (topDev.type === 'web') primaryDevice = 'Web-браузер';
+        else if (topDev.type === 'mobile') primaryDevice = 'Мобильное приложение';
+        else primaryDevice = topDev.name;
+      }
+
+      // Combine numbers
+      const totalWatchSeconds = Math.max(Number(playStats.total_watch_seconds || 0), Number(watchStats.watch_hist_seconds || 0));
+      const totalWatchHours = Number((totalWatchSeconds / 3600).toFixed(1));
+      const totalWatchMinutes = Math.round(totalWatchSeconds / 60);
+      const watchedCount = Math.max(Number(playStats.unique_titles_count || 0), Number(watchStats.watch_hist_count || 0));
+      const moviesCount = Number(playStats.movies_count || 0);
+      const seriesCount = Number(playStats.series_count || 0);
+      const episodesCount = Number(playStats.episodes_count || 0);
+
+      // 5. Favorite genres calculation
+      const topMediaRes = await pool.query(
+        `SELECT DISTINCT media_title, media_type
+         FROM playback_history
+         WHERE user_id = $1 AND media_title IS NOT NULL AND media_title != ''`,
+        [userId]
+      );
+
+      const KNOWN_GENRES: Record<string, string[]> = {
+        'паук': ['Боевик', 'Фантастика', 'Приключения'],
+        'голодные игры': ['Фантастика', 'Приключения', 'Боевик'],
+        'сплит': ['Триллер', 'Ужасы'],
+        'камеди': ['Комедия'],
+        'теория большого взрыва': ['Комедия'],
+        'аанг': ['Мультфильм', 'Фэнтези', 'Приключения'],
+        'хаус': ['Драма', 'Детектив'],
+        'убить билла': ['Боевик', 'Триллер', 'Криминал'],
+        'титаны': ['Боевик', 'Фантастика', 'Драма'],
+        'обитель зла': ['Ужасы', 'Боевик', 'Фантастика'],
+        'аватар': ['Фантастика', 'Боевик', 'Приключения'],
+        'поттер': ['Фэнтези', 'Приключения', 'Семейный'],
+        'пацана': ['Драма', 'Криминал'],
+        'майкл': ['Биография', 'Драма', 'Музыка'],
+        'кэрри': ['Драма', 'Фантастика'],
+        'жизнь заново': ['Драма', 'Комедия'],
+        'министерство': ['Боевик', 'Военный', 'Комедия'],
+        'игрушек': ['Мультфильм', 'Комедия', 'Приключения'],
+        'звезды': ['Комедия', 'Шоу'],
+        'больница питт': ['Драма'],
+        'собачьи': ['Фантастика', 'Триллер'],
+        'шепот': ['Триллер', 'Ужасы'],
+        'гамп': ['Драма', 'Мелодрама'],
+        'роботы': ['Фантастика', 'Мультфильм'],
+        'симпсоны': ['Мультфильм', 'Комедия'],
+      };
+
+      const genreCounts: Record<string, number> = {};
+      for (const row of topMediaRes.rows) {
+        const titleLower = (row.media_title || '').toLowerCase();
+        let matched = false;
+        for (const [key, gList] of Object.entries(KNOWN_GENRES)) {
+          if (titleLower.includes(key)) {
+            matched = true;
+            for (const g of gList) {
+              genreCounts[g] = (genreCounts[g] || 0) + 1;
+            }
+            break;
+          }
+        }
+        if (!matched) {
+          if (row.media_type === 'movie') {
+            genreCounts['Фильмы'] = (genreCounts['Фильмы'] || 0) + 1;
+          } else if (row.media_type === 'tv') {
+            genreCounts['Сериалы'] = (genreCounts['Сериалы'] || 0) + 1;
+          }
+        }
+      }
+
+      const sortedGenres = Object.entries(genreCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5);
+
+      const maxG = sortedGenres[0]?.[1] || 1;
+      const favoriteGenres = sortedGenres.map(([name, count]) => ({
+        name,
+        count,
+        pct: Math.round((count / maxG) * 100),
+      }));
+
+      return {
+        success: true,
+        totalWatchSeconds,
+        totalWatchMinutes,
+        totalWatchHours,
+        watchedCount,
+        moviesCount,
+        seriesCount,
+        episodesCount,
+        favoritesCount,
+        primaryDevice,
+        devices,
+        favoriteGenres,
+      };
+    } catch (err: any) {
+      console.error('Error fetching user stats:', err);
+      return {
+        success: false,
+        totalWatchSeconds: 0,
+        totalWatchMinutes: 0,
+        totalWatchHours: 0,
+        watchedCount: 0,
+        moviesCount: 0,
+        seriesCount: 0,
+        episodesCount: 0,
+        favoritesCount: 0,
+        primaryDevice: 'Smart TV',
+        devices: [],
+        favoriteGenres: [],
+      };
+    }
+  });
+
   // Get activity log (admin only)
   app.get('/api/admin/activity', { preHandler: requireAuth }, async (request: AuthenticatedRequest) => {
     const userId = request.user!.userId;

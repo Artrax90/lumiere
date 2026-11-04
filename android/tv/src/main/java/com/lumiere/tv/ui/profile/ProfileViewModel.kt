@@ -19,8 +19,15 @@ data class ProfileUiState(
     val userEmail: String = "",
     val avatarUrl: String? = null,
     val isKids: Boolean = false,
-    val totalWatchMinutes: Int = 0,
+    val totalWatchSeconds: Long = 0L,
+    val totalWatchMinutes: Long = 0L,
+    val totalWatchHours: Double = 0.0,
     val watchedTitlesCount: Int = 0,
+    val moviesCount: Int = 0,
+    val seriesCount: Int = 0,
+    val episodesCount: Int = 0,
+    val primaryDevice: String = "Smart TV",
+    val favoriteGenres: List<com.lumiere.core.model.GenreStatItem> = emptyList(),
     val favorites: List<Title> = emptyList(),
     val errorMessage: String? = null
 )
@@ -97,16 +104,26 @@ class ProfileViewModel(application: Application) : AndroidViewModel(application)
                     )
                 } ?: emptyList()
 
-                // Calculate watch stats
-                val watchMins = 240 + favTitles.size * 45
-                val watchedCount = maxOf(favTitles.size, 5)
+                // 2. Load real synchronized watch stats from server
+                val statsRes = try {
+                    api.getUserStats(profileId)
+                } catch (_: Exception) {
+                    null
+                }
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         favorites = favTitles,
-                        totalWatchMinutes = watchMins,
-                        watchedTitlesCount = watchedCount
+                        totalWatchSeconds = statsRes?.totalWatchSeconds ?: 0L,
+                        totalWatchMinutes = statsRes?.totalWatchMinutes ?: 0L,
+                        totalWatchHours = statsRes?.totalWatchHours ?: 0.0,
+                        watchedTitlesCount = statsRes?.watchedCount ?: favTitles.size,
+                        moviesCount = statsRes?.moviesCount ?: 0,
+                        seriesCount = statsRes?.seriesCount ?: 0,
+                        episodesCount = statsRes?.episodesCount ?: 0,
+                        primaryDevice = statsRes?.primaryDevice?.ifBlank { "Smart TV" } ?: "Smart TV",
+                        favoriteGenres = statsRes?.favoriteGenres ?: emptyList()
                     )
                 }
             } catch (e: Exception) {
