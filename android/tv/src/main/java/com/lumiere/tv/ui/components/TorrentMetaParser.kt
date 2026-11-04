@@ -327,7 +327,20 @@ object TorrentMetaParser {
         }
 
         // 3. Complete series / all seasons
-        if (lower.contains("все сезоны") || lower.contains("полный архив") || lower.contains("коллекция") || lower.contains("complete")) {
+        val isExplicitMovieCollection =
+            lower.contains("коллекция") || lower.contains("антология") ||
+            lower.contains("film collection") || lower.contains("фильм") ||
+            lower.contains("трилогия") || lower.contains("квадрология") || lower.contains("тетралогия")
+        val hasTvMarker =
+            lower.contains("сезон") || lower.contains("season") ||
+            Regex("""\bs\d+""").containsMatchIn(lower) ||
+            lower.contains("сери") || lower.contains("series") || lower.contains("сериал")
+
+        if (isExplicitMovieCollection && !hasTvMarker) {
+            return false
+        }
+
+        if (lower.contains("все сезоны") || lower.contains("полный архив") || lower.contains("complete series") || lower.contains("all seasons")) {
             return true
         }
 
@@ -337,7 +350,12 @@ object TorrentMetaParser {
             if (yrRange != null) {
                 val yStart = yrRange.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
                 val yEnd = yrRange.groupValues.getOrNull(2)?.toIntOrNull() ?: 0
-                if (yStart in 1990..2035 && yEnd > yStart) {
+                if (yStart in 1990..2035 && yEnd >= yStart) {
+                    // If the torrent year range completely ended before the show even started (e.g. 2001-2011 vs 2026 show),
+                    // it CANNOT be this TV series!
+                    if (yEnd < showYear - 1) {
+                        return false
+                    }
                     val sStart = maxOf(1, yStart - showYear + 1)
                     val sEnd = maxOf(sStart, yEnd - showYear + 1)
                     if (seasonNum in sStart..sEnd) return true
@@ -347,7 +365,10 @@ object TorrentMetaParser {
             val singleYr = Regex("""[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]""").find(lower)
             if (singleYr != null) {
                 val y = singleYr.groupValues.getOrNull(1)?.toIntOrNull() ?: 0
-                if (y in showYear..2035 && y != 1080 && y != 2160) {
+                if (y in 1990..2035 && y != 1080 && y != 2160) {
+                    if (y < showYear - 1) {
+                        return false
+                    }
                     val mappedSeason = y - showYear + 1
                     if (mappedSeason == seasonNum) return true
                 }

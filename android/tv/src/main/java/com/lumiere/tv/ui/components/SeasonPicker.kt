@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -259,6 +260,20 @@ private fun EpisodeCard(
                 }
 
                 // Top-End Badge: Watched (Green) or Last Watched (Gold)
+                val today = remember {
+                    try {
+                        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+                    } catch (_: Exception) { "" }
+                }
+                val airedStr = episode.aired
+                val isNotAired = episode.isAired == false || (
+                    !airedStr.isNullOrBlank() &&
+                    airedStr != "—" &&
+                    airedStr.take(10).matches(Regex("""\d{4}-\d{2}-\d{2}""")) &&
+                    today.isNotBlank() &&
+                    airedStr.take(10) > today
+                )
+
                 if (isWatched) {
                     Box(
                         modifier = Modifier
@@ -270,6 +285,28 @@ private fun EpisodeCard(
                     ) {
                         Text(
                             text = "✔ Просмотрено",
+                            fontSize = 10.sp,
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else if (isNotAired) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(6.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Color(0xE6E11D48))
+                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                    ) {
+                        val badgeText = if (!airedStr.isNullOrBlank() && airedStr != "—") {
+                            val parts = airedStr.take(10).split("-")
+                            if (parts.size == 3) "Не вышла · ${parts[2]}.${parts[1]}.${parts[0]}" else "Не вышла"
+                        } else {
+                            "Не вышла"
+                        }
+                        Text(
+                            text = badgeText,
                             fontSize = 10.sp,
                             color = Color.White,
                             fontWeight = FontWeight.Bold

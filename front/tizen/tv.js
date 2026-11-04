@@ -265,7 +265,7 @@
     }
 
     // Self-heal Harry Potter (ID 671)
-    if (Number(effectiveId) === 671 || /поттер|potter/i.test(cleanPlayerTitle || '')) {
+    if (Number(effectiveId) === 671) {
       effectiveType = 'movie';
       cleanPlayerTitle = (cleanPlayerTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
       if (!cleanPlayerTitle) cleanPlayerTitle = 'Гарри Поттер и философский камень';
@@ -431,7 +431,7 @@
           app.classList.add('hidden');
           app.style.display = 'none';
         }
-        if (Number(targetDetail.id) === 671 || /поттер|potter/i.test(targetDetail.name || '')) {
+        if (Number(targetDetail.id) === 671) {
           targetDetail.type = 'movie';
         }
         if (targetDetail.type === 'tv' && Number(targetDetail.id) !== 671 && Number(targetDetail.id) !== 13) {
@@ -2143,8 +2143,7 @@
     var tObj = lastTorrents[item.id];
     var isKnownMovie = (Number(item.id) === 13) || (Number(item.id) === 671) ||
                        ((item.title && item.title.type === 'movie') && Number(item.id) !== 1408) ||
-                       (tObj && tObj.type === 'movie' && Number(item.id) !== 1408) ||
-                       /поттер|potter/i.test(rawName);
+                       (tObj && tObj.type === 'movie' && Number(item.id) !== 1408);
     var isTvShow = !isKnownMovie && (
                    (Number(item.id) === 1408) ||
                    (tObj && (tObj.type === 'tv' || tObj.season)) ||
@@ -2448,7 +2447,7 @@
         }
 
         // Self-heal Harry Potter (ID 671) if corrupted to TV series Moolah Beach
-        if (Number(item.id) === 671 || /поттер|potter/i.test(name)) {
+        if (Number(item.id) === 671) {
           var cleanHp = 'Гарри Поттер и философский камень';
           name = cleanHp;
           rawName = cleanHp;
@@ -4517,7 +4516,7 @@
     }
 
     // Self-heal Harry Potter (ID 671)
-    if (Number(title.id) === 671 || /поттер|potter/i.test(title.name || '')) {
+    if (Number(title.id) === 671) {
       title.type = 'movie';
       title.name = cleanMovieTitle(title.name).replace(/\s*·\s*S\d+.*$/i, '').trim();
       if (!title.name) title.name = 'Гарри Поттер и философский камень';
@@ -6376,6 +6375,10 @@
         }
         if (isWatched) {
           html += '    <div class="ep-badge-watched">✔ Просмотрено</div>';
+        } else if (ep.isAired === false || (ep.aired && ep.aired !== '—' && /^\d{4}-\d{2}-\d{2}$/.test(String(ep.aired).slice(0, 10)) && String(ep.aired).slice(0, 10) > today)) {
+          var dateParts = String(ep.aired || '').slice(0, 10).split('-');
+          var dateStr = (dateParts.length === 3) ? (dateParts[2] + '.' + dateParts[1] + '.' + dateParts[0]) : '';
+          html += '    <div class="ep-badge-unreleased" style="position:absolute; top:6px; right:6px; background:rgba(225,29,72,0.9); color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px; z-index:2;">' + (dateStr ? ('Премьера ' + dateStr) : 'Не вышла') + '</div>';
         }
         if (watchProgressPct > 3 && !isWatched) {
           html += '    <div class="ep-progress-bar"><div class="ep-progress-fill" style="width:' + watchProgressPct + '%;"></div></div>';

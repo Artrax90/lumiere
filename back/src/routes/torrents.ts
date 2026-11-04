@@ -1059,17 +1059,54 @@ export function torrentRoutes(app: FastifyInstance) {
           }
         }
 
+        if (type === 'tv') {
+          const hasTvMarker =
+            /\b\d{1,2}\s*сезон/i.test(r.Title) ||
+            /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(r.Title) ||
+            /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(r.Title) ||
+            /\bs0*\d{1,2}(?:e\d+)?\b/i.test(r.Title) ||
+            /\bсери[яий]\b/i.test(r.Title) ||
+            /\bseries\b/i.test(r.Title) ||
+            /\bсериал\b/i.test(r.Title);
+
+          const isMovieCollection =
+            /\b(коллекция|антология|трилогия|квадрология|тетралогия|дилогия|пенталогия)\b/i.test(r.Title) ||
+            /\bcomplete\s*(?:\d+[-–—\s]*)?film\s*collection\b/i.test(r.Title) ||
+            /\bcomplete\s*collection\b/i.test(r.Title) ||
+            /\b\d+\s*фильм[а-я]*\b/i.test(r.Title);
+
+          if (isMovieCollection && !hasTvMarker) {
+            continue;
+          }
+        }
+
         // Validate title relevance (Word/Phrase Match) to discard off-target torrents
         if (validTitleVariants.length > 0 && !matchesTorrentTitle(r.Title, validTitleVariants)) {
           continue;
         }
 
         const torrentYear = extractTorrentYear(r.Title);
-        if (targetYear > 0 && torrentYear !== null) {
+        if (targetYear > 0) {
           if (type === 'tv') {
-            // TV series span multiple years, have reboots, multi-year packs (e.g. 2005-2017)
-            // and TMDB dates may not match release tracking. Never discard TV series by year.
-          } else {
+            // TV series span multiple years, have reboots, multi-year packs (e.g. 2005-2017).
+            // But if a torrent has explicit years ending BEFORE targetYear - 1 (e.g. 2001-2011 for a 2026 series)
+            // and contains no season markers, it is guaranteed to be an older film/predecessor, NOT this TV show!
+            const allYears = r.Title.match(/\b(19\d{2}|20\d{2})\b/g);
+            if (allYears && allYears.length > 0) {
+              const parsedYears = allYears.map((y) => parseInt(y, 10)).filter((y) => y >= 1920 && y <= 2035 && y !== 2160 && y !== 1080);
+              if (parsedYears.length > 0) {
+                const maxYear = Math.max(...parsedYears);
+                const hasSeasonMarker =
+                  /\b\d{1,2}\s*сезон/i.test(r.Title) ||
+                  /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(r.Title) ||
+                  /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(r.Title) ||
+                  /\bs0*\d{1,2}(?:e\d+)?\b/i.test(r.Title);
+                if (maxYear < targetYear - 1 && !hasSeasonMarker) {
+                  continue;
+                }
+              }
+            }
+          } else if (torrentYear !== null) {
             // For movies: if the torrent specifies an explicit year that is > 1 year away (e.g. 1993 vs 2026),
             // it is guaranteed to be a different movie. Exclude it!
             const yearDiff = Math.abs(torrentYear - targetYear);
