@@ -160,10 +160,6 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
 
                 val activeList = if (targetSource == "kp") kpList else tmdbList
 
-                if (activeList.isNotEmpty()) {
-                    preferences.addSearchQuery(qTrim)
-                }
-
                 _uiState.update {
                     it.copy(
                         activeSource = targetSource,

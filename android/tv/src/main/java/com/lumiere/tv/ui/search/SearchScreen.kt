@@ -203,6 +203,7 @@ fun SearchScreen(
                 val jumpShape = RoundedCornerShape(10.dp)
                 Button(
                     onClick = {
+                        viewModel.recordQuery(state.query)
                         coroutineScope.launch {
                             try {
                                 resultsFocusRequester.requestFocus()

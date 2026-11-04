@@ -51,7 +51,19 @@ class AppPreferences(private val context: Context) {
         if (!json.isNullOrBlank()) {
             try {
                 val array = org.json.JSONArray(json)
-                (0 until array.length()).map { array.getString(it) }
+                val rawList = (0 until array.length())
+                    .map { array.getString(it).trim() }
+                    .filter { it.length >= 2 }
+                val cleaned = mutableListOf<String>()
+                for (item in rawList) {
+                    val isPrefix = rawList.any { other ->
+                        other.length > item.length && other.startsWith(item, ignoreCase = true)
+                    }
+                    if (!isPrefix && cleaned.none { it.equals(item, ignoreCase = true) }) {
+                        cleaned.add(item)
+                    }
+                }
+                cleaned
             } catch (_: Exception) {
                 emptyList()
             }
@@ -264,19 +276,37 @@ class AppPreferences(private val context: Context) {
             val currentList = if (!json.isNullOrBlank()) {
                 try {
                     val array = org.json.JSONArray(json)
-                    (0 until array.length()).map { array.getString(it) }.toMutableList()
+                    (0 until array.length())
+                        .map { array.getString(it).trim() }
+                        .filter { it.length >= 2 }
+                        .toMutableList()
                 } catch (_: Exception) {
                     mutableListOf()
                 }
             } else {
                 mutableListOf()
             }
-            // Remove if already exists (case-insensitive)
-            currentList.removeAll { it.equals(trimmed, ignoreCase = true) }
+            // Remove exact duplicates and any existing prefix fragments of this query
+            currentList.removeAll { existing ->
+                existing.equals(trimmed, ignoreCase = true) ||
+                (trimmed.length > existing.length && trimmed.startsWith(existing, ignoreCase = true))
+            }
             // Add to head
             currentList.add(0, trimmed)
+
+            // Remove any prefix fragments among the remaining items as well
+            val cleaned = mutableListOf<String>()
+            for (item in currentList) {
+                val isPrefix = currentList.any { other ->
+                    other.length > item.length && other.startsWith(item, ignoreCase = true)
+                }
+                if (!isPrefix && cleaned.none { it.equals(item, ignoreCase = true) }) {
+                    cleaned.add(item)
+                }
+            }
+
             // Limit to max 15 items
-            val truncated = currentList.take(15)
+            val truncated = cleaned.take(15)
             val newArray = org.json.JSONArray()
             truncated.forEach { newArray.put(it) }
             prefs[KEY_SEARCH_HISTORY] = newArray.toString()
