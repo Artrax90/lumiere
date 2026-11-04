@@ -10,6 +10,7 @@ import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -22,7 +23,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.Player
@@ -75,6 +79,13 @@ fun PlayerScreen(
     var bottomBtnIndex by remember { mutableIntStateOf(2) } // 2 is Play/Pause
     var popupType by remember { mutableStateOf<String?>(null) } // "audio", "subs", or null
     var popupIndex by remember { mutableIntStateOf(0) }
+    var nextEpBtnIndex by remember { mutableIntStateOf(0) }
+
+    LaunchedEffect(uiState.showNextEpisodePrompt) {
+        if (uiState.showNextEpisodePrompt) {
+            nextEpBtnIndex = 0
+        }
+    }
 
     val hasAudio = audioTracks.isNotEmpty()
     val hasSubs = subtitleTracks.isNotEmpty()
@@ -130,7 +141,9 @@ fun PlayerScreen(
     }
 
     BackHandler {
-        if (popupType != null) {
+        if (uiState.showNextEpisodePrompt) {
+            viewModel.dismissNextEpisodePrompt()
+        } else if (popupType != null) {
             popupType = null
             viewModel.scheduleControlsHide(5000L)
         } else if (uiState.isControlsVisible) {
@@ -196,6 +209,32 @@ fun PlayerScreen(
                         activeZone = PlayerZone.BOTTOM
                         bottomBtnIndex = 4
                         return@onPreviewKeyEvent true
+                    }
+                }
+
+                // Next Episode Autoplay Prompt navigation (matching WGT)
+                if (uiState.showNextEpisodePrompt) {
+                    when (code) {
+                        KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_UP -> {
+                            nextEpBtnIndex = 0
+                            return@onPreviewKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            nextEpBtnIndex = 1
+                            return@onPreviewKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
+                            if (nextEpBtnIndex == 0) {
+                                viewModel.playNextEpisodeNow()
+                            } else {
+                                viewModel.dismissNextEpisodePrompt()
+                            }
+                            return@onPreviewKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_ESCAPE -> {
+                            viewModel.dismissNextEpisodePrompt()
+                            return@onPreviewKeyEvent true
+                        }
                     }
                 }
 
@@ -512,5 +551,135 @@ fun PlayerScreen(
             onClosePopup = { popupType = null },
             onBackClick = handleBack
         )
+
+        // Next Episode Prompt Overlay (Matching WGT Binge-watching Overlay)
+        if (uiState.showNextEpisodePrompt && !isBuffering) {
+            val bottomPad = if (uiState.isControlsVisible) 180.dp else 48.dp
+            NextEpisodeOverlay(
+                countdownSec = uiState.nextEpisodeCountdownSec,
+                nextEpisodeTitle = uiState.nextEpisodeTitle,
+                focusedIndex = nextEpBtnIndex,
+                onPlayClick = { viewModel.playNextEpisodeNow() },
+                onCancelClick = { viewModel.dismissNextEpisodePrompt() },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 48.dp, bottom = bottomPad)
+            )
+        }
+    }
+}
+
+@Composable
+fun NextEpisodeOverlay(
+    countdownSec: Int,
+    nextEpisodeTitle: String,
+    focusedIndex: Int,
+    onPlayClick: () -> Unit,
+    onCancelClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color(0xF50F141E))
+            .border(
+                width = 2.dp,
+                color = com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.6f),
+                shape = RoundedCornerShape(20.dp)
+            )
+            .padding(horizontal = 32.dp, vertical = 22.dp)
+            .widthIn(min = 380.dp, max = 460.dp)
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            androidx.tv.material3.Text(
+                text = "СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ",
+                color = com.lumiere.tv.theme.LumiereGold,
+                style = androidx.tv.material3.MaterialTheme.typography.labelMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = 1.5.sp
+                )
+            )
+
+            androidx.tv.material3.Text(
+                text = countdownSec.coerceAtLeast(0).toString(),
+                color = Color.White,
+                style = androidx.tv.material3.MaterialTheme.typography.displayMedium.copy(
+                    fontSize = 54.sp,
+                    fontWeight = FontWeight.Black,
+                    lineHeight = 54.sp
+                )
+            )
+
+            androidx.tv.material3.Text(
+                text = nextEpisodeTitle.ifBlank { "Следующая серия" },
+                color = Color(0xEEFFFFFF),
+                style = androidx.tv.material3.MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.SemiBold
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val isPlayFocused = focusedIndex == 0
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isPlayFocused) com.lumiere.tv.theme.LumiereGold
+                            else com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.2f)
+                        )
+                        .border(
+                            width = if (isPlayFocused) 3.dp else 1.dp,
+                            color = if (isPlayFocused) Color.White else com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.5f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable { onPlayClick() }
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    androidx.tv.material3.Text(
+                        text = "▶ Включить сейчас (OK)",
+                        color = if (isPlayFocused) Color.Black else com.lumiere.tv.theme.LumiereGold,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+
+                val isCancelFocused = focusedIndex == 1
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(
+                            if (isCancelFocused) Color(0x44FFFFFF)
+                            else Color(0x22FFFFFF)
+                        )
+                        .border(
+                            width = if (isCancelFocused) 3.dp else 1.dp,
+                            color = if (isCancelFocused) Color.White else Color(0x33FFFFFF),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        .clickable { onCancelClick() }
+                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                ) {
+                    androidx.tv.material3.Text(
+                        text = "✕ Отмена",
+                        color = Color.White,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge.copy(
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+            }
+        }
     }
 }

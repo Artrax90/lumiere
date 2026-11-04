@@ -11,6 +11,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 
@@ -23,7 +24,10 @@ data class PlayerUiState(
     val statusMessage: String? = null,
     val isSeeking: Boolean = false,
     val seekTargetMs: Long? = null,
-    val seekDeltaSec: Long = 0L
+    val seekDeltaSec: Long = 0L,
+    val showNextEpisodePrompt: Boolean = false,
+    val nextEpisodeCountdownSec: Int = 30,
+    val nextEpisodeTitle: String = ""
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application) {
@@ -59,10 +63,51 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         }
 
         viewModelScope.launch {
-            player.positionMs.collect { posMs ->
+            combine(player.positionMs, player.durationMs) { posMs, durMs ->
+                Pair(posMs, durMs)
+            }.collect { (posMs, durMs) ->
                 val sec = posMs / 1000L
                 if (sec > maxPositionSec) {
                     maxPositionSec = sec
+                }
+
+                if (_uiState.value.isSeeking) return@collect
+
+                if (activeMediaType != "tv" || !hasNextEpisodeAvailable || isNextEpisodeDismissed) {
+                    if (_uiState.value.showNextEpisodePrompt) {
+                        _uiState.update { it.copy(showNextEpisodePrompt = false) }
+                    }
+                    return@collect
+                }
+
+                val durationSec = durMs / 1000L
+                val currentSec = posMs / 1000L
+                val remainingSec = (durationSec - currentSec).toInt()
+
+                // 30-second countdown for binge watching next episode (strictly guarded: video must be >3 min, played for >2 min, and remaining <= 30s)
+                if (durationSec > 180L && currentSec > 120L && remainingSec in 1..30) {
+                    val epTitle = resolvedNextEpisodeTitle.ifBlank {
+                        "Сезон $activeSeason, Серия ${activeEpisode + 1}"
+                    }
+                    if (!_uiState.value.showNextEpisodePrompt ||
+                        _uiState.value.nextEpisodeCountdownSec != remainingSec ||
+                        _uiState.value.nextEpisodeTitle != epTitle
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                showNextEpisodePrompt = true,
+                                nextEpisodeCountdownSec = remainingSec,
+                                nextEpisodeTitle = epTitle
+                            )
+                        }
+                    }
+                } else if (durationSec > 180L && (remainingSec <= 0 || remainingSec > 30)) {
+                    if (_uiState.value.showNextEpisodePrompt) {
+                        _uiState.update { it.copy(showNextEpisodePrompt = false) }
+                        if (remainingSec <= 0 && !_uiState.value.isSwitchingEpisode && player.isPlaying.value) {
+                            nextEpisodeOrEnd()
+                        }
+                    }
                 }
             }
         }
@@ -147,6 +192,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     private var activeSeason: Int = 0
     private var activeEpisode: Int = 0
 
+    private var isNextEpisodeDismissed = false
+    private var hasNextEpisodeAvailable: Boolean = true
+    private var resolvedNextEpisodeTitle: String = ""
+    private var nextTargetSeason: Int = 0
+    private var nextTargetEpisode: Int = 0
+    private var resolveNextJob: Job? = null
+
     private val deviceDisplayName: String by lazy {
         val model = android.os.Build.MODEL.orEmpty().trim()
         if (model.isNotEmpty()) "Android TV ($model)" else "Android TV Stick"
@@ -161,6 +213,26 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         season: Int = 0,
         episode: Int = 0
     ) {
+        activeMediaId = mediaId
+        activeMediaType = mediaType
+        activeSeason = season
+        activeEpisode = episode
+        isNextEpisodeDismissed = false
+        hasNextEpisodeAvailable = (mediaType == "tv")
+        resolvedNextEpisodeTitle = ""
+        nextTargetSeason = 0
+        nextTargetEpisode = 0
+        _uiState.update {
+            it.copy(
+                showNextEpisodePrompt = false,
+                nextEpisodeCountdownSec = 30,
+                nextEpisodeTitle = ""
+            )
+        }
+        if (mediaType == "tv" && mediaId > 0L && episode > 0) {
+            resolveNextEpisodeMetadata(mediaId, season, episode)
+        }
+
         viewModelScope.launch {
             var initialSeek = startPositionMs
             if (initialSeek <= 0L && mediaId > 0L) {
@@ -366,9 +438,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         val currentSec = if (rawSec > 0L) rawSec else maxPositionSec
         val durSec = player.durationMs.value / 1000L
 
-        // Episode/film completed if within 60s of end OR >= 90% watched (credits roll!)
+        // Episode/film completed if within 60s of end OR >= 85% watched (matching WGT & Web)
         val isCompleted = durSec > 60L && (
-            (durSec - currentSec <= 60L) || (currentSec.toDouble() / durSec.toDouble() >= 0.90)
+            (durSec - currentSec <= 60L) || (currentSec.toDouble() / durSec.toDouble() >= 0.85)
         )
         val effectiveSec = if (isCompleted) 0L else currentSec
 
@@ -379,8 +451,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         GlobalScope.launch(Dispatchers.IO + NonCancellable) {
             try {
                 if (mediaType == "tv" && episode > 0) {
-                    preferences.setEpisodePlaybackPosition(mediaId, season, episode, effectiveSec)
+                    preferences.setEpisodePlaybackPosition(mediaId, season, episode, effectiveSec, durSec)
                     if (isCompleted) {
+                        preferences.setEpisodeWatched(mediaId, season, episode, true)
                         preferences.setLastWatchedSeries(mediaId, season, episode + 1)
                         preferences.setPlaybackPosition(mediaId, mediaType, 0L)
                     } else {
@@ -394,6 +467,19 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 if (serverUrl.isNotBlank()) {
                     val api = networkClient?.createApiService(serverUrl)
+                    if (mediaType == "tv" && episode > 0 && isCompleted) {
+                        try {
+                            api?.markEpisodeWatched(
+                                com.lumiere.core.model.MarkEpisodeWatchedRequest(
+                                    mediaId = mediaId.toString(),
+                                    mediaTitle = title,
+                                    season = season,
+                                    episode = episode,
+                                    completed = true
+                                )
+                            )
+                        } catch (_: Exception) {}
+                    }
                     api?.saveWatchProgress(
                         com.lumiere.core.model.WatchProgressRequest(
                             tmdbId = mediaId,
@@ -419,6 +505,16 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     private var switchEpisodeJob: Job? = null
+
+    fun dismissNextEpisodePrompt() {
+        isNextEpisodeDismissed = true
+        _uiState.update { it.copy(showNextEpisodePrompt = false) }
+    }
+
+    fun playNextEpisodeNow() {
+        _uiState.update { it.copy(showNextEpisodePrompt = false) }
+        nextEpisodeOrEnd()
+    }
 
     fun previousEpisodeOrStart() {
         val currentSec = player.positionMs.value / 1000L
@@ -453,8 +549,95 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
 
         // For TV series: save watch progress and advance to next episode
         saveWatchProgress(activeMediaId, activeMediaType, activeTitle, activePoster, activeSeason, activeEpisode)
-        val nextEp = activeEpisode + 1
-        switchEpisode(activeSeason, nextEp)
+        val targetS = if (nextTargetSeason > 0) nextTargetSeason else activeSeason
+        val targetE = if (nextTargetEpisode > 0) nextTargetEpisode else (activeEpisode + 1)
+        _uiState.update { it.copy(showNextEpisodePrompt = false) }
+        switchEpisode(targetS, targetE)
+    }
+
+    private fun resolveNextEpisodeMetadata(mediaId: Long, currentSeason: Int, currentEpisode: Int) {
+        resolveNextJob?.cancel()
+        resolveNextJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val serverUrl = preferences.serverUrl.first().orEmpty()
+                if (serverUrl.isBlank()) return@launch
+                val api = networkClient?.createApiService(serverUrl) ?: return@launch
+
+                val nextEpNum = currentEpisode + 1
+                var nextTitle = "Сезон $currentSeason, Серия $nextEpNum"
+                var nextS = currentSeason
+                var nextE = nextEpNum
+                var hasNext = true
+
+                val seasonResp = try {
+                    api.getSeasonEpisodes(mediaId, currentSeason)
+                } catch (_: Exception) {
+                    try {
+                        api.getKpSeasonEpisodes(mediaId, currentSeason)
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+                if (seasonResp != null && seasonResp.episodes.isNotEmpty()) {
+                    val aired = EpisodeUtils.filterAiredEpisodes(seasonResp.episodes)
+                    val foundNext = aired.find { it.episode == nextEpNum }
+                    if (foundNext != null) {
+                        hasNext = true
+                        nextS = currentSeason
+                        nextE = nextEpNum
+                        val epName = foundNext.title?.takeIf { it.isNotBlank() && it != "Серия $nextEpNum" }
+                        nextTitle = if (epName != null) {
+                            "$currentSeason сезон, $nextEpNum серия · $epName"
+                        } else {
+                            "$currentSeason сезон, $nextEpNum серия"
+                        }
+                    } else {
+                        val nextSeasonResp = try {
+                            api.getSeasonEpisodes(mediaId, currentSeason + 1)
+                        } catch (_: Exception) {
+                            try {
+                                api.getKpSeasonEpisodes(mediaId, currentSeason + 1)
+                            } catch (_: Exception) {
+                                null
+                            }
+                        }
+                        if (nextSeasonResp != null && nextSeasonResp.episodes.isNotEmpty()) {
+                            val airedNextSeason = EpisodeUtils.filterAiredEpisodes(nextSeasonResp.episodes)
+                            val firstEp = airedNextSeason.firstOrNull()
+                            if (firstEp != null) {
+                                hasNext = true
+                                nextS = currentSeason + 1
+                                nextE = firstEp.episode
+                                val epName = firstEp.title?.takeIf { it.isNotBlank() && it != "Серия ${firstEp.episode}" }
+                                nextTitle = if (epName != null) {
+                                    "$nextS сезон, $nextE серия · $epName"
+                                } else {
+                                    "$nextS сезон, $nextE серия"
+                                }
+                            } else {
+                                hasNext = false
+                            }
+                        } else {
+                            hasNext = false
+                        }
+                    }
+                } else {
+                    hasNext = true
+                    nextS = currentSeason
+                    nextE = nextEpNum
+                    nextTitle = "Сезон $currentSeason, Серия $nextEpNum"
+                }
+
+                hasNextEpisodeAvailable = hasNext
+                nextTargetSeason = nextS
+                nextTargetEpisode = nextE
+                resolvedNextEpisodeTitle = nextTitle
+                if (activeMediaType == "tv" && hasNext) {
+                    _uiState.update { it.copy(nextEpisodeTitle = nextTitle) }
+                }
+            } catch (_: Exception) {}
+        }
     }
 
     fun switchEpisode(season: Int, episode: Int) {
@@ -677,6 +860,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         periodicSaveJob?.cancel()
         hideControlsJob?.cancel()
         statsPollingJob?.cancel()
+        resolveNextJob?.cancel()
         player.release()
     }
 }
