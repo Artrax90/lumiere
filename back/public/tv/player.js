@@ -360,6 +360,9 @@
     }
     movieId = parseInt(params.id) || 0;
     mediaType = params.type || 'movie';
+    if (mediaType === 'movie' && movieTitle) {
+      movieTitle = movieTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
     streamUrl = params.url || '';
     posterUrl = params.poster || '';
     var startParamSec = parseInt(params.start) || 0;

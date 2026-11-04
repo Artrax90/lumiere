@@ -251,6 +251,11 @@
     }
     var effectivePoster = p.poster || (state.detail && state.detail.poster) || '';
 
+    // If item is a movie, ensure no episode suffix was carried over
+    if (effectiveType === 'movie' && cleanPlayerTitle) {
+      cleanPlayerTitle = cleanPlayerTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
+
     // Self-heal House M.D. (ID 1408)
     if (Number(effectiveId) === 1408) {
       effectiveType = 'tv';
@@ -8197,42 +8202,57 @@
     movieId = movieId || (state.detail && state.detail.id) || 0;
     var poster = customPoster || (state.detail && state.detail.poster) || '';
 
-    // Extract season and episode clues before constructing title
-    var sNum = (file && file.season) || null;
-    var eNum = (file && file.episode) || null;
+    // Check if the item is explicitly a movie!
+    var itemType = (state.detail && state.detail.type) || '';
+    var isMovie = (itemType === 'movie') || (Number(movieId) === 13);
+    var isExplicitTv = (Number(movieId) === 1408) || (itemType === 'tv') || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
+
+    // Extract season and episode clues before constructing title ONLY for TV series!
+    var sNum = null;
+    var eNum = null;
     var epMatch = null;
-    if (!sNum || !eNum) {
-      epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
-                (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
-                ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
-                ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i) ||
-                ((file && file.name) || '').match(/(?:^|[^\d])(\d{1,2})[-._](\d{1,3})(?:[^\d]|$)/);
-      if (epMatch) {
-        if (!sNum) sNum = parseInt(epMatch[1], 10);
-        if (!eNum) eNum = parseInt(epMatch[2], 10);
+    if (!isMovie) {
+      sNum = (file && file.season) || null;
+      eNum = (file && file.episode) || null;
+      if (!sNum || !eNum) {
+        if (file) {
+          var meta = parseTorrentFileMeta(file);
+          if (meta.season) sNum = meta.season;
+          if (meta.episode) eNum = meta.episode;
+        }
       }
-    }
-    if (!sNum && movieId) {
-      try {
-        var ltObj = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
-        if (ltObj && ltObj.season) { sNum = parseInt(ltObj.season, 10); eNum = parseInt(ltObj.episode, 10); }
-      } catch(ex) {}
-      if (!sNum) {
+      if (!sNum || !eNum) {
+        epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
+                  (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
+                  ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
+                  ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i);
+        if (epMatch) {
+          if (!sNum) sNum = parseInt(epMatch[1], 10);
+          if (!eNum) eNum = parseInt(epMatch[2], 10);
+        }
+      }
+      if (!sNum && movieId && isExplicitTv) {
         try {
-          var lsVal = getStorageItem('last_season_' + movieId);
-          if (lsVal) sNum = parseInt(lsVal, 10);
+          var ltObj = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
+          if (ltObj && ltObj.season) { sNum = parseInt(ltObj.season, 10); eNum = parseInt(ltObj.episode, 10); }
+        } catch(ex) {}
+        if (!sNum) {
+          try {
+            var lsVal = getStorageItem('last_season_' + movieId);
+            if (lsVal) sNum = parseInt(lsVal, 10);
+          } catch(ex) {}
+        }
+      }
+      if (!eNum && movieId && isExplicitTv) {
+        try {
+          var leVal = getStorageItem('last_episode_' + movieId);
+          if (leVal) eNum = parseInt(leVal, 10);
         } catch(ex) {}
       }
     }
-    if (!eNum && movieId) {
-      try {
-        var leVal = getStorageItem('last_episode_' + movieId);
-        if (leVal) eNum = parseInt(leVal, 10);
-      } catch(ex) {}
-    }
 
-    var isTv = (Number(movieId) === 1408) || (state.detail && state.detail.type === 'tv') || (sNum != null) || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
-    var mediaType = (Number(movieId) === 13) ? 'movie' : (isTv ? 'tv' : ((state.detail && state.detail.type) || 'movie'));
+    var isTv = !isMovie && (isExplicitTv || (sNum != null && eNum != null));
+    var mediaType = isMovie ? 'movie' : (isTv ? 'tv' : (itemType || 'movie'));
 
     var baseSeriesName = (detailName || titleStr || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
     if (Number(movieId) === 1408 && (/^(1408|Комната 1408)$/i.test(baseSeriesName) || !baseSeriesName)) {
@@ -8266,6 +8286,9 @@
     }
     if (name === '[object Object]' || !name) {
       name = (file && file.name) || 'Видео';
+    }
+    if (isMovie && name) {
+      name = name.replace(/\s*·\s*S\d+.*$/i, '').trim();
     }
 
     // Check for saved resume position (for series, ensure position is for THIS episode, not the whole series!)
