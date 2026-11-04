@@ -13,6 +13,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -552,9 +553,9 @@ fun PlayerScreen(
             onBackClick = handleBack
         )
 
-        // Next Episode Prompt Overlay (Matching WGT Binge-watching Overlay)
+        // Next Episode Prompt Overlay (Compact TV Card)
         if (uiState.showNextEpisodePrompt && !isBuffering) {
-            val bottomPad = if (uiState.isControlsVisible) 180.dp else 48.dp
+            val bottomPad = if (uiState.isControlsVisible) 170.dp else 28.dp
             NextEpisodeOverlay(
                 countdownSec = uiState.nextEpisodeCountdownSec,
                 nextEpisodeTitle = uiState.nextEpisodeTitle,
@@ -563,7 +564,7 @@ fun PlayerScreen(
                 onCancelClick = { viewModel.dismissNextEpisodePrompt() },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(end = 48.dp, bottom = bottomPad)
+                    .padding(end = 28.dp, bottom = bottomPad)
             )
         }
     }
@@ -580,103 +581,143 @@ fun NextEpisodeOverlay(
 ) {
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(20.dp))
-            .background(Color(0xF50F141E))
+            .clip(RoundedCornerShape(14.dp))
+            .background(Color(0xF00D111A))
             .border(
-                width = 2.dp,
+                width = 1.5.dp,
                 color = com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.6f),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(14.dp)
             )
-            .padding(horizontal = 32.dp, vertical = 22.dp)
-            .widthIn(min = 380.dp, max = 460.dp)
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .widthIn(min = 250.dp, max = 310.dp)
     ) {
         Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalAlignment = Alignment.Start,
+            verticalArrangement = Arrangement.spacedBy(5.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            androidx.tv.material3.Text(
-                text = "СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ",
-                color = com.lumiere.tv.theme.LumiereGold,
-                style = androidx.tv.material3.MaterialTheme.typography.labelMedium.copy(
-                    fontWeight = FontWeight.ExtraBold,
-                    letterSpacing = 1.5.sp
-                )
-            )
+            // Header: Dot + Label + Countdown badge
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(com.lumiere.tv.theme.LumiereGold)
+                    )
+                    androidx.tv.material3.Text(
+                        text = "СЛЕДУЮЩАЯ СЕРИЯ",
+                        color = com.lumiere.tv.theme.LumiereGold,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            letterSpacing = 0.8.sp
+                        )
+                    )
+                }
 
-            androidx.tv.material3.Text(
-                text = countdownSec.coerceAtLeast(0).toString(),
-                color = Color.White,
-                style = androidx.tv.material3.MaterialTheme.typography.displayMedium.copy(
-                    fontSize = 54.sp,
-                    fontWeight = FontWeight.Black,
-                    lineHeight = 54.sp
-                )
-            )
+                // Countdown Pill
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0x33E8C170))
+                        .border(1.dp, com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 6.dp, vertical = 1.dp)
+                ) {
+                    androidx.tv.material3.Text(
+                        text = "${countdownSec.coerceAtLeast(0)}с",
+                        color = Color.White,
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black
+                        )
+                    )
+                }
+            }
 
+            // Next Episode Title
             androidx.tv.material3.Text(
                 text = nextEpisodeTitle.ifBlank { "Следующая серия" },
                 color = Color(0xEEFFFFFF),
-                style = androidx.tv.material3.MaterialTheme.typography.titleMedium.copy(
-                    fontWeight = FontWeight.SemiBold
+                style = androidx.tv.material3.MaterialTheme.typography.bodySmall.copy(
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium
                 ),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
+            // Action Buttons
             Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Button 0: Play Now (Primary)
                 val isPlayFocused = focusedIndex == 0
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
                             if (isPlayFocused) com.lumiere.tv.theme.LumiereGold
                             else com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.2f)
                         )
                         .border(
-                            width = if (isPlayFocused) 3.dp else 1.dp,
-                            color = if (isPlayFocused) Color.White else com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.5f),
-                            shape = RoundedCornerShape(12.dp)
+                            width = if (isPlayFocused) 2.dp else 1.dp,
+                            color = if (isPlayFocused) Color.White else com.lumiere.tv.theme.LumiereGold.copy(alpha = 0.4f),
+                            shape = RoundedCornerShape(8.dp)
                         )
                         .clickable { onPlayClick() }
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     androidx.tv.material3.Text(
-                        text = "▶ Включить сейчас (OK)",
+                        text = "▶ Включить (OK)",
                         color = if (isPlayFocused) Color.Black else com.lumiere.tv.theme.LumiereGold,
-                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge.copy(
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
-                        )
+                        ),
+                        maxLines = 1
                     )
                 }
 
+                // Button 1: Cancel (Secondary)
                 val isCancelFocused = focusedIndex == 1
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .background(
                             if (isCancelFocused) Color(0x44FFFFFF)
                             else Color(0x22FFFFFF)
                         )
                         .border(
-                            width = if (isCancelFocused) 3.dp else 1.dp,
+                            width = if (isCancelFocused) 2.dp else 1.dp,
                             color = if (isCancelFocused) Color.White else Color(0x33FFFFFF),
-                            shape = RoundedCornerShape(12.dp)
+                            shape = RoundedCornerShape(8.dp)
                         )
                         .clickable { onCancelClick() }
-                        .padding(horizontal = 20.dp, vertical = 10.dp)
+                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     androidx.tv.material3.Text(
                         text = "✕ Отмена",
                         color = Color.White,
-                        style = androidx.tv.material3.MaterialTheme.typography.labelLarge.copy(
+                        style = androidx.tv.material3.MaterialTheme.typography.labelSmall.copy(
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
-                        )
+                        ),
+                        maxLines = 1
                     )
                 }
             }
