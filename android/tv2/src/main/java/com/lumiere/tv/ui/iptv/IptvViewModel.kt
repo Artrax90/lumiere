@@ -1,8 +1,10 @@
 package com.lumiere.tv.ui.iptv
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.lumiere.core.model.EpgProgram
 import com.lumiere.core.model.IptvChannel
 import com.lumiere.core.network.NetworkClient
 import com.lumiere.core.player.LumierePlayer
@@ -22,26 +24,42 @@ data class IptvUiState(
     val displayedChannels: List<IptvChannel> = emptyList(),
     val groups: List<String> = emptyList(),
     val selectedGroup: String = "Все",
+    val focusedChannel: IptvChannel? = null,
     val activeChannel: IptvChannel? = null,
+    val favoriteIds: Set<String> = emptySet(),
     val isPlayerMode: Boolean = false,
+    val isMultiViewMode: Boolean = false,
+    val multiViewSecondaryChannel: IptvChannel? = null,
+    val multiViewAudioOnPrimary: Boolean = true,
     val isSidebarVisible: Boolean = false,
     val showChannelBanner: Boolean = false,
+    val currentProgramDetail: EpgProgram? = null,
+    val upcomingSchedule: List<EpgProgram> = emptyList(),
+    val currentProgramProgress: Float = 0f,
+    val currentProgramTimeText: String = "",
     val errorMessage: String? = null
 )
 
 class IptvViewModel(application: Application) : AndroidViewModel(application) {
 
     private val preferences = AppPreferences(application.applicationContext)
+    private val favPrefs = application.getSharedPreferences("lumiere_tv2_iptv_favs", Context.MODE_PRIVATE)
     private var networkClient: NetworkClient? = null
 
     val player: LumierePlayer
+    var secondaryPlayer: LumierePlayer? = null
+        private set
 
     private val _uiState = MutableStateFlow(IptvUiState())
     val uiState: StateFlow<IptvUiState> = _uiState.asStateFlow()
 
     private var bannerJob: Job? = null
+    private var previewJob: Job? = null
     private var iptvHeartbeatJob: Job? = null
     private var iptvSessionId: String? = null
+
+    private var rawEpgData: Map<String, List<EpgProgram>> = emptyMap()
+    private var rawChannelMap: Map<String, String> = emptyMap()
 
     private val deviceDisplayName: String by lazy {
         val model = android.os.Build.MODEL.orEmpty().trim()
@@ -55,6 +73,10 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         )
 
         player = LumierePlayer(application.applicationContext, networkClient!!.okHttpClient)
+        player.exoPlayer.volume = 0f // Start muted for preview
+
+        val savedFavs = favPrefs.getStringSet("fav_ids", emptySet()) ?: emptySet()
+        _uiState.update { it.copy(favoriteIds = savedFavs) }
 
         loadChannels()
     }
@@ -79,16 +101,24 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                     api.parseIptvPlaylist()
                 }
                 val channels = res.channels
-                val groups = if (res.groups.isNotEmpty()) res.groups else listOf("Все")
+                val baseGroups = if (res.groups.isNotEmpty()) res.groups else listOf("Все")
+                val groupsWithFavs = buildGroupList(baseGroups, _uiState.value.favoriteIds)
+
+                val initialActive = channels.firstOrNull()
 
                 _uiState.update {
                     it.copy(
                         isLoading = false,
                         allChannels = channels,
                         displayedChannels = channels,
-                        groups = groups,
-                        activeChannel = channels.firstOrNull()
+                        groups = groupsWithFavs,
+                        activeChannel = initialActive,
+                        focusedChannel = initialActive
                     )
+                }
+
+                if (initialActive != null) {
+                    onChannelFocused(initialActive)
                 }
 
                 // Trigger EPG loading with fallback to iptvx.one XMLTV
@@ -105,39 +135,36 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun buildGroupList(baseGroups: List<String>, favs: Set<String>): List<String> {
+        val list = mutableListOf<String>()
+        if (favs.isNotEmpty()) {
+            list.add("★ Избранное")
+        }
+        list.add("Все")
+        baseGroups.filter { it != "Все" && it != "★ Избранное" }.forEach { list.add(it) }
+        return list
+    }
+
     private fun loadEpg(epgUrl: String, baseChannels: List<IptvChannel>, api: com.lumiere.core.network.LumiereApiService) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val epgRes = api.getEpg(mapOf("url" to epgUrl))
                 val now = System.currentTimeMillis()
 
-                val epgData = epgRes.epg
-                val channelMap = epgRes.channelMap
+                rawEpgData = epgRes.epg
+                rawChannelMap = epgRes.channelMap
                 val iconMap = epgRes.iconMap
 
                 val enrichedChannels = baseChannels.map { channel ->
-                    var epgId: String? = null
-                    if (!channel.tvgId.isNullOrBlank() && epgData.containsKey(channel.tvgId)) {
-                        epgId = channel.tvgId
-                    } else {
-                        val cleanName = normalizeChannelName(channel.name)
-                        epgId = channelMap[cleanName]
-                        if (epgId == null || !epgData.containsKey(epgId)) {
-                            epgId = channelMap.entries.firstOrNull { (k, id) ->
-                                (cleanName.contains(k) || k.contains(cleanName)) && epgData.containsKey(id)
-                            }?.value
-                        }
-                    }
-
-                    if (epgId != null && epgData.containsKey(epgId)) {
-                        val programs = epgData[epgId].orEmpty()
-                        var curProg = programs.firstOrNull { prog ->
+                    val epgList = getEpgForChannel(channel)
+                    if (epgList.isNotEmpty()) {
+                        var curProg = epgList.firstOrNull { prog ->
                             val s = parseEpgTime(prog.start)
                             val e = parseEpgTime(prog.stop)
                             s > 0 && e > 0 && now in s until e
                         }
                         if (curProg == null) {
-                            curProg = programs.firstOrNull { prog ->
+                            curProg = epgList.firstOrNull { prog ->
                                 val s = parseEpgTime(prog.start)
                                 s >= now
                             }
@@ -148,15 +175,17 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                         }
 
                         val nextProg = curProg?.let { cp ->
-                            val idx = programs.indexOf(cp)
-                            if (idx in 0 until programs.size - 1) programs[idx + 1] else null
+                            val idx = epgList.indexOf(cp)
+                            if (idx in 0 until epgList.size - 1) epgList[idx + 1] else null
                         }
                         val nextTitle = nextProg?.let {
                             if (!it.startTime.isNullOrBlank()) "${it.startTime} ${it.title}" else it.title
                         }
 
                         val logo = if (channel.logo.isNullOrBlank()) {
-                            iconMap[epgId] ?: "https://iptvx.one/picons/$epgId.png"
+                            val epgId = channel.tvgId?.takeIf { iconMap.containsKey(it) }
+                                ?: rawChannelMap[normalizeChannelName(channel.name)]
+                            if (epgId != null) iconMap[epgId] ?: "https://iptvx.one/picons/$epgId.png" else channel.logo
                         } else channel.logo
 
                         channel.copy(
@@ -172,26 +201,38 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.Main) {
                     _uiState.update { current ->
                         val group = current.selectedGroup
-                        val filtered = if (group.isEmpty() || group == "Все") {
-                            enrichedChannels
-                        } else {
-                            enrichedChannels.filter { it.group == group }
-                        }
+                        val filtered = filterChannels(enrichedChannels, group, current.favoriteIds)
                         val updatedActive = current.activeChannel?.let { act ->
                             enrichedChannels.find { it.id == act.id } ?: act
                         } ?: enrichedChannels.firstOrNull()
 
+                        val updatedFocused = current.focusedChannel?.let { foc ->
+                            enrichedChannels.find { it.id == foc.id } ?: foc
+                        } ?: updatedActive
+
                         current.copy(
                             allChannels = enrichedChannels,
                             displayedChannels = filtered,
-                            activeChannel = updatedActive
+                            activeChannel = updatedActive,
+                            focusedChannel = updatedFocused
                         )
                     }
+
+                    _uiState.value.focusedChannel?.let { onChannelFocused(it) }
                 }
             } catch (e: Exception) {
                 android.util.Log.w("LumiereTV", "EPG load failed: ${e.message}")
             }
         }
+    }
+
+    private fun getEpgForChannel(channel: IptvChannel): List<EpgProgram> {
+        val epgId = channel.tvgId?.takeIf { rawEpgData.containsKey(it) }
+            ?: rawChannelMap[normalizeChannelName(channel.name)]
+            ?: rawChannelMap.entries.firstOrNull { (k, id) ->
+                (normalizeChannelName(channel.name).contains(k) || k.contains(normalizeChannelName(channel.name))) && rawEpgData.containsKey(id)
+            }?.value
+        return epgId?.let { rawEpgData[it] }.orEmpty()
     }
 
     private fun normalizeChannelName(raw: String): String {
@@ -216,23 +257,129 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun selectGroup(group: String) {
-        val filtered = if (group.isEmpty() || group == "Все") {
-            _uiState.value.allChannels
-        } else {
-            _uiState.value.allChannels.filter { it.group == group }
+    private fun filterChannels(all: List<IptvChannel>, group: String, favs: Set<String>): List<IptvChannel> {
+        return when (group) {
+            "★ Избранное" -> all.filter { favs.contains(it.id) || favs.contains(it.name) }
+            "Все", "" -> all
+            else -> all.filter { it.group == group }
         }
+    }
+
+    fun selectGroup(group: String) {
+        val filtered = filterChannels(_uiState.value.allChannels, group, _uiState.value.favoriteIds)
+        val newFocused = filtered.firstOrNull()
 
         _uiState.update {
             it.copy(
                 selectedGroup = group,
+                displayedChannels = filtered,
+                focusedChannel = newFocused
+            )
+        }
+
+        if (newFocused != null) {
+            onChannelFocused(newFocused)
+        }
+    }
+
+    fun onChannelFocused(channel: IptvChannel) {
+        val epgList = getEpgForChannel(channel)
+        val now = System.currentTimeMillis()
+
+        var curProg = epgList.firstOrNull { prog ->
+            val s = parseEpgTime(prog.start)
+            val e = parseEpgTime(prog.stop)
+            s > 0 && e > 0 && now in s until e
+        }
+        if (curProg == null) {
+            curProg = epgList.firstOrNull { prog ->
+                val s = parseEpgTime(prog.start)
+                s >= now
+            }
+        }
+
+        val s = curProg?.let { parseEpgTime(it.start) } ?: 0L
+        val e = curProg?.let { parseEpgTime(it.stop) } ?: 0L
+        val progress = if (s > 0 && e > s) {
+            ((now - s).toFloat() / (e - s).toFloat()).coerceIn(0f, 1f)
+        } else 0f
+
+        val remainingMin = if (e > now) ((e - now) / 60_000L).toInt().coerceAtLeast(1) else 0
+        val timeText = if (curProg != null && !curProg.startTime.isNullOrBlank()) {
+            val endStr = curProg.stopTime?.let { " — $it" } ?: ""
+            "${curProg.startTime}$endStr" + (if (remainingMin > 0) " (осталось $remainingMin мин)" else "")
+        } else ""
+
+        val upcoming = if (curProg != null) {
+            val idx = epgList.indexOf(curProg)
+            if (idx in 0 until epgList.size - 1) epgList.subList(idx + 1, (idx + 7).coerceAtMost(epgList.size)) else emptyList()
+        } else {
+            epgList.filter { parseEpgTime(it.start) >= now }.take(6)
+        }
+
+        _uiState.update {
+            it.copy(
+                focusedChannel = channel,
+                currentProgramDetail = curProg,
+                upcomingSchedule = upcoming,
+                currentProgramProgress = progress,
+                currentProgramTimeText = timeText
+            )
+        }
+
+        // Debounce video preview (350ms)
+        previewJob?.cancel()
+        if (!_uiState.value.isPlayerMode && !_uiState.value.isMultiViewMode) {
+            previewJob = viewModelScope.launch {
+                delay(350)
+                val serverUrl = preferences.serverUrl.first().orEmpty()
+                val encoded = URLEncoder.encode(channel.url, StandardCharsets.UTF_8.toString())
+                val streamUrl = if (serverUrl.isNotBlank()) "$serverUrl/api/iptv/stream?url=$encoded" else channel.url
+                val isHls = channel.url.contains(".m3u", ignoreCase = true) || !channel.url.endsWith(".ts", ignoreCase = true)
+                player.exoPlayer.volume = 0f // Muted for preview
+                player.prepare(streamUrl, isHls = isHls, startPositionMs = 0L, isLive = true)
+            }
+        }
+    }
+
+    fun toggleFavorite(channel: IptvChannel) {
+        val currentFavs = _uiState.value.favoriteIds.toMutableSet()
+        val key = channel.id
+        if (currentFavs.contains(key) || currentFavs.contains(channel.name)) {
+            currentFavs.remove(key)
+            currentFavs.remove(channel.name)
+        } else {
+            currentFavs.add(key)
+        }
+
+        favPrefs.edit().putStringSet("fav_ids", currentFavs).apply()
+
+        val updatedGroups = buildGroupList(_uiState.value.groups, currentFavs)
+        val filtered = filterChannels(_uiState.value.allChannels, _uiState.value.selectedGroup, currentFavs)
+
+        _uiState.update {
+            it.copy(
+                favoriteIds = currentFavs,
+                groups = updatedGroups,
                 displayedChannels = filtered
             )
         }
     }
 
     fun playChannel(channel: IptvChannel) {
-        _uiState.update { it.copy(activeChannel = channel, isPlayerMode = true, isSidebarVisible = false) }
+        previewJob?.cancel()
+        _uiState.update {
+            it.copy(
+                activeChannel = channel,
+                focusedChannel = channel,
+                isPlayerMode = true,
+                isMultiViewMode = false,
+                isSidebarVisible = false
+            )
+        }
+
+        // Unmute player for fullscreen mode
+        player.exoPlayer.volume = 1f
 
         // Stop prior IPTV session if any
         val oldSessionId = iptvSessionId
@@ -249,14 +396,13 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        val newSessionId = "android-tv-iptv-${System.currentTimeMillis()}-${(1000..9999).random()}"
+        val newSessionId = "android-tv2-iptv-${System.currentTimeMillis()}-${(1000..9999).random()}"
         iptvSessionId = newSessionId
 
         iptvHeartbeatJob?.cancel()
 
         viewModelScope.launch {
             val serverUrl = preferences.serverUrl.first().orEmpty()
-            // Proxy stream via Lumiere server to ensure SSL/CORS/ISP bypass and playlist manifest rewriting
             val encoded = URLEncoder.encode(channel.url, StandardCharsets.UTF_8.toString())
             val streamUrl = if (serverUrl.isNotBlank()) "$serverUrl/api/iptv/stream?url=$encoded" else channel.url
             val isHls = channel.url.contains(".m3u", ignoreCase = true) || !channel.url.endsWith(".ts", ignoreCase = true)
@@ -297,6 +443,11 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun enterFullscreen(channel: IptvChannel? = null) {
+        val target = channel ?: _uiState.value.focusedChannel ?: _uiState.value.activeChannel ?: return
+        playChannel(target)
+    }
+
     fun exitPlayerMode() {
         _uiState.update { it.copy(isPlayerMode = false, isSidebarVisible = false, showChannelBanner = false) }
         val closingSessionId = iptvSessionId
@@ -313,7 +464,81 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         iptvHeartbeatJob?.cancel()
-        player.stop()
+        // In guide mode, keep preview muted
+        player.exoPlayer.volume = 0f
+    }
+
+    // ========== Multi-View 50/50 Dual Player Mode ==========
+
+    fun enterMultiView(secondaryChannel: IptvChannel? = null) {
+        if (secondaryPlayer == null) {
+            secondaryPlayer = LumierePlayer(getApplication<Application>().applicationContext, networkClient!!.okHttpClient)
+        }
+
+        val primary = _uiState.value.activeChannel ?: _uiState.value.focusedChannel ?: _uiState.value.allChannels.firstOrNull() ?: return
+        val targetSecondary = secondaryChannel
+            ?: _uiState.value.displayedChannels.firstOrNull { it.id != primary.id }
+            ?: _uiState.value.allChannels.firstOrNull { it.id != primary.id }
+            ?: primary
+
+        _uiState.update {
+            it.copy(
+                isMultiViewMode = true,
+                isPlayerMode = false,
+                activeChannel = primary,
+                multiViewSecondaryChannel = targetSecondary,
+                multiViewAudioOnPrimary = true
+            )
+        }
+
+        player.exoPlayer.volume = 1f
+        secondaryPlayer?.exoPlayer?.volume = 0f
+
+        viewModelScope.launch {
+            val serverUrl = preferences.serverUrl.first().orEmpty()
+            val encodedSec = URLEncoder.encode(targetSecondary.url, StandardCharsets.UTF_8.toString())
+            val streamUrlSec = if (serverUrl.isNotBlank()) "$serverUrl/api/iptv/stream?url=$encodedSec" else targetSecondary.url
+            val isHlsSec = targetSecondary.url.contains(".m3u", ignoreCase = true) || !targetSecondary.url.endsWith(".ts", ignoreCase = true)
+            secondaryPlayer?.prepare(streamUrlSec, isHls = isHlsSec, startPositionMs = 0L, isLive = true)
+        }
+    }
+
+    fun switchMultiViewAudio() {
+        val newAudioOnPrimary = !_uiState.value.multiViewAudioOnPrimary
+        _uiState.update { it.copy(multiViewAudioOnPrimary = newAudioOnPrimary) }
+        if (newAudioOnPrimary) {
+            player.exoPlayer.volume = 1f
+            secondaryPlayer?.exoPlayer?.volume = 0f
+        } else {
+            player.exoPlayer.volume = 0f
+            secondaryPlayer?.exoPlayer?.volume = 1f
+        }
+    }
+
+    fun exitMultiView(fullscreenChannel: IptvChannel? = null) {
+        val target = fullscreenChannel ?: if (_uiState.value.multiViewAudioOnPrimary) {
+            _uiState.value.activeChannel
+        } else {
+            _uiState.value.multiViewSecondaryChannel
+        }
+
+        secondaryPlayer?.stop()
+        secondaryPlayer?.release()
+        secondaryPlayer = null
+
+        _uiState.update {
+            it.copy(
+                isMultiViewMode = false,
+                multiViewSecondaryChannel = null,
+                multiViewAudioOnPrimary = true
+            )
+        }
+
+        if (target != null) {
+            playChannel(target)
+        } else {
+            exitPlayerMode()
+        }
     }
 
     fun nextChannel() {
@@ -370,6 +595,8 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
         iptvHeartbeatJob?.cancel()
         bannerJob?.cancel()
+        previewJob?.cancel()
+        secondaryPlayer?.release()
         player.release()
     }
 }
