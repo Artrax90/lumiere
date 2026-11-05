@@ -54,12 +54,13 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     val uiState: StateFlow<IptvUiState> = _uiState.asStateFlow()
 
     private var bannerJob: Job? = null
+    private var focusDebounceJob: Job? = null
     private var previewJob: Job? = null
     private var iptvHeartbeatJob: Job? = null
     private var iptvSessionId: String? = null
 
     private var rawEpgData: Map<String, List<EpgProgram>> = emptyMap()
-    private var rawChannelMap: Map<String, String> = emptyMap()
+    private val channelIdToEpgIdMap = HashMap<String, String>()
 
     private val deviceDisplayName: String by lazy {
         val model = android.os.Build.MODEL.orEmpty().trim()
@@ -152,8 +153,31 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                 val now = System.currentTimeMillis()
 
                 rawEpgData = epgRes.epg
-                rawChannelMap = epgRes.channelMap
+                val rawChannelMap = epgRes.channelMap
                 val iconMap = epgRes.iconMap
+
+                // Precompute O(1) channel ID -> EPG ID mapping once in background
+                val precomputedMap = HashMap<String, String>()
+                for (channel in baseChannels) {
+                    var epgId: String? = null
+                    if (!channel.tvgId.isNullOrBlank() && rawEpgData.containsKey(channel.tvgId)) {
+                        epgId = channel.tvgId
+                    } else {
+                        val clean = normalizeChannelName(channel.name)
+                        epgId = rawChannelMap[clean]
+                        if (epgId == null || !rawEpgData.containsKey(epgId)) {
+                            epgId = rawChannelMap.entries.firstOrNull { (k, id) ->
+                                (clean.contains(k) || k.contains(clean)) && rawEpgData.containsKey(id)
+                            }?.value
+                        }
+                    }
+                    if (epgId != null) {
+                        precomputedMap[channel.id] = epgId
+                    }
+                }
+
+                channelIdToEpgIdMap.clear()
+                channelIdToEpgIdMap.putAll(precomputedMap)
 
                 val enrichedChannels = baseChannels.map { channel ->
                     val epgList = getEpgForChannel(channel)
@@ -174,17 +198,14 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                             if (!it.startTime.isNullOrBlank()) "${it.startTime} ${it.title}" else it.title
                         }
 
-                        val nextProg = curProg?.let { cp ->
-                            val idx = epgList.indexOf(cp)
-                            if (idx in 0 until epgList.size - 1) epgList[idx + 1] else null
-                        }
+                        val curStart = curProg?.let { parseEpgTime(it.start) } ?: now
+                        val nextProg = epgList.firstOrNull { parseEpgTime(it.start) > curStart }
                         val nextTitle = nextProg?.let {
                             if (!it.startTime.isNullOrBlank()) "${it.startTime} ${it.title}" else it.title
                         }
 
                         val logo = if (channel.logo.isNullOrBlank()) {
-                            val epgId = channel.tvgId?.takeIf { iconMap.containsKey(it) }
-                                ?: rawChannelMap[normalizeChannelName(channel.name)]
+                            val epgId = precomputedMap[channel.id] ?: channel.tvgId
                             if (epgId != null) iconMap[epgId] ?: "https://iptvx.one/picons/$epgId.png" else channel.logo
                         } else channel.logo
 
@@ -227,11 +248,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun getEpgForChannel(channel: IptvChannel): List<EpgProgram> {
-        val epgId = channel.tvgId?.takeIf { rawEpgData.containsKey(it) }
-            ?: rawChannelMap[normalizeChannelName(channel.name)]
-            ?: rawChannelMap.entries.firstOrNull { (k, id) ->
-                (normalizeChannelName(channel.name).contains(k) || k.contains(normalizeChannelName(channel.name))) && rawEpgData.containsKey(id)
-            }?.value
+        val epgId = channelIdToEpgIdMap[channel.id] ?: channel.tvgId
         return epgId?.let { rawEpgData[it] }.orEmpty()
     }
 
@@ -283,61 +300,69 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onChannelFocused(channel: IptvChannel) {
-        val epgList = getEpgForChannel(channel)
-        val now = System.currentTimeMillis()
+        if (_uiState.value.focusedChannel?.id == channel.id && _uiState.value.currentProgramDetail != null) return
 
-        var curProg = epgList.firstOrNull { prog ->
-            val s = parseEpgTime(prog.start)
-            val e = parseEpgTime(prog.stop)
-            s > 0 && e > 0 && now in s until e
-        }
-        if (curProg == null) {
-            curProg = epgList.firstOrNull { prog ->
-                val s = parseEpgTime(prog.start)
-                s >= now
-            }
-        }
-
-        val s = curProg?.let { parseEpgTime(it.start) } ?: 0L
-        val e = curProg?.let { parseEpgTime(it.stop) } ?: 0L
-        val progress = if (s > 0 && e > s) {
-            ((now - s).toFloat() / (e - s).toFloat()).coerceIn(0f, 1f)
-        } else 0f
-
-        val remainingMin = if (e > now) ((e - now) / 60_000L).toInt().coerceAtLeast(1) else 0
-        val timeText = if (curProg != null && !curProg.startTime.isNullOrBlank()) {
-            val endStr = curProg.stopTime?.let { " — $it" } ?: ""
-            "${curProg.startTime}$endStr" + (if (remainingMin > 0) " (осталось $remainingMin мин)" else "")
-        } else ""
-
-        val upcoming = if (curProg != null) {
-            val idx = epgList.indexOf(curProg)
-            if (idx in 0 until epgList.size - 1) epgList.subList(idx + 1, (idx + 7).coerceAtMost(epgList.size)) else emptyList()
-        } else {
-            epgList.filter { parseEpgTime(it.start) >= now }.take(6)
-        }
-
-        _uiState.update {
-            it.copy(
-                focusedChannel = channel,
-                currentProgramDetail = curProg,
-                upcomingSchedule = upcoming,
-                currentProgramProgress = progress,
-                currentProgramTimeText = timeText
-            )
-        }
-
-        // Debounce video preview (350ms)
+        focusDebounceJob?.cancel()
         previewJob?.cancel()
-        if (!_uiState.value.isPlayerMode && !_uiState.value.isMultiViewMode) {
-            previewJob = viewModelScope.launch {
-                delay(350)
+
+        // Debounce calculation so fast D-pad scrolling skips intermediate processing
+        focusDebounceJob = viewModelScope.launch(Dispatchers.Default) {
+            delay(100)
+            val epgList = getEpgForChannel(channel)
+            val now = System.currentTimeMillis()
+
+            var curProg = epgList.firstOrNull { prog ->
+                val s = parseEpgTime(prog.start)
+                val e = parseEpgTime(prog.stop)
+                s > 0 && e > 0 && now in s until e
+            }
+            if (curProg == null) {
+                curProg = epgList.firstOrNull { prog ->
+                    val s = parseEpgTime(prog.start)
+                    s >= now
+                }
+            }
+
+            val s = curProg?.let { parseEpgTime(it.start) } ?: 0L
+            val e = curProg?.let { parseEpgTime(it.stop) } ?: 0L
+            val progress = if (s > 0 && e > s) {
+                ((now - s).toFloat() / (e - s).toFloat()).coerceIn(0f, 1f)
+            } else 0f
+
+            val remainingMin = if (e > now) ((e - now) / 60_000L).toInt().coerceAtLeast(1) else 0
+            val timeText = if (curProg != null && !curProg.startTime.isNullOrBlank()) {
+                val endStr = curProg.stopTime?.let { " — $it" } ?: ""
+                "${curProg.startTime}$endStr" + (if (remainingMin > 0) " (осталось $remainingMin мин)" else "")
+            } else ""
+
+            val curStartTime = curProg?.let { parseEpgTime(it.start) } ?: now
+            val upcoming = epgList.filter { parseEpgTime(it.start) > curStartTime }.take(8)
+
+            withContext(Dispatchers.Main) {
+                _uiState.update {
+                    it.copy(
+                        focusedChannel = channel,
+                        currentProgramDetail = curProg,
+                        upcomingSchedule = upcoming,
+                        currentProgramProgress = progress,
+                        currentProgramTimeText = timeText
+                    )
+                }
+            }
+
+            // Preview stream debounce (400ms)
+            if (!_uiState.value.isPlayerMode && !_uiState.value.isMultiViewMode) {
+                delay(300)
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 val encoded = URLEncoder.encode(channel.url, StandardCharsets.UTF_8.toString())
                 val streamUrl = if (serverUrl.isNotBlank()) "$serverUrl/api/iptv/stream?url=$encoded" else channel.url
                 val isHls = channel.url.contains(".m3u", ignoreCase = true) || !channel.url.endsWith(".ts", ignoreCase = true)
-                player.exoPlayer.volume = 0f // Muted for preview
-                player.prepare(streamUrl, isHls = isHls, startPositionMs = 0L, isLive = true)
+                withContext(Dispatchers.Main) {
+                    if (_uiState.value.focusedChannel?.id == channel.id && !_uiState.value.isPlayerMode) {
+                        player.exoPlayer.volume = 0f
+                        player.prepare(streamUrl, isHls = isHls, startPositionMs = 0L, isLive = true)
+                    }
+                }
             }
         }
     }
@@ -367,6 +392,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun playChannel(channel: IptvChannel) {
+        focusDebounceJob?.cancel()
         previewJob?.cancel()
         _uiState.update {
             it.copy(
@@ -449,7 +475,18 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun exitPlayerMode() {
-        _uiState.update { it.copy(isPlayerMode = false, isSidebarVisible = false, showChannelBanner = false) }
+        val target = _uiState.value.activeChannel ?: _uiState.value.focusedChannel
+        _uiState.update {
+            it.copy(
+                isPlayerMode = false,
+                isSidebarVisible = false,
+                showChannelBanner = false,
+                focusedChannel = target
+            )
+        }
+        if (target != null) {
+            onChannelFocused(target)
+        }
         val closingSessionId = iptvSessionId
         if (!closingSessionId.isNullOrBlank()) {
             GlobalScope.launch(Dispatchers.IO + NonCancellable) {
@@ -595,6 +632,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
         iptvHeartbeatJob?.cancel()
         bannerJob?.cancel()
+        focusDebounceJob?.cancel()
         previewJob?.cancel()
         secondaryPlayer?.release()
         player.release()

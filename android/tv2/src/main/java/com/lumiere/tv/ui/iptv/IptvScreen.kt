@@ -42,7 +42,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.PlayerView
-import kotlinx.coroutines.isActive
+import kotlinx.coroutines.*
 import androidx.tv.material3.*
 import coil3.compose.AsyncImage
 import com.lumiere.core.model.EpgProgram
@@ -72,6 +72,10 @@ fun IptvScreen(
     val state by viewModel.uiState.collectAsState()
     val playerFocusRequester = remember { FocusRequester() }
     val catalogFocusRequester = remember { FocusRequester() }
+    val activeChannelFocusRequester = remember { FocusRequester() }
+    val rightColumnFocusRequester = remember { FocusRequester() }
+    val channelsListState = rememberLazyListState()
+    var lastSelectedChannelId by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
     val isPlaying by viewModel.player.isPlaying.collectAsState()
@@ -106,10 +110,32 @@ fun IptvScreen(
                 playerFocusRequester.requestFocus()
             } catch (_: Exception) {}
         } else if (!state.isPlayerMode && !state.isMultiViewMode) {
-            try {
-                catalogFocusRequester.requestFocus()
-            } catch (_: Exception) {}
+            val targetId = state.focusedChannel?.id ?: state.activeChannel?.id ?: lastSelectedChannelId
+            if (targetId != null) {
+                val idx = state.displayedChannels.indexOfFirst { it.id == targetId }
+                if (idx >= 0) {
+                    try {
+                        channelsListState.scrollToItem((idx - 2).coerceAtLeast(0))
+                    } catch (_: Exception) {}
+                }
+                kotlinx.coroutines.delay(60)
+                try {
+                    activeChannelFocusRequester.requestFocus()
+                } catch (_: Exception) {
+                    try { catalogFocusRequester.requestFocus() } catch (_: Exception) {}
+                }
+            } else {
+                try {
+                    catalogFocusRequester.requestFocus()
+                } catch (_: Exception) {}
+            }
         }
+    }
+
+    LaunchedEffect(state.selectedGroup) {
+        try {
+            channelsListState.scrollToItem(0)
+        } catch (_: Exception) {}
     }
 
     // Back handling
@@ -154,6 +180,10 @@ fun IptvScreen(
                     if (state.isSidebarVisible) return@onPreviewKeyEvent false
 
                     when (keyEvent.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_BACK -> {
+                            viewModel.exitPlayerMode()
+                            true
+                        }
                         KeyEvent.KEYCODE_DPAD_UP -> {
                             viewModel.previousChannel()
                             true
@@ -451,14 +481,14 @@ fun IptvScreen(
                                 letterSpacing = 1.sp
                             )
                             Text(
-                                text = "OK: эфир",
+                                text = "OK: эфир • Удерж. OK: ★",
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = LumiereGold
                             )
                         }
 
-                        val channelsListState = rememberLazyListState()
+                        val targetChannelId = state.focusedChannel?.id ?: state.activeChannel?.id ?: state.displayedChannels.firstOrNull()?.id
 
                         LazyColumn(
                             state = channelsListState,
@@ -469,114 +499,27 @@ fun IptvScreen(
                                 items = state.displayedChannels,
                                 key = { index, ch -> "${ch.id}_$index" }
                             ) { _, channel ->
-                                val isFocused = state.focusedChannel?.id == channel.id
                                 val isFav = state.favoriteIds.contains(channel.id) || state.favoriteIds.contains(channel.name)
+                                val isFocusTarget = channel.id == targetChannelId
 
-                                Surface(
-                                    onClick = { viewModel.enterFullscreen(channel) },
-                                    colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = if (isFocused) SurfaceVariantDark else Color.Transparent,
-                                        focusedContainerColor = SurfaceVariantDark,
-                                        contentColor = TextPrimary,
-                                        focusedContentColor = TextPrimary
-                                    ),
-                                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.02f),
-                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
-                                    border = ClickableSurfaceDefaults.border(
-                                        border = Border(
-                                            border = androidx.compose.foundation.BorderStroke(
-                                                width = if (isFocused) 1.5.dp else 1.dp,
-                                                color = if (isFocused) LumiereGold.copy(alpha = 0.5f) else SurfaceBorder.copy(alpha = 0.5f)
-                                            ),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ),
-                                        focusedBorder = Border(
-                                            border = androidx.compose.foundation.BorderStroke(2.dp, LumiereGold),
-                                            shape = RoundedCornerShape(10.dp)
-                                        )
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .onFocusChanged {
-                                            if (it.isFocused) {
-                                                viewModel.onChannelFocused(channel)
-                                            }
-                                        }
-                                ) {
-                                    Row(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 10.dp, vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                    ) {
-                                        // Logo
-                                        Box(
-                                            modifier = Modifier
-                                                .size(36.dp)
-                                                .clip(CircleShape)
-                                                .background(SurfaceDark)
-                                                .border(1.dp, SurfaceBorder, CircleShape),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            val logo = viewModel.resolveLogoUrl(channel.logo)
-                                            if (logo.isNotBlank()) {
-                                                AsyncImage(
-                                                    model = logo,
-                                                    contentDescription = null,
-                                                    contentScale = ContentScale.Fit,
-                                                    modifier = Modifier
-                                                        .fillMaxSize()
-                                                        .padding(3.dp)
-                                                )
-                                            } else {
-                                                Text(
-                                                    text = channel.name.take(2).uppercase(),
-                                                    fontSize = 11.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = LumiereGold
-                                                )
-                                            }
-                                        }
-
-                                        Column(
-                                            modifier = Modifier.weight(1f),
-                                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                                        ) {
-                                            Row(
-                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                verticalAlignment = Alignment.CenterVertically
-                                            ) {
-                                                Text(
-                                                    text = channel.name,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.SemiBold,
-                                                    color = TextPrimary,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                    modifier = Modifier.weight(1f, fill = false)
-                                                )
-                                                if (isFav) {
-                                                    Icon(
-                                                        imageVector = Icons.Default.Star,
-                                                        contentDescription = "Избранное",
-                                                        tint = LumiereGold,
-                                                        modifier = Modifier.size(13.dp)
-                                                    )
-                                                }
-                                            }
-
-                                            val cur = channel.currentProgram
-                                            Text(
-                                                text = if (!cur.isNullOrBlank()) cur else "Прямой эфир",
-                                                fontSize = 11.sp,
-                                                color = if (!cur.isNullOrBlank()) LumiereGold else TextSecondary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis
-                                            )
-                                        }
-                                    }
-                                }
+                                ChannelListItem(
+                                    channel = channel,
+                                    isFavorite = isFav,
+                                    isActiveFocusTarget = isFocusTarget,
+                                    activeFocusRequester = activeChannelFocusRequester,
+                                    onFocused = { viewModel.onChannelFocused(channel) },
+                                    onClick = {
+                                        lastSelectedChannelId = channel.id
+                                        viewModel.enterFullscreen(channel)
+                                    },
+                                    onLongClick = { viewModel.toggleFavorite(channel) },
+                                    onNavigateRight = {
+                                        try {
+                                            rightColumnFocusRequester.requestFocus()
+                                        } catch (_: Exception) {}
+                                    },
+                                    resolveLogoUrl = { viewModel.resolveLogoUrl(it) }
+                                )
                             }
                         }
                     }
@@ -593,88 +536,120 @@ fun IptvScreen(
                                 .fillMaxHeight()
                                 .background(SurfaceDark.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
                                 .border(1.dp, SurfaceBorder, RoundedCornerShape(16.dp))
-                                .padding(16.dp)
+                                .padding(14.dp)
                         ) {
-                            // 16:9 Live Preview Video Frame
-                            Box(
+                            // 16:9 Live Preview Video Frame (Compact: 125dp height)
+                            Surface(
+                                onClick = {
+                                    lastSelectedChannelId = focusedChannel.id
+                                    viewModel.enterFullscreen(focusedChannel)
+                                },
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Black,
+                                    focusedContainerColor = Color.Black
+                                ),
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                border = ClickableSurfaceDefaults.border(
+                                    border = Border(
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ),
+                                    focusedBorder = Border(
+                                        border = androidx.compose.foundation.BorderStroke(2.dp, LumiereGold),
+                                        shape = RoundedCornerShape(12.dp)
+                                    )
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.01f),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(240.dp)
-                                    .clip(RoundedCornerShape(14.dp))
-                                    .background(Color.Black)
-                                    .border(1.dp, SurfaceBorder, RoundedCornerShape(14.dp))
-                            ) {
-                                AndroidView(
-                                    factory = { ctx ->
-                                        PlayerView(ctx).apply {
-                                            this.player = viewModel.player.exoPlayer
-                                            useController = false
-                                            keepScreenOn = false
-                                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                            (videoSurfaceView as? android.view.SurfaceView)?.apply {
-                                                setZOrderMediaOverlay(true)
+                                    .height(125.dp)
+                                    .onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                            try {
+                                                activeChannelFocusRequester.requestFocus()
+                                                true
+                                            } catch (_: Exception) {
+                                                false
                                             }
-                                            layoutParams = ViewGroup.LayoutParams(
-                                                ViewGroup.LayoutParams.MATCH_PARENT,
-                                                ViewGroup.LayoutParams.MATCH_PARENT
-                                            )
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxSize()
-                                )
+                                        } else false
+                                    }
+                            ) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    AndroidView(
+                                        factory = { ctx ->
+                                            PlayerView(ctx).apply {
+                                                this.player = viewModel.player.exoPlayer
+                                                useController = false
+                                                keepScreenOn = false
+                                                setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                                (videoSurfaceView as? android.view.SurfaceView)?.apply {
+                                                    setZOrderMediaOverlay(true)
+                                                }
+                                                layoutParams = ViewGroup.LayoutParams(
+                                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize()
+                                    )
 
-                                // Live Badge overlay on top-left of video
-                                Row(
-                                    modifier = Modifier
-                                        .align(Alignment.TopStart)
-                                        .padding(10.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Color(0xCC0B0E14))
-                                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Box(
+                                    // Live Badge overlay on top-left of video
+                                    Row(
                                         modifier = Modifier
-                                            .size(7.dp)
-                                            .clip(CircleShape)
-                                            .background(Color(0xFFEF4444))
-                                    )
-                                    Text(
-                                        text = "ПРЯМОЙ ЭФИР",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
+                                            .align(Alignment.TopStart)
+                                            .padding(6.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Color(0xCC0B0E14))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(5.dp)
+                                                .clip(CircleShape)
+                                                .background(Color(0xFFEF4444))
+                                        )
+                                        Text(
+                                            text = "ПРЯМОЙ ЭФИР",
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                    }
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(14.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
                             // Channel Title & Category
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
                             ) {
                                 Text(
                                     text = focusedChannel.name,
-                                    style = MaterialTheme.typography.headlineMedium,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
                                     color = TextPrimary,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
                                 )
                                 val grp = focusedChannel.group
                                 if (!grp.isNullOrBlank()) {
                                     Box(
                                         modifier = Modifier
-                                            .clip(RoundedCornerShape(6.dp))
+                                            .clip(RoundedCornerShape(4.dp))
                                             .background(LumiereGold.copy(alpha = 0.15f))
-                                            .border(1.dp, LumiereGold.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
-                                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                                            .border(1.dp, LumiereGold.copy(alpha = 0.3f), RoundedCornerShape(4.dp))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
                                     ) {
                                         Text(
                                             text = grp,
-                                            fontSize = 11.sp,
+                                            fontSize = 9.sp,
                                             color = LumiereGold,
                                             fontWeight = FontWeight.SemiBold
                                         )
@@ -682,27 +657,27 @@ fun IptvScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(10.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                            // Current Program Details Card
+                            // Current Program Details Card (Compact)
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clip(RoundedCornerShape(12.dp))
+                                    .clip(RoundedCornerShape(8.dp))
                                     .background(SurfaceVariantDark.copy(alpha = 0.7f))
-                                    .border(1.dp, SurfaceBorder, RoundedCornerShape(12.dp))
-                                    .padding(12.dp)
+                                    .border(1.dp, SurfaceBorder, RoundedCornerShape(8.dp))
+                                    .padding(8.dp)
                             ) {
-                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     val curProg = state.currentProgramDetail
                                     val title = curProg?.title?.ifBlank { focusedChannel.currentProgram } ?: (focusedChannel.currentProgram ?: "Прямой эфир")
 
                                     Text(
                                         text = title,
-                                        fontSize = 15.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary,
-                                        maxLines = 2,
+                                        maxLines = 1,
                                         overflow = TextOverflow.Ellipsis
                                     )
 
@@ -710,7 +685,7 @@ fun IptvScreen(
                                     if (state.currentProgramTimeText.isNotBlank()) {
                                         Text(
                                             text = state.currentProgramTimeText,
-                                            fontSize = 12.sp,
+                                            fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = LumiereGold
                                         )
@@ -720,8 +695,8 @@ fun IptvScreen(
                                     Box(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .height(5.dp)
-                                            .clip(RoundedCornerShape(3.dp))
+                                            .height(3.dp)
+                                            .clip(RoundedCornerShape(2.dp))
                                             .background(Color.White.copy(alpha = 0.12f))
                                     ) {
                                         Box(
@@ -732,7 +707,7 @@ fun IptvScreen(
                                                     brush = Brush.horizontalGradient(
                                                         listOf(LumiereGold, Color(0xFFF59E0B))
                                                     ),
-                                                    shape = RoundedCornerShape(3.dp)
+                                                    shape = RoundedCornerShape(2.dp)
                                                 )
                                         )
                                     }
@@ -740,7 +715,7 @@ fun IptvScreen(
                                     if (!curProg?.desc.isNullOrBlank()) {
                                         Text(
                                             text = curProg!!.desc!!,
-                                            fontSize = 11.sp,
+                                            fontSize = 9.sp,
                                             color = TextSecondary,
                                             maxLines = 2,
                                             overflow = TextOverflow.Ellipsis
@@ -749,32 +724,48 @@ fun IptvScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
-                            // Action Buttons Row
+                            // Action Buttons Row (Navigable with D-pad)
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 val isFav = state.favoriteIds.contains(focusedChannel.id) || state.favoriteIds.contains(focusedChannel.name)
 
                                 Button(
-                                    onClick = { viewModel.enterFullscreen(focusedChannel) },
+                                    onClick = {
+                                        lastSelectedChannelId = focusedChannel.id
+                                        viewModel.enterFullscreen(focusedChannel)
+                                    },
                                     colors = ButtonDefaults.colors(
                                         containerColor = LumiereGold,
                                         contentColor = BackgroundDark,
                                         focusedContainerColor = Color.White,
                                         focusedContentColor = BackgroundDark
                                     ),
-                                    shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                                    shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
+                                    modifier = Modifier
+                                        .weight(1.3f)
+                                        .focusRequester(rightColumnFocusRequester)
+                                        .onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                                try {
+                                                    activeChannelFocusRequester.requestFocus()
+                                                    true
+                                                } catch (_: Exception) {
+                                                    false
+                                                }
+                                            } else false
+                                        }
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
-                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Text(text = "На весь экран", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                        Icon(Icons.Default.PlayArrow, contentDescription = null, modifier = Modifier.size(13.dp))
+                                        Text(text = "На весь экран", fontSize = 10.sp, fontWeight = FontWeight.Bold, maxLines = 1)
                                     }
                                 }
 
@@ -786,22 +777,35 @@ fun IptvScreen(
                                         focusedContainerColor = Color.White,
                                         focusedContentColor = BackgroundDark
                                     ),
-                                    shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
+                                    shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 5.dp),
+                                    modifier = Modifier
+                                        .weight(1.1f)
+                                        .onKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                                try {
+                                                    activeChannelFocusRequester.requestFocus()
+                                                    true
+                                                } catch (_: Exception) {
+                                                    false
+                                                }
+                                            } else false
+                                        }
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
                                         Icon(
                                             imageVector = if (isFav) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                                             contentDescription = null,
-                                            modifier = Modifier.size(15.dp)
+                                            modifier = Modifier.size(13.dp)
                                         )
                                         Text(
                                             text = if (isFav) "В избранном" else "В закладки",
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1
                                         )
                                     }
                                 }
@@ -814,52 +818,61 @@ fun IptvScreen(
                                         focusedContainerColor = Color.White,
                                         focusedContentColor = BackgroundDark
                                     ),
-                                    shape = ButtonDefaults.shape(RoundedCornerShape(10.dp)),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                    ) {
-                                        Icon(Icons.Default.Tv, contentDescription = null, modifier = Modifier.size(15.dp))
-                                        Text(text = "2 экрана (Multi-View)", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                                    shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 5.dp),
+                                    modifier = Modifier.onKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                            try {
+                                                activeChannelFocusRequester.requestFocus()
+                                                true
+                                            } catch (_: Exception) {
+                                                false
+                                            }
+                                        } else false
                                     }
+                                ) {
+                                    Icon(Icons.Default.Tv, contentDescription = "2 экрана", modifier = Modifier.size(14.dp))
                                 }
                             }
 
-                            // Upcoming Schedule
-                            if (state.upcomingSchedule.isNotEmpty()) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Text(
-                                    text = "ДАЛЕЕ В ЭФИРЕ",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextSecondary,
-                                    letterSpacing = 1.sp
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
+                            Spacer(modifier = Modifier.height(6.dp))
 
+                            // Upcoming Schedule Section (Visible & Scrollable)
+                            Text(
+                                text = "ДАЛЕЕ В ЭФИРЕ",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextSecondary,
+                                letterSpacing = 1.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            if (state.upcomingSchedule.isNotEmpty()) {
                                 LazyColumn(
-                                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                                    modifier = Modifier.fillMaxWidth().weight(1f)
+                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f)
                                 ) {
                                     items(state.upcomingSchedule) { prog ->
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(vertical = 3.dp),
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0x1AFFFFFF))
+                                                .padding(horizontal = 7.dp, vertical = 4.dp),
                                             verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                                         ) {
                                             Text(
                                                 text = prog.startTime ?: "--:--",
-                                                fontSize = 12.sp,
+                                                fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = LumiereGold
                                             )
                                             Text(
                                                 text = prog.title,
-                                                fontSize = 12.sp,
+                                                fontSize = 11.sp,
                                                 color = TextPrimary,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
@@ -868,10 +881,152 @@ fun IptvScreen(
                                         }
                                     }
                                 }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Нет данных о телепрограмме",
+                                        fontSize = 11.sp,
+                                        color = TextSecondary.copy(alpha = 0.6f)
+                                    )
+                                }
                             }
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ChannelListItem(
+    channel: IptvChannel,
+    isFavorite: Boolean,
+    isActiveFocusTarget: Boolean,
+    activeFocusRequester: FocusRequester,
+    onFocused: () -> Unit,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+    onNavigateRight: () -> Unit,
+    resolveLogoUrl: (String?) -> String
+) {
+    Surface(
+        onClick = onClick,
+        onLongClick = onLongClick,
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent,
+            focusedContainerColor = SurfaceVariantDark,
+            contentColor = TextPrimary,
+            focusedContentColor = TextPrimary
+        ),
+        scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.02f),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder.copy(alpha = 0.5f)),
+                shape = RoundedCornerShape(10.dp)
+            ),
+            focusedBorder = Border(
+                border = androidx.compose.foundation.BorderStroke(2.dp, LumiereGold),
+                shape = RoundedCornerShape(10.dp)
+            )
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(if (isActiveFocusTarget) Modifier.focusRequester(activeFocusRequester) else Modifier)
+            .onFocusChanged {
+                if (it.isFocused) {
+                    onFocused()
+                }
+            }
+            .onPreviewKeyEvent { keyEvent ->
+                // D-Pad Right -> transfer focus to right column (buttons & preview)
+                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
+                    if (keyEvent.type == KeyEventType.KeyDown) {
+                        onNavigateRight()
+                        return@onPreviewKeyEvent true
+                    }
+                }
+                false
+            }
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            // Logo
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .clip(CircleShape)
+                    .background(SurfaceDark)
+                    .border(1.dp, SurfaceBorder, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                val logo = resolveLogoUrl(channel.logo)
+                if (logo.isNotBlank()) {
+                    AsyncImage(
+                        model = logo,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(3.dp)
+                    )
+                } else {
+                    Text(
+                        text = channel.name.take(2).uppercase(),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = LumiereGold
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = channel.name,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                    if (isFavorite) {
+                        Icon(
+                            imageVector = Icons.Default.Star,
+                            contentDescription = "Избранное",
+                            tint = LumiereGold,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                }
+
+                val cur = channel.currentProgram
+                Text(
+                    text = if (!cur.isNullOrBlank()) cur else "Прямой эфир",
+                    fontSize = 11.sp,
+                    color = if (!cur.isNullOrBlank()) LumiereGold else TextSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

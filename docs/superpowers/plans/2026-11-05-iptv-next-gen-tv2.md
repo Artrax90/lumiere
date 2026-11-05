@@ -34,3 +34,4 @@
   - Build `:tv2` release APK with `node scratch/build_native_tv_v2.cjs`.
   - Copy APK to root and server `/app/public/`.
   - Verify on Android TV device `192.168.1.128:5555`.
+
