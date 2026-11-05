@@ -322,10 +322,11 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
   // Parse programmes with smart cutoff: current program + upcoming programs for next 10 hours
   const nowMs = Date.now();
   const cutoffMs = nowMs - 45 * 60 * 1000; // Ended less than 45m ago or currently airing
-  const maxFutureMs = nowMs + 10 * 3600 * 1000; // Next 10 hours (covers 8h grid + margin)
+  const maxFutureMs = nowMs + 24 * 3600 * 1000; // Next 10 hours (covers 8h grid + margin)
 
   const programmeRegex = /<programme\s+start="([^"]*)"\s+stop="([^"]*)"\s+channel="([^"]*)"[^>]*>([\s\S]*?)<\/programme>/g;
   const titleRegex = /<title[^>]*>([^<]*)<\/title>/;
+  const descRegex = /<desc[^>]*>([\s\S]*?)<\/desc>/;
 
   let match;
   while ((match = programmeRegex.exec(xmlContent)) !== null) {
@@ -343,16 +344,18 @@ function parseEpg(xmlContent: string): { programs: Map<string, EpgProgram[]>; ch
       programs.set(channel, []);
     }
     const channelList = programs.get(channel)!;
-    if (channelList.length >= 8) continue; // Current + up to 7 upcoming programs
+    if (channelList.length >= 40) continue; // Up to 40 programs for full 24h coverage
 
     const content = match[4];
     const titleMatch = titleRegex.exec(content);
 
+    const descMatch = descRegex.exec(content);
     const program: EpgProgram = {
       channel,
       title: titleMatch?.[1] || 'Unknown Program',
       start,
       stop,
+      desc: descMatch?.[1]?.trim() || undefined,
     };
 
     channelList.push(program);
@@ -817,6 +820,7 @@ const EPG_CACHE_TTL = 3600 * 4 * 1000; // 4 hours
             stop: p.stop,
             startTime: startFormatted.time,
             stopTime: stopFormatted.time,
+            desc: p.desc,
           };
         });
       }

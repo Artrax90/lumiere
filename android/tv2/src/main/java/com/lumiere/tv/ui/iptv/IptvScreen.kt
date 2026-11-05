@@ -68,6 +68,23 @@ private fun android.content.Context.findActivity(): android.app.Activity? {
     return null
 }
 
+private fun getDayLabel(progStart: String?): String? {
+    if (progStart.isNullOrBlank() || progStart.length < 8) return null
+    val progDate = progStart.take(8)
+    val now = System.currentTimeMillis()
+    val sdf = java.text.SimpleDateFormat("yyyyMMdd", java.util.Locale.US)
+    val today = sdf.format(java.util.Date(now))
+    if (progDate == today) return null
+    val tomorrow = sdf.format(java.util.Date(now + 86_400_000L))
+    if (progDate == tomorrow) return "Завтра"
+    return try {
+        val d = sdf.parse(progDate)
+        if (d != null) {
+            java.text.SimpleDateFormat("d MMM", java.util.Locale("ru")).format(d)
+        } else null
+    } catch (_: Exception) { null }
+}
+
 @OptIn(UnstableApi::class, ExperimentalTvMaterial3Api::class)
 @Composable
 fun IptvScreen(
@@ -830,7 +847,7 @@ fun IptvScreen(
                                         fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextPrimary,
-                                        maxLines = 1,
+                                        maxLines = 2,
                                         overflow = TextOverflow.Ellipsis
                                     )
 
@@ -868,9 +885,9 @@ fun IptvScreen(
                                     if (!curProg?.desc.isNullOrBlank()) {
                                         Text(
                                             text = curProg!!.desc!!,
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                             color = TextSecondary,
-                                            maxLines = 2,
+                                            maxLines = 3,
                                             overflow = TextOverflow.Ellipsis
                                         )
                                     }
@@ -991,46 +1008,148 @@ fun IptvScreen(
                             Spacer(modifier = Modifier.height(6.dp))
 
                             // Upcoming Schedule Section (Visible & Scrollable)
-                            Text(
-                                text = "ДАЛЕЕ В ЭФИРЕ",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = TextSecondary,
-                                letterSpacing = 1.sp
-                            )
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 2.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (state.upcomingSchedule.isNotEmpty()) "ДАЛЕЕ В ЭФИРЕ (${state.upcomingSchedule.size})" else "ДАЛЕЕ В ЭФИРЕ",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = TextSecondary,
+                                    letterSpacing = 1.sp
+                                )
+                                if (state.upcomingSchedule.isNotEmpty()) {
+                                    Text(
+                                        text = "Программа передач",
+                                        fontSize = 10.sp,
+                                        color = LumiereGold.copy(alpha = 0.8f),
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.height(4.dp))
 
                             if (state.upcomingSchedule.isNotEmpty()) {
                                 LazyColumn(
-                                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                                    verticalArrangement = Arrangement.spacedBy(5.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .weight(1f)
                                 ) {
-                                    items(state.upcomingSchedule) { prog ->
-                                        Row(
+                                    itemsIndexed(
+                                        items = state.upcomingSchedule,
+                                        key = { index, item -> "${item.start}_${item.title}_$index" }
+                                    ) { _, prog ->
+                                        val dayBadge = remember(prog.start) { getDayLabel(prog.start) }
+                                        Surface(
+                                            onClick = {},
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = Color(0x14FFFFFF),
+                                                focusedContainerColor = SurfaceVariantDark,
+                                                contentColor = TextPrimary,
+                                                focusedContentColor = TextPrimary
+                                            ),
+                                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                            border = ClickableSurfaceDefaults.border(
+                                                border = Border(
+                                                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x14FFFFFF)),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                ),
+                                                focusedBorder = Border(
+                                                    border = androidx.compose.foundation.BorderStroke(2.dp, LumiereGold),
+                                                    shape = RoundedCornerShape(8.dp)
+                                                )
+                                            ),
+                                            scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.01f),
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .clip(RoundedCornerShape(4.dp))
-                                                .background(Color(0x1AFFFFFF))
-                                                .padding(horizontal = 7.dp, vertical = 4.dp),
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                .onKeyEvent { event ->
+                                                    if (event.type == KeyEventType.KeyDown && event.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT) {
+                                                        try {
+                                                            activeChannelFocusRequester.requestFocus()
+                                                            true
+                                                        } catch (_: Exception) { false }
+                                                    } else false
+                                                }
                                         ) {
-                                            Text(
-                                                text = prog.startTime ?: "--:--",
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = LumiereGold
-                                            )
-                                            Text(
-                                                text = prog.title,
-                                                fontSize = 11.sp,
-                                                color = TextPrimary,
-                                                maxLines = 1,
-                                                overflow = TextOverflow.Ellipsis,
-                                                modifier = Modifier.weight(1f)
-                                            )
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(horizontal = 9.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                            ) {
+                                                // Time column
+                                                Column(
+                                                    horizontalAlignment = Alignment.Start,
+                                                    modifier = Modifier.width(48.dp)
+                                                ) {
+                                                    Text(
+                                                        text = prog.startTime ?: "--:--",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = LumiereGold
+                                                    )
+                                                    val stopTime = prog.stopTime
+                                                    if (!stopTime.isNullOrBlank()) {
+                                                        Text(
+                                                            text = stopTime,
+                                                            fontSize = 10.sp,
+                                                            color = TextSecondary.copy(alpha = 0.6f)
+                                                        )
+                                                    }
+                                                }
+
+                                                // Title and Description
+                                                Column(
+                                                    modifier = Modifier.weight(1f),
+                                                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                ) {
+                                                    Row(
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                    ) {
+                                                        if (dayBadge != null) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .clip(RoundedCornerShape(3.dp))
+                                                                    .background(LumiereGold.copy(alpha = 0.2f))
+                                                                    .padding(horizontal = 4.dp, vertical = 1.dp)
+                                                            ) {
+                                                                Text(
+                                                                    text = dayBadge,
+                                                                    fontSize = 8.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = LumiereGold
+                                                                )
+                                                            }
+                                                        }
+                                                        Text(
+                                                            text = prog.title,
+                                                            fontSize = 12.sp,
+                                                            fontWeight = FontWeight.Medium,
+                                                            color = TextPrimary,
+                                                            maxLines = 2,
+                                                            overflow = TextOverflow.Ellipsis,
+                                                            modifier = Modifier.weight(1f, fill = false)
+                                                        )
+                                                    }
+                                                    val progDesc = prog.desc
+                                                    if (!progDesc.isNullOrBlank()) {
+                                                        Text(
+                                                            text = progDesc,
+                                                            fontSize = 10.sp,
+                                                            color = TextSecondary,
+                                                            maxLines = 1,
+                                                            overflow = TextOverflow.Ellipsis
+                                                        )
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }

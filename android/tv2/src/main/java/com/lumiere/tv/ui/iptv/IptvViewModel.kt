@@ -384,7 +384,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
             } else ""
 
             val curStartTime = curProg?.let { parseEpgTime(it.start) } ?: now
-            val upcoming = epgList.filter { parseEpgTime(it.start) > curStartTime }.take(8)
+            val upcoming = epgList.filter { parseEpgTime(it.start) > curStartTime }.take(60)
 
             withContext(Dispatchers.Main) {
                 _uiState.update {
