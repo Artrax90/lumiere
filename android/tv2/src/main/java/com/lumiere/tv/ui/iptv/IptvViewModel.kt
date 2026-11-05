@@ -37,6 +37,7 @@ data class IptvUiState(
     val upcomingSchedule: List<EpgProgram> = emptyList(),
     val currentProgramProgress: Float = 0f,
     val currentProgramTimeText: String = "",
+    val searchQuery: String = "",
     val errorMessage: String? = null
 )
 
@@ -222,7 +223,7 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
                 withContext(Dispatchers.Main) {
                     _uiState.update { current ->
                         val group = current.selectedGroup
-                        val filtered = filterChannels(enrichedChannels, group, current.favoriteIds)
+                        val filtered = filterChannels(enrichedChannels, group, current.favoriteIds, query = current.searchQuery)
                         val updatedActive = current.activeChannel?.let { act ->
                             enrichedChannels.find { it.id == act.id } ?: act
                         } ?: enrichedChannels.firstOrNull()
@@ -274,21 +275,68 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun filterChannels(all: List<IptvChannel>, group: String, favs: Set<String>): List<IptvChannel> {
-        return when (group) {
+    private fun filterChannels(
+        all: List<IptvChannel>,
+        group: String,
+        favs: Set<String>,
+        query: String = ""
+    ): List<IptvChannel> {
+        val byGroup = when (group) {
             "★ Избранное" -> all.filter { favs.contains(it.id) || favs.contains(it.name) }
             "Все", "" -> all
             else -> all.filter { it.group == group }
         }
+        val q = query.trim().lowercase()
+        if (q.isBlank()) return byGroup
+
+        val filtered = byGroup.filter {
+            it.name.contains(q, ignoreCase = true) ||
+            (it.currentProgram?.contains(q, ignoreCase = true) == true)
+        }
+        // Fallback: If searching within a specific category yields 0 results, search across all channels
+        if (filtered.isEmpty() && group != "Все") {
+            return all.filter {
+                it.name.contains(q, ignoreCase = true) ||
+                (it.currentProgram?.contains(q, ignoreCase = true) == true)
+            }
+        }
+        return filtered
     }
 
     fun selectGroup(group: String) {
-        val filtered = filterChannels(_uiState.value.allChannels, group, _uiState.value.favoriteIds)
+        val filtered = filterChannels(
+            all = _uiState.value.allChannels,
+            group = group,
+            favs = _uiState.value.favoriteIds,
+            query = _uiState.value.searchQuery
+        )
         val newFocused = filtered.firstOrNull()
 
         _uiState.update {
             it.copy(
                 selectedGroup = group,
+                displayedChannels = filtered,
+                focusedChannel = newFocused
+            )
+        }
+
+        if (newFocused != null) {
+            onChannelFocused(newFocused)
+        }
+    }
+
+    fun setSearchQuery(query: String) {
+        val filtered = filterChannels(
+            all = _uiState.value.allChannels,
+            group = _uiState.value.selectedGroup,
+            favs = _uiState.value.favoriteIds,
+            query = query
+        )
+        val newFocused = filtered.firstOrNull()
+
+        _uiState.update {
+            it.copy(
+                searchQuery = query,
                 displayedChannels = filtered,
                 focusedChannel = newFocused
             )
@@ -380,7 +428,12 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
         favPrefs.edit().putStringSet("fav_ids", currentFavs).apply()
 
         val updatedGroups = buildGroupList(_uiState.value.groups, currentFavs)
-        val filtered = filterChannels(_uiState.value.allChannels, _uiState.value.selectedGroup, currentFavs)
+        val filtered = filterChannels(
+            all = _uiState.value.allChannels,
+            group = _uiState.value.selectedGroup,
+            favs = currentFavs,
+            query = _uiState.value.searchQuery
+        )
 
         _uiState.update {
             it.copy(

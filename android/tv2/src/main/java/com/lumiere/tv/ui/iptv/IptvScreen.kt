@@ -17,12 +17,20 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +82,7 @@ fun IptvScreen(
     val catalogFocusRequester = remember { FocusRequester() }
     val activeChannelFocusRequester = remember { FocusRequester() }
     val rightColumnFocusRequester = remember { FocusRequester() }
+    val searchFocusRequester = remember { FocusRequester() }
     val channelsListState = rememberLazyListState()
     var lastSelectedChannelId by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -469,15 +478,15 @@ fun IptvScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                .padding(horizontal = 6.dp, vertical = 4.dp),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "КАНАЛЫ (${state.displayedChannels.size})",
+                                text = if (state.searchQuery.isBlank()) "КАНАЛЫ (${state.displayedChannels.size})" else "НАЙДЕНО (${state.displayedChannels.size})",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = TextSecondary,
+                                color = if (state.searchQuery.isBlank()) TextSecondary else LumiereGold,
                                 letterSpacing = 1.sp
                             )
                             Text(
@@ -488,38 +497,182 @@ fun IptvScreen(
                             )
                         }
 
+                        // Search Input Bar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 2.dp, vertical = 4.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = state.searchQuery,
+                                onValueChange = { viewModel.setSearchQuery(it) },
+                                placeholder = {
+                                    Text(
+                                        text = "Поиск каналов...",
+                                        fontSize = 12.sp,
+                                        color = TextSecondary.copy(alpha = 0.5f)
+                                    )
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Search,
+                                        contentDescription = "Поиск",
+                                        tint = if (state.searchQuery.isNotBlank()) LumiereGold else TextSecondary.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (state.searchQuery.isNotBlank()) {
+                                        Surface(
+                                            onClick = { viewModel.setSearchQuery("") },
+                                            colors = ClickableSurfaceDefaults.colors(
+                                                containerColor = Color.Transparent,
+                                                focusedContainerColor = LumiereGold.copy(alpha = 0.25f)
+                                            ),
+                                            shape = ClickableSurfaceDefaults.shape(CircleShape),
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    imageVector = Icons.Default.Close,
+                                                    contentDescription = "Очистить",
+                                                    tint = LumiereGold,
+                                                    modifier = Modifier.size(13.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Text,
+                                    imeAction = ImeAction.Search
+                                ),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = SurfaceVariantDark,
+                                    unfocusedContainerColor = SurfaceVariantDark.copy(alpha = 0.4f),
+                                    focusedTextColor = TextPrimary,
+                                    unfocusedTextColor = TextPrimary,
+                                    focusedBorderColor = LumiereGold,
+                                    unfocusedBorderColor = SurfaceBorder.copy(alpha = 0.5f),
+                                    cursorColor = LumiereGold
+                                ),
+                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(46.dp)
+                                    .focusRequester(searchFocusRequester)
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.type == KeyEventType.KeyDown) {
+                                            when (event.nativeKeyEvent.keyCode) {
+                                                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                                    try {
+                                                        if (state.displayedChannels.isNotEmpty()) {
+                                                            activeChannelFocusRequester.requestFocus()
+                                                            true
+                                                        } else false
+                                                    } catch (_: Exception) { false }
+                                                }
+                                                KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                    if (state.searchQuery.isEmpty()) {
+                                                        try {
+                                                            catalogFocusRequester.requestFocus()
+                                                            true
+                                                        } catch (_: Exception) { false }
+                                                    } else false
+                                                }
+                                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                    if (state.searchQuery.isEmpty()) {
+                                                        try {
+                                                            rightColumnFocusRequester.requestFocus()
+                                                            true
+                                                        } catch (_: Exception) { false }
+                                                    } else false
+                                                }
+                                                else -> false
+                                            }
+                                        } else false
+                                    }
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
                         val targetChannelId = state.focusedChannel?.id ?: state.activeChannel?.id ?: state.displayedChannels.firstOrNull()?.id
 
-                        LazyColumn(
-                            state = channelsListState,
-                            verticalArrangement = Arrangement.spacedBy(6.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            itemsIndexed(
-                                items = state.displayedChannels,
-                                key = { index, ch -> "${ch.id}_$index" }
-                            ) { _, channel ->
-                                val isFav = state.favoriteIds.contains(channel.id) || state.favoriteIds.contains(channel.name)
-                                val isFocusTarget = channel.id == targetChannelId
+                        if (state.displayedChannels.isEmpty()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = 40.dp),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    Text(
+                                        text = if (state.searchQuery.isNotBlank()) "Каналы по запросу «${state.searchQuery}» не найдены" else "В этой категории нет каналов",
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = TextSecondary
+                                    )
+                                    if (state.searchQuery.isNotBlank()) {
+                                        Button(
+                                            onClick = { viewModel.setSearchQuery("") },
+                                            colors = ButtonDefaults.colors(
+                                                containerColor = SurfaceVariantDark,
+                                                contentColor = LumiereGold,
+                                                focusedContainerColor = Color.White,
+                                                focusedContentColor = BackgroundDark
+                                            ),
+                                            shape = ButtonDefaults.shape(RoundedCornerShape(8.dp)),
+                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                        ) {
+                                            Text("Сбросить поиск", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                state = channelsListState,
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxSize()
+                            ) {
+                                itemsIndexed(
+                                    items = state.displayedChannels,
+                                    key = { index, ch -> "${ch.id}_$index" }
+                                ) { index, channel ->
+                                    val isFav = state.favoriteIds.contains(channel.id) || state.favoriteIds.contains(channel.name)
+                                    val isFocusTarget = channel.id == targetChannelId
 
-                                ChannelListItem(
-                                    channel = channel,
-                                    isFavorite = isFav,
-                                    isActiveFocusTarget = isFocusTarget,
-                                    activeFocusRequester = activeChannelFocusRequester,
-                                    onFocused = { viewModel.onChannelFocused(channel) },
-                                    onClick = {
-                                        lastSelectedChannelId = channel.id
-                                        viewModel.enterFullscreen(channel)
-                                    },
-                                    onLongClick = { viewModel.toggleFavorite(channel) },
-                                    onNavigateRight = {
-                                        try {
-                                            rightColumnFocusRequester.requestFocus()
-                                        } catch (_: Exception) {}
-                                    },
-                                    resolveLogoUrl = { viewModel.resolveLogoUrl(it) }
-                                )
+                                    ChannelListItem(
+                                        channel = channel,
+                                        isFavorite = isFav,
+                                        isActiveFocusTarget = isFocusTarget,
+                                        isFirstItem = index == 0,
+                                        activeFocusRequester = activeChannelFocusRequester,
+                                        onFocused = { viewModel.onChannelFocused(channel) },
+                                        onClick = {
+                                            lastSelectedChannelId = channel.id
+                                            viewModel.enterFullscreen(channel)
+                                        },
+                                        onLongClick = { viewModel.toggleFavorite(channel) },
+                                        onNavigateRight = {
+                                            try {
+                                                rightColumnFocusRequester.requestFocus()
+                                            } catch (_: Exception) {}
+                                        },
+                                        onNavigateUp = {
+                                            try {
+                                                searchFocusRequester.requestFocus()
+                                            } catch (_: Exception) {}
+                                        },
+                                        resolveLogoUrl = { viewModel.resolveLogoUrl(it) }
+                                    )
+                                }
                             }
                         }
                     }
@@ -909,11 +1062,13 @@ private fun ChannelListItem(
     channel: IptvChannel,
     isFavorite: Boolean,
     isActiveFocusTarget: Boolean,
+    isFirstItem: Boolean = false,
     activeFocusRequester: FocusRequester,
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onNavigateRight: () -> Unit,
+    onNavigateUp: () -> Unit = {},
     resolveLogoUrl: (String?) -> String
 ) {
     Surface(
@@ -946,11 +1101,18 @@ private fun ChannelListItem(
                 }
             }
             .onPreviewKeyEvent { keyEvent ->
-                // D-Pad Right -> transfer focus to right column (buttons & preview)
-                if (keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
-                    if (keyEvent.type == KeyEventType.KeyDown) {
-                        onNavigateRight()
-                        return@onPreviewKeyEvent true
+                if (keyEvent.type == KeyEventType.KeyDown) {
+                    when (keyEvent.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                            onNavigateRight()
+                            return@onPreviewKeyEvent true
+                        }
+                        KeyEvent.KEYCODE_DPAD_UP -> {
+                            if (isFirstItem) {
+                                onNavigateUp()
+                                return@onPreviewKeyEvent true
+                            }
+                        }
                     }
                 }
                 false
