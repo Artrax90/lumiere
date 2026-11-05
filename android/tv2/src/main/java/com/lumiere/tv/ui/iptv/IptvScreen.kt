@@ -96,13 +96,43 @@ fun IptvScreen(
 ) {
     val state by viewModel.uiState.collectAsState()
     val playerFocusRequester = remember { FocusRequester() }
-    val catalogFocusRequester = remember { FocusRequester() }
+    val topBarFocusRequester = remember { FocusRequester() }
+    val categoriesFocusRequester = remember { FocusRequester() }
     val activeChannelFocusRequester = remember { FocusRequester() }
     val rightColumnFocusRequester = remember { FocusRequester() }
     val searchFocusRequester = remember { FocusRequester() }
+    val searchInputFocusRequester = remember { FocusRequester() }
+    val keyboardController = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    var isEditingSearch by remember { mutableStateOf(false) }
+    var lastLongClickTimestamp by remember { mutableLongStateOf(0L) }
     val channelsListState = rememberLazyListState()
     var lastSelectedChannelId by remember { mutableStateOf<String?>(null) }
     val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(isEditingSearch) {
+        if (isEditingSearch) {
+            try {
+                searchInputFocusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Exception) {}
+        }
+    }
+
+    BackHandler(enabled = isEditingSearch) {
+        isEditingSearch = false
+        keyboardController?.hide()
+        try {
+            searchFocusRequester.requestFocus()
+        } catch (_: Exception) {}
+    }
+
+    LaunchedEffect(state.displayedChannels.isEmpty(), state.selectedGroup) {
+        if (state.displayedChannels.isEmpty() && !state.isPlayerMode) {
+            try {
+                categoriesFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
 
     val isPlaying by viewModel.player.isPlaying.collectAsState()
 
@@ -148,11 +178,11 @@ fun IptvScreen(
                 try {
                     activeChannelFocusRequester.requestFocus()
                 } catch (_: Exception) {
-                    try { catalogFocusRequester.requestFocus() } catch (_: Exception) {}
+                    try { categoriesFocusRequester.requestFocus() } catch (_: Exception) {}
                 }
             } else {
                 try {
-                    catalogFocusRequester.requestFocus()
+                    categoriesFocusRequester.requestFocus()
                 } catch (_: Exception) {}
             }
         }
@@ -368,12 +398,30 @@ fun IptvScreen(
         ) {
             TvTopBar(
                 currentDestination = TvNavDestination.IPTV,
-                firstItemFocusRequester = catalogFocusRequester,
-                onNavigate = onNavigateDestination,
+                firstItemFocusRequester = topBarFocusRequester,
+                downFocusRequester = categoriesFocusRequester,
+                onDownFromTopBar = {
+                    try {
+                        categoriesFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                },
+                onNavigate = { dest ->
+                    if (System.currentTimeMillis() - lastLongClickTimestamp > 700L) {
+                        onNavigateDestination(dest)
+                    }
+                },
                 profileName = "Lumiere",
                 profileAvatar = null,
-                onProfileClick = onProfileClick,
-                onNotificationsClick = onNotificationsClick
+                onProfileClick = {
+                    if (System.currentTimeMillis() - lastLongClickTimestamp > 700L) {
+                        onProfileClick()
+                    }
+                },
+                onNotificationsClick = {
+                    if (System.currentTimeMillis() - lastLongClickTimestamp > 700L) {
+                        onNotificationsClick()
+                    }
+                }
             )
 
             if (state.isLoading && state.allChannels.isEmpty()) {
@@ -451,7 +499,35 @@ fun IptvScreen(
                                             shape = RoundedCornerShape(10.dp)
                                         )
                                     ),
-                                    modifier = Modifier.fillMaxWidth()
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .then(if (isSelected) Modifier.focusRequester(categoriesFocusRequester) else Modifier)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                when (event.nativeKeyEvent.keyCode) {
+                                                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
+                                                        try {
+                                                            if (state.displayedChannels.isNotEmpty()) {
+                                                                activeChannelFocusRequester.requestFocus()
+                                                                true
+                                                            } else {
+                                                                searchFocusRequester.requestFocus()
+                                                                true
+                                                            }
+                                                        } catch (_: Exception) { false }
+                                                    }
+                                                    KeyEvent.KEYCODE_DPAD_UP -> {
+                                                        if (group == state.groups.firstOrNull()) {
+                                                            try {
+                                                                topBarFocusRequester.requestFocus()
+                                                                true
+                                                            } catch (_: Exception) { false }
+                                                        } else false
+                                                    }
+                                                    else -> false
+                                                }
+                                            } else false
+                                        }
                                 ) {
                                     Row(
                                         modifier = Modifier
@@ -520,98 +596,209 @@ fun IptvScreen(
                                 .fillMaxWidth()
                                 .padding(horizontal = 2.dp, vertical = 4.dp)
                         ) {
-                            OutlinedTextField(
-                                value = state.searchQuery,
-                                onValueChange = { viewModel.setSearchQuery(it) },
-                                placeholder = {
-                                    Text(
-                                        text = "Поиск каналов...",
-                                        fontSize = 12.sp,
-                                        color = TextSecondary.copy(alpha = 0.5f)
-                                    )
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Default.Search,
-                                        contentDescription = "Поиск",
-                                        tint = if (state.searchQuery.isNotBlank()) LumiereGold else TextSecondary.copy(alpha = 0.5f),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                },
-                                trailingIcon = {
-                                    if (state.searchQuery.isNotBlank()) {
-                                        Surface(
-                                            onClick = { viewModel.setSearchQuery("") },
-                                            colors = ClickableSurfaceDefaults.colors(
-                                                containerColor = Color.Transparent,
-                                                focusedContainerColor = LumiereGold.copy(alpha = 0.25f)
-                                            ),
-                                            shape = ClickableSurfaceDefaults.shape(CircleShape),
-                                            modifier = Modifier.size(24.dp)
-                                        ) {
-                                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                                Icon(
-                                                    imageVector = Icons.Default.Close,
-                                                    contentDescription = "Очистить",
-                                                    tint = LumiereGold,
-                                                    modifier = Modifier.size(13.dp)
-                                                )
-                                            }
-                                        }
-                                    }
-                                },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(
-                                    keyboardType = KeyboardType.Text,
-                                    imeAction = ImeAction.Search
-                                ),
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedContainerColor = SurfaceVariantDark,
-                                    unfocusedContainerColor = SurfaceVariantDark.copy(alpha = 0.4f),
-                                    focusedTextColor = TextPrimary,
-                                    unfocusedTextColor = TextPrimary,
-                                    focusedBorderColor = LumiereGold,
-                                    unfocusedBorderColor = SurfaceBorder.copy(alpha = 0.5f),
-                                    cursorColor = LumiereGold
-                                ),
-                                textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
-                                shape = RoundedCornerShape(10.dp),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(46.dp)
-                                    .focusRequester(searchFocusRequester)
-                                    .onPreviewKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyDown) {
-                                            when (event.nativeKeyEvent.keyCode) {
-                                                KeyEvent.KEYCODE_DPAD_DOWN -> {
-                                                    try {
-                                                        if (state.displayedChannels.isNotEmpty()) {
-                                                            activeChannelFocusRequester.requestFocus()
-                                                            true
-                                                        } else false
-                                                    } catch (_: Exception) { false }
-                                                }
-                                                KeyEvent.KEYCODE_DPAD_LEFT -> {
-                                                    if (state.searchQuery.isEmpty()) {
+                            if (!isEditingSearch) {
+                                Surface(
+                                    onClick = { isEditingSearch = true },
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = SurfaceVariantDark.copy(alpha = 0.4f),
+                                        focusedContainerColor = SurfaceVariantDark,
+                                        contentColor = TextPrimary,
+                                        focusedContentColor = TextPrimary
+                                    ),
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
+                                    border = ClickableSurfaceDefaults.border(
+                                        border = Border(
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorder.copy(alpha = 0.5f)),
+                                            shape = RoundedCornerShape(10.dp)
+                                        ),
+                                        focusedBorder = Border(
+                                            border = androidx.compose.foundation.BorderStroke(2.dp, LumiereGold),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+                                    ),
+                                    scale = ClickableSurfaceDefaults.scale(scale = 1f, focusedScale = 1.01f),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(46.dp)
+                                        .focusRequester(searchFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                when (event.nativeKeyEvent.keyCode) {
+                                                    KeyEvent.KEYCODE_DPAD_DOWN -> {
                                                         try {
-                                                            catalogFocusRequester.requestFocus()
+                                                            if (state.displayedChannels.isNotEmpty()) {
+                                                                activeChannelFocusRequester.requestFocus()
+                                                                true
+                                                            } else false
+                                                        } catch (_: Exception) { false }
+                                                    }
+                                                    KeyEvent.KEYCODE_DPAD_UP -> {
+                                                        try {
+                                                            topBarFocusRequester.requestFocus()
                                                             true
                                                         } catch (_: Exception) { false }
-                                                    } else false
-                                                }
-                                                KeyEvent.KEYCODE_DPAD_RIGHT -> {
-                                                    if (state.searchQuery.isEmpty()) {
+                                                    }
+                                                    KeyEvent.KEYCODE_DPAD_LEFT -> {
+                                                        try {
+                                                            categoriesFocusRequester.requestFocus()
+                                                            true
+                                                        } catch (_: Exception) { false }
+                                                    }
+                                                    KeyEvent.KEYCODE_DPAD_RIGHT -> {
                                                         try {
                                                             rightColumnFocusRequester.requestFocus()
                                                             true
                                                         } catch (_: Exception) { false }
-                                                    } else false
+                                                    }
+                                                    else -> false
                                                 }
-                                                else -> false
+                                            } else false
+                                        }
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(horizontal = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Поиск",
+                                            tint = if (state.searchQuery.isNotBlank()) LumiereGold else TextSecondary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = if (state.searchQuery.isBlank()) "Поиск каналов (нажмите OK)..." else state.searchQuery,
+                                            fontSize = 12.sp,
+                                            color = if (state.searchQuery.isBlank()) TextSecondary.copy(alpha = 0.5f) else TextPrimary,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        if (state.searchQuery.isNotBlank()) {
+                                            Surface(
+                                                onClick = { viewModel.setSearchQuery("") },
+                                                colors = ClickableSurfaceDefaults.colors(
+                                                    containerColor = Color.Transparent,
+                                                    focusedContainerColor = LumiereGold.copy(alpha = 0.25f)
+                                                ),
+                                                shape = ClickableSurfaceDefaults.shape(CircleShape),
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Очистить",
+                                                        tint = LumiereGold,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
                                             }
-                                        } else false
+                                        }
                                     }
-                            )
+                                }
+                            } else {
+                                OutlinedTextField(
+                                    value = state.searchQuery,
+                                    onValueChange = { viewModel.setSearchQuery(it) },
+                                    placeholder = {
+                                        Text(
+                                            text = "Поиск каналов...",
+                                            fontSize = 12.sp,
+                                            color = TextSecondary.copy(alpha = 0.5f)
+                                        )
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Default.Search,
+                                            contentDescription = "Поиск",
+                                            tint = if (state.searchQuery.isNotBlank()) LumiereGold else TextSecondary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    },
+                                    trailingIcon = {
+                                        if (state.searchQuery.isNotBlank()) {
+                                            Surface(
+                                                onClick = { viewModel.setSearchQuery("") },
+                                                colors = ClickableSurfaceDefaults.colors(
+                                                    containerColor = Color.Transparent,
+                                                    focusedContainerColor = LumiereGold.copy(alpha = 0.25f)
+                                                ),
+                                                shape = ClickableSurfaceDefaults.shape(CircleShape),
+                                                modifier = Modifier.size(24.dp)
+                                            ) {
+                                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Очистить",
+                                                        tint = LumiereGold,
+                                                        modifier = Modifier.size(13.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(
+                                        keyboardType = KeyboardType.Text,
+                                        imeAction = ImeAction.Search
+                                    ),
+                                    keyboardActions = KeyboardActions(
+                                        onSearch = {
+                                            isEditingSearch = false
+                                            keyboardController?.hide()
+                                            try {
+                                                if (state.displayedChannels.isNotEmpty()) {
+                                                    activeChannelFocusRequester.requestFocus()
+                                                } else {
+                                                    searchFocusRequester.requestFocus()
+                                                }
+                                            } catch (_: Exception) {}
+                                        }
+                                    ),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedContainerColor = SurfaceVariantDark,
+                                        unfocusedContainerColor = SurfaceVariantDark.copy(alpha = 0.4f),
+                                        focusedTextColor = TextPrimary,
+                                        unfocusedTextColor = TextPrimary,
+                                        focusedBorderColor = LumiereGold,
+                                        unfocusedBorderColor = SurfaceBorder.copy(alpha = 0.5f),
+                                        cursorColor = LumiereGold
+                                    ),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
+                                    shape = RoundedCornerShape(10.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(46.dp)
+                                        .focusRequester(searchInputFocusRequester)
+                                        .onPreviewKeyEvent { event ->
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                when (event.nativeKeyEvent.keyCode) {
+                                                    KeyEvent.KEYCODE_DPAD_DOWN -> {
+                                                        isEditingSearch = false
+                                                        keyboardController?.hide()
+                                                        try {
+                                                            if (state.displayedChannels.isNotEmpty()) {
+                                                                activeChannelFocusRequester.requestFocus()
+                                                                true
+                                                            } else false
+                                                        } catch (_: Exception) { false }
+                                                    }
+                                                    KeyEvent.KEYCODE_BACK -> {
+                                                        isEditingSearch = false
+                                                        keyboardController?.hide()
+                                                        try {
+                                                            searchFocusRequester.requestFocus()
+                                                            true
+                                                        } catch (_: Exception) { false }
+                                                    }
+                                                    else -> false
+                                                }
+                                            } else false
+                                        }
+                                )
+                            }
                         }
 
                         Spacer(modifier = Modifier.height(4.dp))
@@ -660,7 +847,7 @@ fun IptvScreen(
                             ) {
                                 itemsIndexed(
                                     items = state.displayedChannels,
-                                    key = { index, ch -> "${ch.id}_$index" }
+                                    key = { index, ch -> if (ch.id.isNotBlank()) "${ch.id}_${ch.url}" else "${index}_${ch.url}" }
                                 ) { index, channel ->
                                     val isFav = state.favoriteIds.contains(channel.id) || state.favoriteIds.contains(channel.name)
                                     val isFocusTarget = channel.id == targetChannelId
@@ -673,10 +860,20 @@ fun IptvScreen(
                                         activeFocusRequester = activeChannelFocusRequester,
                                         onFocused = { viewModel.onChannelFocused(channel) },
                                         onClick = {
-                                            lastSelectedChannelId = channel.id
-                                            viewModel.enterFullscreen(channel)
+                                            if (System.currentTimeMillis() - lastLongClickTimestamp > 600L) {
+                                                lastSelectedChannelId = channel.id
+                                                viewModel.enterFullscreen(channel)
+                                            }
                                         },
-                                        onLongClick = { viewModel.toggleFavorite(channel) },
+                                        onLongClick = {
+                                            lastLongClickTimestamp = System.currentTimeMillis()
+                                            viewModel.toggleFavorite(channel)
+                                        },
+                                        onNavigateLeft = {
+                                            try {
+                                                categoriesFocusRequester.requestFocus()
+                                            } catch (_: Exception) {}
+                                        },
                                         onNavigateRight = {
                                             try {
                                                 rightColumnFocusRequester.requestFocus()
@@ -1186,6 +1383,7 @@ private fun ChannelListItem(
     onFocused: () -> Unit,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onNavigateLeft: () -> Unit = {},
     onNavigateRight: () -> Unit,
     onNavigateUp: () -> Unit = {},
     resolveLogoUrl: (String?) -> String
@@ -1222,6 +1420,10 @@ private fun ChannelListItem(
             .onPreviewKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     when (keyEvent.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_LEFT -> {
+                            onNavigateLeft()
+                            return@onPreviewKeyEvent true
+                        }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             onNavigateRight()
                             return@onPreviewKeyEvent true

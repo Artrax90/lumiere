@@ -418,7 +418,8 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFavorite(channel: IptvChannel) {
         val currentFavs = _uiState.value.favoriteIds.toMutableSet()
         val key = channel.id
-        if (currentFavs.contains(key) || currentFavs.contains(channel.name)) {
+        val wasInFavs = currentFavs.contains(key) || currentFavs.contains(channel.name)
+        if (wasInFavs) {
             currentFavs.remove(key)
             currentFavs.remove(channel.name)
         } else {
@@ -427,20 +428,49 @@ class IptvViewModel(application: Application) : AndroidViewModel(application) {
 
         favPrefs.edit().putStringSet("fav_ids", currentFavs).apply()
 
+        val nextGroup = if (currentFavs.isEmpty() && _uiState.value.selectedGroup == "★ Избранное") {
+            "Все"
+        } else {
+            _uiState.value.selectedGroup
+        }
+
         val updatedGroups = buildGroupList(_uiState.value.groups, currentFavs)
         val filtered = filterChannels(
             all = _uiState.value.allChannels,
-            group = _uiState.value.selectedGroup,
+            group = nextGroup,
             favs = currentFavs,
             query = _uiState.value.searchQuery
         )
+
+        val oldIdx = _uiState.value.displayedChannels.indexOfFirst { it.id == channel.id }
+        val newFocused = if (filtered.isEmpty()) {
+            null
+        } else {
+            val nextIdx = if (nextGroup == "★ Избранное" && oldIdx >= 0) {
+                oldIdx.coerceAtMost(filtered.size - 1)
+            } else if (nextGroup == "Все" && _uiState.value.selectedGroup == "★ Избранное") {
+                val chIdx = filtered.indexOfFirst { it.id == channel.id }
+                if (chIdx >= 0) chIdx else 0
+            } else if (oldIdx >= 0) {
+                oldIdx.coerceAtMost(filtered.size - 1)
+            } else {
+                0
+            }
+            filtered[nextIdx]
+        }
 
         _uiState.update {
             it.copy(
                 favoriteIds = currentFavs,
                 groups = updatedGroups,
-                displayedChannels = filtered
+                selectedGroup = nextGroup,
+                displayedChannels = filtered,
+                focusedChannel = newFocused
             )
+        }
+
+        if (newFocused != null) {
+            onChannelFocused(newFocused)
         }
     }
 
