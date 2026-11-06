@@ -11781,8 +11781,15 @@
             setDetailFocus(showMoreBtn);
           } else if (items.length > 0) {
             setDetailFocus(items[items.length - 1]);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (seasonBtns.length > 0) {
+            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
+            setDetailFocus(activeSeason);
           } else if (tabs.length > 0) {
-            setDetailFocus(tabs[0]);
+            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
+            setDetailFocus(curTab);
           }
         } else if (isShowMore) {
           if (items.length > 0) {
@@ -11854,6 +11861,9 @@
             setDetailFocus(actChip);
           } else if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
         } else if (isSeason) {
           if (sortChips.length > 0) {
@@ -11861,10 +11871,16 @@
             setDetailFocus(actChip);
           } else if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
         } else if (isSortChip) {
           if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
         } else if (isItem) {
           var targetClassDown = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
