@@ -140,6 +140,8 @@ body.player-active .section {
 #content {
   position: fixed; top: 76px; bottom: 0; left: 0; right: 0;
   overflow-y: auto; overflow-x: hidden;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
   z-index: 1;
 }
 .section { display: none; padding: 28px 32px 120px; }
@@ -248,7 +250,7 @@ body.player-active .section {
   -webkit-transform: translate3d(0, 0, 0) scale(1.06) !important;
   outline: 3px solid #e8c170 !important;
   outline-offset: -3px !important;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.7) !important;
+  box-shadow: none !important;
   border-radius: 12px;
   z-index: 50;
 }

@@ -75,8 +75,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="./tv.css?v=2002">
-  <link rel="stylesheet" href="./player.css?v=2002">
+  <link rel="stylesheet" href="./tv.css?v=2003">
+  <link rel="stylesheet" href="./player.css?v=2003">
 </head>
 <body>
   <!-- Loading -->
@@ -205,7 +205,11 @@
   <div id="app" class="hidden">
     <!-- Top bar -->
     <header id="topbar">
-      <div class="logo-sm"><div class="dot-sm"></div><span>Lumière</span></div>
+      <div class="logo-sm">
+        <div class="dot-sm"></div>
+        <span>Lumière</span>
+        <span class="v2-tag" style="background:linear-gradient(135deg, #e8c170, #c89e3f);color:#0a0b10;font-size:11px;font-weight:800;padding:2px 7px;border-radius:4px;margin-left:8px;letter-spacing:1px;box-shadow:0 0 10px rgba(232,193,112,0.4);display:inline-block;vertical-align:middle;">V2</span>
+      </div>
       <nav id="nav">
         <button class="nav-btn active" data-section="home">Главная</button>
         <button class="nav-btn" data-section="search">Поиск</button>
@@ -599,10 +603,10 @@
     </div>
   </div>
 
-  <script src="./hls.min.js?v=2002" charset="UTF-8"></script>
-  <script src="./player-adapter.js?v=2002" charset="UTF-8"></script>
-  <script src="./player.js?v=2002" charset="UTF-8"></script>
-  <script src="./tv.js?v=2002" charset="UTF-8"></script>
+  <script src="./hls.min.js?v=2003" charset="UTF-8"></script>
+  <script src="./player-adapter.js?v=2003" charset="UTF-8"></script>
+  <script src="./player.js?v=2003" charset="UTF-8"></script>
+  <script src="./tv.js?v=2003" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {

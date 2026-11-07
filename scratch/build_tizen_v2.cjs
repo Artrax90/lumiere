@@ -76,6 +76,14 @@ if (fs.existsSync(sdbCli)) {
     if (connectedDevices.length > 0) {
       console.log(`Found ${connectedDevices.length} connected device(s): ${connectedDevices.join(', ')}`);
       for (const dev of connectedDevices) {
+        console.log(`Closing and uninstalling previous Lumiere_v2 instance on device ${dev}...`);
+        try {
+          execSync(`"${tizenCli}" uninstall -p 6DD6uEqKQ2.LumiereV2 -t UE50TU8500UXRU`, {
+            stdio: 'ignore',
+            timeout: 20000,
+          });
+        } catch (unErr) {}
+
         console.log(`Installing Lumiere_v2.wgt on device ${dev}...`);
         try {
           execSync(`"${tizenCli}" install -s ${dev} --name Lumiere_v2.wgt -- "${tizenV2Dir}"`, {
@@ -83,6 +91,17 @@ if (fs.existsSync(sdbCli)) {
             timeout: 60000,
           });
           console.log(`[✔] Installed successfully on ${dev}`);
+
+          console.log(`Launching fresh Lumiere_v2 on device ${dev}...`);
+          try {
+            execSync(`"${tizenCli}" run -p 6DD6uEqKQ2.LumiereV2 -s ${dev}`, {
+              stdio: 'inherit',
+              timeout: 20000,
+            });
+            console.log(`[✔] Launched successfully on ${dev}`);
+          } catch (runErr) {
+            console.warn(`[!] Run notice:`, runErr.message);
+          }
         } catch (installErr) {
           console.warn(`[!] Install notice on ${dev}:`, installErr.message);
         }

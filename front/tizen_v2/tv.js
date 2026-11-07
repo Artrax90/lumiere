@@ -12222,14 +12222,18 @@
       var elW = el.offsetWidth || 200;
       var parentW = rowItems.clientWidth || 1920;
       var targetLeft = Math.max(0, elLeft - (parentW / 2) + (elW / 2));
-      rowItems.scrollLeft = targetLeft;
+      if (Math.abs(rowItems.scrollLeft - targetLeft) > 4) {
+        rowItems.scrollLeft = targetLeft;
+      }
     }
     var row = el.closest('.row');
     var content = document.getElementById('content');
     if (content && row) {
       var rowTop = row.offsetTop;
       var targetTop = Math.max(0, rowTop - 60);
-      content.scrollTop = targetTop;
+      if (Math.abs(content.scrollTop - targetTop) > 20) {
+        content.scrollTop = targetTop;
+      }
     }
   }
 
@@ -12372,10 +12376,13 @@
   }
 
   function focusCardUp() {
-    var cards = getVisibleCards();
-    if (cards.length === 0 || state.focusedCard === null) return false;
-    var current = cards[state.focusedCard];
-    if (!current) return false;
+    var current = state._currentFocusedCard || document.querySelector('.card.focused');
+    if (!current) {
+      var cards = getVisibleCards();
+      if (cards.length === 0) return false;
+      focusCard(0);
+      return true;
+    }
 
     var currentRow = current.closest('.row');
     if (currentRow) {
@@ -12399,24 +12406,27 @@
           var curIdxInRow = curRowCards.indexOf(current);
           var targetCardIdx = curIdxInRow >= 0 ? Math.min(curIdxInRow, prevCards.length - 1) : 0;
           var bestCard = prevCards[targetCardIdx];
-          var prevGlobalIdx = cards.indexOf(bestCard);
-          if (prevGlobalIdx >= 0) {
-            clearCardFocus();
-            state.focusedCard = prevGlobalIdx;
-            state._currentFocusedCard = bestCard;
-            bestCard.classList.add('focused');
-            scrollToCard(bestCard);
-            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
-            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
-            updateHomeBg(bestCard);
-            return true;
+
+          if (state._currentFocusedCard) {
+            state._currentFocusedCard.classList.remove('focused');
+            if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
           }
+          current.classList.remove('focused');
+          state._currentFocusedCard = bestCard;
+          bestCard.classList.add('focused');
+          scrollToCard(bestCard);
+          try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+          if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+          updateHomeBg(bestCard);
+          return true;
         }
       }
       return false;
     }
 
     // Grid fallback (e.g. search / collections)
+    var cards = getVisibleCards();
+    if (cards.length === 0 || state.focusedCard === null) return false;
     var currentRect = current.getBoundingClientRect();
     var curCenterX2 = currentRect.left + currentRect.width / 2;
     var candidates = [];
@@ -12459,10 +12469,13 @@
   }
 
   function focusCardDown() {
-    var cards = getVisibleCards();
-    if (cards.length === 0 || state.focusedCard === null) return;
-    var current = cards[state.focusedCard];
-    if (!current) return;
+    var current = state._currentFocusedCard || document.querySelector('.card.focused');
+    if (!current) {
+      var cards = getVisibleCards();
+      if (cards.length === 0) return;
+      focusCard(0);
+      return;
+    }
 
     var currentRow = current.closest('.row');
     if (currentRow) {
@@ -12476,24 +12489,27 @@
           var curIdxInRow = curRowCards.indexOf(current);
           var targetCardIdx = curIdxInRow >= 0 ? Math.min(curIdxInRow, nextCards.length - 1) : 0;
           var bestCard = nextCards[targetCardIdx];
-          var nextGlobalIdx = cards.indexOf(bestCard);
-          if (nextGlobalIdx >= 0) {
-            clearCardFocus();
-            state.focusedCard = nextGlobalIdx;
-            state._currentFocusedCard = bestCard;
-            bestCard.classList.add('focused');
-            scrollToCard(bestCard);
-            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
-            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
-            updateHomeBg(bestCard);
-            return;
+
+          if (state._currentFocusedCard) {
+            state._currentFocusedCard.classList.remove('focused');
+            if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
           }
+          current.classList.remove('focused');
+          state._currentFocusedCard = bestCard;
+          bestCard.classList.add('focused');
+          scrollToCard(bestCard);
+          try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+          if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+          updateHomeBg(bestCard);
+          return;
         }
       }
       return;
     }
 
     // Grid fallback
+    var cards = getVisibleCards();
+    if (cards.length === 0 || state.focusedCard === null) return;
     var currentRect = current.getBoundingClientRect();
     var curCenterX2 = currentRect.left + currentRect.width / 2;
     var candidates = [];
