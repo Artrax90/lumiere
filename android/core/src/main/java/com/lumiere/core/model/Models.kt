@@ -392,6 +392,18 @@ data class TitleProgressResponse(
 )
 
 @Serializable
+data class PrecacheRequest(
+    val magnet: String? = null,
+    val link: String? = null,
+    val hash: String? = null,
+    val nextIndex: Int? = null,
+    val fileIndex: Int? = null,
+    val season: Int? = null,
+    val nextEpisode: Int? = null,
+    val title: String? = null
+)
+
+@Serializable
 data class PersonalRecommendationItem(
     val id: Long,
     val type: String? = "movie",

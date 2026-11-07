@@ -1635,25 +1635,75 @@ export function downloadRoutes(app: FastifyInstance) {
   app.post('/api/downloads/server/precache-next', async (req, reply) => {
     const body = (req.body as any) || {};
     const hash = body.hash || body.torrentHash || '';
-    const magnet = body.magnet || '';
-    const nextIndex = body.nextIndex;
+    const magnet = body.magnet || body.link || '';
+    let nextIndex = body.nextIndex !== undefined ? body.nextIndex : body.fileIndex;
+    const season = body.season !== undefined ? Number(body.season) : undefined;
+    const nextEpisode = body.nextEpisode !== undefined ? Number(body.nextEpisode) : (body.episode !== undefined ? Number(body.episode) : undefined);
 
-    if ((!hash && !magnet) || nextIndex === undefined) {
-      return reply.code(400).send({ error: 'hash/magnet and nextIndex are required' });
+    if (!hash && !magnet) {
+      return reply.code(400).send({ error: 'hash or magnet/link is required' });
     }
 
     try {
-      const torrUrl = config.torrserver.url;
+      const torrUrl = await getActiveTorrServerUrl();
       const linkParam = magnet ? encodeURIComponent(magnet) : hash;
-      const preloadUrl = `${torrUrl}/stream?link=${linkParam}&index=${nextIndex}&preload`;
 
-      console.log(`[Precache] Triggering TorrServer preload for next episode: index=${nextIndex}`);
+      // If nextIndex is not provided or negative, auto-resolve file index by season & nextEpisode from TorrServer
+      if ((nextIndex === undefined || nextIndex === null || nextIndex < 0) && nextEpisode !== undefined) {
+        try {
+          const statUrl = `${torrUrl}/stream?link=${linkParam}&stat`;
+          const statRes = await fetch(statUrl, { signal: AbortSignal.timeout(5000) });
+          if (statRes.ok) {
+            const statData = await statRes.json() as any;
+            const files = statData.file_stats || statData.files || [];
+            if (Array.isArray(files) && files.length > 0) {
+              const videoExts = ['.mkv', '.mp4', '.avi', '.ts', '.m4v', '.webm', '.mov'];
+              const sTarget = season && season > 0 ? season : 1;
+              const epTarget = nextEpisode;
+
+              for (const f of files) {
+                const fPath = (f.path || f.name || '').toLowerCase();
+                if (!videoExts.some(ext => fPath.endsWith(ext)) || fPath.includes('sample')) continue;
+
+                // Match season and episode pattern
+                const sM = fPath.match(/s(\d{1,2})[._\-\s]*e(\d{1,3})/i) ||
+                           fPath.match(/(\d{1,2})x(\d{1,3})/i) ||
+                           fPath.match(/(?:сезон|season)\s*(\d{1,2}).*?(?:сери[яий]|эпизод|ep|e)\s*(\d{1,3})/i);
+                if (sM) {
+                  const s = parseInt(sM[1], 10);
+                  const e = parseInt(sM[2], 10);
+                  if (s === sTarget && e === epTarget) {
+                    nextIndex = f.id !== undefined ? f.id : f.index;
+                    break;
+                  }
+                } else {
+                  const epOnlyMatch = fPath.match(/(?:сери[яий]|эпизод|ep\.?|e)\s*[:]?\s*(\d{1,3})/i) ||
+                                     fPath.match(/\b0?(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск)\b/i);
+                  if (epOnlyMatch && parseInt(epOnlyMatch[1], 10) === epTarget) {
+                    nextIndex = f.id !== undefined ? f.id : f.index;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        } catch (findErr: any) {
+          console.warn('[Precache] Could not inspect TorrServer file list:', findErr.message);
+        }
+      }
+
+      if (nextIndex === undefined || nextIndex === null || nextIndex < 0) {
+        nextIndex = 0;
+      }
+
+      const preloadUrl = `${torrUrl}/stream?link=${linkParam}&index=${nextIndex}&preload`;
+      console.log(`[Precache] Triggering TorrServer preload for next episode: index=${nextIndex}, url=${preloadUrl}`);
       // Fire-and-forget preload request to TorrServer
       fetch(preloadUrl, { signal: AbortSignal.timeout(6000) }).catch((err) => {
         console.warn('[Precache] TorrServer preload warning:', err.message);
       });
 
-      return { success: true, message: `Pre-cache started for next episode (index ${nextIndex})` };
+      return { success: true, message: `Pre-cache started for next episode (index ${nextIndex})`, nextIndex };
     } catch (err: any) {
       return reply.code(500).send({ error: err.message });
     }

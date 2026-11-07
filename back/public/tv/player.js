@@ -974,17 +974,22 @@
   // ========== Binge-Watching ==========
 
   function triggerPrecacheNext() {
-    if (precacheSent || !nextFile || !torrentLink) return;
+    if (precacheSent || !torrentLink) return;
     precacheSent = true;
-    console.log('[Player] Triggering server pre-cache for next episode index:', nextFile.id);
+    var nextIdx = (nextFile && nextFile.id !== undefined) ? nextFile.id : undefined;
+    console.log('[Player] Triggering server pre-cache for next episode, fileIndex:', nextIdx);
     var xhr = new XMLHttpRequest();
     xhr.open('POST', API + '/api/downloads/server/precache-next', true);
     xhr.setRequestHeader('Content-Type', 'application/json');
     var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('lumiere_access');
     if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
     xhr.send(JSON.stringify({
+      magnet: torrentLink,
       link: torrentLink,
-      fileIndex: nextFile.id
+      nextIndex: nextIdx,
+      fileIndex: nextIdx,
+      season: curSeason,
+      nextEpisode: curEpisode + 1
     }));
   }
 

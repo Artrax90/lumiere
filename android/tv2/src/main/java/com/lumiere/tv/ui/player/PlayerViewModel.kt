@@ -84,6 +84,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val currentSec = posMs / 1000L
                 val remainingSec = (durationSec - currentSec).toInt()
 
+                // Pre-caching next episode in TorrServer RAM buffer at duration - 180s (3 minutes)
+                if (durationSec > 180L && currentSec > 120L && remainingSec in 1..180) {
+                    triggerPrecacheNextEpisode()
+                }
+
                 // 30-second countdown for binge watching next episode (strictly guarded: video must be >3 min, played for >2 min, and remaining <= 30s)
                 if (durationSec > 180L && currentSec > 120L && remainingSec in 1..30) {
                     val epTitle = resolvedNextEpisodeTitle.ifBlank {
@@ -219,6 +224,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
         activeEpisode = episode
         isNextEpisodeDismissed = false
         hasNextEpisodeAvailable = (mediaType == "tv")
+        isPrecacheTriggered = false
+        precacheJob?.cancel()
         resolvedNextEpisodeTitle = ""
         nextTargetSeason = 0
         nextTargetEpisode = 0
@@ -642,6 +649,40 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 resolvedNextEpisodeTitle = nextTitle
                 if (activeMediaType == "tv" && hasNext) {
                     _uiState.update { it.copy(nextEpisodeTitle = nextTitle) }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    private var precacheJob: Job? = null
+    private var isPrecacheTriggered = false
+
+    private fun triggerPrecacheNextEpisode() {
+        if (isPrecacheTriggered || activeMediaType != "tv" || activeMediaId <= 0L || !hasNextEpisodeAvailable) return
+        val targetS = if (nextTargetSeason > 0) nextTargetSeason else activeSeason
+        val targetE = if (nextTargetEpisode > 0) nextTargetEpisode else (activeEpisode + 1)
+        if (targetS <= 0 || targetE <= 0) return
+
+        isPrecacheTriggered = true
+        precacheJob?.cancel()
+        precacheJob = viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val serverUrl = preferences.serverUrl.first().orEmpty()
+                if (serverUrl.isBlank()) return@launch
+                val api = networkClient?.createApiService(serverUrl) ?: return@launch
+                val lastTorrentPair = preferences.getLastPlayedTorrent(activeMediaId, targetS)
+                    ?: preferences.getLastPlayedTorrent(activeMediaId, 0)
+                if (lastTorrentPair != null) {
+                    val (magnet, torrentTitle) = lastTorrentPair
+                    android.util.Log.i("PlayerViewModel", "Triggering TorrServer precache for S${targetS}E${targetE}...")
+                    api.precacheNextEpisode(
+                        com.lumiere.core.model.PrecacheRequest(
+                            magnet = magnet,
+                            season = targetS,
+                            nextEpisode = targetE,
+                            title = torrentTitle
+                        )
+                    )
                 }
             } catch (_: Exception) {}
         }

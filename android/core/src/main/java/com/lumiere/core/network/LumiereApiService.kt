@@ -217,6 +217,9 @@ interface LumiereApiService {
     @POST("/api/sync/progress")
     suspend fun saveWatchProgress(@Body request: WatchProgressRequest): SimpleActionResponse
 
+    @POST("/api/downloads/server/precache-next")
+    suspend fun precacheNextEpisode(@Body request: PrecacheRequest): SimpleActionResponse
+
     @GET("/api/sync/progress/{tmdbId}")
     suspend fun getWatchProgress(
         @Path("tmdbId") tmdbId: Long,
