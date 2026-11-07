@@ -6,7 +6,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -61,42 +62,7 @@ fun DetailsScreen(
     val bottomSectionFocusRequester = if (isTv) episodesTabFocusRequester else torrentsTabFocusRequester
     var showAllCastDialog by remember { mutableStateOf(false) }
 
-    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
-
-    val onNavigateDown: () -> Unit = remember(bottomSectionFocusRequester, coroutineScope, listState) {
-        {
-            try {
-                bottomSectionFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                coroutineScope.launch {
-                    try {
-                        listState.animateScrollToItem(2)
-                        kotlinx.coroutines.delay(50)
-                        bottomSectionFocusRequester.requestFocus()
-                    } catch (_: Exception) {}
-                }
-            }
-            Unit
-        }
-    }
-
-    val onNavigateUpFromTabs: () -> Unit = remember(watchFocusRequester, coroutineScope, listState) {
-        {
-            try {
-                watchFocusRequester.requestFocus()
-            } catch (_: Exception) {
-                coroutineScope.launch {
-                    try {
-                        listState.animateScrollToItem(1)
-                        kotlinx.coroutines.delay(50)
-                        watchFocusRequester.requestFocus()
-                    } catch (_: Exception) {}
-                }
-            }
-            Unit
-        }
-    }
+    val scrollState = rememberScrollState()
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
@@ -115,17 +81,10 @@ fun DetailsScreen(
     LaunchedEffect(title != null) {
         if (title != null && !hasSetInitialFocus) {
             hasSetInitialFocus = true
-            if (mediaType == "tv" && state.lastWatchedEpisodeNum != null) {
-                kotlinx.coroutines.delay(200)
-                try {
-                    listState.animateScrollToItem(2)
-                } catch (_: Exception) {}
-            } else {
-                kotlinx.coroutines.delay(150)
-                try {
-                    watchFocusRequester.requestFocus()
-                } catch (_: Exception) {}
-            }
+            kotlinx.coroutines.delay(100)
+            try {
+                watchFocusRequester.requestFocus()
+            } catch (_: Exception) {}
         }
     }
 
@@ -183,42 +142,40 @@ fun DetailsScreen(
             )
 
             // Scrollable Details Body
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 36.dp, vertical = 20.dp),
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(scrollState)
+                    .padding(horizontal = 36.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Top Navigation Bar (Back Button - WGT Pill Style)
-                item {
-                    val backShape = remember { RoundedCornerShape(20.dp) }
-                    OutlinedButton(
-                        onClick = onBackClick,
-                        scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                        colors = OutlinedButtonDefaults.colors(
-                            containerColor = Color(0x24FFFFFF),
-                            focusedContainerColor = LumiereGold,
-                            focusedContentColor = BackgroundDark,
-                            contentColor = TextPrimary
-                        ),
-                        border = OutlinedButtonDefaults.border(
-                            border = Border(border = BorderStroke(1.dp, Color(0x35FFFFFF)), shape = backShape),
-                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = backShape)
-                        ),
-                        shape = OutlinedButtonDefaults.shape(backShape),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
-                    ) {
-                        Text("‹ Назад", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-                    }
+                val backShape = remember { RoundedCornerShape(20.dp) }
+                OutlinedButton(
+                    onClick = onBackClick,
+                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
+                    colors = OutlinedButtonDefaults.colors(
+                        containerColor = Color(0x24FFFFFF),
+                        focusedContainerColor = LumiereGold,
+                        focusedContentColor = BackgroundDark,
+                        contentColor = TextPrimary
+                    ),
+                    border = OutlinedButtonDefaults.border(
+                        border = Border(border = BorderStroke(1.dp, Color(0x35FFFFFF)), shape = backShape),
+                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = backShape)
+                    ),
+                    shape = OutlinedButtonDefaults.shape(backShape),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    Text("‹ Назад", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
                 }
 
                 // Upper Hero Section: Two sides (Left info/actions/specs, Right 4x2 Cast grid)
-                item {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(24.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                         // Left Hero: Type/Genre, Title, Meta, Actions, Synopsis, DetailSpecsBlock
                         Column(
                             modifier = Modifier.weight(1f),
@@ -353,8 +310,7 @@ fun DetailsScreen(
                                         onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
                                     }
                                 },
-                                onTorrentsClick = { viewModel.openTorrentDialog() },
-                                onNavigateDown = onNavigateDown
+                                onTorrentsClick = { viewModel.openTorrentDialog() }
                             )
 
                             // Synopsis (Full text without truncation)
@@ -391,13 +347,11 @@ fun DetailsScreen(
                             }
                         }
                     }
-                }
 
                 // Streaming Section: Episodes (TV) & Torrents (TV & Movie)
-                item {
-                    val seriesTab = state.seriesTab
-                    val qualityFilter = state.torrentQualityFilter
-                    val sortBy = state.torrentSortBy
+                val seriesTab = state.seriesTab
+                val qualityFilter = state.torrentQualityFilter
+                val sortBy = state.torrentSortBy
 
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                         val seasonTorrentCount = remember(state.torrents, state.selectedSeason, isTv, title.year) {
@@ -417,8 +371,7 @@ fun DetailsScreen(
                             episodesTabFocusRequester = episodesTabFocusRequester,
                             torrentsTabFocusRequester = torrentsTabFocusRequester,
                             watchFocusRequester = watchFocusRequester,
-                            onTabSelect = { viewModel.setSeriesTab(it) },
-                            onNavigateUp = onNavigateUpFromTabs
+                            onTabSelect = { viewModel.setSeriesTab(it) }
                         )
 
 
@@ -632,36 +585,31 @@ fun DetailsScreen(
                                 }
                             }
                         }
-                    }
 
                 // Collection / Franchise row
                 if (state.collectionTitles.isNotEmpty()) {
-                    item {
-                        com.lumiere.tv.ui.components.MediaRow(
-                            title = "🎬 " + (state.collectionName?.ifBlank { "Все части саги" } ?: "Все части саги"),
-                            subtitle = "Хронология франшизы",
-                            items = state.collectionTitles,
-                            resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                            onTitleClick = { colTitle ->
-                                onSimilarTitleClick?.invoke(colTitle)
-                            }
-                        )
-                    }
+                    com.lumiere.tv.ui.components.MediaRow(
+                        title = "🎬 " + (state.collectionName?.ifBlank { "Все части саги" } ?: "Все части саги"),
+                        subtitle = "Хронология франшизы",
+                        items = state.collectionTitles,
+                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
+                        onTitleClick = { colTitle ->
+                            onSimilarTitleClick?.invoke(colTitle)
+                        }
+                    )
                 }
 
                 // Similar / Recommendations row
                 if (state.similarTitles.isNotEmpty()) {
-                    item {
-                        com.lumiere.tv.ui.components.MediaRow(
-                            title = "Похожие " + if (mediaType == "tv") "сериалы" else "фильмы",
-                            subtitle = "Вам также может понравиться",
-                            items = state.similarTitles,
-                            resolvePosterUrl = { viewModel.resolveImageUrl(it) },
-                            onTitleClick = { simTitle ->
-                                onSimilarTitleClick?.invoke(simTitle)
-                            }
-                        )
-                    }
+                    com.lumiere.tv.ui.components.MediaRow(
+                        title = "Похожие " + if (mediaType == "tv") "сериалы" else "фильмы",
+                        subtitle = "Вам также может понравиться",
+                        items = state.similarTitles,
+                        resolvePosterUrl = { viewModel.resolveImageUrl(it) },
+                        onTitleClick = { simTitle ->
+                            onSimilarTitleClick?.invoke(simTitle)
+                        }
+                    )
                 }
             }
         } else if (state.isLoading) {
@@ -1005,7 +953,6 @@ private fun ActionButtonsRow(
     onNotificationClick: () -> Unit,
     onTrailerClick: () -> Unit,
     onTorrentsClick: () -> Unit,
-    onNavigateDown: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val actionPillShape = remember { RoundedCornerShape(32.dp) }
@@ -1101,16 +1048,6 @@ private fun ActionButtonsRow(
         modifier = modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
-                ) {
-                    onNavigateDown()
-                    true
-                } else {
-                    false
-                }
-            }
     ) {
         // 1. Play Button (Primary)
         Button(
@@ -1259,7 +1196,6 @@ private fun DetailsSectionTabsRow(
     torrentsTabFocusRequester: FocusRequester,
     watchFocusRequester: FocusRequester,
     onTabSelect: (String) -> Unit,
-    onNavigateUp: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val tabShape = remember { RoundedCornerShape(20.dp) }
@@ -1277,16 +1213,7 @@ private fun DetailsSectionTabsRow(
     Row(
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        modifier = modifier.onKeyEvent { event ->
-            if (event.type == KeyEventType.KeyDown &&
-                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
-            ) {
-                onNavigateUp()
-                true
-            } else {
-                false
-            }
-        }
+        modifier = modifier
     ) {
         if (isTv) {
             val isEpisodesTab = seriesTab == "episodes"

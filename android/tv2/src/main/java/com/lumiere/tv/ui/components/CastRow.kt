@@ -111,20 +111,7 @@ fun CastSectionWgt(
         val row2 = remember(top8) { if (top8.size > 4) top8.drop(4).take(4) else emptyList() }
 
         val bottomModifier = if (bottomFocusRequester != null) {
-            Modifier
-                .focusProperties { down = bottomFocusRequester }
-                .onKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
-                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
-                    ) {
-                        try {
-                            bottomFocusRequester.requestFocus()
-                        } catch (_: Exception) {}
-                        true
-                    } else {
-                        false
-                    }
-                }
+            Modifier.focusProperties { down = bottomFocusRequester }
         } else Modifier
 
         Column(
