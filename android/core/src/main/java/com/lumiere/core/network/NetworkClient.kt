@@ -143,6 +143,6 @@ class NetworkClient(
      * Resolve image URL through Lumiere server proxy if needed (TMDB/external posters bypass ISP blocking)
      */
     fun resolveImageUrl(path: String?, serverBaseUrl: String = baseUrlProvider()): String {
-        return resolveImageUrl(path, serverBaseUrl)
+        return Companion.resolveImageUrl(path, serverBaseUrl)
     }
 }
