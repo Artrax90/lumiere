@@ -243,15 +243,12 @@ body.player-active .section {
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   box-sizing: border-box;
-  outline: 3px solid transparent;
-  outline-offset: -3px;
 }
 .card:focus, .card.focused {
-  transform: translate3d(0, 0, 0) scale(1.06) !important;
-  -webkit-transform: translate3d(0, 0, 0) scale(1.06) !important;
-  outline: 3px solid #e8c170 !important;
-  outline-offset: -3px !important;
-  box-shadow: none !important;
+  transform: translate3d(0, 0, 0) scale(1.05) !important;
+  -webkit-transform: translate3d(0, 0, 0) scale(1.05) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 8px 24px rgba(0,0,0,0.6) !important;
   border-radius: 12px;
   z-index: 50;
 }
@@ -1097,10 +1094,9 @@ body.player-active .section {
 .detail-actor-card.focused {
   background: rgba(26, 32, 48, 0.98) !important;
   border-color: #e8c170 !important;
-  outline: 2.5px solid #e8c170 !important;
-  outline-offset: -2.5px !important;
+  outline: none !important;
   transform: translateY(-4px) scale(1.04);
-  box-shadow: none !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 10px 24px rgba(0, 0, 0, 0.7) !important;
   z-index: 10;
 }
 .detail-actor-photo {
@@ -2522,11 +2518,10 @@ body.player-active .section {
 }
 .top10-card:focus .card-img-wrap,
 .top10-card.focused .card-img-wrap {
-  transform: scale(1.05) translateY(-3px);
+  transform: scale(1.06) translateY(-4px);
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
-  outline-offset: -3px !important;
-  box-shadow: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 16px 45px rgba(0,0,0,0.9) !important;
 }
 .top10-card:focus .card-title,
 .top10-card.focused .card-title {
@@ -3726,10 +3721,9 @@ body.player-active .section {
 .all-cast-card.focused {
   background: rgba(26, 32, 48, 0.98) !important;
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
-  outline-offset: -3px !important;
+  outline: none !important;
   transform: translateY(-4px) scale(1.04);
-  box-shadow: none !important;
+  box-shadow: 0 0 0 2.5px #e8c170, 0 10px 24px rgba(0, 0, 0, 0.7) !important;
   z-index: 10;
 }
 
@@ -3949,11 +3943,10 @@ body.player-active .section {
 
 .person-movie-card:hover,
 .person-movie-card.focused {
-  outline: 3px solid #e8c170 !important;
-  outline-offset: -3px !important;
   border-color: #e8c170 !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 8px 24px rgba(0, 0, 0, 0.6) !important;
   transform: translateY(-4px) scale(1.05);
-  box-shadow: none !important;
   z-index: 5;
 }
 
@@ -4654,11 +4647,10 @@ body.player-active .section {
 }
 .collection-tv-card:focus,
 .collection-tv-card.focused {
-  transform: scale(1.04) translateY(-3px) !important;
+  transform: scale(1.05) translateY(-4px) !important;
   border-color: #e8c170 !important;
-  outline: 3px solid #e8c170 !important;
-  outline-offset: -3px !important;
-  box-shadow: none !important;
+  outline: none !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 14px 40px rgba(0, 0, 0, 0.9) !important;
   z-index: 50 !important;
 }
 .collection-tv-card:focus .collection-tv-img,
