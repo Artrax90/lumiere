@@ -442,12 +442,16 @@ fun DetailsScreen(
                                     }
                                     when (sortBy) {
                                         "seeds" -> list.sortedByDescending { it.seeders ?: 0 }
-                                        "size" -> list.sortedByDescending { TorrentMetaParser.parseSizeBytes(it) }
-                                        "date" -> list.sortedWith(
-                                            compareByDescending<com.lumiere.core.model.TorrentItem> { TorrentMetaParser.parseTorrentDate(it.date) }
-                                                .thenByDescending { it.seeders ?: 0 }
-                                        )
-                                        else -> list.sortedByDescending { item ->
+                                        "size" -> list.map { it to TorrentMetaParser.parseSizeBytes(it) }
+                                            .sortedByDescending { it.second }
+                                            .map { it.first }
+                                        "date" -> list.map { it to TorrentMetaParser.parseTorrentDate(it.date) }
+                                            .sortedWith(
+                                                compareByDescending<Pair<com.lumiere.core.model.TorrentItem, Long>> { it.second }
+                                                    .thenByDescending { it.first.seeders ?: 0 }
+                                            )
+                                            .map { it.first }
+                                        else -> list.map { item ->
                                             val tLower = item.title.lowercase()
                                             val isLegacy = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
                                                            tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
@@ -456,8 +460,9 @@ fun DetailsScreen(
                                                        tLower.contains("4k") || tLower.contains("mkv") || tLower.contains("h.264") ||
                                                        tLower.contains("x264") || tLower.contains("hevc") || tLower.contains("h.265")) && !isLegacy
                                             val prefBonus = if (item.isPreferredVoiceover) 3000 else 0
-                                            (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0) + prefBonus
-                                        }
+                                            val score = (item.seeders ?: 0) * 10 + (if (isHd) 500 else 0) - (if (isLegacy) 500 else 0) + prefBonus
+                                            item to score
+                                        }.sortedByDescending { it.second }.map { it.first }
                                     }
                                 }
 

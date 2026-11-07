@@ -765,43 +765,36 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                     val preferredVoices = preferredMeta?.voices.orEmpty()
                     val preferredRes = preferredMeta?.resolution
 
-                    val candidates = torrents.filter {
+                    val seasonCandidates = torrents.filter {
                         com.lumiere.tv.ui.components.TorrentMetaParser.matchesTorrentSeason(it.title, season)
-                    }.sortedWith(
-                        compareByDescending<TorrentItem> { cand ->
-                            var score = 0
-                            if (com.lumiere.tv.ui.components.TorrentMetaParser.checkTorrentEpisode(cand.title, season, episode)) {
-                                score += 1000
-                            }
-                            val candMeta = com.lumiere.tv.ui.components.TorrentMetaParser.parse(cand.title)
-                            if (preferredVoices.isNotEmpty() && candMeta.voices.any { v -> preferredVoices.any { pv -> pv.equals(v, ignoreCase = true) } }) {
-                                score += 500
-                            }
-                            if (!preferredRes.isNullOrBlank() && candMeta.resolution.equals(preferredRes, ignoreCase = true)) {
-                                score += 100
-                            }
-                            val tLower = cand.title.lowercase()
-                            val isLegacyAvi = tLower.contains("xvid") || tLower.contains(".avi") || tLower.contains("dlrip") ||
-                                              tLower.contains("web-dlrip") || tLower.contains("dvdrip") || tLower.contains("satrip") ||
-                                              tLower.contains("bdrip") || (tLower.contains("avi") && !tLower.contains("davinci"))
-                            if (isLegacyAvi) score -= 300
-                            score
-                        }.thenByDescending { it.seeders ?: 0 }
-                    )
+                    }
 
-                    for (cand in candidates.take(5)) {
+                    val candidates = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                        com.lumiere.tv.ui.components.TorrentMetaParser.rankCandidates(
+                            torrents = seasonCandidates,
+                            season = season,
+                            episode = episode,
+                            preferredVoices = preferredVoices,
+                            preferredRes = preferredRes
+                        )
+                    }
+
+                    for (cand in candidates.take(3)) {
                         try {
-                            var streamInfo = api.getTorrentStreamInfo(
-                                TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
-                            )
-                            var attempts = 0
-                            while (streamInfo.files.isEmpty() && attempts < 5) {
-                                delay(800)
-                                attempts++
-                                streamInfo = api.getTorrentStreamInfo(
+                            val streamInfo = kotlinx.coroutines.withTimeoutOrNull(5000L) {
+                                var info = api.getTorrentStreamInfo(
                                     TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
                                 )
-                            }
+                                var attempts = 0
+                                while (info.files.isEmpty() && attempts < 3) {
+                                    delay(800)
+                                    attempts++
+                                    info = api.getTorrentStreamInfo(
+                                        TorrentStreamRequest(magnet = cand.magnet, title = cand.title)
+                                    )
+                                }
+                                info
+                            } ?: continue
 
                             val videoFiles = streamInfo.files.filter { f ->
                                 val l = f.name.lowercase()

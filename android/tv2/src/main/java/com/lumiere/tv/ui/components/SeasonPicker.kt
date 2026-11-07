@@ -25,6 +25,8 @@ import coil3.compose.AsyncImage
 import com.lumiere.core.model.Episode
 import com.lumiere.tv.theme.*
 
+private val DATE_FORMAT_REGEX = Regex("""\d{4}-\d{2}-\d{2}""")
+
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 fun SeasonPicker(
@@ -282,7 +284,7 @@ private fun EpisodeCard(
                 val isNotAired = episode.isAired == false || (
                     !airedStr.isNullOrBlank() &&
                     airedStr != "—" &&
-                    airedStr.take(10).matches(Regex("""\d{4}-\d{2}-\d{2}""")) &&
+                    airedStr.take(10).matches(DATE_FORMAT_REGEX) &&
                     today.isNotBlank() &&
                     airedStr.take(10) > today
                 )
