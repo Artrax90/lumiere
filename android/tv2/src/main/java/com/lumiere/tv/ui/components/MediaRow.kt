@@ -38,6 +38,8 @@ fun MediaRow(
     rowState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     firstItemFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    restoreFocusId: Long? = null,
+    restoreFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
 ) {
     if (items.isEmpty()) return
@@ -132,27 +134,28 @@ fun MediaRow(
                 key = { index, item -> "${item.id}_${item.type}_$index" },
                 contentType = { _, _ -> "media_card" }
             ) { index, item ->
-                val cardModifier = if (index == 0 && firstItemFocusRequester != null) {
-                    Modifier
-                        .focusRequester(firstItemFocusRequester)
-                        .then(
-                            if (upFocusRequester != null) {
-                                Modifier
-                                    .focusProperties { up = upFocusRequester }
-                                    .onKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyDown &&
-                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
-                                        ) {
-                                            upFocusRequester.requestFocus()
-                                        } else {
-                                            false
-                                        }
+                val isRestoreTarget = restoreFocusId != null && item.id == restoreFocusId && restoreFocusRequester != null
+                val cardModifier = Modifier
+                    .then(
+                        if (isRestoreTarget) Modifier.focusRequester(restoreFocusRequester)
+                        else if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester)
+                        else Modifier
+                    )
+                    .then(
+                        if (index == 0 && upFocusRequester != null) {
+                            Modifier
+                                .focusProperties { up = upFocusRequester }
+                                .onKeyEvent { event ->
+                                    if (event.type == KeyEventType.KeyDown &&
+                                        event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+                                    ) {
+                                        upFocusRequester.requestFocus()
+                                    } else {
+                                        false
                                     }
-                            } else Modifier
-                        )
-                } else {
-                    Modifier
-                }
+                                }
+                        } else Modifier
+                    )
                 MediaCard(
                     title = item,
                     posterUrl = resolvePosterUrl(item.poster),

@@ -66,6 +66,14 @@ class DetailsViewModel(
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
     init {
+        val cachedUrl = AppPreferences.cachedServerUrl
+        if (cachedUrl.isNotBlank()) {
+            networkClient = NetworkClient(
+                baseUrlProvider = { AppPreferences.cachedServerUrl },
+                tokenProvider = { AppPreferences.cachedAccessToken },
+                preferences = preferences
+            )
+        }
         loadDetails()
     }
 
@@ -78,7 +86,13 @@ class DetailsViewModel(
             }
 
             val serverUrl = preferences.serverUrl.first().orEmpty()
+            if (serverUrl.isNotBlank()) {
+                AppPreferences.cachedServerUrl = serverUrl
+            }
             val token = preferences.accessToken.first()
+            if (!token.isNullOrBlank()) {
+                AppPreferences.cachedAccessToken = token
+            }
 
             if (serverUrl.isBlank()) {
                 _uiState.update { it.copy(isLoading = false, errorMessage = "Сервер не настроен") }
@@ -1152,7 +1166,15 @@ class DetailsViewModel(
     }
 
     fun resolveImageUrl(path: String?): String {
-        return networkClient?.resolveImageUrl(path) ?: path.orEmpty()
+        val client = networkClient
+        if (client != null) {
+            return client.resolveImageUrl(path)
+        }
+        val baseUrl = com.lumiere.core.storage.AppPreferences.cachedServerUrl
+        if (baseUrl.isNotBlank()) {
+            return com.lumiere.core.network.NetworkClient.resolveImageUrl(path, baseUrl)
+        }
+        return path.orEmpty()
     }
 
     suspend fun getEpisodeSavedProgress(season: Int, episode: Int): Long {

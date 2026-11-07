@@ -108,35 +108,41 @@ class NetworkClient(
             .create(LumiereApiService::class.java)
     }
 
+    companion object {
+        fun resolveImageUrl(path: String?, serverBaseUrl: String): String {
+            if (path.isNullOrBlank()) return ""
+            val cleanBase = serverBaseUrl.trimEnd('/')
+
+            if (path.contains("/api/image")) {
+                return if (path.startsWith("http://") || path.startsWith("https://")) path else "$cleanBase/$path".replace("//", "/").replace(":/", "://")
+            }
+
+            if (path.contains("image.tmdb.org") || path.contains("themoviedb.org") ||
+                path.contains("kinopoisk") || path.contains("yandex.net")) {
+                val encoded = URLEncoder.encode(path, StandardCharsets.UTF_8.toString())
+                return "$cleanBase/api/image?url=$encoded"
+            }
+
+            if (path.startsWith("/") && !path.startsWith("/api/") && !path.startsWith("/assets") &&
+                !path.startsWith("/icon") && !path.startsWith("/favicon")) {
+                val tmdbPath = if (path.startsWith("/t/p/")) path else "/t/p/w500$path"
+                val fullUrl = "https://image.tmdb.org$tmdbPath"
+                val encoded = URLEncoder.encode(fullUrl, StandardCharsets.UTF_8.toString())
+                return "$cleanBase/api/image?url=$encoded"
+            }
+
+            if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
+                return path
+            }
+
+            return "$cleanBase/$path".replace("//", "/").replace(":/", "://")
+        }
+    }
+
     /**
      * Resolve image URL through Lumiere server proxy if needed (TMDB/external posters bypass ISP blocking)
      */
     fun resolveImageUrl(path: String?, serverBaseUrl: String = baseUrlProvider()): String {
-        if (path.isNullOrBlank()) return ""
-        val cleanBase = serverBaseUrl.trimEnd('/')
-
-        if (path.contains("/api/image")) {
-            return if (path.startsWith("http://") || path.startsWith("https://")) path else "$cleanBase/$path".replace("//", "/").replace(":/", "://")
-        }
-
-        if (path.contains("image.tmdb.org") || path.contains("themoviedb.org") ||
-            path.contains("kinopoisk") || path.contains("yandex.net")) {
-            val encoded = URLEncoder.encode(path, StandardCharsets.UTF_8.toString())
-            return "$cleanBase/api/image?url=$encoded"
-        }
-
-        if (path.startsWith("/") && !path.startsWith("/api/") && !path.startsWith("/assets") &&
-            !path.startsWith("/icon") && !path.startsWith("/favicon")) {
-            val tmdbPath = if (path.startsWith("/t/p/")) path else "/t/p/w500$path"
-            val fullUrl = "https://image.tmdb.org$tmdbPath"
-            val encoded = URLEncoder.encode(fullUrl, StandardCharsets.UTF_8.toString())
-            return "$cleanBase/api/image?url=$encoded"
-        }
-
-        if (path.startsWith("http://") || path.startsWith("https://") || path.startsWith("data:")) {
-            return path
-        }
-
-        return "$cleanBase/$path".replace("//", "/").replace(":/", "://")
+        return resolveImageUrl(path, serverBaseUrl)
     }
 }

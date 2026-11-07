@@ -22,6 +22,12 @@ val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
 class AppPreferences(private val context: Context) {
 
     companion object {
+        @Volatile
+        var cachedServerUrl: String = ""
+
+        @Volatile
+        var cachedAccessToken: String? = null
+
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_ACCESS_TOKEN = stringPreferencesKey("access_token")
         private val KEY_REFRESH_TOKEN = stringPreferencesKey("refresh_token")
@@ -73,11 +79,17 @@ class AppPreferences(private val context: Context) {
     }
 
     val serverUrl: Flow<String?> = safeData.map { prefs ->
-        prefs[KEY_SERVER_URL]
+        val url = prefs[KEY_SERVER_URL]
+        if (!url.isNullOrBlank()) {
+            cachedServerUrl = url.trim().trimEnd('/')
+        }
+        url
     }
 
     val accessToken: Flow<String?> = safeData.map { prefs ->
-        prefs[KEY_ACCESS_TOKEN]
+        val token = prefs[KEY_ACCESS_TOKEN]
+        cachedAccessToken = token
+        token
     }
 
     val refreshToken: Flow<String?> = safeData.map { prefs ->
@@ -105,15 +117,20 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun getServerUrlSync(): String? {
-        return safeData.first()[KEY_SERVER_URL]
+        val url = safeData.first()[KEY_SERVER_URL]
+        if (!url.isNullOrBlank()) cachedServerUrl = url.trim().trimEnd('/')
+        return url
     }
 
     suspend fun getAccessTokenSync(): String? {
-        return safeData.first()[KEY_ACCESS_TOKEN]
+        val token = safeData.first()[KEY_ACCESS_TOKEN]
+        cachedAccessToken = token
+        return token
     }
 
     suspend fun setServerUrl(url: String) {
         val sanitized = url.trim().trimEnd('/')
+        cachedServerUrl = sanitized
         context.dataStore.edit { prefs ->
             prefs[KEY_SERVER_URL] = sanitized
         }
@@ -131,6 +148,7 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun setTokens(access: String, refresh: String) {
+        cachedAccessToken = access
         context.dataStore.edit { prefs ->
             prefs[KEY_ACCESS_TOKEN] = access
             prefs[KEY_REFRESH_TOKEN] = refresh

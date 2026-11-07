@@ -11,11 +11,23 @@ import coil3.memory.MemoryCache
 import coil3.request.allowRgb565
 import coil3.request.bitmapConfig
 import coil3.request.crossfade
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class LumiereTvApp : Application(), SingletonImageLoader.Factory {
 
     override fun onCreate() {
         super.onCreate()
+
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+            try {
+                val prefs = com.lumiere.core.storage.AppPreferences(applicationContext)
+                prefs.getServerUrlSync()
+                prefs.getAccessTokenSync()
+            } catch (_: Exception) {}
+        }
+
         val defaultHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             android.util.Log.e("LumiereTV", "CRASH in thread ${thread.name}: ${throwable.message}", throwable)

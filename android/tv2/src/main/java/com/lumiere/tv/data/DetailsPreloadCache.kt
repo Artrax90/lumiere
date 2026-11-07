@@ -60,7 +60,11 @@ object DetailsPreloadCache {
                 val serverUrl = preferences.serverUrl.first().orEmpty()
                 if (serverUrl.isBlank()) return@launch
 
+                AppPreferences.cachedServerUrl = serverUrl
                 val token = preferences.accessToken.first()
+                if (!token.isNullOrBlank()) {
+                    AppPreferences.cachedAccessToken = token
+                }
                 val client = NetworkClient(
                     baseUrlProvider = { serverUrl },
                     tokenProvider = { token },

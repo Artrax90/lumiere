@@ -62,6 +62,17 @@ fun HomeScreen(
     val popularSeriesFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
     var isTopBarFocused by remember { mutableStateOf(false) }
 
+    var hasInitiallyFocused by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
+    var lastClickedTitleId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Long?>(null) }
+    val restoreCardFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
+
+    val handleTitleClick: (Title) -> Unit = remember(onTitleClick) {
+        { title ->
+            lastClickedTitleId = title.id
+            onTitleClick(title)
+        }
+    }
+
     androidx.activity.compose.BackHandler(enabled = !isTopBarFocused) {
         try {
             homeFocusRequester.requestFocus()
@@ -82,10 +93,24 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(100)
-        try {
-            homeFocusRequester.requestFocus()
-        } catch (_: Exception) {}
+        if (!hasInitiallyFocused && lastClickedTitleId == null) {
+            hasInitiallyFocused = true
+            kotlinx.coroutines.delay(100)
+            try {
+                homeFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(lastClickedTitleId) {
+        val targetId = lastClickedTitleId
+        if (targetId != null) {
+            kotlinx.coroutines.delay(150)
+            try {
+                restoreCardFocusRequester.requestFocus()
+            } catch (_: Exception) {}
+            lastClickedTitleId = null
+        }
     }
 
     // Main Scrolling Catalog with persistent in-memory rows to eliminate recreation lag and focus crash
@@ -201,7 +226,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Продолжить просмотр" },
                                 items = state.continueWatching,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = continueWatchingState,
                                 firstItemFocusRequester = continueWatchingFocusRequester,
                                 upFocusRequester = homeFocusRequester
@@ -216,7 +243,9 @@ fun HomeScreen(
                                 subtitle = "На основе просмотренных вами фильмов и сериалов",
                                 items = state.recommendations,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = recommendationsState,
                                 firstItemFocusRequester = recommendationsFocusRequester,
                                 upFocusRequester = homeFocusRequester
@@ -231,7 +260,9 @@ fun HomeScreen(
                                 subtitle = "Самое популярное прямо сейчас",
                                 items = state.trendingMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = trendingMoviesState,
                                 firstItemFocusRequester = trendingMoviesFocusRequester,
                                 upFocusRequester = homeFocusRequester
@@ -251,7 +282,9 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 items = state.netflixMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 badgeText = "NETFLIX",
                                 headerAction = {
                                     NetflixPeriodSwitcher(
@@ -277,7 +310,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Популярные фильмы" },
                                 items = state.popularMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = popularMoviesState,
                                 firstItemFocusRequester = popularMoviesFocusRequester,
                                 upFocusRequester = homeFocusRequester
@@ -297,7 +332,9 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 items = state.netflixSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 badgeText = "NETFLIX",
                                 headerAction = {
                                     NetflixPeriodSwitcher(
@@ -323,7 +360,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Популярные сериалы" },
                                 items = state.trendingSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = trendingSeriesState,
                                 firstItemFocusRequester = trendingSeriesFocusRequester,
                                 upFocusRequester = homeFocusRequester
@@ -337,7 +376,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Новые сезоны" },
                                 items = state.popularSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = onTitleClick,
+                                onTitleClick = handleTitleClick,
+                                restoreFocusId = lastClickedTitleId,
+                                restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = popularSeriesState,
                                 firstItemFocusRequester = popularSeriesFocusRequester,
                                 upFocusRequester = homeFocusRequester
