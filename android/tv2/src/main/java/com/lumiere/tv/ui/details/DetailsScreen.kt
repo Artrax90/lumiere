@@ -64,29 +64,38 @@ fun DetailsScreen(
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
 
-    val actionDownModifier = remember(bottomSectionFocusRequester, coroutineScope, listState) {
-        Modifier
-            .focusProperties { down = bottomSectionFocusRequester }
-            .onKeyEvent { event ->
-                if (event.type == KeyEventType.KeyDown &&
-                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
-                ) {
+    val onNavigateDown: () -> Unit = remember(bottomSectionFocusRequester, coroutineScope, listState) {
+        {
+            try {
+                bottomSectionFocusRequester.requestFocus()
+            } catch (_: Exception) {
+                coroutineScope.launch {
                     try {
+                        listState.animateScrollToItem(2)
+                        kotlinx.coroutines.delay(50)
                         bottomSectionFocusRequester.requestFocus()
-                    } catch (_: Exception) {
-                        coroutineScope.launch {
-                            try {
-                                listState.animateScrollToItem(2)
-                                kotlinx.coroutines.delay(50)
-                                bottomSectionFocusRequester.requestFocus()
-                            } catch (_: Exception) {}
-                        }
-                    }
-                    true
-                } else {
-                    false
+                    } catch (_: Exception) {}
                 }
             }
+            Unit
+        }
+    }
+
+    val onNavigateUpFromTabs: () -> Unit = remember(watchFocusRequester, coroutineScope, listState) {
+        {
+            try {
+                watchFocusRequester.requestFocus()
+            } catch (_: Exception) {
+                coroutineScope.launch {
+                    try {
+                        listState.animateScrollToItem(1)
+                        kotlinx.coroutines.delay(50)
+                        watchFocusRequester.requestFocus()
+                    } catch (_: Exception) {}
+                }
+            }
+            Unit
+        }
     }
 
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
@@ -102,8 +111,10 @@ fun DetailsScreen(
         }
     }
 
-    LaunchedEffect(title, state.lastWatchedEpisodeNum) {
-        if (title != null) {
+    var hasSetInitialFocus by remember { mutableStateOf(false) }
+    LaunchedEffect(title != null) {
+        if (title != null && !hasSetInitialFocus) {
+            hasSetInitialFocus = true
             if (mediaType == "tv" && state.lastWatchedEpisodeNum != null) {
                 kotlinx.coroutines.delay(200)
                 try {
@@ -142,35 +153,33 @@ fun DetailsScreen(
             )
 
             // Dual Gradient: Left-to-right dark gradient for text readability + Bottom fade
+            val horizontalGradient = remember {
+                Brush.horizontalGradient(
+                    colors = listOf(
+                        BackgroundDark.copy(alpha = 0.94f),
+                        BackgroundDark.copy(alpha = 0.72f),
+                        Color.Transparent
+                    ),
+                    startX = 0f,
+                    endX = 1400f
+                )
+            }
+            val verticalGradient = remember {
+                Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        BackgroundDark.copy(alpha = 0.80f),
+                        BackgroundDark
+                    ),
+                    startY = 0f,
+                    endY = 1600f
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Brush.horizontalGradient(
-                            colors = listOf(
-                                BackgroundDark.copy(alpha = 0.94f),
-                                BackgroundDark.copy(alpha = 0.72f),
-                                Color.Transparent
-                            ),
-                            startX = 0f,
-                            endX = 1400f
-                        )
-                    )
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(
-                        Brush.verticalGradient(
-                            colors = listOf(
-                                Color.Transparent,
-                                BackgroundDark.copy(alpha = 0.80f),
-                                BackgroundDark
-                            ),
-                            startY = 0f,
-                            endY = 1600f
-                        )
-                    )
+                    .background(horizontalGradient)
+                    .background(verticalGradient)
             )
 
             // Scrollable Details Body
@@ -182,7 +191,7 @@ fun DetailsScreen(
             ) {
                 // Top Navigation Bar (Back Button - WGT Pill Style)
                 item {
-                    val backShape = RoundedCornerShape(20.dp)
+                    val backShape = remember { RoundedCornerShape(20.dp) }
                     OutlinedButton(
                         onClick = onBackClick,
                         scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
@@ -318,213 +327,35 @@ fun DetailsScreen(
                                 }
                             }
 
-                            // Action Buttons Row (Single Row fitting all 6 buttons seamlessly)
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 2.dp)
-                            ) {
-                                val actionPillShape = RoundedCornerShape(32.dp)
-                                val actionCircleShape = RoundedCornerShape(26.dp)
-
-                                // 1. Play Button (Primary)
-                                Button(
-                                    onClick = {
-                                        viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
-                                            val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
-                                            val sNum = if (mediaType == "tv") state.selectedSeason else 0
-                                            val eNum = if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0
-                                            onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
-                                        }
-                                    },
-                                    modifier = Modifier
-                                        .focusRequester(watchFocusRequester)
-                                        .then(actionDownModifier),
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                    colors = ButtonDefaults.colors(
-                                        containerColor = Color.White,
-                                        contentColor = Color(0xFF0B0C10),
-                                        focusedContainerColor = LumiereGold,
-                                        focusedContentColor = BackgroundDark
-                                    ),
-                                    border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape),
-                                        border = Border.None
-                                    ),
-                                    shape = ButtonDefaults.shape(actionPillShape),
-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PlayArrow,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(17.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    val watchButtonText = when {
-                                        state.isStartingStream -> "Запуск..."
-                                        state.savedProgressSec > 60L -> {
-                                            val minutes = state.savedProgressSec / 60
-                                            "Продолжить (${minutes} мин)"
-                                        }
-                                        else -> "Смотреть"
+                            // Action Buttons Row (Isolate to separate composable to prevent full hero recomposition on D-pad navigation)
+                            ActionButtonsRow(
+                                isStartingStream = state.isStartingStream,
+                                savedProgressSec = state.savedProgressSec,
+                                isInWatchlist = state.isInWatchlist,
+                                isFavorite = state.isFavorite,
+                                isSubscribed = state.isSubscribed,
+                                torrentCount = state.torrents.size,
+                                watchFocusRequester = watchFocusRequester,
+                                downFocusRequester = bottomSectionFocusRequester,
+                                onPlayClick = {
+                                    viewModel.playResumeOrOpenDialog { streamUrl, playTitle, subtitle, isHls ->
+                                        val startPos = (state.savedProgressSec * 1000L).coerceAtLeast(0L)
+                                        val sNum = if (mediaType == "tv") state.selectedSeason else 0
+                                        val eNum = if (mediaType == "tv") (state.lastWatchedEpisodeNum ?: 1) else 0
+                                        onPlayRequested(streamUrl, playTitle, subtitle, isHls, startPos, title.poster.orEmpty(), sNum, eNum)
                                     }
-                                    Text(
-                                        text = watchButtonText,
-                                        fontSize = 12.5.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-
-                                // 2. Watchlist ("Буду смотреть")
-                                OutlinedButton(
-                                    onClick = { viewModel.toggleWatchlist() },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .then(actionDownModifier),
-                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                    colors = OutlinedButtonDefaults.colors(
-                                        containerColor = if (state.isInWatchlist) Color(0x33E5A93C) else Color(0x20FFFFFF),
-                                        contentColor = if (state.isInWatchlist) LumiereGold else TextPrimary,
-                                        focusedContainerColor = LumiereGold,
-                                        focusedContentColor = BackgroundDark
-                                    ),
-                                    border = OutlinedButtonDefaults.border(
-                                        border = Border(border = BorderStroke(1.dp, if (state.isInWatchlist) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
-                                    ),
-                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = if (state.isInWatchlist) Icons.Default.Check else Icons.Default.Add,
-                                            contentDescription = "Буду смотреть",
-                                            modifier = Modifier.size(16.dp)
-                                        )
+                                },
+                                onWatchlistClick = { viewModel.toggleWatchlist() },
+                                onFavoriteClick = { viewModel.toggleFavorite() },
+                                onNotificationClick = { viewModel.toggleNotificationSubscription() },
+                                onTrailerClick = {
+                                    viewModel.playTrailer { trailerUrl ->
+                                        onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
                                     }
-                                }
-
-                                // 3. Favorites ("В закладки / Нравится")
-                                OutlinedButton(
-                                    onClick = { viewModel.toggleFavorite() },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .then(actionDownModifier),
-                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                    colors = OutlinedButtonDefaults.colors(
-                                        containerColor = if (state.isFavorite) Color(0x33FF4081) else Color(0x20FFFFFF),
-                                        contentColor = if (state.isFavorite) Color(0xFFFF5252) else TextPrimary,
-                                        focusedContainerColor = Color(0xFFFF5252),
-                                        focusedContentColor = Color.White
-                                    ),
-                                    border = OutlinedButtonDefaults.border(
-                                        border = Border(border = BorderStroke(1.dp, if (state.isFavorite) Color(0x88FF4081) else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
-                                    ),
-                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = if (state.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                                            contentDescription = "В закладки",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-
-                                // 4. Notifications Bell ("Следить")
-                                OutlinedButton(
-                                    onClick = { viewModel.toggleNotificationSubscription() },
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .then(actionDownModifier),
-                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f),
-                                    colors = OutlinedButtonDefaults.colors(
-                                        containerColor = if (state.isSubscribed) Color(0x33E5A93C) else Color(0x20FFFFFF),
-                                        contentColor = if (state.isSubscribed) LumiereGold else TextPrimary,
-                                        focusedContainerColor = LumiereGold,
-                                        focusedContentColor = BackgroundDark
-                                    ),
-                                    border = OutlinedButtonDefaults.border(
-                                        border = Border(border = BorderStroke(1.dp, if (state.isSubscribed) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
-                                    ),
-                                    shape = OutlinedButtonDefaults.shape(actionCircleShape),
-                                    contentPadding = PaddingValues(0.dp)
-                                ) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Icon(
-                                            imageVector = if (state.isSubscribed) Icons.Default.NotificationsActive else Icons.Default.Notifications,
-                                            contentDescription = "Следить за новыми сериями или релизом",
-                                            modifier = Modifier.size(16.dp)
-                                        )
-                                    }
-                                }
-
-                                // 5. Trailer button
-                                OutlinedButton(
-                                    onClick = {
-                                        viewModel.playTrailer { trailerUrl ->
-                                            onPlayRequested(trailerUrl, "${title.name} (Трейлер)", "", trailerUrl.contains(".m3u8"), 0L, "", 0, 0)
-                                        }
-                                    },
-                                    modifier = Modifier.then(actionDownModifier),
-                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                    colors = OutlinedButtonDefaults.colors(
-                                        containerColor = Color(0x20FFFFFF),
-                                        focusedContainerColor = Color(0x40FFFFFF),
-                                        focusedContentColor = TextPrimary
-                                    ),
-                                    border = OutlinedButtonDefaults.border(
-                                        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
-                                        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionPillShape)
-                                    ),
-                                    shape = OutlinedButtonDefaults.shape(actionPillShape),
-                                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Movie,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Трейлер", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
-                                }
-
-                                // 6. All Torrents Modal Button ("Все раздачи")
-                                OutlinedButton(
-                                    onClick = { viewModel.openTorrentDialog() },
-                                    modifier = Modifier.then(actionDownModifier),
-                                    scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
-                                    colors = OutlinedButtonDefaults.colors(
-                                        containerColor = Color(0x20FFFFFF),
-                                        focusedContainerColor = Color(0x40FFFFFF),
-                                        focusedContentColor = TextPrimary
-                                    ),
-                                    border = OutlinedButtonDefaults.border(
-                                        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape)
-                                    ),
-                                    shape = OutlinedButtonDefaults.shape(actionPillShape),
-                                    contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Download,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    val torrentCount = state.torrents.size
-                                    Text(
-                                        text = if (torrentCount > 0) "Все раздачи ($torrentCount)" else "Все раздачи",
-                                        fontSize = 11.5.sp,
-                                        fontWeight = FontWeight.SemiBold
-                                    )
-                                }
-                            }
+                                },
+                                onTorrentsClick = { viewModel.openTorrentDialog() },
+                                onNavigateDown = onNavigateDown
+                            )
 
                             // Synopsis (Full text without truncation)
                             val overview = title.overview ?: title.description
@@ -569,116 +400,26 @@ fun DetailsScreen(
                     val sortBy = state.torrentSortBy
 
                     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        // Section Tabs Row: [ Сезоны и серии ] and [ Торренты (count) ]
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val tabShape = RoundedCornerShape(20.dp)
-
-                            if (isTv) {
-                                val isEpisodesTab = seriesTab == "episodes"
-                                Button(
-                                    onClick = { viewModel.setSeriesTab("episodes") },
-                                    modifier = Modifier
-                                        .focusRequester(episodesTabFocusRequester)
-                                        .focusProperties { up = watchFocusRequester }
-                                        .onKeyEvent { event ->
-                                            if (event.type == KeyEventType.KeyDown &&
-                                                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
-                                            ) {
-                                                try {
-                                                    watchFocusRequester.requestFocus()
-                                                } catch (_: Exception) {
-                                                    coroutineScope.launch {
-                                                        try {
-                                                            listState.animateScrollToItem(1)
-                                                            kotlinx.coroutines.delay(50)
-                                                            watchFocusRequester.requestFocus()
-                                                        } catch (_: Exception) {}
-                                                    }
-                                                }
-                                                true
-                                            } else {
-                                                false
-                                            }
-                                        },
-                                    scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
-                                    colors = ButtonDefaults.colors(
-                                        containerColor = if (isEpisodesTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
-                                        contentColor = if (isEpisodesTab) LumiereGold else TextSecondary,
-                                        focusedContainerColor = LumiereGold,
-                                        focusedContentColor = BackgroundDark
-                                    ),
-                                    border = ButtonDefaults.border(
-                                        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
-                                        border = Border.None
-                                    ),
-                                    shape = ButtonDefaults.shape(tabShape),
-                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
-                                ) {
-                                    Text(
-                                        text = "Сезоны и серии",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = if (isEpisodesTab) FontWeight.Bold else FontWeight.Medium
-                                    )
-                                }
-                            }
-
-                            val isTorrentsTab = !isTv || seriesTab == "torrents"
-                            Button(
-                                onClick = { if (isTv) viewModel.setSeriesTab("torrents") },
-                                modifier = Modifier
-                                    .focusRequester(torrentsTabFocusRequester)
-                                    .focusProperties { up = watchFocusRequester }
-                                    .onKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyDown &&
-                                            event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
-                                        ) {
-                                            try {
-                                                watchFocusRequester.requestFocus()
-                                            } catch (_: Exception) {
-                                                coroutineScope.launch {
-                                                    try {
-                                                        listState.animateScrollToItem(1)
-                                                        kotlinx.coroutines.delay(50)
-                                                        watchFocusRequester.requestFocus()
-                                                    } catch (_: Exception) {}
-                                                }
-                                            }
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    },
-                                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f),
-                                colors = ButtonDefaults.colors(
-                                    containerColor = if (isTorrentsTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
-                                    contentColor = if (isTorrentsTab) LumiereGold else TextSecondary,
-                                    focusedContainerColor = LumiereGold,
-                                    focusedContentColor = BackgroundDark
-                                ),
-                                border = ButtonDefaults.border(
-                                    focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
-                                    border = Border.None
-                                ),
-                                shape = ButtonDefaults.shape(tabShape),
-                                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
-                            ) {
-                                val seasonTorrentCount = remember(state.torrents, state.selectedSeason) {
-                                    if (isTv && state.selectedSeason > 0) {
-                                        state.torrents.count { TorrentMetaParser.matchesTorrentSeason(it.title, state.selectedSeason, title.year) }
-                                    } else {
-                                        state.torrents.size
-                                    }
-                                }
-                                Text(
-                                    text = if (seasonTorrentCount > 0) "Торренты ($seasonTorrentCount)" else if (state.torrents.isNotEmpty()) "Торренты (${state.torrents.size})" else "Торренты",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = if (isTorrentsTab) FontWeight.Bold else FontWeight.Medium
-                                )
+                        val seasonTorrentCount = remember(state.torrents, state.selectedSeason, isTv, title.year) {
+                            if (isTv && state.selectedSeason > 0) {
+                                state.torrents.count { TorrentMetaParser.matchesTorrentSeason(it.title, state.selectedSeason, title.year) }
+                            } else {
+                                state.torrents.size
                             }
                         }
+
+                        // Section Tabs Row: [ Сезоны и серии ] and [ Торренты (count) ]
+                        DetailsSectionTabsRow(
+                            isTv = isTv,
+                            seriesTab = seriesTab,
+                            seasonTorrentCount = seasonTorrentCount,
+                            torrentsTotalCount = state.torrents.size,
+                            episodesTabFocusRequester = episodesTabFocusRequester,
+                            torrentsTabFocusRequester = torrentsTabFocusRequester,
+                            watchFocusRequester = watchFocusRequester,
+                            onTabSelect = { viewModel.setSeriesTab(it) },
+                            onNavigateUp = onNavigateUpFromTabs
+                        )
 
 
                         if (isTv && seriesTab == "episodes") {
@@ -773,6 +514,8 @@ fun DetailsScreen(
                                 ) {
                                     // Quality & Sort Filter Bar
                                     if (state.torrents.isNotEmpty()) {
+                                        val filterBtnShape = remember { RoundedCornerShape(8.dp) }
+
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
@@ -790,7 +533,6 @@ fun DetailsScreen(
                                                 Text("Качество:", fontSize = 11.sp, color = TextMuted)
                                                 qualityOptions.forEach { (id, label) ->
                                                     val isSelected = qualityFilter == id
-                                                    val filterShape = RoundedCornerShape(8.dp)
                                                     Button(
                                                         onClick = { viewModel.setTorrentQualityFilter(id) },
                                                         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
@@ -801,10 +543,10 @@ fun DetailsScreen(
                                                             focusedContentColor = BackgroundDark
                                                         ),
                                                         border = ButtonDefaults.border(
-                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterShape),
+                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterBtnShape),
                                                             border = Border.None
                                                         ),
-                                                        shape = ButtonDefaults.shape(filterShape),
+                                                        shape = ButtonDefaults.shape(filterBtnShape),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
                                                     ) {
                                                         Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
@@ -825,7 +567,6 @@ fun DetailsScreen(
                                                     "size" to "По размеру"
                                                 ).forEach { (id, label) ->
                                                     val isSelected = sortBy == id
-                                                    val sortShape = RoundedCornerShape(8.dp)
                                                     Button(
                                                         onClick = { viewModel.setTorrentSortBy(id) },
                                                         scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
@@ -836,10 +577,10 @@ fun DetailsScreen(
                                                             focusedContentColor = BackgroundDark
                                                         ),
                                                         border = ButtonDefaults.border(
-                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = sortShape),
+                                                            focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = filterBtnShape),
                                                             border = Border.None
                                                         ),
-                                                        shape = ButtonDefaults.shape(sortShape),
+                                                        shape = ButtonDefaults.shape(filterBtnShape),
                                                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 3.dp)
                                                     ) {
                                                         Text(label, fontSize = 11.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal)
@@ -1238,6 +979,370 @@ fun DetailsScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+/**
+ * Isolated Action Buttons Row (Play, Watchlist, Favorite, Notification, Trailer, All Torrents).
+ * Encapsulating this in a separate composable with stable parameters prevents D-Pad focus changes
+ * from recomposing the entire Hero item (Title, Badges, Specs, and 8 Actor cards).
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun ActionButtonsRow(
+    isStartingStream: Boolean,
+    savedProgressSec: Long,
+    isInWatchlist: Boolean,
+    isFavorite: Boolean,
+    isSubscribed: Boolean,
+    torrentCount: Int,
+    watchFocusRequester: FocusRequester,
+    downFocusRequester: FocusRequester,
+    onPlayClick: () -> Unit,
+    onWatchlistClick: () -> Unit,
+    onFavoriteClick: () -> Unit,
+    onNotificationClick: () -> Unit,
+    onTrailerClick: () -> Unit,
+    onTorrentsClick: () -> Unit,
+    onNavigateDown: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val actionPillShape = remember { RoundedCornerShape(32.dp) }
+    val actionCircleShape = remember { RoundedCornerShape(26.dp) }
+
+    val pillScale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.05f)
+    val circleScale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.08f)
+    val pillOutlineScale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f)
+
+    val playColors = ButtonDefaults.colors(
+        containerColor = Color.White,
+        contentColor = Color(0xFF0B0C10),
+        focusedContainerColor = LumiereGold,
+        focusedContentColor = BackgroundDark
+    )
+    val playBorder = ButtonDefaults.border(
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape),
+        border = Border.None
+    )
+    val playShape = ButtonDefaults.shape(actionPillShape)
+
+    val watchlistColors = OutlinedButtonDefaults.colors(
+        containerColor = if (isInWatchlist) Color(0x33E5A93C) else Color(0x20FFFFFF),
+        contentColor = if (isInWatchlist) LumiereGold else TextPrimary,
+        focusedContainerColor = LumiereGold,
+        focusedContentColor = BackgroundDark
+    )
+    val watchlistBorder = OutlinedButtonDefaults.border(
+        border = Border(border = BorderStroke(1.dp, if (isInWatchlist) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+    )
+    val circleButtonShape = OutlinedButtonDefaults.shape(actionCircleShape)
+
+    val favoriteColors = OutlinedButtonDefaults.colors(
+        containerColor = if (isFavorite) Color(0x33FF4081) else Color(0x20FFFFFF),
+        contentColor = if (isFavorite) Color(0xFFFF5252) else TextPrimary,
+        focusedContainerColor = Color(0xFFFF5252),
+        focusedContentColor = Color.White
+    )
+    val favoriteBorder = OutlinedButtonDefaults.border(
+        border = Border(border = BorderStroke(1.dp, if (isFavorite) Color(0x88FF4081) else Color(0x40FFFFFF)), shape = actionCircleShape),
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+    )
+
+    val notificationColors = OutlinedButtonDefaults.colors(
+        containerColor = if (isSubscribed) Color(0x33E5A93C) else Color(0x20FFFFFF),
+        contentColor = if (isSubscribed) LumiereGold else TextPrimary,
+        focusedContainerColor = LumiereGold,
+        focusedContentColor = BackgroundDark
+    )
+    val notificationBorder = OutlinedButtonDefaults.border(
+        border = Border(border = BorderStroke(1.dp, if (isSubscribed) LumiereGold else Color(0x40FFFFFF)), shape = actionCircleShape),
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionCircleShape)
+    )
+
+    val secondaryPillColors = OutlinedButtonDefaults.colors(
+        containerColor = Color(0x20FFFFFF),
+        focusedContainerColor = Color(0x40FFFFFF),
+        focusedContentColor = TextPrimary
+    )
+    val trailerBorder = OutlinedButtonDefaults.border(
+        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
+        focusedBorder = Border(border = BorderStroke(2.dp, LumiereGold), shape = actionPillShape)
+    )
+    val torrentsBorder = OutlinedButtonDefaults.border(
+        border = Border(border = BorderStroke(1.dp, Color(0x40FFFFFF)), shape = actionPillShape),
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = actionPillShape)
+    )
+    val secondaryPillShape = OutlinedButtonDefaults.shape(actionPillShape)
+
+    val watchButtonText = remember(isStartingStream, savedProgressSec) {
+        when {
+            isStartingStream -> "Запуск..."
+            savedProgressSec > 60L -> {
+                val minutes = savedProgressSec / 60
+                "Продолжить (${minutes} мин)"
+            }
+            else -> "Смотреть"
+        }
+    }
+
+    val torrentButtonText = remember(torrentCount) {
+        if (torrentCount > 0) "Все раздачи ($torrentCount)" else "Все раздачи"
+    }
+
+    val downModifier = remember(downFocusRequester) {
+        Modifier.focusProperties { down = downFocusRequester }
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 2.dp)
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_DOWN
+                ) {
+                    onNavigateDown()
+                    true
+                } else {
+                    false
+                }
+            }
+    ) {
+        // 1. Play Button (Primary)
+        Button(
+            onClick = onPlayClick,
+            modifier = Modifier
+                .focusRequester(watchFocusRequester)
+                .then(downModifier),
+            scale = pillScale,
+            colors = playColors,
+            border = playBorder,
+            shape = playShape,
+            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 7.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.PlayArrow,
+                contentDescription = null,
+                modifier = Modifier.size(17.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = watchButtonText,
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        // 2. Watchlist ("Буду смотреть")
+        OutlinedButton(
+            onClick = onWatchlistClick,
+            modifier = Modifier
+                .size(36.dp)
+                .then(downModifier),
+            scale = circleScale,
+            colors = watchlistColors,
+            border = watchlistBorder,
+            shape = circleButtonShape,
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isInWatchlist) Icons.Default.Check else Icons.Default.Add,
+                    contentDescription = "Буду смотреть",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        // 3. Favorites ("В закладки / Нравится")
+        OutlinedButton(
+            onClick = onFavoriteClick,
+            modifier = Modifier
+                .size(36.dp)
+                .then(downModifier),
+            scale = circleScale,
+            colors = favoriteColors,
+            border = favoriteBorder,
+            shape = circleButtonShape,
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "В закладки",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        // 4. Notifications Bell ("Следить")
+        OutlinedButton(
+            onClick = onNotificationClick,
+            modifier = Modifier
+                .size(36.dp)
+                .then(downModifier),
+            scale = circleScale,
+            colors = notificationColors,
+            border = notificationBorder,
+            shape = circleButtonShape,
+            contentPadding = PaddingValues(0.dp)
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = if (isSubscribed) Icons.Default.NotificationsActive else Icons.Default.Notifications,
+                    contentDescription = "Следить за новыми сериями или релизом",
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        // 5. Trailer button
+        OutlinedButton(
+            onClick = onTrailerClick,
+            modifier = Modifier.then(downModifier),
+            scale = pillOutlineScale,
+            colors = secondaryPillColors,
+            border = trailerBorder,
+            shape = secondaryPillShape,
+            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Movie,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text("Трейлер", fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+        }
+
+        // 6. All Torrents Modal Button ("Все раздачи")
+        OutlinedButton(
+            onClick = onTorrentsClick,
+            modifier = Modifier.then(downModifier),
+            scale = pillOutlineScale,
+            colors = secondaryPillColors,
+            border = torrentsBorder,
+            shape = secondaryPillShape,
+            contentPadding = PaddingValues(horizontal = 11.dp, vertical = 7.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Download,
+                contentDescription = null,
+                modifier = Modifier.size(15.dp)
+            )
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = torrentButtonText,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+    }
+}
+
+/**
+ * Isolated Section Tabs Row ("Сезоны и серии" and "Торренты").
+ * Caches shapes, scales, colors, and borders to ensure zero allocations and smooth focus navigation.
+ */
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun DetailsSectionTabsRow(
+    isTv: Boolean,
+    seriesTab: String,
+    seasonTorrentCount: Int,
+    torrentsTotalCount: Int,
+    episodesTabFocusRequester: FocusRequester,
+    torrentsTabFocusRequester: FocusRequester,
+    watchFocusRequester: FocusRequester,
+    onTabSelect: (String) -> Unit,
+    onNavigateUp: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val tabShape = remember { RoundedCornerShape(20.dp) }
+    val tabScale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.04f)
+    val tabBorder = ButtonDefaults.border(
+        focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = tabShape),
+        border = Border.None
+    )
+    val tabButtonShape = ButtonDefaults.shape(tabShape)
+
+    val upModifier = remember(watchFocusRequester) {
+        Modifier.focusProperties { up = watchFocusRequester }
+    }
+
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = modifier.onKeyEvent { event ->
+            if (event.type == KeyEventType.KeyDown &&
+                event.nativeKeyEvent.keyCode == android.view.KeyEvent.KEYCODE_DPAD_UP
+            ) {
+                onNavigateUp()
+                true
+            } else {
+                false
+            }
+        }
+    ) {
+        if (isTv) {
+            val isEpisodesTab = seriesTab == "episodes"
+            val episodesColors = ButtonDefaults.colors(
+                containerColor = if (isEpisodesTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+                contentColor = if (isEpisodesTab) LumiereGold else TextSecondary,
+                focusedContainerColor = LumiereGold,
+                focusedContentColor = BackgroundDark
+            )
+            Button(
+                onClick = { onTabSelect("episodes") },
+                modifier = Modifier
+                    .focusRequester(episodesTabFocusRequester)
+                    .then(upModifier),
+                scale = tabScale,
+                colors = episodesColors,
+                border = tabBorder,
+                shape = tabButtonShape,
+                contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
+            ) {
+                Text(
+                    text = "Сезоны и серии",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = if (isEpisodesTab) FontWeight.Bold else FontWeight.Medium
+                )
+            }
+        }
+
+        val isTorrentsTab = !isTv || seriesTab == "torrents"
+        val torrentsColors = ButtonDefaults.colors(
+            containerColor = if (isTorrentsTab) Color(0x22FFFFFF) else Color(0x10FFFFFF),
+            contentColor = if (isTorrentsTab) LumiereGold else TextSecondary,
+            focusedContainerColor = LumiereGold,
+            focusedContentColor = BackgroundDark
+        )
+        val torrentsText = remember(isTv, seasonTorrentCount, torrentsTotalCount) {
+            if (seasonTorrentCount > 0) "Торренты ($seasonTorrentCount)"
+            else if (torrentsTotalCount > 0) "Торренты ($torrentsTotalCount)"
+            else "Торренты"
+        }
+        Button(
+            onClick = { if (isTv) onTabSelect("torrents") },
+            modifier = Modifier
+                .focusRequester(torrentsTabFocusRequester)
+                .then(upModifier),
+            scale = tabScale,
+            colors = torrentsColors,
+            border = tabBorder,
+            shape = tabButtonShape,
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 8.dp)
+        ) {
+            Text(
+                text = torrentsText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = if (isTorrentsTab) FontWeight.Bold else FontWeight.Medium
+            )
         }
     }
 }

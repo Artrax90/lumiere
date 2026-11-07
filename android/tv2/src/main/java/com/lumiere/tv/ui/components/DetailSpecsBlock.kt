@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,15 +53,16 @@ fun DetailSpecsBlock(
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.width(10.dp))
+            val dividerBrush = remember {
+                Brush.horizontalGradient(
+                    listOf(LumiereGold.copy(alpha = 0.4f), Color.Transparent)
+                )
+            }
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .height(1.dp)
-                    .background(
-                        Brush.horizontalGradient(
-                            listOf(LumiereGold.copy(alpha = 0.4f), Color.Transparent)
-                        )
-                    )
+                    .background(dividerBrush)
             )
         }
 

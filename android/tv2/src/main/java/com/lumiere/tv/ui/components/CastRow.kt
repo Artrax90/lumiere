@@ -41,6 +41,9 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 
+private val ActorCardShape = RoundedCornerShape(10.dp)
+private val ActorPhotoShape = RoundedCornerShape(8.dp)
+
 /**
  * 4x2 Grid of 8 Cast cards on the right side of the upper hero (1-to-1 matching WGT)
  */
@@ -76,7 +79,7 @@ fun CastSectionWgt(
             )
 
             if (cast.size > 8) {
-                val btnShape = RoundedCornerShape(10.dp)
+                val btnShape = remember { RoundedCornerShape(10.dp) }
                 OutlinedButton(
                     onClick = onOpenAllCast,
                     scale = OutlinedButtonDefaults.scale(scale = 1f, focusedScale = 1.05f),
@@ -204,11 +207,11 @@ fun WgtActorCard(
         border = CardDefaults.border(
             focusedBorder = Border(
                 border = BorderStroke(2.dp, LumiereGold),
-                shape = RoundedCornerShape(10.dp)
+                shape = ActorCardShape
             ),
             border = Border(
                 border = BorderStroke(0.5.dp, Color(0x18FFFFFF)),
-                shape = RoundedCornerShape(10.dp)
+                shape = ActorCardShape
             )
         ),
         scale = CardDefaults.scale(scale = 1f, focusedScale = 1.08f, pressedScale = 1.02f),
@@ -218,7 +221,7 @@ fun WgtActorCard(
                 elevation = 12.dp
             )
         ),
-        shape = CardDefaults.shape(RoundedCornerShape(10.dp))
+        shape = CardDefaults.shape(ActorCardShape)
     ) {
         Column(
             modifier = Modifier
@@ -232,7 +235,7 @@ fun WgtActorCard(
                 modifier = Modifier
                     .fillMaxWidth()
                     .aspectRatio(1f)
-                    .clip(RoundedCornerShape(8.dp))
+                    .clip(ActorPhotoShape)
                     .background(Color(0x22000000)),
                 contentAlignment = Alignment.Center
             ) {
