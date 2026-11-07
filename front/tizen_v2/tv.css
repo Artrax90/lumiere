@@ -840,8 +840,10 @@ body.player-active .section {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 900;
   background: var(--bg); overflow-y: auto; overflow-x: hidden;
   width: 100%; height: 100%;
+  contain: strict;
+  will-change: scroll-position;
 }
-#detail-content { width: 100%; min-height: 100%; }
+#detail-content { width: 100%; min-height: 100%; transform: translateZ(0); }
 
 .detail-hero {
   position: relative; width: 100%; height: 1200px;
@@ -878,8 +880,8 @@ body.player-active .section {
   font-weight: 600;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
+  box-shadow: none !important;
 }
 .detail-back-btn:hover,
 .detail-back-btn.focused {
@@ -912,7 +914,7 @@ body.player-active .section {
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 24px 28px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: none;
 }
 .detail-specs-header {
   font-family: Georgia, serif;
@@ -1060,8 +1062,8 @@ body.player-active .section {
   cursor: pointer;
   padding: 6px 14px;
   border-radius: 12px;
-  transition: all 0.2s;
-  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.8);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
+  text-shadow: none;
 }
 .detail-all-cast-btn.focused,
 .detail-all-cast-btn:hover {
@@ -1087,7 +1089,7 @@ body.player-active .section {
   padding: 10px;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
   text-align: left;
   box-shadow: none !important;
 }
@@ -1348,8 +1350,8 @@ body.player-active .section {
   font-weight: 600;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
+  box-shadow: none !important;
 }
 .detail-btn:hover {
   background: rgba(255, 255, 255, 0.22);
@@ -1418,7 +1420,7 @@ body.player-active .section {
   padding: 14px 32px; border: 1px solid var(--border);
   border-radius: 28px; background: rgba(255,255,255,0.03);
   color: var(--text-dim); font-size: 16px; font-weight: 500;
-  cursor: pointer; transition: all 0.15s;
+  cursor: pointer; transition: transform 0.1s ease-out, background 0.1s ease-out;
 }
 .detail-tab.active {
   background: rgba(232,193,112,0.12);
@@ -1472,7 +1474,7 @@ body.player-active .section {
   font-weight: 500;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
   flex-shrink: 0;
 }
 .season-btn.active {
@@ -1550,7 +1552,7 @@ body.player-active .section {
   border: 1px solid rgba(255, 255, 255, 0.12);
   outline: none;
   cursor: pointer;
-  transition: all 0.15s ease-out;
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
 }
 .sort-chip.active {
   background: rgba(232, 193, 112, 0.15);
@@ -1577,7 +1579,7 @@ body.player-active .section {
   background: rgba(255, 255, 255, 0.035);
   border: 1.5px solid rgba(255, 255, 255, 0.08);
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
   box-sizing: border-box;
 }
 .torrent-item.focused {
@@ -4462,14 +4464,14 @@ body.player-active .section {
   font-size: 18px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
   outline: none;
 }
 .torrent-show-more-btn:focus,
 .torrent-show-more-btn.focused {
   background: rgba(232, 193, 112, 0.22) !important;
   border: 2px solid #e8c170 !important;
-  box-shadow: 0 0 24px rgba(232, 193, 112, 0.5) !important;
+  box-shadow: none !important;
   color: #ffffff !important;
   transform: scale(1.02);
 }
@@ -4539,13 +4541,13 @@ body.player-active .section {
   font-size: 16px;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: transform 0.1s ease-out;
 }
 .trailer-close-btn:focus,
 .trailer-close-btn.focused {
   background: #e8c170 !important;
   color: #0b0c10 !important;
-  box-shadow: 0 0 20px rgba(232, 193, 112, 0.8) !important;
+  box-shadow: none !important;
 }
 
 .torrent-show-more-btn {
@@ -4560,7 +4562,7 @@ body.player-active .section {
   font-weight: 600;
   cursor: pointer;
   outline: none;
-  transition: all 0.2s ease;
+  transition: transform 0.1s ease-out, background 0.1s ease-out;
   text-align: center;
 }
 .torrent-show-more-btn:focus,
@@ -4568,7 +4570,7 @@ body.player-active .section {
   background: rgba(232, 193, 112, 0.18) !important;
   border-color: #e8c170 !important;
   color: #ffffff !important;
-  box-shadow: 0 0 16px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: none !important;
   transform: translateY(-2px);
 }
 

@@ -4535,6 +4535,7 @@
 
     if (!$detail) $detail = document.getElementById('detail');
     if (!$detail) return;
+    $detail.scrollTop = 0;
     $detail.classList.remove('hidden');
     $detail.classList.remove('screen');
     $detail.style.display = 'block';
@@ -4553,9 +4554,6 @@
       state.lastDetailTitleId = title.id;
     }
 
-    // Loading state
-    renderDetailLoading(title);
-
     // Fetch full details
     var isKp = (title.source === 'kp' || title.isKp || !!title.kpId);
     var type = (!isMovieType && (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name)))) ? 'tv' : 'movies';
@@ -4568,7 +4566,7 @@
       return;
     }
 
-    // Loading state
+    // Loading state (only when not cached)
     renderDetailLoading(title);
 
     var detailUrl = isKp ? ('/api/kp/' + (title.kpId || title.id)) : ('/api/' + type + '/' + title.id);
@@ -4645,35 +4643,7 @@
   }
 
   function detectBackdropLuminance(url, cb) {
-    if (!url) return cb(false);
-    var img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = function() {
-      try {
-        var canvas = document.createElement('canvas');
-        canvas.width = 40;
-        canvas.height = 40;
-        var ctx = canvas.getContext('2d');
-        if (!ctx) return cb(false);
-        var sx = img.naturalWidth * 0.5;
-        var sy = 0;
-        var sw = img.naturalWidth * 0.5;
-        var sh = img.naturalHeight * 0.6;
-        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 40, 40);
-        var idata = ctx.getImageData(0, 0, 40, 40).data;
-        var sum = 0, count = 0;
-        for (var i = 0; i < idata.length; i += 4) {
-          sum += (0.299 * idata[i] + 0.587 * idata[i + 1] + 0.114 * idata[i + 2]);
-          count++;
-        }
-        var avg = count > 0 ? (sum / count) / 255 : 0;
-        cb(avg > 0.45);
-      } catch(e) {
-        cb(false);
-      }
-    };
-    img.onerror = function() { cb(false); };
-    img.src = url;
+    if (typeof cb === 'function') cb(false);
   }
 
   function renderDetail(d) {
@@ -4914,20 +4884,6 @@
     }
 
     state._expandedTorrents = false;
-
-    // Detect backdrop luminance and apply theme to the about card
-    detectBackdropLuminance(backdrop, function(isLight) {
-      var card = document.getElementById('detail-about-card');
-      if (card) {
-        if (isLight) {
-          card.classList.add('theme-light');
-          card.classList.remove('theme-dark');
-        } else {
-          card.classList.add('theme-dark');
-          card.classList.remove('theme-light');
-        }
-      }
-    });
 
     // Bind events
     bindDetailBack();
@@ -11674,16 +11630,49 @@
         container = document.getElementById('content') || document.body;
       }
     }
-    if (!container || !container.getBoundingClientRect) return;
+    if (!container) return;
 
+    // Ultra-fast path for detail view without triggering synchronous layout reflows
+    if (container === $detail) {
+      // Upper hero elements (back button, action buttons, cast): keep or reset scrollTop to 0
+      if (el.id === 'detail-back-btn' || el.classList.contains('detail-btn') || el.classList.contains('detail-actor-card') || el.id === 'detail-all-cast-btn') {
+        if (container.scrollTop !== 0) {
+          container.scrollTop = 0;
+        }
+        return;
+      }
+
+      var top = 0;
+      var cur = el;
+      while (cur && cur !== container && cur !== document.body && cur !== document.documentElement) {
+        top += cur.offsetTop;
+        cur = cur.offsetParent;
+      }
+      var elH = el.offsetHeight || 60;
+      var currentScroll = container.scrollTop;
+      var containerH = container.clientHeight || window.innerHeight || 1080;
+      var pad = 90;
+
+      var topLimit = currentScroll + pad;
+      var bottomLimit = currentScroll + containerH - (elH + pad);
+
+      if (top < topLimit) {
+        container.scrollTop = Math.max(0, top - pad);
+      } else if (top > bottomLimit) {
+        container.scrollTop = Math.max(0, (top + elH + pad) - containerH);
+      }
+      return;
+    }
+
+    if (!container.getBoundingClientRect || !el.getBoundingClientRect) return;
     var cRect = container.getBoundingClientRect();
     var eRect = el.getBoundingClientRect();
-    var pad = 90;
+    var padDefault = 90;
 
-    if (eRect.top < cRect.top + pad) {
-      container.scrollTop += (eRect.top - (cRect.top + pad));
-    } else if (eRect.bottom > cRect.bottom - pad) {
-      container.scrollTop += (eRect.bottom - (cRect.bottom - pad));
+    if (eRect.top < cRect.top + padDefault) {
+      container.scrollTop += (eRect.top - (cRect.top + padDefault));
+    } else if (eRect.bottom > cRect.bottom - padDefault) {
+      container.scrollTop += (eRect.bottom - (cRect.bottom - padDefault));
     }
   }
 
@@ -11691,10 +11680,6 @@
     if (!el) return;
     if (state._focusedDetailEl && state._focusedDetailEl !== el) {
       state._focusedDetailEl.classList.remove('focused');
-    }
-    if ($detail) {
-      var cur = $detail.querySelector('.focused');
-      if (cur && cur !== el) cur.classList.remove('focused');
     }
     state._focusedDetailEl = el;
     el.classList.add('focused');
@@ -11710,51 +11695,34 @@
     if (!$detail) $detail = document.getElementById('detail');
     if (!$detail) return;
 
-    var playBtn = document.getElementById('detail-play');
-    var trackBtn = document.getElementById('detail-track-btn');
-    var favBtn = document.getElementById('detail-fav-btn');
-    var activePane = state.detailTab === 'sources' ? '#sources-results' : (state.detailTab === 'episodes' ? '#episodes-results' : '#torrent-results');
-    var itemClass = state.detailTab === 'sources' ? '.source-item' : (state.detailTab === 'episodes' ? '.episode-card' : '.torrent-item');
-    var items = $detail ? $detail.querySelectorAll(activePane + ' ' + itemClass) : [];
-    var seasonBtns = $detail ? $detail.querySelectorAll('.season-btn') : [];
-    var tabs = $detail ? $detail.querySelectorAll('.detail-tab') : [];
-    var sortChips = $detail ? Array.prototype.slice.call($detail.querySelectorAll(activePane + ' .sort-chip')) : [];
-
-    var activeEl = document.activeElement;
-    var focused = (activeEl && $detail.contains(activeEl) && activeEl !== $detail) ? activeEl : $detail.querySelector('.focused');
-
-    // Auto-focus play button if nothing in detail has focus
-    if (!focused) {
-      if (playBtn) {
-        setDetailFocus(playBtn);
-        focused = playBtn;
+    var focused = state._focusedDetailEl;
+    if (!focused || !$detail.contains(focused)) {
+      var act = document.activeElement;
+      if (act && $detail.contains(act) && act !== $detail) {
+        focused = act;
+      } else {
+        focused = $detail.querySelector('.focused');
       }
     }
 
-    var actionBtns = Array.prototype.slice.call(document.querySelectorAll('.detail-actions button'));
-    var actionIdx = actionBtns.indexOf(focused);
-    var isActionBtn = (actionIdx !== -1);
-    var isTab = focused && focused.classList.contains('detail-tab');
-    var isSeason = focused && focused.classList.contains('season-btn');
-    var sortChipIdx = sortChips.indexOf(focused);
-    var isSortChip = (sortChipIdx !== -1);
-    var isItem = focused && (focused.classList.contains('torrent-item') || focused.classList.contains('source-item') || focused.classList.contains('episode-card'));
-    var castItems = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card, .detail-cast-item'));
-    var allCastBtn = document.getElementById('detail-all-cast-btn');
-    var isAllCast = (focused === allCastBtn);
-    var castIdx = castItems.indexOf(focused);
-    var isCast = (castIdx !== -1);
-    var detailBackBtn = document.getElementById('detail-back-btn');
-    var isDetailBack = (focused === detailBackBtn);
+    // Auto-focus play button if nothing in detail has focus
+    if (!focused) {
+      focused = document.getElementById('detail-play') || document.getElementById('detail-back-btn');
+      if (focused) setDetailFocus(focused);
+    }
+    if (!focused) return;
 
-    var showMoreBtn = $detail ? $detail.querySelector('#torrent-show-more-btn') : null;
-    var isShowMore = (focused === showMoreBtn);
-    var colCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-collection-items .card')) : [];
-    var colIdx = colCards.indexOf(focused);
-    var isCol = (colIdx !== -1);
-    var recCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-rec-items .card')) : [];
-    var recIdx = recCards.indexOf(focused);
-    var isRec = (recIdx !== -1);
+    var isDetailBack = (focused.id === 'detail-back-btn');
+    var isActionBtn = (!isDetailBack && focused.classList.contains('detail-btn'));
+    var isTab = focused.classList.contains('detail-tab');
+    var isSeason = focused.classList.contains('season-btn');
+    var isSortChip = focused.classList.contains('sort-chip');
+    var isItem = (focused.classList.contains('torrent-item') || focused.classList.contains('source-item') || focused.classList.contains('episode-card'));
+    var isAllCast = (focused.id === 'detail-all-cast-btn');
+    var isCast = focused.classList.contains('detail-actor-card');
+    var isShowMore = (focused.id === 'torrent-show-more-btn');
+    var isCol = (focused.parentElement && focused.parentElement.id === 'detail-collection-items');
+    var isRec = (focused.parentElement && focused.parentElement.id === 'detail-rec-items');
 
     switch (code) {
       case 10009: // Back
@@ -11771,277 +11739,372 @@
           if (e && e.preventDefault) e.preventDefault();
           return;
         }
-        if ($detail) $detail.classList.add('hidden');
-        setTimeout(function() { var c = document.querySelector('.card.focused'); if (c) c.focus(); }, 100);
+        hideDetail();
         if (e && e.preventDefault) e.preventDefault();
         break;
 
       case 37: // Left
         if (isAllCast) {
-          if (detailBackBtn) {
-            setDetailFocus(detailBackBtn);
-          } else {
-            var targetL = actionBtns[actionBtns.length - 1] || actionBtns[0] || playBtn;
-            if (targetL) setDetailFocus(targetL);
-          }
+          var bBtn = document.getElementById('detail-back-btn');
+          if (bBtn) setDetailFocus(bBtn);
         } else if (isCast) {
-          if (castIdx % 4 === 0) {
-            var targetLeft = actionBtns[actionBtns.length - 1] || actionBtns[0] || playBtn || (tabs.length > 0 ? tabs[0] : null);
-            if (targetLeft) setDetailFocus(targetLeft);
-          } else if (castIdx > 0) {
-            setDetailFocus(castItems[castIdx - 1]);
+          var castCards = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card'));
+          var cIdx = castCards.indexOf(focused);
+          if (cIdx % 4 === 0) {
+            var actionBtns = $detail.querySelectorAll('.detail-actions .detail-btn');
+            var targetL = actionBtns[actionBtns.length - 1] || document.getElementById('detail-play');
+            if (targetL) setDetailFocus(targetL);
+          } else if (cIdx > 0) {
+            setDetailFocus(castCards[cIdx - 1]);
           }
         } else if (isActionBtn) {
-          if (actionIdx > 0) setDetailFocus(actionBtns[actionIdx - 1]);
+          var prevBtn = focused.previousElementSibling;
+          while (prevBtn && !prevBtn.classList.contains('detail-btn')) {
+            prevBtn = prevBtn.previousElementSibling;
+          }
+          if (prevBtn) setDetailFocus(prevBtn);
         } else if (isTab) {
           var prevTab = focused.previousElementSibling;
-          if (prevTab && prevTab.classList.contains('detail-tab')) {
+          while (prevTab && !prevTab.classList.contains('detail-tab')) {
+            prevTab = prevTab.previousElementSibling;
+          }
+          if (prevTab) {
             prevTab.click();
             setDetailFocus(prevTab);
           }
         } else if (isSeason) {
           var prevSeason = focused.previousElementSibling;
-          if (prevSeason && prevSeason.classList.contains('season-btn')) {
+          while (prevSeason && !prevSeason.classList.contains('season-btn')) {
+            prevSeason = prevSeason.previousElementSibling;
+          }
+          if (prevSeason) {
             setDetailFocus(prevSeason);
             scrollItemIntoWindow(prevSeason, 50);
           }
         } else if (isRec) {
-          if (recIdx > 0) {
-            setDetailFocus(recCards[recIdx - 1]);
-            scrollItemIntoWindow(recCards[recIdx - 1], 60);
+          var prevRec = focused.previousElementSibling;
+          while (prevRec && !prevRec.classList.contains('card')) {
+            prevRec = prevRec.previousElementSibling;
+          }
+          if (prevRec) {
+            setDetailFocus(prevRec);
+            scrollItemIntoWindow(prevRec, 60);
           }
         } else if (isCol) {
-          if (colIdx > 0) {
-            setDetailFocus(colCards[colIdx - 1]);
-            scrollItemIntoWindow(colCards[colIdx - 1], 60);
+          var prevCol = focused.previousElementSibling;
+          while (prevCol && !prevCol.classList.contains('card')) {
+            prevCol = prevCol.previousElementSibling;
+          }
+          if (prevCol) {
+            setDetailFocus(prevCol);
+            scrollItemIntoWindow(prevCol, 60);
           }
         } else if (isSortChip) {
-          if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
+          var prevChip = focused.previousElementSibling;
+          while (prevChip && !prevChip.classList.contains('sort-chip')) {
+            prevChip = prevChip.previousElementSibling;
+          }
+          if (prevChip) setDetailFocus(prevChip);
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
 
       case 39: // Right
         if (isDetailBack) {
-          if (allCastBtn) setDetailFocus(allCastBtn);
-          else if (castItems.length > 0) setDetailFocus(castItems[0]);
+          var acBtn = document.getElementById('detail-all-cast-btn');
+          if (acBtn) setDetailFocus(acBtn);
+          else {
+            var firstCard = $detail.querySelector('.detail-actor-card');
+            if (firstCard) setDetailFocus(firstCard);
+          }
         } else if (isActionBtn) {
-          if (actionIdx < actionBtns.length - 1) {
-            setDetailFocus(actionBtns[actionIdx + 1]);
-          } else if (castItems.length > 0) {
-            setDetailFocus(castItems[0]);
+          var nextBtn = focused.nextElementSibling;
+          while (nextBtn && !nextBtn.classList.contains('detail-btn')) {
+            nextBtn = nextBtn.nextElementSibling;
+          }
+          if (nextBtn) {
+            setDetailFocus(nextBtn);
+          } else {
+            var firstActor = $detail.querySelector('.detail-actor-card');
+            if (firstActor) setDetailFocus(firstActor);
           }
         } else if (isCast) {
-          if ((castIdx % 4 < 3) && (castIdx + 1 < castItems.length)) {
-            setDetailFocus(castItems[castIdx + 1]);
+          var castCardsR = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card'));
+          var cIdxR = castCardsR.indexOf(focused);
+          if ((cIdxR % 4 < 3) && (cIdxR + 1 < castCardsR.length)) {
+            setDetailFocus(castCardsR[cIdxR + 1]);
           }
         } else if (isTab) {
           var nextTab = focused.nextElementSibling;
-          if (nextTab && nextTab.classList.contains('detail-tab')) {
+          while (nextTab && !nextTab.classList.contains('detail-tab')) {
+            nextTab = nextTab.nextElementSibling;
+          }
+          if (nextTab) {
             nextTab.click();
             setDetailFocus(nextTab);
           }
         } else if (isSeason) {
           var nextSeason = focused.nextElementSibling;
-          if (nextSeason && nextSeason.classList.contains('season-btn')) {
+          while (nextSeason && !nextSeason.classList.contains('season-btn')) {
+            nextSeason = nextSeason.nextElementSibling;
+          }
+          if (nextSeason) {
             setDetailFocus(nextSeason);
             scrollItemIntoWindow(nextSeason, 50);
           }
         } else if (isRec) {
-          if (recIdx < recCards.length - 1) {
-            setDetailFocus(recCards[recIdx + 1]);
-            scrollItemIntoWindow(recCards[recIdx + 1], 60);
+          var nextRec = focused.nextElementSibling;
+          while (nextRec && !nextRec.classList.contains('card')) {
+            nextRec = nextRec.nextElementSibling;
+          }
+          if (nextRec) {
+            setDetailFocus(nextRec);
+            scrollItemIntoWindow(nextRec, 60);
           }
         } else if (isCol) {
-          if (colIdx < colCards.length - 1) {
-            setDetailFocus(colCards[colIdx + 1]);
-            scrollItemIntoWindow(colCards[colIdx + 1], 60);
+          var nextCol = focused.nextElementSibling;
+          while (nextCol && !nextCol.classList.contains('card')) {
+            nextCol = nextCol.nextElementSibling;
+          }
+          if (nextCol) {
+            setDetailFocus(nextCol);
+            scrollItemIntoWindow(nextCol, 60);
           }
         } else if (isSortChip) {
-          if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
+          var nextChip = focused.nextElementSibling;
+          while (nextChip && !nextChip.classList.contains('sort-chip')) {
+            nextChip = nextChip.nextElementSibling;
+          }
+          if (nextChip) setDetailFocus(nextChip);
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
 
       case 38: // Up
         if (isActionBtn) {
-          if (detailBackBtn) setDetailFocus(detailBackBtn);
-        } else if (isCast) {
-          if (castIdx >= 4) {
-            setDetailFocus(castItems[castIdx - 4]);
-          } else if (allCastBtn) {
-            setDetailFocus(allCastBtn);
-          } else {
-            var backBtn = document.getElementById('detail-back-btn');
-            if (backBtn) setDetailFocus(backBtn);
-          }
-        } else if (isAllCast) {
           var bBtn = document.getElementById('detail-back-btn');
           if (bBtn) setDetailFocus(bBtn);
+        } else if (isCast) {
+          var castCardsU = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card'));
+          var cIdxU = castCardsU.indexOf(focused);
+          if (cIdxU >= 4) {
+            setDetailFocus(castCardsU[cIdxU - 4]);
+          } else {
+            var acBtnU = document.getElementById('detail-all-cast-btn');
+            if (acBtnU) setDetailFocus(acBtnU);
+            else {
+              var bBtnU = document.getElementById('detail-back-btn');
+              if (bBtnU) setDetailFocus(bBtnU);
+            }
+          }
+        } else if (isAllCast) {
+          var bBtnA = document.getElementById('detail-back-btn');
+          if (bBtnA) setDetailFocus(bBtnA);
         } else if (isRec) {
-          if (colCards.length > 0) {
-            var targetColIdx = Math.min(recIdx, colCards.length - 1);
-            setDetailFocus(colCards[targetColIdx]);
-            scrollItemIntoWindow(colCards[targetColIdx], 60);
-          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
-            setDetailFocus(showMoreBtn);
-          } else if (items.length > 0) {
-            setDetailFocus(items[items.length - 1]);
-          } else if (sortChips.length > 0) {
-            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
-            setDetailFocus(actChip);
-          } else if (seasonBtns.length > 0) {
-            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
-            setDetailFocus(activeSeason);
-          } else if (tabs.length > 0) {
-            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
-            setDetailFocus(curTab);
+          var colRow = $detail.querySelector('#detail-collection-items');
+          var colCardsU = colRow ? Array.prototype.slice.call(colRow.querySelectorAll('.card')) : [];
+          if (colCardsU.length > 0) {
+            var recCardsU = Array.prototype.slice.call(focused.parentElement.querySelectorAll('.card'));
+            var rIdx = recCardsU.indexOf(focused);
+            var targetColIdx = Math.min(Math.max(0, rIdx), colCardsU.length - 1);
+            setDetailFocus(colCardsU[targetColIdx]);
+            scrollItemIntoWindow(colCardsU[targetColIdx], 60);
+          } else {
+            var smBtnU = $detail.querySelector('#torrent-show-more-btn');
+            if (smBtnU && smBtnU.offsetParent !== null) {
+              setDetailFocus(smBtnU);
+            } else {
+              var lastItemU = $detail.querySelector('.detail-tab-pane.active .torrent-item:last-of-type, .detail-tab-pane.active .episode-card:last-of-type, .detail-tab-pane.active .source-item:last-of-type');
+              if (lastItemU) {
+                setDetailFocus(lastItemU);
+              } else {
+                var curTabU = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+                if (curTabU) setDetailFocus(curTabU);
+              }
+            }
           }
         } else if (isCol) {
-          if (showMoreBtn && showMoreBtn.offsetParent !== null) {
-            setDetailFocus(showMoreBtn);
-          } else if (items.length > 0) {
-            setDetailFocus(items[items.length - 1]);
-          } else if (sortChips.length > 0) {
-            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
-            setDetailFocus(actChip);
-          } else if (seasonBtns.length > 0) {
-            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
-            setDetailFocus(activeSeason);
-          } else if (tabs.length > 0) {
-            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
-            setDetailFocus(curTab);
+          var smBtnC = $detail.querySelector('#torrent-show-more-btn');
+          if (smBtnC && smBtnC.offsetParent !== null) {
+            setDetailFocus(smBtnC);
+          } else {
+            var lastItemC = $detail.querySelector('.detail-tab-pane.active .torrent-item:last-of-type, .detail-tab-pane.active .episode-card:last-of-type, .detail-tab-pane.active .source-item:last-of-type');
+            if (lastItemC) {
+              setDetailFocus(lastItemC);
+            } else {
+              var curTabC = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+              if (curTabC) setDetailFocus(curTabC);
+            }
           }
         } else if (isShowMore) {
-          if (items.length > 0) {
-            var targetIdx = state._expandedTorrents ? (items.length - 1) : Math.min(4, items.length - 1);
-            setDetailFocus(items[targetIdx]);
-          } else if (tabs.length > 0) {
-            setDetailFocus(tabs[0]);
+          var allItems = $detail.querySelectorAll('.detail-tab-pane.active .torrent-item');
+          if (allItems.length > 0) {
+            var targetIdx = state._expandedTorrents ? (allItems.length - 1) : Math.min(4, allItems.length - 1);
+            setDetailFocus(allItems[targetIdx]);
+          } else {
+            var curTabM = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+            if (curTabM) setDetailFocus(curTabM);
           }
         } else if (isSortChip) {
-          var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
-          if (activeSeason) {
-            setDetailFocus(activeSeason);
+          var activeSeasonChip = $detail.querySelector('.season-btn.active') || $detail.querySelector('.season-btn');
+          if (activeSeasonChip) {
+            setDetailFocus(activeSeasonChip);
           } else {
-            var curTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
-            if (curTab) setDetailFocus(curTab);
+            var curTabSC = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+            if (curTabSC) setDetailFocus(curTabSC);
           }
         } else if (isItem) {
-          var targetClass = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
-          var prevItem = focused.previousElementSibling;
-          while (prevItem && !prevItem.classList.contains(targetClass)) {
-            prevItem = prevItem.previousElementSibling;
+          var targetClassUp = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
+          var prevItemU = focused.previousElementSibling;
+          while (prevItemU && !prevItemU.classList.contains(targetClassUp)) {
+            prevItemU = prevItemU.previousElementSibling;
           }
-          if (prevItem) {
-            setDetailFocus(prevItem);
-          } else if (sortChips.length > 0) {
-            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
-            setDetailFocus(actChip);
+          if (prevItemU) {
+            setDetailFocus(prevItemU);
           } else {
-            var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
-            if (activeSeason) {
-              setDetailFocus(activeSeason);
+            var actChipU = $detail.querySelector('.torrent-sort-bar .sort-chip.active') || $detail.querySelector('.sort-chip');
+            if (actChipU) {
+              setDetailFocus(actChipU);
             } else {
-              var curTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
-              if (curTab) setDetailFocus(curTab);
+              var activeSeasonU = $detail.querySelector('.season-btn.active') || $detail.querySelector('.season-btn');
+              if (activeSeasonU) {
+                setDetailFocus(activeSeasonU);
+              } else {
+                var curTabIU = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+                if (curTabIU) setDetailFocus(curTabIU);
+              }
             }
           }
         } else if (isSeason) {
-          var cTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
-          if (cTab) setDetailFocus(cTab);
+          var cTabS = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+          if (cTabS) setDetailFocus(cTabS);
         } else if (isTab) {
-          var actBtn = document.getElementById('detail-play') || (actionBtns.length > 0 ? actionBtns[0] : null);
-          if (actBtn) setDetailFocus(actBtn);
+          var actBtnT = document.getElementById('detail-play') || $detail.querySelector('.detail-btn');
+          if (actBtnT) setDetailFocus(actBtnT);
         }
         if (e && e.preventDefault) e.preventDefault();
         break;
 
       case 40: // Down
         if (isDetailBack) {
-          if (playBtn) setDetailFocus(playBtn);
-          else if (actionBtns.length > 0) setDetailFocus(actionBtns[0]);
+          var pBtnD = document.getElementById('detail-play') || $detail.querySelector('.detail-btn');
+          if (pBtnD) setDetailFocus(pBtnD);
         } else if (isAllCast) {
-          if (castItems.length > 0) setDetailFocus(castItems[0]);
+          var firstCardD = $detail.querySelector('.detail-actor-card');
+          if (firstCardD) setDetailFocus(firstCardD);
         } else if (isCast) {
-          if (castIdx + 4 < castItems.length) {
-            setDetailFocus(castItems[castIdx + 4]);
+          var castCardsD = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card'));
+          var cIdxD = castCardsD.indexOf(focused);
+          if (cIdxD + 4 < castCardsD.length) {
+            setDetailFocus(castCardsD[cIdxD + 4]);
           } else {
-            var firstT = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
-            if (firstT) setDetailFocus(firstT);
+            var firstTabD = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+            if (firstTabD) setDetailFocus(firstTabD);
           }
         } else if (isActionBtn) {
-          var firstTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
-          if (firstTab) setDetailFocus(firstTab);
+          var firstTabA = $detail.querySelector('.detail-tab.active') || $detail.querySelector('.detail-tab');
+          if (firstTabA) setDetailFocus(firstTabA);
         } else if (isTab) {
-          var actSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
-          if (actSeason) {
-            setDetailFocus(actSeason);
-          } else if (sortChips.length > 0) {
-            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
-            setDetailFocus(actChip);
-          } else if (items.length > 0) {
-            setDetailFocus(items[0]);
-          } else if (colCards.length > 0) {
-            setDetailFocus(colCards[0]);
-            scrollItemIntoWindow(colCards[0], 60);
-          } else if (recCards.length > 0) {
-            setDetailFocus(recCards[0]);
-            scrollItemIntoWindow(recCards[0], 60);
+          var actSeasonD = $detail.querySelector('.season-btn.active') || $detail.querySelector('.season-btn');
+          if (actSeasonD) {
+            setDetailFocus(actSeasonD);
+          } else {
+            var actChipD = $detail.querySelector('.torrent-sort-bar .sort-chip.active') || $detail.querySelector('.sort-chip');
+            if (actChipD) {
+              setDetailFocus(actChipD);
+            } else {
+              var firstItemD = $detail.querySelector('.detail-tab-pane.active .torrent-item, .detail-tab-pane.active .episode-card, .detail-tab-pane.active .source-item');
+              if (firstItemD) {
+                setDetailFocus(firstItemD);
+              } else {
+                var firstColD = $detail.querySelector('#detail-collection-items .card');
+                if (firstColD && firstColD.offsetParent !== null) {
+                  setDetailFocus(firstColD);
+                  scrollItemIntoWindow(firstColD, 60);
+                } else {
+                  var firstRecD = $detail.querySelector('#detail-rec-items .card');
+                  if (firstRecD && firstRecD.offsetParent !== null) {
+                    setDetailFocus(firstRecD);
+                    scrollItemIntoWindow(firstRecD, 60);
+                  }
+                }
+              }
+            }
           }
         } else if (isSeason) {
-          if (sortChips.length > 0) {
-            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
-            setDetailFocus(actChip);
-          } else if (items.length > 0) {
-            setDetailFocus(items[0]);
-          } else if (colCards.length > 0) {
-            setDetailFocus(colCards[0]);
-            scrollItemIntoWindow(colCards[0], 60);
-          } else if (recCards.length > 0) {
-            setDetailFocus(recCards[0]);
-            scrollItemIntoWindow(recCards[0], 60);
+          var actChipS = $detail.querySelector('.torrent-sort-bar .sort-chip.active') || $detail.querySelector('.sort-chip');
+          if (actChipS) {
+            setDetailFocus(actChipS);
+          } else {
+            var firstItemS = $detail.querySelector('.detail-tab-pane.active .torrent-item, .detail-tab-pane.active .episode-card, .detail-tab-pane.active .source-item');
+            if (firstItemS) {
+              setDetailFocus(firstItemS);
+            } else {
+              var firstColS = $detail.querySelector('#detail-collection-items .card');
+              if (firstColS && firstColS.offsetParent !== null) {
+                setDetailFocus(firstColS);
+                scrollItemIntoWindow(firstColS, 60);
+              }
+            }
           }
         } else if (isSortChip) {
-          if (items.length > 0) {
-            setDetailFocus(items[0]);
-          } else if (colCards.length > 0) {
-            setDetailFocus(colCards[0]);
-            scrollItemIntoWindow(colCards[0], 60);
-          } else if (recCards.length > 0) {
-            setDetailFocus(recCards[0]);
-            scrollItemIntoWindow(recCards[0], 60);
+          var firstItemChip = $detail.querySelector('.detail-tab-pane.active .torrent-item, .detail-tab-pane.active .episode-card, .detail-tab-pane.active .source-item');
+          if (firstItemChip) {
+            setDetailFocus(firstItemChip);
+          } else {
+            var firstColChip = $detail.querySelector('#detail-collection-items .card');
+            if (firstColChip && firstColChip.offsetParent !== null) {
+              setDetailFocus(firstColChip);
+              scrollItemIntoWindow(firstColChip, 60);
+            }
           }
         } else if (isItem) {
           var targetClassDown = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
-          var nextItem = focused.nextElementSibling;
-          while (nextItem && !nextItem.classList.contains(targetClassDown)) {
-            nextItem = nextItem.nextElementSibling;
+          var nextItemD = focused.nextElementSibling;
+          while (nextItemD && !nextItemD.classList.contains(targetClassDown)) {
+            nextItemD = nextItemD.nextElementSibling;
           }
-          if (nextItem && nextItem.offsetParent !== null) {
-            setDetailFocus(nextItem);
-          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
-            setDetailFocus(showMoreBtn);
-          } else if (colCards.length > 0) {
-            setDetailFocus(colCards[0]);
-            scrollItemIntoWindow(colCards[0], 60);
-          } else if (recCards.length > 0) {
-            setDetailFocus(recCards[0]);
-            scrollItemIntoWindow(recCards[0], 60);
+          if (nextItemD && nextItemD.offsetParent !== null) {
+            setDetailFocus(nextItemD);
+          } else {
+            var smBtnDown = $detail.querySelector('#torrent-show-more-btn');
+            if (smBtnDown && smBtnDown.offsetParent !== null) {
+              setDetailFocus(smBtnDown);
+            } else {
+              var firstColID = $detail.querySelector('#detail-collection-items .card');
+              if (firstColID && firstColID.offsetParent !== null) {
+                setDetailFocus(firstColID);
+                scrollItemIntoWindow(firstColID, 60);
+              } else {
+                var firstRecID = $detail.querySelector('#detail-rec-items .card');
+                if (firstRecID && firstRecID.offsetParent !== null) {
+                  setDetailFocus(firstRecID);
+                  scrollItemIntoWindow(firstRecID, 60);
+                }
+              }
+            }
           }
         } else if (isShowMore) {
-          if (colCards.length > 0) {
-            setDetailFocus(colCards[0]);
-            scrollItemIntoWindow(colCards[0], 60);
-          } else if (recCards.length > 0) {
-            setDetailFocus(recCards[0]);
-            scrollItemIntoWindow(recCards[0], 60);
+          var firstColSM = $detail.querySelector('#detail-collection-items .card');
+          if (firstColSM && firstColSM.offsetParent !== null) {
+            setDetailFocus(firstColSM);
+            scrollItemIntoWindow(firstColSM, 60);
+          } else {
+            var firstRecSM = $detail.querySelector('#detail-rec-items .card');
+            if (firstRecSM && firstRecSM.offsetParent !== null) {
+              setDetailFocus(firstRecSM);
+              scrollItemIntoWindow(firstRecSM, 60);
+            }
           }
         } else if (isCol) {
-          if (recCards.length > 0) {
-            var targetRecIdx = Math.min(colIdx, recCards.length - 1);
-            setDetailFocus(recCards[targetRecIdx]);
-            scrollItemIntoWindow(recCards[targetRecIdx], 60);
+          var recRowD = $detail.querySelector('#detail-rec-items');
+          var recCardsD = recRowD ? Array.prototype.slice.call(recRowD.querySelectorAll('.card')) : [];
+          if (recCardsD.length > 0) {
+            var colCardsD = Array.prototype.slice.call(focused.parentElement.querySelectorAll('.card'));
+            var cIdxCol = colCardsD.indexOf(focused);
+            var targetRecIdx = Math.min(Math.max(0, cIdxCol), recCardsD.length - 1);
+            setDetailFocus(recCardsD[targetRecIdx]);
+            scrollItemIntoWindow(recCardsD[targetRecIdx], 60);
           }
         } else if (isRec) {
           // Bottom reached
