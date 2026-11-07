@@ -86,11 +86,12 @@ body.player-active .section {
 }
 .nav-btn.active { color: var(--text); background: var(--surface-2); }
 .nav-btn:focus, .nav-btn.focused {
-  outline: none !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
   background: rgba(232, 193, 112, 0.22) !important;
   color: #ffffff !important;
   transform: scale(1.06) !important;
-  box-shadow: 0 0 0 2.5px #e8c170, 0 0 20px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: none !important;
 }
 
 .nav-profile-pill {
@@ -117,7 +118,7 @@ body.player-active .section {
   font-size: 15px;
   font-weight: 700;
   overflow: hidden;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  box-shadow: none !important;
 }
 .tv-user-name {
   color: #f1f2f6;
@@ -131,8 +132,9 @@ body.player-active .section {
 .nav-profile-pill:focus, .nav-profile-pill.focused {
   background: rgba(232, 193, 112, 0.28) !important;
   border-color: #e8c170 !important;
-  outline: none !important;
-  box-shadow: 0 0 0 3px #e8c170, 0 0 25px rgba(232, 193, 112, 0.5) !important;
+  outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
   transform: scale(1.08) !important;
 }
 
@@ -204,15 +206,16 @@ body.player-active .section {
   box-shadow: 0 2px 12px rgba(229, 9, 20, 0.45);
 }
 .shelf-tab.focused {
-  outline: 3px solid #ffffff;
-  outline-offset: 2px;
+  outline: 3px solid #ffffff !important;
+  outline-offset: 2px !important;
   transform: scale(1.06);
-  box-shadow: 0 0 16px rgba(255, 255, 255, 0.6);
+  box-shadow: none !important;
   color: #ffffff;
 }
 .shelf-tab.active.focused {
-  outline: 3px solid #ffffff;
-  box-shadow: 0 0 22px rgba(229, 9, 20, 0.85), 0 0 10px rgba(255, 255, 255, 0.8);
+  outline: 3px solid #ffffff !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
 }
 .row-title { font-size: 28px; font-weight: 600; color: var(--text); margin-bottom: 18px; }
 .row-items {
@@ -349,10 +352,11 @@ body.player-active .section {
   color: var(--text); font-size: 26px; outline: none;
 }
 .search-input:focus, .search-input.focused {
-  outline: none !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
   border-color: #e8c170 !important;
   background: rgba(232, 193, 112, 0.1) !important;
-  box-shadow: 0 0 0 2.5px #e8c170, 0 0 24px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: none !important;
 }
 .search-input::placeholder { color: var(--text-mute); }
 
@@ -431,10 +435,11 @@ body.player-active .section {
 }
 
 .iptv-cat-item.focused {
-  outline: none !important;
+  outline: 2.5px solid var(--accent) !important;
+  outline-offset: -2.5px !important;
   color: #ffffff !important;
   background: rgba(232,193,112,0.2) !important;
-  box-shadow: 0 0 0 2.5px var(--accent), 0 0 20px rgba(232,193,112,0.4) !important;
+  box-shadow: none !important;
 }
 
 .iptv-cat-icon {
@@ -467,8 +472,9 @@ body.player-active .section {
 .iptv-search-input.focused {
   border-color: var(--accent) !important;
   background: rgba(232, 193, 112, 0.18) !important;
-  box-shadow: 0 0 0 2.5px var(--accent), 0 0 16px rgba(232, 193, 112, 0.4) !important;
-  outline: none !important;
+  outline: 2.5px solid var(--accent) !important;
+  outline-offset: -2.5px !important;
+  box-shadow: none !important;
 }
 .iptv-search-input::placeholder {
   color: rgba(255, 255, 255, 0.45);
@@ -497,8 +503,9 @@ body.player-active .section {
 
 .iptv-ch-item.focused {
   background: rgba(232,193,112,0.2) !important;
-  outline: none !important;
-  box-shadow: 0 0 0 2.5px var(--accent), 0 0 20px rgba(232,193,112,0.4) !important;
+  outline: 2.5px solid var(--accent) !important;
+  outline-offset: -2.5px !important;
+  box-shadow: none !important;
 }
 
 .iptv-ch-logo {
@@ -779,7 +786,8 @@ body.player-active .section {
 .iptv-action-btn.focused {
   transform: scale(1.05);
   outline: 3px solid #ffffff !important;
-  box-shadow: 0 0 20px rgba(232, 193, 112, 0.6) !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
 }
 
 /* Notification toast */
@@ -819,10 +827,11 @@ body.player-active .section {
   font-size: 20px; cursor: pointer; margin-top: 12px;
 }
 .setting-btn:focus, .setting-btn.focused {
-  outline: none !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
   background: rgba(232, 193, 112, 0.22) !important;
   color: #ffffff !important;
-  box-shadow: 0 0 0 2.5px #e8c170, 0 0 24px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: none !important;
 }
 .setting-btn.danger { color: var(--error); }
 
@@ -874,12 +883,13 @@ body.player-active .section {
 }
 .detail-back-btn:hover,
 .detail-back-btn.focused {
-  outline: none !important;
+  outline: 2.5px solid #ffffff !important;
+  outline-offset: -2.5px !important;
   background: #e8c170 !important;
   color: #0b0c10 !important;
   border-color: #ffffff !important;
   transform: scale(1.05);
-  box-shadow: 0 0 0 2.5px #ffffff, 0 6px 24px rgba(232, 193, 112, 0.55) !important;
+  box-shadow: none !important;
 }
 
 /* Upper Hero Split: Left side (~52%) and Right side from 50% to right edge (640px) */
@@ -1058,8 +1068,9 @@ body.player-active .section {
   color: #0b0c10 !important;
   background: #e8c170 !important;
   border-color: #ffffff !important;
-  outline: none !important;
-  box-shadow: 0 0 0 2.5px #ffffff, 0 0 16px rgba(232, 193, 112, 0.45) !important;
+  outline: 2.5px solid #ffffff !important;
+  outline-offset: -2.5px !important;
+  box-shadow: none !important;
   transform: scale(1.05);
 }
 .detail-cast-grid-4x2 {
@@ -1078,15 +1089,16 @@ body.player-active .section {
   outline: none;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   text-align: left;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  box-shadow: none !important;
 }
 .detail-actor-card:hover,
 .detail-actor-card.focused {
   background: rgba(26, 32, 48, 0.98) !important;
   border-color: #e8c170 !important;
-  outline: none !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
   transform: translateY(-4px) scale(1.04);
-  box-shadow: 0 0 0 2.5px #e8c170, 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 20px rgba(232, 193, 112, 0.45) !important;
+  box-shadow: none !important;
   z-index: 10;
 }
 .detail-actor-photo {
@@ -1344,10 +1356,11 @@ body.player-active .section {
   border-color: rgba(255, 255, 255, 0.45);
 }
 .detail-btn.focused {
-  outline: none !important;
+  outline: 3px solid var(--accent) !important;
+  outline-offset: -3px !important;
   border-color: var(--accent) !important;
   transform: scale(1.06);
-  box-shadow: 0 0 0 3px var(--accent), 0 0 24px rgba(232, 193, 112, 0.55) !important;
+  box-shadow: none !important;
 }
 .detail-btn-primary {
   padding: 14px 30px;
@@ -1360,8 +1373,9 @@ body.player-active .section {
 .detail-btn-primary.focused {
   background: #ffffff !important;
   color: #0b0c10 !important;
-  outline: none !important;
-  box-shadow: 0 0 0 3.5px var(--accent), 0 8px 32px rgba(255, 255, 255, 0.5) !important;
+  outline: 3.5px solid var(--accent) !important;
+  outline-offset: -3.5px !important;
+  box-shadow: none !important;
 }
 .detail-btn-icon {
   width: 52px;
@@ -1374,7 +1388,7 @@ body.player-active .section {
 .detail-btn-icon.active-action {
   background: rgba(232, 193, 112, 0.35) !important;
   border-color: #e8c170 !important;
-  box-shadow: 0 0 20px rgba(232, 193, 112, 0.5) !important;
+  box-shadow: none !important;
 }
 .detail-btn-trailer {
   padding: 14px 26px;
@@ -1412,11 +1426,12 @@ body.player-active .section {
   color: var(--accent);
 }
 .detail-tab.focused {
-  outline: none !important;
+  outline: 2.5px solid var(--accent) !important;
+  outline-offset: -2.5px !important;
   color: var(--text) !important;
   border-color: var(--accent) !important;
   background: rgba(232, 193, 112, 0.2) !important;
-  box-shadow: 0 0 0 2.5px var(--accent), 0 0 16px rgba(232, 193, 112, 0.4) !important;
+  box-shadow: none !important;
 }
 
 /* Detail: Season buttons row */
@@ -1468,11 +1483,12 @@ body.player-active .section {
 }
 .season-btn.focused,
 .season-btn:focus {
-  outline: none !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
   border-color: #e8c170 !important;
   color: #ffffff !important;
   background: rgba(232, 193, 112, 0.25) !important;
-  box-shadow: 0 0 0 2.5px #e8c170, 0 0 16px rgba(232, 193, 112, 0.5) !important;
+  box-shadow: none !important;
   transform: scale(1.06);
 }
 
@@ -1493,7 +1509,9 @@ body.player-active .section {
 .detail-source-item.focused {
   background: rgba(232,193,112,0.06);
   border-color: rgba(232,193,112,0.3);
-  box-shadow: 0 0 0 3px var(--accent);
+  outline: 3px solid var(--accent) !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
 }
 .detail-source-info { min-width: 0; flex: 1; }
 .detail-source-title {
@@ -1544,7 +1562,9 @@ body.player-active .section {
   background: rgba(232, 193, 112, 0.25);
   color: #ffffff;
   border-color: var(--accent);
-  box-shadow: 0 0 0 2px var(--accent), 0 4px 16px rgba(232, 193, 112, 0.35);
+  outline: 2px solid var(--accent) !important;
+  outline-offset: -2px !important;
+  box-shadow: none !important;
   transform: scale(1.04);
 }
 
@@ -1563,7 +1583,9 @@ body.player-active .section {
 .torrent-item.focused {
   background: rgba(232, 193, 112, 0.08) !important;
   border-color: rgba(232, 193, 112, 0.75) !important;
-  box-shadow: 0 0 0 2px rgba(232, 193, 112, 0.8), 0 8px 24px rgba(0, 0, 0, 0.5) !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
+  box-shadow: none !important;
   transform: translateX(4px);
 }
 .torrent-item.loading {
@@ -1939,8 +1961,10 @@ body.player-active .section {
   background: #e8c170 !important;
   color: #0a0b0f !important;
   border-color: #fff !important;
+  outline: 3px solid #ffffff !important;
+  outline-offset: -3px !important;
   transform: scale(1.12);
-  box-shadow: 0 0 26px rgba(232, 193, 112, 0.95);
+  box-shadow: none !important;
   font-weight: 800;
   z-index: 5;
 }
@@ -2579,7 +2603,9 @@ body.player-active .section {
   background: rgba(232, 193, 112, 0.25) !important;
   border-color: #e8c170 !important;
   color: #e8c170 !important;
-  box-shadow: 0 0 14px rgba(232, 193, 112, 0.5);
+  outline: 2px solid #e8c170 !important;
+  outline-offset: -2px !important;
+  box-shadow: none !important;
   transform: translateY(-2px);
 }
 
@@ -2619,7 +2645,9 @@ body.player-active .section {
 .episode-card.focused {
   background: rgba(232, 193, 112, 0.16) !important;
   border-color: #e8c170 !important;
-  box-shadow: 0 0 0 2px #e8c170, 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+  outline: 2.5px solid #e8c170 !important;
+  outline-offset: -2.5px !important;
+  box-shadow: none !important;
   transform: translateX(6px);
 }
 .ep-still-box {
@@ -3417,9 +3445,9 @@ body.player-active .section {
   background: #e8c170 !important;
   color: #0a0b0f !important;
   border-color: #ffffff !important;
-  outline: 4px solid #ffffff !important;
-  outline-offset: 3px !important;
-  box-shadow: 0 0 28px rgba(232, 193, 112, 0.8) !important;
+  outline: 3px solid #ffffff !important;
+  outline-offset: 2px !important;
+  box-shadow: none !important;
   transform: scale(1.06);
 }
 
@@ -3549,10 +3577,10 @@ body.player-active .section {
 .detail-cast-item.focused {
   background: rgba(232, 193, 112, 0.25);
   border-color: #e8c170;
-  outline: 3px solid #e8c170;
-  outline-offset: 2px;
+  outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
   transform: translateX(6px);
-  box-shadow: 0 4px 18px rgba(232, 193, 112, 0.35);
+  box-shadow: none !important;
 }
 
 .detail-cast-avatar {
@@ -3697,8 +3725,9 @@ body.player-active .section {
   background: rgba(26, 32, 48, 0.98) !important;
   border-color: #e8c170 !important;
   outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
   transform: translateY(-4px) scale(1.04);
-  box-shadow: 0 0 0 2.5px #e8c170, 0 12px 32px rgba(0, 0, 0, 0.85), 0 0 20px rgba(232, 193, 112, 0.45) !important;
+  box-shadow: none !important;
   z-index: 10;
 }
 
@@ -3919,9 +3948,10 @@ body.player-active .section {
 .person-movie-card:hover,
 .person-movie-card.focused {
   outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
   border-color: #e8c170 !important;
   transform: translateY(-4px) scale(1.05);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.75), 0 0 16px rgba(232, 193, 112, 0.35);
+  box-shadow: none !important;
   z-index: 5;
 }
 
@@ -4758,8 +4788,9 @@ body.player-active .section {
   border-color: #ffffff !important;
   color: #0a0b0f !important;
   transform: scale(1.08);
-  box-shadow: 0 0 32px rgba(232, 193, 112, 0.95) !important;
-  outline: none !important;
+  outline: 3px solid #ffffff !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
 }
 
 .search-source-tab.focused .tab-count,

@@ -11585,8 +11585,8 @@
       clearIptvFocus();
       clearNavFocus();
       items[index].classList.add('focused');
-      try { items[index].focus(); } catch(e) {}
-      items[index].scrollIntoView(false);
+      try { items[index].focus({ preventScroll: true }); } catch(e) { try { items[index].focus(); } catch(e2) {} }
+      scrollVerticalWindow(items[index], document.getElementById('iptv-channels') || items[index].parentElement, 50);
       if (channels[index]) updatePreview(channels[index]);
     }
   }
@@ -11604,8 +11604,8 @@
       clearIptvFocus();
       clearNavFocus();
       items[index].classList.add('focused');
-      try { items[index].focus(); } catch(e) {}
-      items[index].scrollIntoView(false);
+      try { items[index].focus({ preventScroll: true }); } catch(e) { try { items[index].focus(); } catch(e2) {} }
+      scrollVerticalWindow(items[index], document.getElementById('iptv-cat-list') || items[index].parentElement, 50);
     }
   }
 
@@ -11633,14 +11633,8 @@
       if (epgItems && epgItems[epgIdx]) {
         var el = epgItems[epgIdx];
         el.classList.add('focused');
-        try { el.focus(); } catch(e) {}
-        try {
-          if (el.scrollIntoViewIfNeeded) {
-            el.scrollIntoViewIfNeeded(false);
-          } else {
-            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-          }
-        } catch(se) {}
+        try { el.focus({ preventScroll: true }); } catch(e) { try { el.focus(); } catch(e2) {} }
+        scrollVerticalWindow(el, document.getElementById('iptv-epg-schedule') || el.parentElement, 40);
       }
     }
   }
@@ -11809,17 +11803,17 @@
           var prevSeason = focused.previousElementSibling;
           if (prevSeason && prevSeason.classList.contains('season-btn')) {
             setDetailFocus(prevSeason);
-            try { prevSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
+            scrollItemIntoWindow(prevSeason, 50);
           }
         } else if (isRec) {
           if (recIdx > 0) {
             setDetailFocus(recCards[recIdx - 1]);
-            try { recCards[recIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[recIdx - 1], 60);
           }
         } else if (isCol) {
           if (colIdx > 0) {
             setDetailFocus(colCards[colIdx - 1]);
-            try { colCards[colIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[colIdx - 1], 60);
           }
         } else if (isSortChip) {
           if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
@@ -11851,17 +11845,17 @@
           var nextSeason = focused.nextElementSibling;
           if (nextSeason && nextSeason.classList.contains('season-btn')) {
             setDetailFocus(nextSeason);
-            try { nextSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
+            scrollItemIntoWindow(nextSeason, 50);
           }
         } else if (isRec) {
           if (recIdx < recCards.length - 1) {
             setDetailFocus(recCards[recIdx + 1]);
-            try { recCards[recIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[recIdx + 1], 60);
           }
         } else if (isCol) {
           if (colIdx < colCards.length - 1) {
             setDetailFocus(colCards[colIdx + 1]);
-            try { colCards[colIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[colIdx + 1], 60);
           }
         } else if (isSortChip) {
           if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
@@ -11888,7 +11882,7 @@
           if (colCards.length > 0) {
             var targetColIdx = Math.min(recIdx, colCards.length - 1);
             setDetailFocus(colCards[targetColIdx]);
-            try { colCards[targetColIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[targetColIdx], 60);
           } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
             setDetailFocus(showMoreBtn);
           } else if (items.length > 0) {
@@ -11990,10 +11984,10 @@
             setDetailFocus(items[0]);
           } else if (colCards.length > 0) {
             setDetailFocus(colCards[0]);
-            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[0], 60);
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
-            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[0], 60);
           }
         } else if (isSeason) {
           if (sortChips.length > 0) {
@@ -12003,20 +11997,20 @@
             setDetailFocus(items[0]);
           } else if (colCards.length > 0) {
             setDetailFocus(colCards[0]);
-            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[0], 60);
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
-            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[0], 60);
           }
         } else if (isSortChip) {
           if (items.length > 0) {
             setDetailFocus(items[0]);
           } else if (colCards.length > 0) {
             setDetailFocus(colCards[0]);
-            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[0], 60);
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
-            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[0], 60);
           }
         } else if (isItem) {
           var targetClassDown = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
@@ -12030,24 +12024,24 @@
             setDetailFocus(showMoreBtn);
           } else if (colCards.length > 0) {
             setDetailFocus(colCards[0]);
-            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[0], 60);
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
-            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[0], 60);
           }
         } else if (isShowMore) {
           if (colCards.length > 0) {
             setDetailFocus(colCards[0]);
-            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(colCards[0], 60);
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
-            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[0], 60);
           }
         } else if (isCol) {
           if (recCards.length > 0) {
             var targetRecIdx = Math.min(colIdx, recCards.length - 1);
             setDetailFocus(recCards[targetRecIdx]);
-            try { recCards[targetRecIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+            scrollItemIntoWindow(recCards[targetRecIdx], 60);
           }
         } else if (isRec) {
           // Bottom reached
@@ -12243,6 +12237,41 @@
       if (Math.abs(content.scrollTop - targetTop) > 25) {
         content.scrollTop = targetTop;
       }
+    }
+  }
+
+  function scrollItemIntoWindow(el, padding) {
+    if (!el || !el.parentElement) return;
+    var parent = el.parentElement;
+    var elLeft = el.offsetLeft;
+    var elW = el.offsetWidth || 150;
+    var currentScroll = parent.scrollLeft;
+    var parentW = parent.clientWidth || 1920;
+    var pad = padding || 60;
+    var leftLimit = currentScroll + pad;
+    var rightLimit = currentScroll + parentW - (elW + pad);
+
+    if (elLeft < leftLimit) {
+      parent.scrollLeft = Math.max(0, elLeft - pad);
+    } else if (elLeft > rightLimit) {
+      parent.scrollLeft = Math.max(0, (elLeft + elW + pad) - parentW);
+    }
+  }
+
+  function scrollVerticalWindow(el, container, pad) {
+    if (!el || !container) return;
+    var elTop = el.offsetTop;
+    var elH = el.offsetHeight || 60;
+    var currentScroll = container.scrollTop;
+    var containerH = container.clientHeight || 900;
+    var p = pad || 60;
+    var topLimit = currentScroll + p;
+    var bottomLimit = currentScroll + containerH - (elH + p);
+
+    if (elTop < topLimit) {
+      container.scrollTop = Math.max(0, elTop - p);
+    } else if (elTop > bottomLimit) {
+      container.scrollTop = Math.max(0, (elTop + elH + p) - containerH);
     }
   }
 
