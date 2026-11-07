@@ -90,6 +90,18 @@ export function movieRoutes(app: FastifyInstance, provider: TmdbProvider) {
   app.get('/api/movies/:id/similar', getMovieSimilar);
   app.get('/api/movie/:id/similar', getMovieSimilar);
 
+  const getCollection = async (req: any) => {
+    const { id } = req.params as { id: string };
+    const { lang } = req.query as { lang?: Lang };
+    if (provider.collection) {
+      const col = await provider.collection(parseInt(id), lang);
+      if (col) return col;
+    }
+    return { id: parseInt(id), name: '', parts: [] };
+  };
+  app.get('/api/collections/:id', getCollection);
+  app.get('/api/collection/:id', getCollection);
+
   app.post('/api/recommendations/personal', async (req) => {
     const { lang } = req.query as { lang?: Lang };
     const body = (req.body as any) || {};

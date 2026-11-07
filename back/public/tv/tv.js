@@ -4890,6 +4890,12 @@
     html += '</div>'; // end tab-content
     html += '</div>'; // end detail-stream-section
 
+    // Collection / Franchise section
+    html += '<div class="detail-recommendations-section" id="detail-collection-section" style="display: none;">';
+    html += '<h3 class="detail-rec-title" id="detail-collection-title">🎬 Все части саги</h3>';
+    html += '<div class="row-items detail-rec-items" id="detail-collection-items"></div>';
+    html += '</div>';
+
     // Bottom recommendations section: "Вам может понравиться"
     html += '<div class="detail-recommendations-section" id="detail-rec-section">';
     html += '<h3 class="detail-rec-title">✨ Вам может понравиться</h3>';
@@ -4944,6 +4950,7 @@
     }
     searchSources(d);
     loadDetailRecommendations(d);
+    loadDetailCollection(d);
 
     // Focus primary play button
     setTimeout(function() {
@@ -5132,6 +5139,45 @@
         showDetail(rec);
       });
       container.appendChild(card);
+    });
+  }
+
+  function loadDetailCollection(d) {
+    var container = document.getElementById('detail-collection-items');
+    var section = document.getElementById('detail-collection-section');
+    var titleEl = document.getElementById('detail-collection-title');
+    if (!container || !section) return;
+
+    if (!d || !d.collection || !d.collection.id) {
+      section.style.display = 'none';
+      return;
+    }
+
+    apiFetch('/api/collections/' + d.collection.id + '?lang=ru', function(err, res) {
+      if (err || !res || !Array.isArray(res.parts) || res.parts.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      var colName = res.name || (d.collection && d.collection.name) || 'Все части саги';
+      if (titleEl) {
+        titleEl.textContent = '🎬 ' + colName;
+      }
+      section.style.display = 'block';
+      container.innerHTML = '';
+      res.parts.forEach(function(part, idx) {
+        var card = createCard(part, idx);
+        if (Number(part.id) === Number(d.id)) {
+          card.classList.add('collection-current');
+          var badge = document.createElement('div');
+          badge.className = 'collection-badge-current';
+          badge.textContent = 'Вы смотрите';
+          card.appendChild(badge);
+        }
+        card.addEventListener('click', function() {
+          showDetail(part);
+        });
+        container.appendChild(card);
+      });
     });
   }
 
@@ -11660,6 +11706,9 @@
 
     var showMoreBtn = $detail ? $detail.querySelector('#torrent-show-more-btn') : null;
     var isShowMore = (focused === showMoreBtn);
+    var colCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-collection-items .card')) : [];
+    var colIdx = colCards.indexOf(focused);
+    var isCol = (colIdx !== -1);
     var recCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-rec-items .card')) : [];
     var recIdx = recCards.indexOf(focused);
     var isRec = (recIdx !== -1);
@@ -11718,6 +11767,11 @@
             setDetailFocus(recCards[recIdx - 1]);
             try { recCards[recIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
+        } else if (isCol) {
+          if (colIdx > 0) {
+            setDetailFocus(colCards[colIdx - 1]);
+            try { colCards[colIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
         } else if (isSortChip) {
           if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
         }
@@ -11755,6 +11809,11 @@
             setDetailFocus(recCards[recIdx + 1]);
             try { recCards[recIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
+        } else if (isCol) {
+          if (colIdx < colCards.length - 1) {
+            setDetailFocus(colCards[colIdx + 1]);
+            try { colCards[colIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
         } else if (isSortChip) {
           if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
         }
@@ -11777,6 +11836,25 @@
           var bBtn = document.getElementById('detail-back-btn');
           if (bBtn) setDetailFocus(bBtn);
         } else if (isRec) {
+          if (colCards.length > 0) {
+            var targetColIdx = Math.min(recIdx, colCards.length - 1);
+            setDetailFocus(colCards[targetColIdx]);
+            try { colCards[targetColIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (items.length > 0) {
+            setDetailFocus(items[items.length - 1]);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (seasonBtns.length > 0) {
+            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
+            setDetailFocus(activeSeason);
+          } else if (tabs.length > 0) {
+            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
+            setDetailFocus(curTab);
+          }
+        } else if (isCol) {
           if (showMoreBtn && showMoreBtn.offsetParent !== null) {
             setDetailFocus(showMoreBtn);
           } else if (items.length > 0) {
@@ -11861,6 +11939,9 @@
             setDetailFocus(actChip);
           } else if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
             try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
@@ -11871,6 +11952,9 @@
             setDetailFocus(actChip);
           } else if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
             try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
@@ -11878,6 +11962,9 @@
         } else if (isSortChip) {
           if (items.length > 0) {
             setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
             try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
@@ -11892,14 +11979,26 @@
             setDetailFocus(nextItem);
           } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
             setDetailFocus(showMoreBtn);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
             try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
         } else if (isShowMore) {
-          if (recCards.length > 0) {
+          if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
             setDetailFocus(recCards[0]);
             try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isCol) {
+          if (recCards.length > 0) {
+            var targetRecIdx = Math.min(colIdx, recCards.length - 1);
+            setDetailFocus(recCards[targetRecIdx]);
+            try { recCards[targetRecIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
           }
         } else if (isRec) {
           // Bottom reached
@@ -11913,6 +12012,11 @@
       case 65376:
         if (focused) {
           if (isShowMore) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isCol) {
             focused.click();
             if (e && e.preventDefault) e.preventDefault();
             return;

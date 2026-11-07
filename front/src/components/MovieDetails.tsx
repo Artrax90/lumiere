@@ -39,6 +39,7 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
   const [activeTab, setActiveTab] = useState<'sources' | 'torrents'>('torrents');
   const [resumingTorrent, setResumingTorrent] = useState(false);
   const [similarTitles, setSimilarTitles] = useState<Title[]>([]);
+  const [collection, setCollection] = useState<{ id: number; name: string; parts: Title[] } | null>(null);
   const [showTrailer, setShowTrailer] = useState(false);
   const [trailerUrl, setTrailerUrl] = useState<string | null>(null);
   const [trailerStream, setTrailerStream] = useState<string | null>(null);
@@ -340,6 +341,23 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
           }
         })
         .catch(() => {});
+    }
+
+    if (title.collection?.id) {
+      serverFetch(`/api/collections/${title.collection.id}?lang=ru`)
+        .then((res) => res.json())
+        .then((data) => {
+          if (active && data && Array.isArray(data.parts) && data.parts.length > 0) {
+            setCollection({
+              id: data.id,
+              name: data.name || title.collection?.name || 'Все части саги',
+              parts: data.parts,
+            });
+          }
+        })
+        .catch(() => {});
+    } else {
+      setCollection(null);
     }
 
     const mediaType = title.type === 'tv' ? 'tv' : 'movies';
@@ -963,6 +981,24 @@ export default function MovieDetails({ title, onBack, onPlay, onSelect }: MovieD
         )}
 
 
+
+        {collection && collection.parts.length > 0 && (
+          <section className="mt-14 border-t border-white/[0.06] pt-8 animate-detail-rise" style={{ animationDelay: '300ms' }}>
+            <SectionHeader title={`🎬 ${collection.name || 'Все части саги'}`} count={collection.parts.length} />
+            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 sm:gap-5">
+              {collection.parts.map((part) => (
+                <div key={part.id} className={`animate-stagger-in relative ${part.id === title.id ? 'ring-2 ring-primary/60 rounded-2xl' : ''}`}>
+                  <Card title={part} variant="portrait" onSelect={onSelect} fill />
+                  {part.id === title.id && (
+                    <span className="absolute top-2 left-2 z-10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-md bg-primary text-black shadow-lg">
+                      Сейчас открыт
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         {similarTitles.length > 0 && (
           <section className="mt-14 border-t border-white/[0.06] pt-8 animate-detail-rise" style={{ animationDelay: '350ms' }}>

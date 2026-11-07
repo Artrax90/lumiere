@@ -4783,4 +4783,27 @@ body.player-active .section {
   color: #0a0b0f !important;
 }
 
+/* ========== Collection / Franchise Shelf ========== */
+.card.collection-current {
+  box-shadow: 0 0 0 3px rgba(232, 193, 112, 0.9), 0 8px 24px rgba(0, 0, 0, 0.7) !important;
+}
+
+.collection-badge-current {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: linear-gradient(135deg, #e8c170 0%, #d4a345 100%);
+  color: #0a0b0f;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.6);
+  pointer-events: none;
+  z-index: 5;
+}
+
+
 

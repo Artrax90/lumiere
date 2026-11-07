@@ -135,6 +135,12 @@ interface LumiereApiService {
         @Query("lang") lang: String = "ru"
     ): Title
 
+    @GET("/api/collections/{id}")
+    suspend fun getCollection(
+        @Path("id") id: Long,
+        @Query("lang") lang: String = "ru"
+    ): CollectionResponse
+
     @GET("/api/tv/{id}")
     suspend fun getTvDetails(
         @Path("id") id: Long,

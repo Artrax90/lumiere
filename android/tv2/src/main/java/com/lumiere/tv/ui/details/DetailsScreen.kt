@@ -893,6 +893,21 @@ fun DetailsScreen(
                         }
                     }
 
+                // Collection / Franchise row
+                if (state.collectionTitles.isNotEmpty()) {
+                    item {
+                        com.lumiere.tv.ui.components.MediaRow(
+                            title = "🎬 " + (state.collectionName?.ifBlank { "Все части саги" } ?: "Все части саги"),
+                            subtitle = "Хронология франшизы",
+                            items = state.collectionTitles,
+                            resolvePosterUrl = { viewModel.resolveImageUrl(it) },
+                            onTitleClick = { colTitle ->
+                                onSimilarTitleClick?.invoke(colTitle)
+                            }
+                        )
+                    }
+                }
+
                 // Similar / Recommendations row
                 if (state.similarTitles.isNotEmpty()) {
                     item {

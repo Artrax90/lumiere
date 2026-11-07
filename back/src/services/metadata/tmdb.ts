@@ -7,6 +7,7 @@ import type {
   Genre,
   PersonDetails,
   PersonCredit,
+  CollectionDetails,
 } from './types.js';
 
 interface TmdbTitle {
@@ -591,6 +592,50 @@ export class TmdbProvider implements MetadataProvider {
 
     base.related = similar.results.slice(0, 6).map((t) => t.id);
 
+    if (details.belongs_to_collection && details.belongs_to_collection.id) {
+      base.collection = {
+        id: details.belongs_to_collection.id,
+        name: details.belongs_to_collection.name,
+        poster: (details.belongs_to_collection as any).poster_path
+          ? this.client.posterUrl((details.belongs_to_collection as any).poster_path)
+          : undefined,
+        backdrop: (details.belongs_to_collection as any).backdrop_path
+          ? this.client.backdropUrl((details.belongs_to_collection as any).backdrop_path)
+          : undefined,
+      };
+    }
+
     return base;
+  }
+
+  async collection(id: number, lang?: Lang): Promise<CollectionDetails | null> {
+    try {
+      const data = await this.client.get(`/collection/${id}`, {
+        language: this.client.lang(lang),
+      });
+      if (!data || !Array.isArray(data.parts)) return null;
+
+      const parts = data.parts
+        .filter((p: any) => p && p.id)
+        .map((p: any) => {
+          const t = this.mapTitle(p, 'movie');
+          const date = p.release_date || '';
+          t.year = date ? parseInt(date.slice(0, 4)) : 0;
+          return t;
+        });
+
+      parts.sort((a: any, b: any) => (a.year || 0) - (b.year || 0));
+
+      return {
+        id: data.id,
+        name: data.name || '',
+        overview: data.overview || '',
+        poster: data.poster_path ? this.client.posterUrl(data.poster_path) : undefined,
+        backdrop: data.backdrop_path ? this.client.backdropUrl(data.backdrop_path) : undefined,
+        parts,
+      };
+    } catch {
+      return null;
+    }
   }
 }

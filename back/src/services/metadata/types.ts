@@ -24,6 +24,12 @@ export interface Title {
   productionCompanies?: string[];
   cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
+  collection?: {
+    id: number;
+    name: string;
+    poster?: string;
+    backdrop?: string;
+  };
   seasonsCount?: number;
   seasons?: {
     season_number: number;
@@ -85,6 +91,15 @@ export interface TitleResult {
   totalResults: number;
 }
 
+export interface CollectionDetails {
+  id: number;
+  name: string;
+  overview?: string;
+  poster?: string;
+  backdrop?: string;
+  parts: Title[];
+}
+
 export interface MetadataProvider {
   name: string;
   trending(mediaType: 'movie' | 'tv', timeWindow: 'day' | 'week', lang?: Lang): Promise<Title[]>;
@@ -97,4 +112,5 @@ export interface MetadataProvider {
   netflixTv?(page?: number, lang?: Lang, period?: 'week' | 'all_time'): Promise<TitleResult>;
   netflixMovies?(page?: number, lang?: Lang, period?: 'week' | 'all_time'): Promise<TitleResult>;
   person?(id: number, lang?: Lang): Promise<PersonDetails>;
+  collection?(id: number, lang?: Lang): Promise<CollectionDetails | null>;
 }

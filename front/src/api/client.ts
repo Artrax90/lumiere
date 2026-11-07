@@ -29,6 +29,12 @@ export interface Title {
   productionCompanies?: string[];
   cast?: { id?: number; name: string; role: string; image: string }[];
   related?: number[];
+  collection?: {
+    id: number;
+    name: string;
+    poster?: string;
+    backdrop?: string;
+  };
   seasonsCount?: number;
   progress?: number;
   videoUrl?: string;

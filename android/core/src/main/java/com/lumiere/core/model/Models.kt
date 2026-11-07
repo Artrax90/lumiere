@@ -89,6 +89,7 @@ data class Title(
     val tagline: String? = null,
     val productionCompanies: List<String> = emptyList(),
     val cast: List<CastMember> = emptyList(),
+    val collection: CollectionInfo? = null,
     val seasonsCount: Int? = null,
     val progress: Double? = null,
     val episode: String? = null,
@@ -104,6 +105,24 @@ data class CastMember(
     val name: String,
     val role: String? = null,
     val image: String? = null
+)
+
+@Serializable
+data class CollectionInfo(
+    val id: Long,
+    val name: String,
+    val poster: String? = null,
+    val backdrop: String? = null
+)
+
+@Serializable
+data class CollectionResponse(
+    val id: Long,
+    val name: String = "",
+    val overview: String? = null,
+    val poster: String? = null,
+    val backdrop: String? = null,
+    val parts: List<Title> = emptyList()
 )
 
 @Serializable

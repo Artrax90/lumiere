@@ -21,6 +21,8 @@ data class DetailsUiState(
     val episodes: List<Episode> = emptyList(),
     val isLoadingEpisodes: Boolean = false,
     val torrents: List<TorrentItem> = emptyList(),
+    val collectionName: String? = null,
+    val collectionTitles: List<Title> = emptyList(),
     val similarTitles: List<Title> = emptyList(),
     val isSearchingTorrents: Boolean = false,
     val showTorrentDialog: Boolean = false,
@@ -164,6 +166,22 @@ class DetailsViewModel(
                         lastPlayedTorrentTitle = lastTorrent?.second
                     )
                 }
+
+                // Fetch collection parts if available
+                try {
+                    val colId = details.collection?.id
+                    if (colId != null && colId > 0) {
+                        val colRes = api.getCollection(colId)
+                        if (colRes.parts.isNotEmpty()) {
+                            _uiState.update {
+                                it.copy(
+                                    collectionName = colRes.name.ifBlank { details.collection?.name },
+                                    collectionTitles = colRes.parts
+                                )
+                            }
+                        }
+                    }
+                } catch (_: Exception) {}
 
                 // Fetch similar/recommendations
                 try {
