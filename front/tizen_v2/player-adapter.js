@@ -1,0 +1,1252 @@
+// Lumiere Player Adapter — unified playback interface
+// Samsung TV: webapis.avplay | Browser: HTML5 video
+(function() {
+  'use strict';
+
+  // ========== Platform Detection ==========
+  function isTizen() {
+    var hasWebapis = typeof webapis !== 'undefined';
+    var hasAvplay = hasWebapis && webapis.avplay !== null && webapis.avplay !== undefined;
+    var hasTizen = typeof tizen !== 'undefined';
+    var hasWebOS = typeof webOS !== 'undefined';
+    console.log('[PlayerAdapter] Platform check:');
+    console.log('  typeof webapis:', typeof webapis);
+    console.log('  typeof tizen:', typeof tizen);
+    console.log('  typeof webOS:', typeof webOS);
+    console.log('  hasWebapis:', hasWebapis);
+    console.log('  hasAvplay:', hasAvplay);
+    if (hasWebapis) {
+      console.log('  webapis keys:', Object.keys(webapis).join(', '));
+      console.log('  webapis.avplay type:', typeof webapis.avplay);
+    }
+    console.log('  userAgent:', navigator.userAgent.substring(0, 100));
+    return hasAvplay;
+  }
+
+  var LANG_MAP = {
+    rus: 'Русский', ru: 'Русский', russian: 'Русский',
+    eng: 'English', en: 'English', english: 'English',
+    ukr: 'Украинский', uk: 'Украинский', ukrainian: 'Украинский',
+    jpn: 'Японский', ja: 'Японский', japanese: 'Японский',
+    fra: 'Французский', fre: 'Французский', fr: 'Французский', french: 'Французский',
+    deu: 'Немецкий', ger: 'Немецкий', de: 'Немецкий', german: 'Немецкий',
+    ita: 'Итальянский', it: 'Итальянский', italian: 'Итальянский',
+    spa: 'Испанский', es: 'Испанский', spanish: 'Испанский',
+    por: 'Португальский', pt: 'Португальский', portuguese: 'Португальский',
+    chi: 'Китайский', zho: 'Китайский', zh: 'Китайский', chinese: 'Китайский',
+    kor: 'Корейский', ko: 'Корейский', korean: 'Корейский',
+    pol: 'Польский', pl: 'Польский', polish: 'Польский',
+    cze: 'Чешский', ces: 'Чешский', cs: 'Чешский', czech: 'Чешский',
+    tur: 'Турецкий', tr: 'Турецкий', turkish: 'Турецкий',
+    und: 'Неизвестно'
+  };
+
+  // ========== Player Adapter ==========
+  function PlayerAdapter(containerId) {
+    this.container = document.getElementById(containerId);
+    this.engine = null;
+    this.engineType = 'none'; // 'avplay' | 'video' | 'none'
+    this.listeners = {};
+    this.audioTracks = [];
+    this.subtitleTracks = [];
+    this.currentAudio = 0;
+    this.currentSubtitle = -1;
+    this._duration = 0;
+    this._currentTime = 0;
+    this._lastReportedTime = 0;
+    this._lastPlaytimeTimestamp = 0;
+    this._isPlaying = false;
+    this._isSeeking = false;
+    this._isBuffering = false;
+    this._seekOffset = 0;
+    this._hasExternalDuration = false;
+    this._avplayObj = null;
+  }
+
+  PlayerAdapter.prototype.on = function(event, callback) {
+    if (!this.listeners[event]) this.listeners[event] = [];
+    this.listeners[event].push(callback);
+  };
+
+  PlayerAdapter.prototype._emit = function(event, data) {
+    var cbs = this.listeners[event];
+    if (cbs) {
+      for (var i = 0; i < cbs.length; i++) {
+        try { cbs[i](data); } catch(e) { console.error('[Player] Listener error:', e); }
+      }
+    }
+  };
+
+  // ========== Play ==========
+  PlayerAdapter.prototype.play = function(url) {
+    this._hasFallenBackToVideo = false;
+    this._duration = 0;
+    this._currentTime = 0;
+    this._lastReportedTime = 0;
+    this._seekOffset = 0;
+    this._hasExternalDuration = false;
+    this._pendingSeek = null;
+    this._isSeeking = false;
+    console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
+    if (isTizen()) {
+      console.log('[PlayerAdapter] Using AVPlay engine');
+      this._playAvplay(url);
+    } else {
+      console.log('[PlayerAdapter] Using HTML5 video engine');
+      this._playVideo(url);
+    }
+  };
+
+  // ========== AVPlay Engine ==========
+  PlayerAdapter.prototype._setupAvplayListener = function() {
+    var self = this;
+    webapis.avplay.setListener({
+      onstreamcompleted: function() {
+        if (self._isSeeking || self._isAvplayPreparing) {
+          console.log('[AVPlay] Suppressing onstreamcompleted during seek/prepare');
+          return;
+        }
+        self._isPlaying = false;
+        self._emit('ended');
+      },
+      oncurrentplaytime: function(time) {
+        if (self._isSeeking || self._isAvplayPreparing) return;
+        if (typeof time === 'number' && time >= 0) {
+          self._lastPlaytimeTimestamp = Date.now();
+          var rawSec = time / 1000;
+          var calculatedTime = (self._seekOffset || 0) + rawSec;
+          if (self._duration && calculatedTime > self._duration) {
+            calculatedTime = self._duration;
+          }
+          // Strict monotonic forward playback guard:
+          // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, EOF loop)
+          if (self._lastReportedTime > 0 && !self._isSeeking) {
+            var diff = calculatedTime - self._lastReportedTime;
+            if (diff < 0) {
+              if (calculatedTime < 5.0 && self._lastReportedTime > 20.0) {
+                self._lastReportedTime = calculatedTime;
+              } else {
+                return;
+              }
+            }
+            if (diff > 15.0) {
+              return;
+            }
+          }
+          self._currentTime = calculatedTime;
+          self._lastReportedTime = calculatedTime;
+          self._emit('timeUpdate', { currentTime: self._currentTime });
+        }
+      },
+      onbufferingstart: function() {
+        self._isBuffering = true;
+        self._emit('bufferingStart');
+      },
+      onbufferingprogress: function(percent) {
+        self._emit('bufferingProgress', { percent: percent });
+      },
+      onbufferingcomplete: function() {
+        self._isBuffering = false;
+        self._emit('bufferingEnd');
+
+        // If a seek was requested while buffering, execute it now safely
+        if (self._pendingSeek && !self._isSeeking && !self._isAvplayPreparing) {
+          var pSeek = self._pendingSeek;
+          self._pendingSeek = null;
+          console.log('[AVPlay] Executing deferred seek after buffering complete to', pSeek.time, 's');
+          self.seekTo(pSeek.time, pSeek.successCb, pSeek.errorCb);
+        }
+
+        try {
+          var info = webapis.avplay.getStreamingProperty('DURATION_INFO');
+          if (info) {
+            var durVal = parseInt(info) / 1000;
+            if (durVal > 60 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+              self._duration = durVal;
+              self._emit('durationChange', { duration: self._duration });
+            }
+          }
+        } catch(e) {}
+      },
+      onerror: function(error) {
+        console.error('[AVPlay] Error:', error);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'avplay', 'AVPlay hardware error: ' + error, { url: self._currentUrl });
+        }
+        if (!self._hasFallenBackToVideo) {
+          self._hasFallenBackToVideo = true;
+          console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay hardware error');
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'avplay_fallback', 'AVPlay hardware error, fallback to HTML5 Video/HLS', { err: String(error), url: self._currentUrl });
+          }
+          try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+          self._playVideo(self._currentUrl);
+          return;
+        }
+        self._emit('error', { message: error });
+      },
+      onevent: function(eventType, eventData) {
+        console.log('[AVPlay] onEvent:', eventType, eventData);
+        if (eventType === 'PLAYER_MSG_BUFFERING_START' || eventType === 'PLAYER_MSG_NONE_SKIP') {
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'avplay', 'Buffering event: ' + eventType, { data: eventData });
+          }
+        }
+      },
+      onsubtitlechange: function(duration, text) {
+        console.log('[AVPlay] onSubtitleChange:', text);
+        self._emit('subtitleChange', { text: text, duration: duration });
+      },
+      ondrmevent: function(drmEvent, drmData) {}
+    });
+  };
+
+  PlayerAdapter.prototype._startAvplayPollTimer = function() {
+    var self = this;
+    if (self._avplayPollTimer) {
+      clearInterval(self._avplayPollTimer);
+      self._avplayPollTimer = null;
+    }
+    self._avplayPollTimer = setInterval(function() {
+      if (self._isSeeking || self._isAvplayPreparing) return;
+      try {
+        var ct = webapis.avplay.getCurrentTime();
+        if (typeof ct === 'number' && ct >= 0 && !self._isSeeking && !self._isAvplayPreparing) {
+          var nowSec = (self._seekOffset || 0) + (ct / 1000);
+          if (self._pendingSeek && nowSec > 0.5) {
+            var pSeek = self._pendingSeek;
+            self._pendingSeek = null;
+            console.log('[AVPlay] Executing deferred seek to', pSeek.time, 's once playback is active');
+            self.seekTo(pSeek.time, pSeek.successCb, pSeek.errorCb);
+          }
+          // Watchdog: fallback if oncurrentplaytime hasn't reported for > 1200ms
+          if (Date.now() - (self._lastPlaytimeTimestamp || 0) > 1200) {
+            if (self._duration && nowSec > self._duration) {
+              nowSec = self._duration;
+            }
+            if (self._lastReportedTime > 0 && !self._isSeeking) {
+              var diff = nowSec - self._lastReportedTime;
+              if (diff < 0) {
+                if (nowSec < 5.0 && self._lastReportedTime > 20.0) {
+                  self._lastReportedTime = nowSec;
+                } else {
+                  return;
+                }
+              }
+              if (diff > 15.0) {
+                return;
+              }
+            }
+            self._currentTime = nowSec;
+            self._lastReportedTime = nowSec;
+            self._emit('timeUpdate', { currentTime: self._currentTime });
+          }
+        }
+      } catch(e) {}
+      try {
+        var dur = webapis.avplay.getDuration();
+        if (dur && dur > 60000 && !self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+          var durSec = dur / 1000;
+          if (self._duration <= 0 || (Math.abs(durSec - self._duration) > 15 && Math.abs(durSec - self._duration) <= 120)) {
+            self._duration = durSec;
+            self._emit('durationChange', { duration: self._duration });
+          }
+        }
+      } catch(e) {}
+    }, 500);
+  };
+
+  PlayerAdapter.prototype._playAvplay = function(url) {
+    var self = this;
+    self._currentUrl = url;
+    var startMatch = url.match(/[?&]start=(\d+)/);
+    self._seekOffset = startMatch ? parseInt(startMatch[1], 10) : 0;
+    if (self._seekOffset > 0) {
+      self._currentTime = self._seekOffset;
+    }
+    console.log('[AVPlay] Starting playback:', url.substring(0, 100), 'initial offset:', self._seekOffset);
+    try {
+      if (this.container) {
+        this.container.style.background = 'transparent';
+        this.container.style.backgroundColor = 'transparent';
+      }
+      try {
+        webapis.avplay.stop();
+        webapis.avplay.close();
+      } catch(ex) {}
+
+      webapis.avplay.open(url);
+      console.log('[AVPlay] Stream opened');
+
+      try {
+        webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+      } catch(dme) {}
+
+      try {
+        webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+        console.log('[AVPlay] Display rect set to 1920x1080');
+      } catch(dre) {
+        console.warn('[AVPlay] setDisplayRect error:', dre);
+      }
+
+      try {
+        if (url && (url.indexOf('.m3u8') !== -1 || url.indexOf('/hls') !== -1)) {
+          try {
+            webapis.avplay.setStreamingProperty("ADAPTIVE_INFO", "HLS");
+          } catch(e) {}
+        }
+        if (webapis.avplay.BufferingMode && webapis.avplay.BufferUnit) {
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_PLAY, webapis.avplay.BufferUnit.TIME, 2000);
+          webapis.avplay.setBufferingParam(webapis.avplay.BufferingMode.PLAYER_BUFFER_FOR_RESUME, webapis.avplay.BufferUnit.TIME, 2000);
+          console.log('[AVPlay] Configured hardware buffer: play=2000ms, resume=2000ms');
+        }
+      } catch(be) {
+        console.warn('[AVPlay] setBufferingParam note:', be);
+      }
+
+      self._setupAvplayListener();
+
+      // Prepare and play with both success and error callbacks
+      webapis.avplay.prepareAsync(function() {
+        self.engineType = 'avplay';
+        self._isPlaying = true;
+        self._emit('loaded');
+
+        // Get audio tracks
+        try {
+          var info = webapis.avplay.getTotalTrackInfo();
+          if (info) {
+            var prevAudio = self.audioTracks || [];
+            var prevSubs = self.subtitleTracks || [];
+            self.audioTracks = [];
+            self.subtitleTracks = [];
+            for (var i = 0; i < info.length; i++) {
+              var track = info[i];
+              var extra = {};
+              if (track.extra_info) {
+                if (typeof track.extra_info === 'string') {
+                  try { extra = JSON.parse(track.extra_info); } catch(pe) { extra = {}; }
+                } else if (typeof track.extra_info === 'object') {
+                  extra = track.extra_info;
+                }
+              }
+              var rawLang = (extra.language || extra.track_lang || extra.lang || '').toLowerCase().trim();
+              var langName = LANG_MAP[rawLang] || rawLang || '';
+              var codec = extra.fourCC || extra.codec || '';
+              var ch = extra.channels ? (extra.channels + 'ch') : '';
+
+              if (track.type === 'AUDIO') {
+                var prevA = prevAudio[self.audioTracks.length];
+                var aName = (prevA && prevA.name && prevA.name.indexOf('Track') !== 0) ? prevA.name : '';
+                if (!aName) {
+                  aName = langName ? langName : ('Дорожка ' + (self.audioTracks.length + 1));
+                  if (codec) aName += ' ' + codec;
+                  if (ch) aName += ' ' + ch;
+                }
+                self.audioTracks.push({
+                  index: track.index,
+                  name: aName,
+                  lang: langName || rawLang,
+                  codec: codec,
+                  channels: ch
+                });
+              } else if (track.type === 'TEXT') {
+                var prevS = prevSubs[self.subtitleTracks.length];
+                var sName = (prevS && prevS.name && prevS.name.indexOf('Track') !== 0) ? prevS.name : '';
+                if (!sName) {
+                  sName = langName ? langName : ('Субтитры ' + (self.subtitleTracks.length + 1));
+                }
+                self.subtitleTracks.push({
+                  index: track.index,
+                  name: sName,
+                  lang: langName || rawLang
+                });
+              }
+            }
+            self._emit('audioTracksChanged', { tracks: self.audioTracks });
+            self._emit('subtitleTracksChanged', { tracks: self.subtitleTracks });
+          }
+        } catch(e) { console.log('[AVPlay] Track info error:', e); }
+
+        // Get duration — try multiple methods for accuracy if not external
+        if (!self._hasExternalDuration && (!self._currentUrl || self._currentUrl.indexOf('/api/torrents/hls') === -1)) {
+          try {
+            var durInfo = webapis.avplay.getStreamingProperty('DURATION_INFO');
+            if (durInfo) {
+              self._duration = parseInt(durInfo) / 1000;
+              self._emit('durationChange', { duration: self._duration });
+            }
+          } catch(e) {}
+          try {
+            var totalDur = webapis.avplay.getDuration();
+            if (totalDur && totalDur > 60000) {
+              var durSec = totalDur / 1000;
+              if (durSec > self._duration) {
+                self._duration = durSec;
+                self._emit('durationChange', { duration: self._duration });
+              }
+            }
+          } catch(e) {}
+        }
+
+        try {
+          webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+          webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+          console.log('[AVPlay] setDisplayRect 1920x1080 applied before play()');
+        } catch(re) {
+          console.warn('[AVPlay] setDisplayRect before play() error:', re);
+        }
+
+        webapis.avplay.play();
+        self._emit('playing');
+
+        // Polling for AVPlay — updates currentTime and duration continuously
+        self._startAvplayPollTimer();
+      }, function(prepareErr) {
+        console.error('[AVPlay] prepareAsync error:', prepareErr);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('warn', 'avplay_prepare', 'AVPlay prepareAsync error, fallback to HTML5 Video/HLS', { err: String(prepareErr), url: url });
+        }
+        if (!self._hasFallenBackToVideo) {
+          self._hasFallenBackToVideo = true;
+          console.warn('[AVPlay] Falling back to HTML5 Video engine after AVPlay prepare error');
+          try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+          self._playVideo(url);
+          return;
+        }
+        self._emit('error', { message: 'AVPlay prepare error: ' + prepareErr });
+      });
+
+    } catch(e) {
+      console.error('[AVPlay] Init error:', e);
+      if (typeof window.sendTvLog === 'function') {
+        window.sendTvLog('error', 'avplay_init', 'AVPlay init error, fallback to HTML5 Video: ' + e.message, { url: url });
+      }
+      if (!self._hasFallenBackToVideo) {
+        self._hasFallenBackToVideo = true;
+        try { webapis.avplay.stop(); webapis.avplay.close(); } catch(ce) {}
+        this._playVideo(url);
+        return;
+      }
+      this._emit('error', { message: e.message });
+    }
+  };
+
+  // ========== Video Engine ==========
+  PlayerAdapter.prototype._playVideo = function(url) {
+    var self = this;
+    if (this._videoEl) {
+      try { this._videoEl.pause(); } catch(e) {}
+      try { if (this._videoEl.parentNode) this._videoEl.parentNode.removeChild(this._videoEl); } catch(e) {}
+      this._videoEl = null;
+    }
+    if (this._hls) {
+      try { this._hls.destroy(); } catch(e) {}
+      this._hls = null;
+    }
+    if (this.container) {
+      this.container.style.background = '#000';
+      this.container.style.backgroundColor = '#000';
+    }
+    var $video = document.createElement('video');
+    $video.style.cssText = 'width:100%;height:100%;object-fit:contain;background:#000;';
+    $video.playsInline = true;
+    this.container.appendChild($video);
+    this._videoEl = $video;
+
+    self._currentUrl = url;
+    var startMatch = url.match(/[?&]start=(\d+)/);
+    self._seekOffset = startMatch ? parseInt(startMatch[1], 10) : 0;
+    self._currentTime = self._seekOffset;
+
+    // Use hls.js for HLS streams (better duration/seeking than native)
+    var isHls = url.indexOf('.m3u8') >= 0 || url.indexOf('/hls') >= 0;
+    if (isHls && typeof Hls !== 'undefined' && Hls.isSupported()) {
+      console.log('[PlayerAdapter] Using hls.js for HLS stream, initial offset:', self._seekOffset);
+      var hls = new Hls({
+        maxBufferLength: 30,
+        maxMaxBufferLength: 60,
+        backBufferLength: 30,
+        maxBufferSize: 60 * 1000 * 1000,
+        startLevel: -1,
+        debug: false,
+      });
+      self._hls = hls;
+      hls.loadSource(url);
+      hls.attachMedia($video);
+
+      hls.on(Hls.Events.MANIFEST_PARSED, function(_e, data) {
+        self.engineType = 'video';
+        self._isPlaying = true;
+        self._emit('loaded');
+        self._emit('playing');
+        // Only use HLS duration if we don't already have an accurate duration from FFprobe API
+        if (!self._hasExternalDuration && data && data.totalduration && isFinite(data.totalduration) && data.totalduration > 0) {
+          if (!self._duration || data.totalduration > self._duration) {
+            self._duration = (self._seekOffset || 0) + data.totalduration;
+            self._emit('durationChange', { duration: self._duration });
+          }
+        }
+        $video.play().catch(function() {});
+      });
+
+      hls.on(Hls.Events.ERROR, function(_e, data) {
+        if (data.fatal) {
+          console.error('[HLS] Fatal error:', data.type, data.details);
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+            console.log('[HLS] Recovering network error...');
+            hls.startLoad();
+          } else {
+            self._emit('error', { message: 'HLS error: ' + data.details });
+          }
+        }
+      });
+    } else {
+      // Native video playback
+      $video.src = url;
+      self.engineType = 'video';
+      try {
+        var playPromise = $video.play();
+        if (playPromise !== undefined && typeof playPromise.then === 'function') {
+          playPromise.then(function() {
+            self._isPlaying = true;
+            self._emit('loaded');
+            self._emit('playing');
+          }).catch(function(e) {
+            console.warn('[Video] Play error:', e.message);
+            self._emit('error', { message: e.message });
+          });
+        } else {
+          self._isPlaying = true;
+          self._emit('loaded');
+          self._emit('playing');
+        }
+      } catch(pe) {
+        console.warn('[Video] play() call exception:', pe);
+        self._isPlaying = true;
+        self._emit('loaded');
+        self._emit('playing');
+      }
+    }
+
+    $video.onplay = function() {
+      self._isPlaying = true;
+      self._emit('playing');
+    };
+    $video.ontimeupdate = function() {
+      self._currentTime = (self._seekOffset || 0) + $video.currentTime;
+      if (self._duration && self._currentTime > self._duration) {
+        self._currentTime = self._duration;
+      }
+      if (self._lastReportedTime > 0 && !self._isSeeking) {
+        var diff = self._currentTime - self._lastReportedTime;
+        if (diff < 0) {
+          if (self._currentTime < 5.0 && self._lastReportedTime > 20.0) {
+            self._lastReportedTime = self._currentTime;
+          } else {
+            return;
+          }
+        }
+        if (diff > 15.0) return;
+      }
+      self._lastReportedTime = self._currentTime;
+      self._emit('timeUpdate', { currentTime: self._currentTime });
+    };
+    $video.onloadedmetadata = function() {
+      if (self._hasExternalDuration && self._duration > 60) return;
+      if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
+        if (self._duration > 60 && $video.duration < self._duration) return;
+        self._duration = $video.duration;
+        self._emit('durationChange', { duration: self._duration });
+      }
+    };
+    $video.ondurationchange = function() {
+      if (self._hasExternalDuration && self._duration > 60) return;
+      if ($video.duration && isFinite($video.duration) && $video.duration > 0) {
+        if (self._duration > 60 && $video.duration < self._duration) return;
+        self._duration = $video.duration;
+        self._emit('durationChange', { duration: self._duration });
+      }
+    };
+    $video.onprogress = function() {
+      if ($video.buffered && $video.buffered.length > 0) {
+        var end = $video.buffered.end($video.buffered.length - 1);
+        var pct = self._duration > 0 ? (end / self._duration * 100) : 0;
+        self._emit('bufferingProgress', { percent: pct });
+      }
+    };
+    $video.onplaying = function() {
+      self._isPlaying = true;
+      self._emit('playing');
+      // Force buffer update on play
+      if ($video.buffered && $video.buffered.length > 0) {
+        var end = $video.buffered.end($video.buffered.length - 1);
+        var pct = self._duration > 0 ? (end / self._duration * 100) : 0;
+        self._emit('bufferingProgress', { percent: pct });
+      }
+    };
+    $video.onpause = function() {
+      self._isPlaying = false;
+      self._emit('paused');
+    };
+    $video.onended = function() { self._isPlaying = false; self._emit('ended'); };
+    $video.onerror = function() {
+      self._emit('error', { message: 'Video error' });
+      // Attempt reconnect for HLS streams
+      if ($video.src && ($video.src.indexOf('.m3u8') >= 0 || $video.src.indexOf('/hls') >= 0)) {
+        console.log('[PlayerAdapter] Video error, attempting reconnect in 3s...');
+        setTimeout(function() {
+          if (self._videoEl) {
+            var savedTime = self._currentTime;
+            var currentSrc = $video.src;
+            $video.src = '';
+            $video.src = currentSrc;
+            $video.load();
+            $video.currentTime = savedTime;
+            $video.play().catch(function() {});
+            console.log('[PlayerAdapter] Reconnected at', savedTime);
+          }
+        }, 3000);
+      }
+    };
+  };
+
+  // ========== Unified API ==========
+  PlayerAdapter.prototype.isPlaying = function() {
+    if (this.engineType === 'avplay') {
+      try {
+        if (typeof webapis !== 'undefined' && webapis.avplay) {
+          return webapis.avplay.getState() === 'PLAYING';
+        }
+      } catch(e) {}
+      return this._isPlaying;
+    } else if (this._videoEl) {
+      return !this._videoEl.paused && !this._videoEl.ended;
+    }
+    return this._isPlaying;
+  };
+
+  PlayerAdapter.prototype.pause = function() {
+    console.log('[PlayerAdapter] pause called, engineType:', this.engineType);
+    this._isPlaying = false;
+    if (this.engineType === 'avplay') {
+      try {
+        var state = 'UNKNOWN';
+        try { state = webapis.avplay.getState(); } catch(se) {}
+        console.log('[AVPlay] Current state before pause():', state);
+        if (state === 'PLAYING') {
+          webapis.avplay.pause();
+        }
+      } catch(e) {
+        console.error('[AVPlay] pause error:', e);
+      }
+    } else if (this._videoEl) {
+      try {
+        this._videoEl.pause();
+      } catch(ve) {
+        console.error('[Video] pause error:', ve);
+      }
+    }
+    this._emit('paused');
+  };
+
+  PlayerAdapter.prototype.resume = function() {
+    console.log('[PlayerAdapter] resume called, engineType:', this.engineType);
+    this._isPlaying = true;
+    if (this.engineType === 'avplay') {
+      try {
+        var state = 'UNKNOWN';
+        try { state = webapis.avplay.getState(); } catch(se) {}
+        console.log('[AVPlay] Current state before resume():', state);
+        if (state !== 'PLAYING') {
+          webapis.avplay.play();
+        }
+      } catch(e) {
+        console.error('[AVPlay] resume error:', e);
+      }
+    } else if (this._videoEl) {
+      try {
+        var p = this._videoEl.play();
+        if (p !== undefined && typeof p.then === 'function') {
+          p.catch(function(e) {});
+        }
+      } catch(ve) {
+        console.error('[Video] play error:', ve);
+      }
+    }
+    this._emit('playing');
+  };
+
+  PlayerAdapter.prototype.stop = function() {
+    if (this._avplayPollTimer) {
+      clearInterval(this._avplayPollTimer);
+      this._avplayPollTimer = null;
+    }
+    if (this._avplayDebugTimer) {
+      clearInterval(this._avplayDebugTimer);
+      this._avplayDebugTimer = null;
+    }
+    if (this._hls) {
+      try { this._hls.destroy(); } catch(e) {}
+      this._hls = null;
+    }
+    try {
+      if (typeof webapis !== 'undefined' && webapis.avplay) {
+        webapis.avplay.stop();
+        webapis.avplay.close();
+      }
+    } catch(e) {}
+    if (this._avplayObj && this._avplayObj.parentNode) {
+      this._avplayObj.parentNode.removeChild(this._avplayObj);
+      this._avplayObj = null;
+    } else if (this._videoEl) {
+      this._videoEl.pause();
+      this._videoEl.src = '';
+      if (this._videoEl.parentNode) {
+        this._videoEl.parentNode.removeChild(this._videoEl);
+      }
+      this._videoEl = null;
+    }
+    var stoppingUrl = this._currentUrl;
+    if (stoppingUrl && stoppingUrl.indexOf('/api/torrents/') !== -1) {
+      try {
+        var stopXhr = new XMLHttpRequest();
+        var apiBase = (typeof API !== 'undefined' ? API : '');
+        stopXhr.open('POST', apiBase + '/api/torrents/hls/stop', true);
+        stopXhr.setRequestHeader('Content-Type', 'application/json');
+        stopXhr.send(JSON.stringify({ link: stoppingUrl }));
+      } catch(e) {}
+    }
+    this._isPlaying = false;
+    this._duration = 0;
+    this._currentTime = 0;
+    this._lastReportedTime = 0;
+    this._lastPlaytimeTimestamp = 0;
+    this._seekOffset = 0;
+    this._currentUrl = '';
+    this.engineType = 'none';
+    this._emit('paused');
+  };
+
+  PlayerAdapter.prototype.setDuration = function(d) {
+    if (d && isFinite(d) && d > 0) {
+      this._duration = d;
+      this._hasExternalDuration = true;
+      this._emit('durationChange', { duration: this._duration });
+    }
+  };
+
+  PlayerAdapter.prototype.seek = function(seconds, successCb, errorCb) {
+    var self = this;
+    var isHls = self._currentUrl && (
+      self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+      self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+      self._currentUrl.indexOf('.m3u8') !== -1
+    );
+    if (self.engineType === 'avplay' && typeof webapis !== 'undefined' && webapis.avplay && !isHls) {
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(e) {}
+      if (avState === 'PLAYING' || avState === 'PAUSED') {
+        if (self._currentUrl && self._currentUrl.indexOf('/api/downloads/server/stream') !== -1) {
+          var target = Math.max(1.5, self._currentTime + seconds);
+          self.seekTo(target, successCb, errorCb);
+          return;
+        }
+        var offsetMs = Math.round(Math.abs(seconds) * 1000);
+        if (self._isBuffering) {
+          var target = Math.max(1.5, self._currentTime + seconds);
+          self._pendingSeek = { time: target, successCb: successCb, errorCb: errorCb };
+          return;
+        }
+        if (seconds < 0 && typeof webapis.avplay.jumpBackward === 'function' && self._currentTime > 2) {
+          self._isSeeking = true;
+          try {
+            webapis.avplay.jumpBackward(offsetMs, function() {
+              self._currentTime = Math.max(1.5, self._currentTime + seconds);
+              self._lastReportedTime = self._currentTime;
+              self._isSeeking = false;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+              if (successCb) successCb();
+            }, function(err) {
+              console.warn('[AVPlay] jumpBackward failed, falling back to seekTo:', err);
+              self._isSeeking = false;
+              var target = Math.max(1.5, self._currentTime + seconds);
+              self.seekTo(target, successCb, errorCb);
+            });
+            return;
+          } catch(e) {
+            console.warn('[AVPlay] jumpBackward exception:', e);
+            self._isSeeking = false;
+          }
+        } else if (seconds > 0 && typeof webapis.avplay.jumpForward === 'function') {
+          self._isSeeking = true;
+          try {
+            webapis.avplay.jumpForward(offsetMs, function() {
+              self._currentTime = self._currentTime + seconds;
+              self._lastReportedTime = self._currentTime;
+              self._isSeeking = false;
+              self._emit('timeUpdate', { currentTime: self._currentTime });
+              if (successCb) successCb();
+            }, function(err) {
+              console.warn('[AVPlay] jumpForward failed, falling back to seekTo:', err);
+              self._isSeeking = false;
+              var target = Math.max(1.5, self._currentTime + seconds);
+              self.seekTo(target, successCb, errorCb);
+            });
+            return;
+          } catch(e) {
+            console.warn('[AVPlay] jumpForward exception:', e);
+            self._isSeeking = false;
+          }
+        }
+      }
+    }
+    var target = Math.max(1.5, this._currentTime + seconds);
+    this.seekTo(target, successCb, errorCb);
+  };
+
+  PlayerAdapter.prototype._seekHlsAvplay = function(targetSec, successCb, errorCb) {
+    var self = this;
+    var safeTargetSec = Math.max(0, Math.floor(targetSec));
+    if (self._duration > 2 && safeTargetSec > self._duration - 2) {
+      safeTargetSec = Math.max(0, Math.floor(self._duration - 2));
+    }
+
+    // If AVPlay is currently executing prepareAsync, queue this seek.
+    // Calling stop() or close() in PREPARING state causes PLAYER_ERROR_INVALID_OPERATION on Tizen.
+    if (self._isAvplayPreparing) {
+      console.log('[AVPlay] AVPlay is currently preparing, queueing HLS seek to', safeTargetSec, 's');
+      self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+      self._currentTime = safeTargetSec;
+      self._emit('timeUpdate', { currentTime: safeTargetSec });
+      return;
+    }
+
+    self._isSeeking = true;
+    self._isAvplayPreparing = true;
+    self._hlsSeekSeq = (self._hlsSeekSeq || 0) + 1;
+    var thisSeq = self._hlsSeekSeq;
+
+    self._seekOffset = safeTargetSec;
+    self._currentTime = safeTargetSec;
+    self._lastReportedTime = safeTargetSec;
+    self._emit('timeUpdate', { currentTime: safeTargetSec });
+    self._emit('bufferingStart');
+
+    var cleanUrl = (self._currentUrl || '').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+    var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
+    var newSeekUrl = (safeTargetSec > 1) ? (cleanUrl + joinChar + 'start=' + Math.floor(safeTargetSec)) : cleanUrl;
+    self._currentUrl = newSeekUrl;
+
+    console.log('[AVPlay] HLS seek #' + thisSeq + ' to', safeTargetSec, 's, reloading URL:', newSeekUrl);
+
+    if (self._avplayPollTimer) {
+      clearInterval(self._avplayPollTimer);
+      self._avplayPollTimer = null;
+    }
+
+    var seekTimeout = setTimeout(function() {
+      if (thisSeq !== self._hlsSeekSeq) return;
+      console.warn('[AVPlay] HLS seek safety timeout at', safeTargetSec);
+      self._isAvplayPreparing = false;
+      onSeekDone(new Error('HLS seek timeout'));
+    }, 12000);
+
+    var onSeekDone = function(err) {
+      clearTimeout(seekTimeout);
+      self._isAvplayPreparing = false;
+      self._isSeeking = false;
+      self._emit('bufferingEnd');
+
+      if (self._pendingSeek) {
+        var next = self._pendingSeek;
+        self._pendingSeek = null;
+        console.log('[AVPlay] Executing queued HLS seek to', next.time, 's');
+        self._seekHlsAvplay(next.time, next.successCb, next.errorCb);
+      } else {
+        if (err && errorCb) errorCb(err);
+        else if (!err && successCb) successCb();
+      }
+    };
+
+    try {
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(se) {}
+      console.log('[AVPlay] State before HLS seek open:', avState);
+      if (avState === 'PLAYING' || avState === 'PAUSED') {
+        try { webapis.avplay.stop(); } catch(se) {}
+      }
+      try { webapis.avplay.close(); } catch(ce) {}
+
+      webapis.avplay.open(newSeekUrl);
+      try {
+        webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+      } catch(de) {}
+
+      self._setupAvplayListener();
+
+      webapis.avplay.prepareAsync(function() {
+        if (thisSeq !== self._hlsSeekSeq) {
+          console.log('[AVPlay] Stale HLS seek #' + thisSeq + ' prepareAsync resolved, ignoring');
+          return;
+        }
+        console.log('[AVPlay] HLS seek #' + thisSeq + ' prepareAsync succeeded at', safeTargetSec, 's');
+        self._isAvplayPreparing = false;
+        self.engineType = 'avplay';
+        self._isPlaying = true;
+        try { webapis.avplay.play(); } catch(pe) {}
+        self._emit('playing');
+        self._startAvplayPollTimer();
+
+        // Brief delay before releasing seek lock to allow AVPlay to decode the first video frame
+        setTimeout(function() {
+          onSeekDone(null);
+        }, 200);
+      }, function(pErr) {
+        if (thisSeq !== self._hlsSeekSeq) {
+          console.warn('[AVPlay] Stale HLS seek #' + thisSeq + ' prepareAsync error, ignoring');
+          return;
+        }
+        console.error('[AVPlay] HLS seek #' + thisSeq + ' prepareAsync error:', pErr);
+        if (typeof window.sendTvLog === 'function') {
+          window.sendTvLog('error', 'seek', 'AVPlay HLS seek prepareAsync failed', { targetSec: safeTargetSec, err: pErr });
+        }
+        self._isAvplayPreparing = false;
+        onSeekDone(pErr);
+      });
+    } catch(ex) {
+      console.error('[AVPlay] HLS seek exception:', ex);
+      self._isAvplayPreparing = false;
+      onSeekDone(ex);
+    }
+  };
+
+  PlayerAdapter.prototype._reloadAtTime = function(targetSec, wasPlaying, successCb, errorCb) {
+    var self = this;
+    var isHls = self._currentUrl && (
+      self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+      self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+      self._currentUrl.indexOf('.m3u8') !== -1
+    );
+    if (isHls) {
+      self._seekHlsAvplay(targetSec, successCb, errorCb);
+      return;
+    }
+    console.log('[AVPlay] _reloadAtTime starting at targetSec:', targetSec);
+    try {
+      self._isSeeking = true;
+      if (self._avplayPollTimer) {
+        clearInterval(self._avplayPollTimer);
+        self._avplayPollTimer = null;
+      }
+      try { webapis.avplay.stop(); } catch(e) {}
+      try { webapis.avplay.close(); } catch(e) {}
+
+      if (!self._currentUrl) {
+        self._isSeeking = false;
+        if (errorCb) errorCb(new Error('No currentUrl for reload'));
+        return;
+      }
+
+      webapis.avplay.open(self._currentUrl);
+      try {
+        webapis.avplay.setDisplayMethod('PLAYER_DISPLAY_MODE_LETTER_BOX');
+        webapis.avplay.setDisplayRect(0, 0, 1920, 1080);
+      } catch(de) {}
+
+      self._setupAvplayListener();
+
+      webapis.avplay.prepareAsync(function() {
+        self._isPlaying = true;
+        var targetMs = Math.round(Math.max(0.5, targetSec) * 1000);
+
+        var startPlayback = function() {
+          if (wasPlaying !== false) {
+            try { webapis.avplay.play(); } catch(pe) {}
+            self._emit('playing');
+          }
+          self._currentTime = targetSec;
+          self._isSeeking = false;
+          self._startAvplayPollTimer();
+
+          if (successCb) successCb();
+        };
+
+        // In READY state (after prepareAsync), seekTo sets the start position reliably
+        if (targetMs > 1000) {
+          try {
+            webapis.avplay.seekTo(targetMs, function() {
+              console.log('[AVPlay] _reloadAtTime seekTo in READY state success at', targetMs, 'ms');
+              startPlayback();
+            }, function(sErr) {
+              console.warn('[AVPlay] _reloadAtTime seekTo in READY state error:', sErr);
+              startPlayback();
+            });
+          } catch(se) {
+            console.warn('[AVPlay] _reloadAtTime seekTo exception:', se);
+            startPlayback();
+          }
+        } else {
+          startPlayback();
+        }
+      }, function(pErr) {
+        console.error('[AVPlay] _reloadAtTime prepareAsync failed:', pErr);
+        self._isSeeking = false;
+        if (errorCb) errorCb(pErr);
+      });
+    } catch(err) {
+      console.error('[AVPlay] _reloadAtTime error:', err);
+      self._isSeeking = false;
+      if (errorCb) errorCb(err);
+    }
+  };
+
+  PlayerAdapter.prototype.seekTo = function(timeSeconds, successCb, errorCb) {
+    var self = this;
+    var targetSec = Math.max(0, Number(timeSeconds) || 0);
+    self._currentTime = targetSec;
+    self._lastReportedTime = targetSec;
+
+    if (self.engineType === 'avplay') {
+      var isHls = self._currentUrl && (
+        self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
+        self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
+        self._currentUrl.indexOf('.m3u8') !== -1
+      );
+      if (isHls) {
+        self._seekHlsAvplay(targetSec, successCb, errorCb);
+        return;
+      }
+
+      if (self._currentUrl && self._currentUrl.indexOf('/api/downloads/server/stream/') !== -1) {
+        var hlsUrl = self._currentUrl.replace('/api/downloads/server/stream/', '/api/downloads/server/hls/') + '/stream.m3u8';
+        console.log('[AVPlay] Upgrading direct download stream to HLS for accurate seek:', hlsUrl);
+        self._currentUrl = hlsUrl;
+        self._seekHlsAvplay(targetSec, successCb, errorCb);
+        return;
+      }
+
+      var avState = '';
+      try { avState = webapis.avplay.getState(); } catch(se) {}
+
+      var safeTargetSec = Math.max(1.5, targetSec);
+      if (self._duration > 2 && safeTargetSec > self._duration - 2) {
+        safeTargetSec = Math.max(1.5, self._duration - 2);
+      }
+      var ms = Math.round(safeTargetSec * 1000);
+      console.log('[AVPlay] Seeking to', ms, 'ms (' + safeTargetSec.toFixed(1) + 's), state:', avState);
+
+      if (avState !== 'PLAYING' && avState !== 'PAUSED') {
+        console.warn('[AVPlay] AVPlay state is ' + avState + ', queuing seek target:', safeTargetSec, 's');
+        self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+        return;
+      }
+
+      if (self._isBuffering) {
+        console.warn('[AVPlay] AVPlay is currently buffering, queuing seek target:', safeTargetSec, 's');
+        self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+        return;
+      }
+
+      if (self._isSeeking) {
+        console.log('[AVPlay] Already seeking, queuing target:', safeTargetSec, 's');
+        self._pendingSeek = { time: safeTargetSec, successCb: successCb, errorCb: errorCb };
+        return;
+      }
+
+      self._isSeeking = true;
+
+      // Safety timeout: release lock after 5 seconds if callbacks don't fire
+      var seekTimeout = setTimeout(function() {
+        console.warn('[AVPlay] Seek safety timeout triggered');
+        onSeekDone();
+        if (errorCb) errorCb(new Error('Seek timeout'));
+      }, 5000);
+
+      var onSeekDone = function() {
+        clearTimeout(seekTimeout);
+        self._isSeeking = false;
+        if (self._pendingSeek) {
+          var next = self._pendingSeek;
+          self._pendingSeek = null;
+          self.seekTo(next.time, next.successCb, next.errorCb);
+        }
+      };
+
+      try {
+        // Direct seek without pause() to avoid state transition race conditions
+        webapis.avplay.seekTo(ms, function() {
+          console.log('[AVPlay] seekTo success at', ms, 'ms');
+          self._currentTime = safeTargetSec;
+          self._lastReportedTime = safeTargetSec;
+          self._emit('timeUpdate', { currentTime: safeTargetSec });
+          setTimeout(onSeekDone, 150);
+          if (successCb) successCb();
+        }, function(err) {
+          console.warn('[AVPlay] seekTo error callback:', err);
+          if (typeof window.sendTvLog === 'function') {
+            window.sendTvLog('warn', 'seek', 'AVPlay seekTo failed, maintaining playback', { targetSec: safeTargetSec, err: err });
+          }
+          // Do NOT call _reloadAtTime or stop()/close() - that causes TV deadlocks/hangs!
+          setTimeout(onSeekDone, 150);
+          if (errorCb) errorCb(err);
+        });
+      } catch(e) {
+        console.warn('[AVPlay] seekTo exception:', e);
+        setTimeout(onSeekDone, 150);
+        if (errorCb) errorCb(e);
+      }
+    } else if (self._videoEl) {
+      self._isSeeking = true;
+      try {
+        var localTarget = targetSec - (self._seekOffset || 0);
+        var isBuffered = false;
+        if (self._videoEl.buffered && self._videoEl.buffered.length > 0) {
+          for (var b = 0; b < self._videoEl.buffered.length; b++) {
+            if (localTarget >= self._videoEl.buffered.start(b) && localTarget <= self._videoEl.buffered.end(b)) {
+              isBuffered = true;
+              break;
+            }
+          }
+        }
+
+        if (isBuffered && localTarget >= 0) {
+          console.log('[Video] Seeking in buffer to local time:', localTarget.toFixed(1), 's (global:', targetSec.toFixed(1), 's)');
+          self._videoEl.currentTime = localTarget;
+          setTimeout(function() { self._isSeeking = false; }, 300);
+          if (successCb) successCb();
+        } else if (self._hls && self._currentUrl && (self._currentUrl.indexOf('/api/torrents/hls') >= 0 || self._currentUrl.indexOf('/api/downloads/server/hls') >= 0 || self._currentUrl.indexOf('.m3u8') >= 0)) {
+          console.log('[PlayerAdapter] HLS stream seek outside buffer: reloading from', Math.floor(targetSec), 's');
+          self._seekOffset = Math.floor(targetSec);
+          var cleanUrl = self._currentUrl.replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+          var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
+          var newSeekUrl = cleanUrl + joinChar + 'start=' + self._seekOffset;
+          self._currentUrl = newSeekUrl;
+          self._emit('bufferingStart');
+          self._hls.loadSource(newSeekUrl);
+          self._hls.attachMedia(self._videoEl);
+          self._videoEl.play().catch(function() {});
+          setTimeout(function() {
+            self._isSeeking = false;
+            self._emit('bufferingEnd');
+          }, 800);
+          if (successCb) successCb();
+        } else {
+          console.log('[Video] Direct seekTo', targetSec, 's');
+          self._videoEl.currentTime = targetSec;
+          setTimeout(function() { self._isSeeking = false; }, 300);
+          if (successCb) successCb();
+        }
+      } catch(ve) {
+        console.warn('[Video] seekTo error:', ve);
+        self._isSeeking = false;
+        if (errorCb) errorCb(ve);
+      }
+    } else {
+      self._isSeeking = false;
+    }
+  };
+
+  PlayerAdapter.prototype.getCurrentTime = function() {
+    return this._currentTime;
+  };
+
+  PlayerAdapter.prototype.getDuration = function() {
+    return this._duration;
+  };
+
+  PlayerAdapter.prototype.setAudioTrack = function(index) {
+    if (this._currentUrl && this._currentUrl.indexOf('/api/torrents/hls') !== -1) {
+      if (index >= 0 && this.currentAudio !== index) {
+        this.currentAudio = index;
+        var target = (index < this.audioTracks.length) ? this.audioTracks[index] : null;
+        var audioParam = (target && target.id !== undefined) ? target.id : index;
+        var cleanUrl = this._currentUrl.replace(/([?&])audio=\d+(&|$)/g, '$1').replace(/([?&])start=\d+(&|$)/g, '$1').replace(/[?&]$/, '');
+        var joinChar = cleanUrl.indexOf('?') >= 0 ? '&' : '?';
+        var newUrl = cleanUrl + joinChar + 'audio=' + audioParam + '&start=' + Math.floor(this._currentTime);
+        this._currentUrl = newUrl;
+        console.log('[PlayerAdapter] Switching HLS audio track to', index, '(param: ' + audioParam + ') reloading:', newUrl);
+        if (this.engineType === 'avplay') {
+          this._seekHlsAvplay(this._currentTime);
+        } else if (this._hls && this._videoEl) {
+          this._hls.loadSource(newUrl);
+          this._hls.attachMedia(this._videoEl);
+          this._videoEl.play().catch(function() {});
+        }
+      }
+      return;
+    }
+    if (this.engineType === 'avplay') {
+      try {
+        if (index >= 0 && index < this.audioTracks.length) {
+          var targetTrack = this.audioTracks[index];
+          var hwIndex = (targetTrack.index !== undefined) ? targetTrack.index : (targetTrack.id !== undefined ? targetTrack.id : index);
+          webapis.avplay.setSelectTrack('AUDIO', hwIndex);
+          this.currentAudio = index;
+          console.log('[AVPlay] Audio track set to:', targetTrack.name, 'hwIndex:', hwIndex);
+
+          // Flush AVPlay audio decoder buffer so the new audio track takes effect immediately
+          try {
+            var ct = webapis.avplay.getCurrentTime();
+            if (typeof ct === 'number' && ct > 0) {
+              webapis.avplay.seekTo(ct, function() {
+                console.log('[AVPlay] Audio buffer flushed at', ct);
+              }, function() {});
+            }
+          } catch(se) {}
+        }
+      } catch(e) { console.error('[AVPlay] setAudioTrack error:', e); }
+    }
+    // HTML5 video doesn't support audio track switching natively
+  };
+
+  PlayerAdapter.prototype.setSubtitleTrack = function(index) {
+    if (this.engineType === 'avplay') {
+      try {
+        if (index >= 0 && index < this.subtitleTracks.length) {
+          var targetSub = this.subtitleTracks[index];
+          var hwIndex = (targetSub.index !== undefined) ? targetSub.index : (targetSub.id !== undefined ? targetSub.id : index);
+          webapis.avplay.setSelectTrack('TEXT', hwIndex);
+          this.currentSubtitle = index;
+          console.log('[AVPlay] Subtitle track set to:', targetSub.name, 'hwIndex:', hwIndex);
+        } else {
+          // Disable subtitles
+          this.currentSubtitle = -1;
+          try { webapis.avplay.setSelectTrack('TEXT', -1); } catch(te) {}
+          console.log('[AVPlay] Subtitles disabled');
+        }
+      } catch(e) { console.error('[AVPlay] setSubtitleTrack error:', e); }
+    }
+  };
+
+  PlayerAdapter.prototype.getAudioTracks = function() {
+    return this.audioTracks;
+  };
+
+  PlayerAdapter.prototype.getSubtitleTracks = function() {
+    return this.subtitleTracks;
+  };
+
+  PlayerAdapter.prototype.setPlaybackRate = function(rate) {
+    if (this.engineType === 'avplay') {
+      try { webapis.avplay.setSpeed(rate); } catch(e) {}
+    } else if (this._videoEl) {
+      this._videoEl.playbackRate = rate;
+    }
+  };
+
+  PlayerAdapter.prototype.destroy = function() {
+    this.stop();
+    if (this._avplayObj && this._avplayObj.parentNode) {
+      this._avplayObj.parentNode.removeChild(this._avplayObj);
+    }
+    if (this._videoEl && this._videoEl.parentNode) {
+      this._videoEl.parentNode.removeChild(this._videoEl);
+    }
+    this.listeners = {};
+  };
+
+  // ========== Export ==========
+  window.PlayerAdapter = PlayerAdapter;
+})();

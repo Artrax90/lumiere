@@ -1,0 +1,12824 @@
+// Lumiere TV — Vanilla JS for Samsung Tizen 5.5 (Chrome 56)
+(function() {
+  'use strict';
+  console.log('[Lumiere] JS loaded');
+
+  var API = '';
+  var TOKEN_KEY = 'lumiere_access';
+  var SERVER_KEY = 'lumiere_server';
+
+  // Hardware back debounce timestamp guard (prevent Samsung Tizen double-fire)
+  var lastBackTimestamp = 0;
+
+  // IPTV OK button long-press state for Samsung OneRemote
+  var iptvLpTimer = null;
+  var iptvLpTriggered = false;
+  var iptvLpChannel = null;
+
+  // Helper: get base URL for player navigation
+  // In .wgt context, __LUMIERE_BASE__ is set by launcher
+  // In browser context, use current origin
+  function getBaseUrl() {
+    var server = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
+    if (server) return server;
+    if (window.__LUMIERE_BASE__) return window.__LUMIERE_BASE__;
+    if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return window.location.origin;
+    }
+    return '';
+  }
+
+  // User-scoped storage isolation helpers (Point 8, 8.1, 10)
+  function getUserStorageKey(baseKey) {
+    var uid = (state && state.user && state.user.id) || 0;
+    if (!uid) {
+      try {
+        var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+        if (u && u.id) uid = u.id;
+      } catch(e) {}
+    }
+    return uid ? 'u' + uid + '_' + baseKey : baseKey;
+  }
+
+  function getStorageItem(key) {
+    var scopedKey = getUserStorageKey(key);
+    var val = localStorage.getItem(scopedKey);
+    if (val === null && scopedKey !== key) {
+      var uid = (state && state.user && state.user.id) || 0;
+      if (!uid) {
+        try {
+          var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+          if (u && u.id) uid = u.id;
+        } catch(e) {}
+      }
+      var migKey = 'mig_' + key;
+      if (uid === 1 && !localStorage.getItem(migKey)) {
+        val = localStorage.getItem(key);
+        if (val !== null) {
+          try {
+            localStorage.setItem(scopedKey, val);
+          } catch(e) {}
+        }
+        try {
+          localStorage.setItem(migKey, '1');
+          localStorage.removeItem(key);
+        } catch(e) {}
+      } else {
+        try { localStorage.removeItem(key); } catch(e) {}
+      }
+    }
+    return val;
+  }
+
+  function setStorageItem(key, val) {
+    var scopedKey = getUserStorageKey(key);
+    localStorage.setItem(scopedKey, val);
+  }
+
+  function removeStorageItem(key) {
+    var scopedKey = getUserStorageKey(key);
+    localStorage.removeItem(scopedKey);
+    if (scopedKey !== key) localStorage.removeItem(key);
+  }
+
+  // Player base URL — same as getBaseUrl() when running in .wgt SPA mode
+  function getPlayerBaseUrl() {
+    return getBaseUrl();
+  }
+
+  // Formatting Helpers
+  function fmtTime(sec) {
+    if (!sec || isNaN(sec) || sec < 0) sec = 0;
+    var s = Math.floor(sec);
+    var h = Math.floor(s / 3600);
+    var m = Math.floor((s % 3600) / 60);
+    var rem = s % 60;
+    if (h > 0) {
+      return h + ':' + (m < 10 ? '0' : '') + m + ':' + (rem < 10 ? '0' : '') + rem;
+    }
+    return m + ':' + (rem < 10 ? '0' : '') + rem;
+  }
+
+  // SPA: open player by injecting HTML into DOM
+  // SPA: open player by injecting HTML into DOM
+  function openPlayer(params) {
+    if (typeof stopPreview === 'function') stopPreview();
+    var p = {};
+    if (typeof params === 'string') {
+      var q = params.charAt(0) === '?' ? params.substring(1) : params;
+      q.split('&').forEach(function(pair) {
+        var parts = pair.split('=');
+        if (parts.length === 2) p[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+      });
+    } else if (params && typeof params === 'object') {
+      p = params;
+    }
+
+    var playerHtml = '<div id="player">' +
+      '<video id="video" playsinline></video>' +
+      '<div id="osd">' +
+        '<div id="osd-top">' +
+          '<div class="osd-top-left">' +
+            '<button id="btn-back" class="osd-btn osd-top-btn" data-btn="back" tabindex="0">\u2190 Назад</button>' +
+            '<div id="osd-title-wrap">' +
+              '<div id="osd-title"></div>' +
+              '<div id="osd-stats" class="osd-stats">' +
+                '<span id="osd-res-badge" class="osd-badge">1080p</span>' +
+                '<span id="osd-peers" class="osd-stat-text">-- / -- \u2022 -- подкл.</span>' +
+                '<span id="osd-speed" class="osd-stat-speed">-- Мбит/с</span>' +
+                '<div class="osd-buffer-wrap">' +
+                  '<span id="osd-buffer-text" class="osd-buffer-text">Буфер: --%</span>' +
+                  '<div id="osd-dots" class="osd-dots">' +
+                    '<span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span>' +
+                  '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>' +
+          '<div class="osd-top-right">' +
+            '<div id="osd-end-time-badge" class="osd-end-time-badge" style="display:none;">' +
+              '<svg class="osd-end-time-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#e8c170" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>' +
+              '<span class="osd-end-time-label">Конец в</span>' +
+              '<span id="osd-end-time-val" class="osd-end-time-val">--:--</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="center-indicator">' +
+          '<span id="center-indicator-icon">\u25b6</span>' +
+          '<span id="center-indicator-text">Воспроизведение</span>' +
+        '</div>' +
+        '<div id="osd-bottom">' +
+          '<div id="timeline-row">' +
+            '<span id="time-current">0:00</span>' +
+            '<div id="timeline-wrap" tabindex="0">' +
+              '<div id="timeline-bar">' +
+                '<div id="timeline-buffer"></div>' +
+                '<div id="timeline-fill"></div>' +
+                '<div id="timeline-thumb"></div>' +
+              '</div>' +
+            '</div>' +
+            '<span id="time-total">0:00</span>' +
+          '</div>' +
+          '<div id="osd-controls" class="osd-controls-row">' +
+            '<div class="osd-controls-center">' +
+              '<button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>' +
+              '<button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>' +
+              '<button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>' +
+              '<button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>' +
+              '<button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>' +
+            '</div>' +
+            '<div class="osd-controls-right">' +
+              '<button id="btn-audio" class="osd-ctrl-btn osd-extra-btn" data-ctrl="audio" tabindex="0" title="Аудиодорожки">\ud83d\udd0a Звук</button>' +
+              '<button id="btn-cc" class="osd-ctrl-btn osd-extra-btn" data-ctrl="cc" tabindex="0" title="Субтитры">\ud83d\udcac Субтитры</button>' +
+            '</div>' +
+          '</div>' +
+          '<div class="osd-hint-row">' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Выбор</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25c4 / \u25ba</span> Перемотка / Дорожки</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25b2</span> Ползунок дорожки</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">\u25bc</span> Скрыть плеер</div>' +
+            '<div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Скрыть / Выход</div>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="popup" class="hidden">' +
+        '<div id="popup-header"></div>' +
+        '<div id="popup-list"></div>' +
+      '</div>' +
+      '<div id="next-ep-overlay" class="hidden">' +
+        '<div class="next-ep-card">' +
+          '<div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>' +
+          '<div id="next-ep-countdown" class="next-ep-timer">30</div>' +
+          '<div id="next-ep-title" class="next-ep-name">Следующая серия</div>' +
+          '<div class="next-ep-actions">' +
+            '<button id="btn-next-now" class="next-ep-btn primary" tabindex="0">\u25b6 Включить сейчас (OK)</button>' +
+            '<button id="btn-next-cancel" class="next-ep-btn secondary" tabindex="0">\u2715 Отмена</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div id="subtitle-overlay"></div>' +
+    '</div>';
+
+    var app = document.getElementById('app');
+    var detail = document.getElementById('detail');
+    var playerContainer = document.getElementById('player-container');
+    if (!playerContainer) {
+      playerContainer = document.createElement('div');
+      playerContainer.id = 'player-container';
+      document.body.appendChild(playerContainer);
+    }
+    var detailContent = detail ? detail.querySelector('#detail-content') : null;
+    var hasDetailContent = detailContent && detailContent.children.length > 0;
+    var isDetailOpen = (detail && !detail.classList.contains('hidden') && detail.style.display !== 'none' && hasDetailContent) || (state.detail && state.detail.id);
+    state.playerOpenedFrom = isDetailOpen ? 'detail' : 'app';
+    if (app) app.classList.add('hidden');
+    if (detail) detail.classList.add('hidden');
+    playerContainer.innerHTML = playerHtml;
+    playerContainer.classList.remove('hidden');
+    playerContainer.style.display = 'block';
+    playerContainer.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;z-index:9000;background:transparent;';
+    
+    // Tizen HW video plane transparency
+    document.documentElement.classList.add('player-active');
+    document.body.classList.add('player-active');
+    document.documentElement.style.background = 'transparent';
+    document.documentElement.style.backgroundColor = 'transparent';
+    document.body.style.background = 'transparent';
+    document.body.style.backgroundColor = 'transparent';
+
+    // Initialize player with sanitized title
+    var cleanPlayerTitle = '';
+    if (typeof p.title === 'string') {
+      cleanPlayerTitle = (p.title === '[object Object]') ? '' : p.title;
+    } else if (p.title && typeof p.title === 'object') {
+      cleanPlayerTitle = p.title.name || p.title.title || '';
+    }
+    if (!cleanPlayerTitle && p.file && typeof p.file === 'object') {
+      cleanPlayerTitle = p.file.name || '';
+    }
+    if (!cleanPlayerTitle && state.detail) {
+      if (typeof state.detail.name === 'string') cleanPlayerTitle = state.detail.name;
+      else if (typeof state.detail.title === 'string') cleanPlayerTitle = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') cleanPlayerTitle = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (cleanPlayerTitle === '[object Object]') cleanPlayerTitle = '';
+
+    var effectiveId = parseInt(p.id) || (state.detail && state.detail.id) || 0;
+    var rawType = p.type || (state.detail && state.detail.type) || '';
+    var effectiveType = rawType;
+    if (!effectiveType) {
+      effectiveType = (cleanPlayerTitle && / · S[0-9]+/i.test(cleanPlayerTitle)) ? 'tv' : 'movie';
+    }
+    var effectivePoster = p.poster || (state.detail && state.detail.poster) || '';
+
+    // If item is a movie, ensure no episode suffix was carried over
+    if (effectiveType === 'movie' && cleanPlayerTitle) {
+      cleanPlayerTitle = cleanPlayerTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
+
+    // Self-heal House M.D. (ID 1408)
+    if (Number(effectiveId) === 1408) {
+      effectiveType = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(cleanPlayerTitle) || !cleanPlayerTitle) {
+        cleanPlayerTitle = 'Доктор Хаус';
+      }
+    }
+
+    // Self-heal Harry Potter (ID 671)
+    if (Number(effectiveId) === 671) {
+      effectiveType = 'movie';
+      cleanPlayerTitle = (cleanPlayerTitle || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+      if (!cleanPlayerTitle) cleanPlayerTitle = 'Гарри Поттер и философский камень';
+    }
+
+    var playerParams = {
+      url: p.url || '',
+      title: cleanPlayerTitle || 'Видео',
+      id: effectiveId,
+      type: effectiveType,
+      poster: effectivePoster,
+      duration: parseInt(p.duration, 10) || 0,
+      start: parseInt(p.start) || 0,
+      link: p.link || (state.activeTorrent && state.activeTorrent.magnet) || (state._lastMagnet || ''),
+      torrentTitle: p.torrentTitle || (state.activeTorrent && state.activeTorrent.title) || '',
+      season: p.season || undefined,
+      episode: p.episode || undefined,
+      fileIndex: (p.fileIndex !== undefined) ? parseInt(p.fileIndex) : ((state.activeFile && state.activeFile.id !== undefined) ? state.activeFile.id : -1),
+      files: p.files || state.activeTorrentFiles || (state.torrentFiles || [])
+    };
+
+    var baseMediaTitle = cleanPlayerTitle.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(effectiveId) === 1408 && (/^(1408|Комната 1408)$/i.test(baseMediaTitle) || !baseMediaTitle)) {
+      baseMediaTitle = 'Доктор Хаус';
+    }
+
+    state.activePlayerMedia = {
+      id: effectiveId,
+      name: (effectiveType === 'tv' && baseMediaTitle) ? baseMediaTitle : (cleanPlayerTitle || 'Видео'),
+      type: effectiveType,
+      poster: effectivePoster,
+      backdrop: (state.detail && state.detail.backdrop) || playerParams.backdrop || ''
+    };
+
+    if (typeof window.initPlayer === 'function') {
+      window.initPlayer(playerParams);
+    } else if (typeof initPlayer === 'function') {
+      initPlayer(playerParams);
+    }
+  }
+
+  // SPA: close player and return to main app
+  function closePlayer() {
+    var playerContainer = document.getElementById('player-container');
+    var app = document.getElementById('app');
+    var detail = document.getElementById('detail');
+
+    if (typeof window.destroyPlayer === 'function') {
+      try { window.destroyPlayer(); } catch(e) { console.error('destroyPlayer error:', e); }
+    }
+
+    if (typeof webapis !== 'undefined' && webapis.avplay) {
+      try { webapis.avplay.stop(); } catch(e) {}
+      try { webapis.avplay.close(); } catch(e) {}
+    }
+
+    // Stop and clear all audio/video elements across document
+    var videos = document.querySelectorAll('video, audio');
+    for (var vi = 0; vi < videos.length; vi++) {
+      try {
+        videos[vi].pause();
+        videos[vi].removeAttribute('src');
+        videos[vi].src = '';
+        videos[vi].load();
+      } catch(ve) {}
+    }
+
+    if (playerContainer) {
+      playerContainer.classList.add('hidden');
+      playerContainer.innerHTML = '';
+      playerContainer.style.display = 'none';
+    }
+
+    document.documentElement.classList.remove('player-active');
+    document.body.classList.remove('player-active');
+    document.body.style.background = '#0a0b0f';
+    document.body.style.backgroundColor = '#0a0b0f';
+    if (document.documentElement) {
+      document.documentElement.style.background = '#0a0b0f';
+      document.documentElement.style.backgroundColor = '#0a0b0f';
+    }
+
+    var debugInfo = document.getElementById('debug-info');
+    if (debugInfo && debugInfo.parentNode) {
+      debugInfo.parentNode.removeChild(debugInfo);
+    }
+
+    // Timestamp guard: prevent immediate double-processing of Back key on Samsung Tizen
+    lastBackTimestamp = Date.now();
+    state._justClosedPlayer = Date.now();
+
+    // If closing player from IPTV, remain in IPTV and keep current channel and group focused!
+    if (state.section === 'iptv') {
+      if (detail) {
+        detail.classList.add('hidden');
+        detail.style.display = 'none';
+      }
+      if (app) {
+        app.classList.remove('hidden');
+        app.style.display = 'block';
+      }
+      iptvState.focusedCol = 1;
+      renderIptv();
+      focusIptvChannel(iptvState.focusedCh || 0);
+      if (typeof renderContinueWatching === 'function') renderContinueWatching();
+      return;
+    }
+
+    // Return to detail card of the media that was playing
+    var detailContent = detail ? detail.querySelector('#detail-content') : null;
+    var hasDetailContent = detailContent && detailContent.children.length > 0;
+
+    var targetDetail = state.activePlayerMedia || (state.detail && state.detail.id ? state.detail : null);
+    if (!targetDetail && movieId) {
+      targetDetail = { id: movieId, type: mediaType || 'movie' };
+    }
+    state.activePlayerMedia = null;
+
+    if (state.playerOpenedFrom === 'detail' && detail && targetDetail && targetDetail.id && targetDetail.type !== 'iptv') {
+      var isSameDetailLoaded = hasDetailContent && (Number(state.detailLoadedId) === Number(targetDetail.id));
+      if (isSameDetailLoaded) {
+        if (app) {
+          app.classList.add('hidden');
+          app.style.display = 'none';
+        }
+        detail.classList.remove('hidden');
+        detail.style.display = 'block';
+        detail.style.zIndex = '900';
+        var focusTarget = null;
+        if (targetDetail.type === 'tv') {
+          var targetEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.episode) ||
+                         parseInt(getStorageItem('last_episode_' + targetDetail.id), 10);
+          var targetSeason = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == targetDetail.id && state.lastPlayedEpisode.season) ||
+                             parseInt(getStorageItem('last_season_' + targetDetail.id), 10);
+
+          if (targetEp) {
+            if (targetSeason) {
+              focusTarget = detail.querySelector('.episode-card[data-season="' + targetSeason + '"][data-episode="' + targetEp + '"]');
+            }
+            if (!focusTarget) {
+              focusTarget = detail.querySelector('.episode-card[data-episode="' + targetEp + '"]');
+            }
+          }
+          if (!focusTarget) {
+            focusTarget = detail.querySelector('.episode-card.focused') || detail.querySelector('.episode-card');
+          }
+        }
+
+        if (!focusTarget) {
+          focusTarget = detail.querySelector('.episode-card.focused') ||
+                        detail.querySelector('.episode-card') ||
+                        detail.querySelector('#detail-play') ||
+                        detail.querySelector('.torrent-item.focused') ||
+                        detail.querySelector('.torrent-item') ||
+                        detail.querySelector('.detail-actions button') ||
+                        detail.querySelector('#detail-back-btn');
+        }
+        if (focusTarget) {
+          setDetailFocus(focusTarget);
+          try {
+            focusTarget.scrollIntoView({ block: 'center', inline: 'nearest' });
+          } catch(se) {}
+        }
+      } else {
+        if (app) {
+          app.classList.add('hidden');
+          app.style.display = 'none';
+        }
+        if (Number(targetDetail.id) === 671) {
+          targetDetail.type = 'movie';
+        }
+        if (targetDetail.type === 'tv' && Number(targetDetail.id) !== 671 && Number(targetDetail.id) !== 13) {
+          state.detailTab = 'episodes';
+        } else {
+          state.detailTab = 'torrents';
+        }
+        var cleanTitle = cleanMovieTitle(targetDetail.name || targetDetail.title || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+        showDetail({
+          id: targetDetail.id,
+          name: cleanTitle || targetDetail.name || '',
+          type: targetDetail.type,
+          poster: targetDetail.poster || '',
+          backdrop: targetDetail.backdrop || (state.detail && state.detail.backdrop) || ''
+        });
+      }
+    } else {
+      if (detail) {
+        detail.classList.add('hidden');
+        detail.style.display = 'none';
+      }
+      if (app) {
+        app.classList.remove('hidden');
+        app.style.display = 'block';
+      }
+      if (state.section === 'downloads') {
+        renderDownloadsSection();
+      } else {
+        var c = document.querySelector('.card.focused');
+        if (c) {
+          try { c.focus(); } catch(e) {}
+        } else {
+          focusNav(state.focusedNav || 0);
+        }
+      }
+    }
+
+    if (typeof renderContinueWatching === 'function') {
+      renderContinueWatching();
+    }
+    if (typeof syncWithServer === 'function') {
+      try { syncWithServer(); } catch(e) {}
+    }
+    if (typeof renderHistoryRecommendations === 'function') {
+      renderHistoryRecommendations();
+    }
+  }
+  window.closePlayer = closePlayer;
+  window.openPlayer = openPlayer;
+
+  // State
+  var state = {
+    section: 'home',
+    focusedNav: 0,
+    focusedCard: null,
+    movies: [],
+    tvShows: [],
+    iptvChannels: [],
+    user: null,
+    detail: null,    // current detail view data
+    detailTab: 'torrents',
+    detailSeason: ''
+  };
+
+  // DOM refs
+  var $loading, $app, $topbar, $content, $detail;
+
+  // ========== Init & DOM Synchronization ==========
+  function syncDomWithServer(serverUrl) {
+    var hasCompleteDom = document.getElementById('row-top10-movies') &&
+                         document.getElementById('iptv-cat-list');
+    if (hasCompleteDom) return;
+
+    try {
+      var sUrl = (serverUrl || API || '').replace(/\/+$/, '');
+      if (!sUrl) return;
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', sUrl + '/tv/index.html?ts=' + Date.now(), false);
+      try { xhr.overrideMimeType('text/html; charset=utf-8'); } catch(me) {}
+      try {
+        xhr.setRequestHeader('X-Lumiere-TV', '1');
+        xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+      } catch(he) {}
+      xhr.send();
+      if (xhr.status === 200 && xhr.responseText) {
+        var bodyMatch = xhr.responseText.match(/<body[^>]*>([\s\S]*)<\/body>/i);
+        if (bodyMatch && bodyMatch[1]) {
+          var cleanHtml = bodyMatch[1].replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+          document.body.innerHTML = cleanHtml;
+          console.log('[Lumiere] Successfully synced complete DOM from /tv/index.html');
+          if (window._appStarted) {
+            var ld = document.getElementById('loading');
+            var ap = document.getElementById('app');
+            if (ld) { ld.classList.add('hidden'); ld.style.display = 'none'; }
+            if (ap) { ap.classList.remove('hidden'); ap.style.display = 'block'; }
+          }
+          return;
+        }
+      }
+    } catch(e) {
+      console.warn('[Lumiere] DOM sync from server failed:', e);
+    }
+  }
+
+  function init() {
+    console.log('[Lumiere] Init starting');
+    try {
+      var savedServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server');
+      // If legacy port 3000 was saved in previous versions, or old PC IP, or old domain
+      if (savedServer && (/:3000\/?$/.test(savedServer) || savedServer.indexOf('192.168.1.77') !== -1)) {
+        savedServer = '';
+        try {
+          localStorage.removeItem(SERVER_KEY);
+          localStorage.removeItem('lumiere_server_url');
+          localStorage.removeItem('lumiere_tv_server');
+        } catch(e) {}
+      }
+      var isHttpOrigin = window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1';
+      var server = isHttpOrigin ? window.location.origin : savedServer;
+      if (!server) {
+        if (window.__DEFAULT_SERVER_URL__ && !window.__DEFAULT_SERVER_URL__.startsWith('file') && !window.__DEFAULT_SERVER_URL__.includes('localhost')) {
+          server = window.__DEFAULT_SERVER_URL__;
+        } else if (isHttpOrigin) {
+          server = window.location.origin;
+        } else {
+          server = '';
+        }
+      }
+      if (server) {
+        localStorage.setItem(SERVER_KEY, server);
+        localStorage.setItem('lumiere_server_url', server);
+        localStorage.setItem('lumiere_tv_server', server);
+      }
+      API = server || '';
+      console.log('[Lumiere] API set to:', API);
+
+      // Synchronize DOM structure with server if loaded from launcher with stub DOM
+      if (server) {
+        syncDomWithServer(server);
+      }
+
+      $loading = document.getElementById('loading');
+      $app = document.getElementById('app');
+      $topbar = document.getElementById('topbar');
+      $content = document.getElementById('content');
+      $detail = document.getElementById('detail');
+
+      // Clear history if ?clear=1 in URL (Chrome 56 compatible)
+      var searchStr = (window.location && window.location.search) ? window.location.search.substring(1) : '';
+      var params = {};
+      searchStr.split('&').forEach(function(pair) {
+        var parts = pair.split('=');
+        if (parts.length === 2) params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+      });
+      if (params.clear === '1') {
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        console.log('[Lumiere] History cleared');
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, '', window.location.pathname);
+        }
+      }
+
+      initAuth();
+    } catch(e) {
+      console.error('[Lumiere] Init error:', e);
+      var loading = document.getElementById('loading');
+      if (loading) {
+        loading.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumiere</span></div>' +
+          '<p style="margin-top:20px;color:rgba(255,255,255,0.5);font-size:14px;">Ошибка загрузки: ' + (e.message || 'unknown') + '</p>' +
+          '<button onclick="location.reload()" style="margin-top:16px;padding:10px 20px;border-radius:8px;background:#6ee7b7;color:#0a0b0f;border:none;font-size:14px;cursor:pointer;">Перезагрузить</button>';
+      }
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+
+  // Also listen for launcher dispatching DOMContentLoaded after script loads
+  document.addEventListener('DOMContentLoaded', function() {
+    var hasFullDom = document.getElementById('row-top10-movies') &&
+                     document.getElementById('iptv-cat-list');
+    if (!hasFullDom) {
+      console.log('[Lumiere] Launcher stub detected on DOMContentLoaded, synchronizing full DOM...');
+      syncDomWithServer(API);
+      if (window._appStarted) {
+        startApp();
+      }
+    }
+  });
+
+  // ========== Auth ==========
+  var profileState = {
+    profiles: [],
+    focusedIndex: 0,
+    selectedProfile: null,
+    padIndex: 0,
+    pinDigits: ''
+  };
+  window.profileState = profileState;
+  window.loadProfilesAndShowPicker = function() { loadProfilesAndShowPicker(); };
+
+  function handleConnectionFailure(fallbackMsg) {
+    if (API && !/:3500$/.test(API)) {
+      var probeUrl = API.replace(/:\d+$/, '') + ':3500';
+      checkLumiereServer(probeUrl, 1500, function(found) {
+        if (found) {
+          console.log('[Lumiere] Auto-corrected server port to 3500:', probeUrl);
+          applyNewServer(probeUrl);
+          return;
+        }
+        showError(fallbackMsg || ('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен на порту 3500.'));
+      });
+      return;
+    }
+    showError(fallbackMsg || ('Не удалось подключиться к серверу Lumiere (' + (API || 'не задан') + '). Проверьте, что сервер запущен на порту 3500.'));
+  }
+
+  function initAuth() {
+    try {
+      if (typeof setupKeyboard === 'function') setupKeyboard();
+    } catch(kErr) {
+      console.error('[Lumiere] setupKeyboard in initAuth error:', kErr);
+    }
+
+    if (!API) {
+      showError('Адрес сервера Lumière не задан. Нажмите «Найти в сети» для автоматического поиска.');
+      setTimeout(function() {
+        startLanScanFromErrorScreen();
+      }, 300);
+      return;
+    }
+
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) {
+      apiFetch('/api/user/profile', function(err, profile) {
+        if (profile && profile.id) {
+          state.user = profile;
+          startApp();
+        } else {
+          localStorage.removeItem(TOKEN_KEY);
+          loadProfilesAndShowPicker();
+        }
+      });
+    } else {
+      loadProfilesAndShowPicker();
+    }
+  }
+
+  function loadProfilesAndShowPicker() {
+    console.log('[Lumiere] loadProfilesAndShowPicker called');
+    apiFetch('/api/auth/lan-status', function(err, lanData) {
+      if (err) {
+        handleConnectionFailure();
+        return;
+      }
+      apiFetch('/api/auth/profiles', function(err2, data) {
+        var list = (data && data.profiles) || [];
+        if (list.length > 0) {
+          renderProfilePicker(list);
+          return;
+        }
+
+        // Only if no profiles returned, check setup status
+        apiFetch('/api/setup/status', function(err3, setupData) {
+          if (setupData && setupData.needsSetup) {
+            showSetupRequired(API);
+          } else if (lanData && !lanData.isLan && !lanData.isTv) {
+            showError('Для входа вне локальной сети авторизуйтесь через веб-браузер или задайте PIN-код профиля.');
+          } else {
+            showNoProfiles(API);
+          }
+        });
+      });
+    });
+  }
+
+  function renderProfilePicker(profiles) {
+    profileState.profiles = profiles;
+    profileState.focusedIndex = 0;
+    profileState.selectedProfile = null;
+    profileState.pinDigits = '';
+
+    var $picker = document.getElementById('profile-screen');
+    var $cards = document.getElementById('profile-cards');
+    if (!$picker || !$cards) return;
+
+    var html = '';
+    for (var i = 0; i < profiles.length; i++) {
+      var p = profiles[i];
+      var initial = p.name ? p.name.charAt(0).toUpperCase() : '?';
+      var isFocused = (i === 0);
+      html += '<div class="profile-card' + (isFocused ? ' focused' : '') + '" data-idx="' + i + '" data-id="' + p.id + '">' +
+        '<div class="profile-avatar-box">' +
+          (p.avatar ? '<img class="profile-avatar-img" src="' + p.avatar + '" />' : '<div class="profile-avatar-initial">' + initial + '</div>') +
+          '<div class="profile-badges">' +
+            (p.hasPin ? '<div class="profile-badge-icon" title="PIN-код">🔒</div>' : '') +
+            (p.isKids ? '<div class="profile-badge-icon" title="Детский">👶</div>' : '') +
+          '</div>' +
+        '</div>' +
+        '<div class="profile-name">' + (p.name || 'Пользователь') + '</div>' +
+        (p.role === 'admin' ? '<div class="profile-role-tag profile-role-admin">Админ</div>' : '') +
+        (p.isKids ? '<div class="profile-role-tag profile-role-kids">Детский</div>' : '') +
+      '</div>';
+    }
+    $cards.innerHTML = html;
+
+    var cardEls = $cards.querySelectorAll('.profile-card');
+    for (var c = 0; c < cardEls.length; c++) {
+      (function(el, idx) {
+        el.addEventListener('click', function() {
+          profileState.focusedIndex = idx;
+          updateProfileCardsFocus();
+          selectFocusedProfile();
+        });
+      })(cardEls[c], c);
+    }
+
+    if ($loading) { $loading.classList.add('hidden'); $loading.style.display = 'none'; }
+    $picker.classList.remove('hidden');
+    $picker.style.display = 'flex';
+    state.screen = 'profile-picker';
+  }
+
+  function updateProfileCardsFocus() {
+    var $cards = document.getElementById('profile-cards');
+    if (!$cards) return;
+    var cardEls = $cards.querySelectorAll('.profile-card');
+    for (var i = 0; i < cardEls.length; i++) {
+      if (i === profileState.focusedIndex) {
+        cardEls[i].classList.add('focused');
+        try { cardEls[i].scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' }); } catch(e) {}
+      } else {
+        cardEls[i].classList.remove('focused');
+      }
+    }
+  }
+
+  function selectFocusedProfile() {
+    var p = profileState.profiles[profileState.focusedIndex];
+    if (!p) return;
+
+    if (p.hasPin) {
+      openPinDialog(p);
+    } else {
+      loginWithProfile(p.id, '');
+    }
+  }
+
+  function openPinDialog(profile) {
+    profileState.selectedProfile = profile;
+    profileState.pinDigits = '';
+    profileState.padIndex = 0;
+
+    var $modal = document.getElementById('tv-pin-modal');
+    var $avatar = document.getElementById('tv-pin-avatar');
+    var $title = document.getElementById('tv-pin-title');
+    var $error = document.getElementById('tv-pin-error');
+    if (!$modal) return;
+
+    if ($avatar) $avatar.textContent = profile.name ? profile.name.charAt(0).toUpperCase() : '?';
+    if ($title) $title.textContent = profile.name;
+    if ($error) $error.textContent = '';
+    updatePinDots();
+    updatePinPadFocus();
+
+    var padBtns = $modal.querySelectorAll('.tv-pad-btn');
+    for (var b = 0; b < padBtns.length; b++) {
+      (function(btn, idx) {
+        btn.onclick = function() {
+          profileState.padIndex = idx;
+          updatePinPadFocus();
+          handlePadButtonAction(btn.getAttribute('data-key'));
+        };
+      })(padBtns[b], b);
+    }
+
+    $modal.classList.remove('hidden');
+    $modal.style.display = 'flex';
+    state.screen = 'pin-dialog';
+  }
+
+  function closePinDialog() {
+    var $modal = document.getElementById('tv-pin-modal');
+    if ($modal) {
+      $modal.classList.add('hidden');
+      $modal.style.display = 'none';
+    }
+    profileState.selectedProfile = null;
+    profileState.pinDigits = '';
+    state.screen = 'profile-picker';
+    updateProfileCardsFocus();
+  }
+
+  function updatePinDots() {
+    var $dots = document.getElementById('tv-pin-dots');
+    if (!$dots) return;
+    var dotEls = $dots.querySelectorAll('.tv-pin-dot');
+    for (var i = 0; i < dotEls.length; i++) {
+      if (i < profileState.pinDigits.length) {
+        dotEls[i].classList.add('filled');
+      } else {
+        dotEls[i].classList.remove('filled');
+      }
+    }
+  }
+
+  function updatePinPadFocus() {
+    var $pad = document.getElementById('tv-pin-pad');
+    if (!$pad) return;
+    var btns = $pad.querySelectorAll('.tv-pad-btn');
+    for (var i = 0; i < btns.length; i++) {
+      if (i === profileState.padIndex) {
+        btns[i].classList.add('focused');
+      } else {
+        btns[i].classList.remove('focused');
+      }
+    }
+  }
+
+  function handlePadButtonAction(key) {
+    if (key === 'cancel') {
+      closePinDialog();
+    } else if (key === 'back') {
+      if (profileState.pinDigits.length > 0) {
+        profileState.pinDigits = profileState.pinDigits.slice(0, -1);
+        updatePinDots();
+      }
+    } else if (key && key.length === 1 && key >= '0' && key <= '9') {
+      appendPinDigit(key);
+    }
+  }
+
+  function appendPinDigit(digit) {
+    if (!profileState.selectedProfile) return;
+    if (profileState.pinDigits.length >= 4) return;
+
+    profileState.pinDigits += digit;
+    updatePinDots();
+
+    if (profileState.pinDigits.length === 4) {
+      loginWithProfile(profileState.selectedProfile.id, profileState.pinDigits);
+    }
+  }
+
+  function loginWithProfile(userId, pin) {
+    var $error = document.getElementById('tv-pin-error');
+    if ($error) $error.textContent = 'Вход...';
+
+    apiPost('/api/auth/quick-login', { userId: userId, pin: pin }, function(err, data) {
+      if (err || !data || !data.accessToken) {
+        var errMsg = (err && err.message) ? err.message : 'Неверный PIN-код';
+        if ($error) $error.textContent = errMsg;
+        var $modal = document.getElementById('tv-pin-modal');
+        if (!$modal || $modal.classList.contains('hidden') || $modal.style.display === 'none') {
+          showTvToast(errMsg, 3000);
+        }
+        profileState.pinDigits = '';
+        updatePinDots();
+        return;
+      }
+
+      localStorage.setItem(TOKEN_KEY, data.accessToken);
+      state.user = data.user;
+      if (typeof iptvState !== 'undefined') {
+        iptvState.playlists = [];
+        iptvState.channels = [];
+        iptvState.groups = [];
+        iptvState.selectedPlaylistIndex = -1;
+      }
+      try { localStorage.setItem('lumiere_user', JSON.stringify(data.user)); } catch(se) {}
+      updateTvUserBadge();
+      loadAndApplyHomeShelves();
+
+      var $picker = document.getElementById('profile-screen');
+      if ($picker) { $picker.classList.add('hidden'); $picker.style.display = 'none'; }
+      var $modal = document.getElementById('tv-pin-modal');
+      if ($modal) { $modal.classList.add('hidden'); $modal.style.display = 'none'; }
+
+      state.screen = 'app';
+      var $app = document.getElementById('app');
+      if ($app) { $app.classList.remove('hidden'); $app.style.display = 'block'; }
+      startApp();
+    });
+  }
+
+  function updateTvUserBadge() {
+    var user = state.user;
+    if (!user) {
+      try {
+        user = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+      } catch(e) {}
+    }
+    var $pill = document.getElementById('nav-user-pill');
+    var $avatar = document.getElementById('tv-user-avatar');
+    var $name = document.getElementById('tv-user-name');
+    if (!$pill || !$name) return;
+
+    var displayName = user ? (user.name || user.username || user.login || '') : '';
+    if (displayName) {
+      $name.textContent = displayName;
+      if ($avatar) {
+        if (user.avatar) {
+          if (user.avatar.indexOf('http') === 0 || user.avatar.indexOf('/') === 0) {
+            $avatar.innerHTML = '<img src="' + user.avatar + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />';
+          } else {
+            $avatar.textContent = user.avatar;
+          }
+        } else {
+          $avatar.textContent = displayName.charAt(0).toUpperCase();
+        }
+      }
+      $pill.style.display = 'inline-flex';
+    } else {
+      $name.textContent = 'Войти';
+      if ($avatar) $avatar.textContent = '👤';
+    }
+  }
+  window.updateTvUserBadge = updateTvUserBadge;
+
+  function showProfilePicker() {
+    var $app = document.getElementById('app');
+    if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
+    var $picker = document.getElementById('profile-screen');
+    if ($picker) { $picker.classList.remove('hidden'); $picker.style.display = 'flex'; }
+    state.screen = 'profile-picker';
+    loadProfilesAndShowPicker();
+  }
+  window.showProfilePicker = showProfilePicker;
+
+  function handleProfilePickerKey(code, key, e) {
+    if (code === 37 || key === 'ArrowLeft') {
+      if (profileState.focusedIndex > 0) {
+        profileState.focusedIndex--;
+        updateProfileCardsFocus();
+      }
+    } else if (code === 39 || key === 'ArrowRight') {
+      if (profileState.focusedIndex < profileState.profiles.length - 1) {
+        profileState.focusedIndex++;
+        updateProfileCardsFocus();
+      }
+    } else if (code === 13 || key === 'Enter') {
+      selectFocusedProfile();
+    }
+  }
+
+  function handlePinModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      closePinDialog();
+      return;
+    }
+
+    if (code >= 48 && code <= 57) {
+      appendPinDigit(String(code - 48));
+      return;
+    }
+    if (code >= 96 && code <= 105) {
+      appendPinDigit(String(code - 96));
+      return;
+    }
+
+    var idx = profileState.padIndex;
+    if (code === 37 || key === 'ArrowLeft') {
+      if (idx % 3 > 0) { profileState.padIndex--; updatePinPadFocus(); }
+    } else if (code === 39 || key === 'ArrowRight') {
+      if (idx % 3 < 2) { profileState.padIndex++; updatePinPadFocus(); }
+    } else if (code === 38 || key === 'ArrowUp') {
+      if (idx >= 3) { profileState.padIndex -= 3; updatePinPadFocus(); }
+    } else if (code === 40 || key === 'ArrowDown') {
+      if (idx <= 8) { profileState.padIndex += 3; updatePinPadFocus(); }
+    } else if (code === 13 || key === 'Enter') {
+      var $pad = document.getElementById('tv-pin-pad');
+      if ($pad) {
+        var btns = $pad.querySelectorAll('.tv-pad-btn');
+        if (btns[profileState.padIndex]) {
+          var k = btns[profileState.padIndex].getAttribute('data-key');
+          handlePadButtonAction(k);
+        }
+      }
+    }
+  }
+
+  // ========== Error Screen, Server Configuration & LAN Auto-Discovery ==========
+  var errorScreenState = {
+    active: false,
+    focusedIndex: 1 // 0: retry, 1: scan (default!), 2: enter manually
+  };
+
+  function updateErrorButtonsFocus() {
+    var retryBtn = document.getElementById('tv-err-btn-retry');
+    var scanBtn = document.getElementById('tv-err-btn-scan');
+    var serverBtn = document.getElementById('tv-err-btn-server');
+    if (retryBtn) retryBtn.classList.toggle('focused', errorScreenState.focusedIndex === 0);
+    if (scanBtn) scanBtn.classList.toggle('focused', errorScreenState.focusedIndex === 1);
+    if (serverBtn) serverBtn.classList.toggle('focused', errorScreenState.focusedIndex === 2);
+    if (errorScreenState.focusedIndex === 0 && retryBtn) {
+      try { retryBtn.focus(); } catch(e) {}
+    } else if (errorScreenState.focusedIndex === 1 && scanBtn) {
+      try { scanBtn.focus(); } catch(e) {}
+    } else if (errorScreenState.focusedIndex === 2 && serverBtn) {
+      try { serverBtn.focus(); } catch(e) {}
+    }
+  }
+
+  function showError(msg) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 1;
+    var el = document.getElementById('loading');
+    if (el) {
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+      var currentServerDisplay = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : 'не задан');
+      el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(248,113,113,0.12);border:1px solid rgba(248,113,113,0.3);padding:10px 22px;border-radius:14px;color:#f87171;font-size:17px;font-weight:600;">' +
+          '<span>⚠️</span><span>Ошибка подключения к серверу</span>' +
+        '</div>' +
+        '<p id="tv-err-msg" style="margin-top:16px;color:rgba(255,255,255,0.85);font-size:18px;max-width:760px;text-align:center;line-height:1.5;">' + msg + '</p>' +
+        '<div style="margin-top:8px;font-size:15px;color:rgba(255,255,255,0.45);">Текущий адрес: <span style="color:#e8c170;font-family:monospace;font-weight:600;">' + currentServerDisplay + '</span></div>' +
+        '<div class="tv-err-actions" style="margin-top:28px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn" tabindex="0">⟳ Повторить</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">🔍 Найти в сети</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) {
+        retryBtn.addEventListener('click', function() {
+          window.location.reload();
+        });
+      }
+      if (scanBtn) {
+        scanBtn.addEventListener('click', function() {
+          startLanScanFromErrorScreen();
+        });
+      }
+      if (serverBtn) {
+        serverBtn.addEventListener('click', function() {
+          openServerModal();
+        });
+      }
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function showSetupRequired(serverUrl) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 0;
+    var el = document.getElementById('loading');
+    if (el) {
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+      var sUrl = serverUrl || API || '';
+      el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
+          '<span>✓</span><span>Сервер найден и подключен!</span>' +
+        '</div>' +
+        '<h2 style="margin-top:18px;color:#fff;font-size:26px;font-weight:700;">Требуется первоначальная настройка</h2>' +
+        '<p style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:18px;max-width:800px;text-align:center;line-height:1.6;">' +
+          'На сервере ещё не создана учетная запись администратора.<br>' +
+          'Откройте в браузере на телефоне или компьютере адрес:<br>' +
+          '<span style="display:inline-block;margin-top:10px;background:rgba(255,255,255,0.08);padding:8px 20px;border-radius:10px;color:#e8c170;font-family:monospace;font-size:22px;font-weight:700;letter-spacing:0.5px;">' + sUrl + '</span><br>' +
+          'и создайте первого пользователя.' +
+        '</p>' +
+        '<div class="tv-err-actions" style="margin-top:32px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">⟳ Я создал аккаунт, войти</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn" tabindex="0">🔍 Найти другой сервер</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) retryBtn.addEventListener('click', function() { window.location.reload(); });
+      if (scanBtn) scanBtn.addEventListener('click', function() { startLanScanFromErrorScreen(); });
+      if (serverBtn) serverBtn.addEventListener('click', function() { openServerModal(); });
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function showNoProfiles(serverUrl) {
+    errorScreenState.active = true;
+    errorScreenState.focusedIndex = 0;
+    var el = document.getElementById('loading');
+    if (el) {
+      el.classList.remove('hidden');
+      el.style.display = 'flex';
+      var sUrl = serverUrl || API || '';
+      el.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>' +
+        '<div style="margin-top:24px;display:flex;align-items:center;gap:10px;background:rgba(110,231,183,0.15);border:1px solid rgba(110,231,183,0.35);padding:10px 24px;border-radius:14px;color:#6ee7b7;font-size:17px;font-weight:600;">' +
+          '<span>✓</span><span>Сервер подключен</span>' +
+        '</div>' +
+        '<h2 style="margin-top:18px;color:#fff;font-size:26px;font-weight:700;">На сервере пока нет профилей</h2>' +
+        '<p style="margin-top:12px;color:rgba(255,255,255,0.85);font-size:18px;max-width:800px;text-align:center;line-height:1.6;">' +
+          'Войдите в веб-интерфейс по адресу:<br>' +
+          '<span style="display:inline-block;margin-top:10px;background:rgba(255,255,255,0.08);padding:8px 20px;border-radius:10px;color:#e8c170;font-family:monospace;font-size:22px;font-weight:700;letter-spacing:0.5px;">' + sUrl + '</span><br>' +
+          'и создайте профиль для просмотра на ТВ.' +
+        '</p>' +
+        '<div class="tv-err-actions" style="margin-top:32px;display:flex;gap:16px;">' +
+          '<button id="tv-err-btn-retry" class="tv-err-btn focused" tabindex="0" style="background:#e8c170;color:#0a0b0f;border-color:#e8c170;font-weight:700;">⟳ Обновить список</button>' +
+          '<button id="tv-err-btn-scan" class="tv-err-btn" tabindex="0">🔍 Найти другой сервер</button>' +
+          '<button id="tv-err-btn-server" class="tv-err-btn" tabindex="0">⚙ Ввести вручную</button>' +
+        '</div>' +
+        '<div style="margin-top:24px;font-size:14px;color:rgba(255,255,255,0.4);display:flex;gap:18px;">' +
+          '<span>◄ ► Выбор</span><span>•</span><span>[OK] Подтвердить</span>' +
+        '</div>';
+
+      var retryBtn = document.getElementById('tv-err-btn-retry');
+      var scanBtn = document.getElementById('tv-err-btn-scan');
+      var serverBtn = document.getElementById('tv-err-btn-server');
+      if (retryBtn) retryBtn.addEventListener('click', function() { window.location.reload(); });
+      if (scanBtn) scanBtn.addEventListener('click', function() { startLanScanFromErrorScreen(); });
+      if (serverBtn) serverBtn.addEventListener('click', function() { openServerModal(); });
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function isTvEnterKey(code, key) {
+    return code === 13 || code === 29443 || code === 65385 || code === 65376 ||
+           key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK';
+  }
+
+  function handleErrorScreenKey(code, key, e) {
+    if (code === 37 || key === 'ArrowLeft') {
+      if (errorScreenState.focusedIndex > 0) errorScreenState.focusedIndex--;
+      else errorScreenState.focusedIndex = 2;
+      updateErrorButtonsFocus();
+    } else if (code === 39 || key === 'ArrowRight') {
+      if (errorScreenState.focusedIndex < 2) errorScreenState.focusedIndex++;
+      else errorScreenState.focusedIndex = 0;
+      updateErrorButtonsFocus();
+    } else if (isTvEnterKey(code, key)) {
+      console.log('[Lumiere] Error screen button clicked, focusedIndex:', errorScreenState.focusedIndex);
+      if (errorScreenState.focusedIndex === 0) {
+        var loading = document.getElementById('loading');
+        if (loading) {
+          loading.innerHTML = '<div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div><div class="spinner"></div>';
+        }
+        initAuth();
+      } else if (errorScreenState.focusedIndex === 1) {
+        startLanScanFromErrorScreen();
+      } else {
+        openServerModal();
+      }
+    } else if (code === 405 || (code >= 48 && code <= 57)) {
+      openServerModal();
+    }
+  }
+
+  // ========== LAN Auto-Discovery Engine ==========
+  function getTizenLocalIp() {
+    try {
+      if (typeof webapis !== 'undefined' && webapis.network && typeof webapis.network.getIP === 'function') {
+        var ip = webapis.network.getIP();
+        if (ip && /^(\d{1,3}\.){3}\d{1,3}$/.test(ip)) return ip;
+      }
+    } catch(e) {}
+    return '';
+  }
+
+  function getCandidateSubnets() {
+    var list = [];
+    var tizenIp = getTizenLocalIp();
+    if (tizenIp) {
+      var m = tizenIp.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m && list.indexOf(m[1]) === -1) list.push(m[1]);
+    }
+    var curH = (window.location && window.location.hostname) ? window.location.hostname : '';
+    if (curH && /^(\d{1,3}\.){3}\d{1,3}$/.test(curH)) {
+      var m2 = curH.match(/^(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m2 && list.indexOf(m2[1]) === -1) list.push(m2[1]);
+    }
+    var saved = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || '';
+    if (saved) {
+      var m3 = saved.match(/https?:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.)/);
+      if (m3 && list.indexOf(m3[1]) === -1) list.push(m3[1]);
+    }
+    var defaults = ['192.168.1.', '192.168.0.', '192.168.31.', '192.168.88.', '10.0.0.'];
+    for (var i = 0; i < defaults.length; i++) {
+      if (list.indexOf(defaults[i]) === -1) list.push(defaults[i]);
+    }
+    return list;
+  }
+
+  function checkLumiereServer(url, timeoutMs, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', url + '/api/health', true);
+    xhr.timeout = timeoutMs || 1500;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try {
+          var data = JSON.parse(xhr.responseText);
+          if (data && (data.status === 'ok' || data.name === 'lumiere')) {
+            cb(true);
+            return;
+          }
+        } catch(e) {}
+      }
+      cb(false);
+    };
+    xhr.onerror = function() { cb(false); };
+    xhr.ontimeout = function() { cb(false); };
+    try { xhr.send(); } catch(err) { cb(false); }
+  }
+
+  function scanSubnetForLumiere(subnet, onFound, onProgress, onDone) {
+    var ips = [];
+    var priority = [196, 77, 148, 1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 88, 90, 100, 101, 105, 110, 120, 150, 190, 192, 195, 200, 250, 254];
+    var saved = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || '';
+    var savedOctet = saved.match(new RegExp('^https?:\\/\\/' + subnet.replace(/\./g, '\\.') + '(\\d+)'));
+    if (savedOctet && savedOctet[1]) {
+      var n = parseInt(savedOctet[1]);
+      if (n > 0 && n < 255) ips.push(n);
+    }
+    for (var p = 0; p < priority.length; p++) {
+      if (ips.indexOf(priority[p]) === -1) ips.push(priority[p]);
+    }
+    for (var i = 1; i <= 254; i++) {
+      if (ips.indexOf(i) === -1) ips.push(i);
+    }
+
+    var stopped = false;
+    var completed = 0;
+    var activeCount = 0;
+    var concurrency = 16;
+    var index = 0;
+
+    function launchNext() {
+      if (stopped) return;
+      if (completed >= ips.length) {
+        if (!stopped) {
+          stopped = true;
+          onDone();
+        }
+        return;
+      }
+
+      while (activeCount < concurrency && index < ips.length && !stopped) {
+        (function(ipNum) {
+          activeCount++;
+          var targetUrl = 'http://' + subnet + ipNum + ':3500';
+          checkLumiereServer(targetUrl, 1500, function(found) {
+            if (stopped) return;
+            activeCount--;
+            completed++;
+            if (onProgress) onProgress(completed, ips.length, subnet);
+            if (found) {
+              stopped = true;
+              onFound(targetUrl);
+              return;
+            }
+            launchNext();
+          });
+        })(ips[index++]);
+      }
+    }
+
+    launchNext();
+    return function stop() { stopped = true; };
+  }
+
+  var currentScanAborter = null;
+  function startLanScanFromErrorScreen() {
+    var msgEl = document.getElementById('tv-err-msg');
+    var scanBtn = document.getElementById('tv-err-btn-scan');
+    if (scanBtn) {
+      scanBtn.textContent = '⏳ Поиск...';
+    }
+
+    var subnets = getCandidateSubnets();
+    var sIdx = 0;
+
+    function scanNextSubnet() {
+      if (sIdx >= subnets.length) {
+        if (msgEl) {
+          msgEl.innerHTML = '<span style="color:#f87171;">Сервер Lumière не найден в локальной сети. Убедитесь, что сервер запущен (порт 3500), или введите адрес вручную.</span>';
+        }
+        if (scanBtn) scanBtn.textContent = '🔍 Найти в сети';
+        errorScreenState.focusedIndex = 2;
+        updateErrorButtonsFocus();
+        return;
+      }
+
+      var subnet = subnets[sIdx++];
+      if (msgEl) {
+        msgEl.innerHTML = '🔍 Поиск сервера Lumière в сети <b style="color:#e8c170;">' + subnet + 'x:3500</b>...';
+      }
+
+      currentScanAborter = scanSubnetForLumiere(
+        subnet,
+        function(foundUrl) {
+          if (msgEl) {
+            msgEl.innerHTML = '✓ Найден сервер Lumière: <b style="color:#6ee7b7;">' + foundUrl + '</b>! Подключение...';
+          }
+          applyNewServer(foundUrl);
+        },
+        function(completed, total) {
+          if (msgEl) {
+            msgEl.innerHTML = '🔍 Поиск сервера Lumière в сети <b style="color:#e8c170;">' + subnet + 'x:3500</b> (' + completed + '/' + total + ')...';
+          }
+        },
+        function() {
+          scanNextSubnet();
+        }
+      );
+    }
+
+    scanNextSubnet();
+  }
+
+  function startLanScanFromModal() {
+    showServerModalStatus('🔍 Поиск сервера Lumière в локальной сети...', 'loading');
+    var subnets = getCandidateSubnets();
+    var sIdx = 0;
+
+    function scanNext() {
+      if (sIdx >= subnets.length) {
+        showServerModalStatus('Сервер не найден в сети. Введите адрес вручную.', 'error');
+        return;
+      }
+      var subnet = subnets[sIdx++];
+      showServerModalStatus('Поиск в сети ' + subnet + 'x:3500...', 'loading');
+
+      currentScanAborter = scanSubnetForLumiere(
+        subnet,
+        function(foundUrl) {
+          var input = document.getElementById('tv-server-input');
+          if (input) input.value = foundUrl;
+          showServerModalStatus('✓ Найден сервер: ' + foundUrl + '! Подключение...', 'success');
+          applyNewServer(foundUrl);
+        },
+        function(completed, total) {
+          showServerModalStatus('Поиск в сети ' + subnet + 'x (' + completed + '/' + total + ')...', 'loading');
+        },
+        function() {
+          scanNext();
+        }
+      );
+    }
+
+    scanNext();
+  }
+
+  // ========== Server Configuration Modal ==========
+  var serverModalState = {
+    active: false,
+    curRow: 5,
+    curCol: 0,
+    rows: [],
+    failedUrl: null
+  };
+
+  function openServerModal() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    serverModalState.active = true;
+    serverModalState.failedUrl = null;
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+
+    var currentServer = localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || API || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : '');
+    var input = document.getElementById('tv-server-input');
+    if (input) {
+      input.value = currentServer;
+      if (!input._eventsBound) {
+        input._eventsBound = true;
+        input.addEventListener('input', function() {
+          serverModalState.failedUrl = null;
+          showServerModalStatus('', '');
+        });
+      }
+    }
+    showServerModalStatus('', '');
+
+    buildServerModalRows();
+    // Default focus to connect button (last row)
+    serverModalState.curRow = Math.max(0, serverModalState.rows.length - 1);
+    serverModalState.curCol = 0;
+    updateServerModalFocus();
+
+    if (!modal._clicksBound) {
+      modal._clicksBound = true;
+      var btns = modal.querySelectorAll('button');
+      for (var b = 0; b < btns.length; b++) {
+        (function(btn) {
+          btn.addEventListener('click', function() {
+            handleServerKeyAction(btn);
+          });
+        })(btns[b]);
+      }
+    }
+  }
+
+  function closeServerModal() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    serverModalState.active = false;
+    serverModalState.failedUrl = null;
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+
+    if (errorScreenState.active) {
+      errorScreenState.focusedIndex = 1;
+      updateErrorButtonsFocus();
+    }
+  }
+
+  function showServerModalStatus(msg, type) {
+    var el = document.getElementById('tv-server-status');
+    if (!el) return;
+    el.textContent = msg;
+    el.className = 'tv-server-status ' + (type || '');
+  }
+
+  function buildServerModalRows() {
+    var modal = document.getElementById('tv-server-modal');
+    if (!modal) return;
+    serverModalState.rows = [];
+
+    // Row 0: Input field and backspace button
+    var inputEl = document.getElementById('tv-server-input');
+    var backKey = document.getElementById('tv-server-key-back');
+    if (inputEl && backKey) {
+      serverModalState.rows.push([inputEl, backKey]);
+    } else if (inputEl) {
+      serverModalState.rows.push([inputEl]);
+    }
+
+    var rowEls = modal.querySelectorAll('.tv-server-keypad-row');
+    for (var r = 0; r < rowEls.length; r++) {
+      var btns = rowEls[r].querySelectorAll('button');
+      var rowBtns = [];
+      for (var b = 0; b < btns.length; b++) rowBtns.push(btns[b]);
+      if (rowBtns.length > 0) {
+        serverModalState.rows.push(rowBtns);
+      }
+    }
+  }
+
+  function updateServerModalFocus() {
+    if (!serverModalState.rows || serverModalState.rows.length === 0) {
+      buildServerModalRows();
+    }
+    var prev = document.querySelectorAll('#tv-server-modal .focused');
+    for (var i = 0; i < prev.length; i++) prev[i].classList.remove('focused');
+
+    var r = serverModalState.curRow;
+    var c = serverModalState.curCol;
+    if (r < 0) r = 0;
+    if (r >= serverModalState.rows.length) r = serverModalState.rows.length - 1;
+    serverModalState.curRow = r;
+
+    var curRowBtns = serverModalState.rows[r] || [];
+    if (c < 0) c = 0;
+    if (c >= curRowBtns.length) c = curRowBtns.length - 1;
+    serverModalState.curCol = c;
+
+    var targetBtn = curRowBtns[c];
+    if (targetBtn) {
+      targetBtn.classList.add('focused');
+      if (targetBtn.id !== 'tv-server-input') {
+        try { targetBtn.focus(); } catch(e) {}
+      }
+    }
+  }
+
+  function appendServerInputText(txt) {
+    var input = document.getElementById('tv-server-input');
+    if (!input) return;
+    var val = input.value || '';
+    if (txt === 'https://' || txt === 'http://') {
+      val = val.replace(/^https?:\/\//i, '');
+      input.value = txt + val;
+    } else {
+      input.value = val + txt;
+    }
+    while (/^https?:\/\/(https?:\/\/)/i.test(input.value)) {
+      input.value = input.value.replace(/^https?:\/\//i, '');
+    }
+    serverModalState.failedUrl = null;
+    showServerModalStatus('', '');
+  }
+
+  function backspaceServerInput() {
+    var input = document.getElementById('tv-server-input');
+    if (!input || !input.value) return;
+    input.value = input.value.slice(0, -1);
+    serverModalState.failedUrl = null;
+    showServerModalStatus('', '');
+  }
+
+  function handleServerKeyAction(btn) {
+    if (!btn) return;
+    var text = btn.getAttribute('data-text');
+    var action = btn.getAttribute('data-action');
+
+    if (text) {
+      appendServerInputText(text);
+      return;
+    }
+
+    if (action === 'backspace') {
+      backspaceServerInput();
+    } else if (action === 'clear') {
+      var input = document.getElementById('tv-server-input');
+      if (input) {
+        input.value = '';
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
+    } else if (action === 'scan') {
+      startLanScanFromModal();
+    } else if (action === 'curhost') {
+      var cur = (window.location && window.location.hostname && window.location.hostname !== 'localhost') ?
+        ((window.location.protocol || 'http:') + '//' + window.location.hostname + (window.location.port ? ':' + window.location.port : '')) :
+        '';
+      var input = document.getElementById('tv-server-input');
+      if (input) {
+        input.value = cur;
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
+    } else if (action === 'default') {
+      var def = window.__DEFAULT_SERVER_URL__ || (window.location.origin && !window.location.origin.startsWith('file') ? window.location.origin : '');
+      var input = document.getElementById('tv-server-input');
+      if (input) {
+        input.value = def;
+        serverModalState.failedUrl = null;
+        showServerModalStatus('', '');
+      }
+    } else if (action === 'connect') {
+      var input = document.getElementById('tv-server-input');
+      testAndSaveServer(input ? input.value : '');
+    } else if (action === 'cancel') {
+      closeServerModal();
+    }
+  }
+
+  function testAndSaveServer(serverUrl) {
+    var rawUrl = (serverUrl || '').trim();
+    if (!rawUrl) {
+      showServerModalStatus('Введите адрес сервера', 'error');
+      return;
+    }
+
+    // Strip doubled or nested protocols like "http://https://" or "https://http://"
+    while (/^https?:\/\/(https?:\/\/)/i.test(rawUrl)) {
+      rawUrl = rawUrl.replace(/^https?:\/\//i, '');
+    }
+
+    // Strip trailing slashes
+    rawUrl = rawUrl.replace(/\/+$/, '');
+
+    // If user is confirming force-save for the same URL after warning
+    if (serverModalState.failedUrl && serverModalState.failedUrl === rawUrl) {
+      console.log('[Lumiere] User confirmed force-save for:', rawUrl);
+      var forced = rawUrl;
+      if (!/^https?:\/\//i.test(forced)) {
+        var isDomain = !/^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(forced);
+        forced = (isDomain ? 'https://' : 'http://') + forced;
+      }
+      applyNewServer(forced);
+      return;
+    }
+
+    // Prepare candidate URLs
+    var candidates = [];
+    var cleanHost = rawUrl.replace(/^https?:\/\//i, '');
+    var isRawIpWithoutPort = /^(?:\d{1,3}\.){3}\d{1,3}$/.test(cleanHost);
+    var isIp = /^(?:\d{1,3}\.){3}\d{1,3}(?::\d+)?$/.test(cleanHost);
+
+    if (isRawIpWithoutPort) {
+      candidates.push('http://' + cleanHost + ':3500');
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
+    } else if (/^https:\/\//i.test(rawUrl)) {
+      candidates.push('https://' + cleanHost);
+      candidates.push('http://' + cleanHost);
+    } else if (/^http:\/\//i.test(rawUrl)) {
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
+    } else if (isIp) {
+      candidates.push('http://' + cleanHost);
+      candidates.push('https://' + cleanHost);
+    } else {
+      // Domain name without protocol: HTTPS first, then HTTP
+      candidates.push('https://' + cleanHost);
+      candidates.push('http://' + cleanHost);
+    }
+
+    showServerModalStatus('Проверка подключения...', 'loading');
+
+    var cIndex = 0;
+    function tryNextCandidate() {
+      if (cIndex >= candidates.length) {
+        serverModalState.failedUrl = rawUrl;
+        var displayUrl = candidates[0] || rawUrl;
+        showServerModalStatus('Не удалось подключиться к ' + displayUrl + '. Нажмите «Подключиться» ещё раз для принудительного сохранения.', 'warning');
+        return;
+      }
+
+      var candidate = candidates[cIndex++];
+      showServerModalStatus('Проверка подключения к ' + candidate + '...', 'loading');
+
+      testServerUrl(candidate, function(success) {
+        if (success) {
+          serverModalState.failedUrl = null;
+          applyNewServer(candidate);
+        } else {
+          tryNextCandidate();
+        }
+      });
+    }
+
+    tryNextCandidate();
+  }
+
+  function testServerUrl(candidateUrl, cb) {
+    var endpoints = ['/api/health', '/api/setup/status', '/api/auth/lan-status'];
+    var epIndex = 0;
+
+    function tryEndpoint() {
+      if (epIndex >= endpoints.length) {
+        cb(false);
+        return;
+      }
+      var ep = endpoints[epIndex++];
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', candidateUrl + ep, true);
+      xhr.timeout = 3500;
+      try {
+        xhr.setRequestHeader('X-Lumiere-TV', '1');
+        xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+      } catch(e) {}
+
+      xhr.onload = function() {
+        if (xhr.status === 200) {
+          try {
+            var data = JSON.parse(xhr.responseText);
+            // Verify Lumiere response
+            if (data && (data.status === 'ok' || data.name === 'lumiere' || typeof data.needsSetup !== 'undefined' || typeof data.isLan !== 'undefined')) {
+              cb(true);
+              return;
+            }
+          } catch(e) {}
+        }
+        tryEndpoint();
+      };
+      xhr.onerror = function() {
+        tryEndpoint();
+      };
+      xhr.ontimeout = function() {
+        tryEndpoint();
+      };
+      try {
+        xhr.send();
+      } catch(err) {
+        tryEndpoint();
+      }
+    }
+
+    tryEndpoint();
+  }
+
+  function applyNewServer(url) {
+    showServerModalStatus('✓ Сервер сохранён! Перезагрузка...', 'success');
+    try {
+      localStorage.setItem(SERVER_KEY, url);
+      localStorage.setItem('lumiere_server_url', url);
+      localStorage.setItem('lumiere_tv_server', url);
+      localStorage.removeItem(TOKEN_KEY);
+    } catch(e) {}
+    API = url;
+    setTimeout(function() {
+      window.location.reload();
+    }, 600);
+  }
+
+  function handleServerModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      closeServerModal();
+      return;
+    }
+
+    if (code === 8 || key === 'Backspace') {
+      backspaceServerInput();
+      return;
+    }
+
+    if (code >= 96 && code <= 105) {
+      appendServerInputText(String(code - 96));
+      return;
+    }
+
+    if (code === 37 || key === 'ArrowLeft') {
+      if (serverModalState.curCol > 0) {
+        serverModalState.curCol--;
+      } else {
+        var r = serverModalState.curRow;
+        var rBtns = serverModalState.rows[r] || [];
+        serverModalState.curCol = Math.max(0, rBtns.length - 1);
+      }
+      updateServerModalFocus();
+      return;
+    }
+    if (code === 39 || key === 'ArrowRight') {
+      var r = serverModalState.curRow;
+      var rBtns = serverModalState.rows[r] || [];
+      if (serverModalState.curCol < rBtns.length - 1) {
+        serverModalState.curCol++;
+      } else {
+        serverModalState.curCol = 0;
+      }
+      updateServerModalFocus();
+      return;
+    }
+    if (code === 38 || key === 'ArrowUp') {
+      if (serverModalState.curRow > 0) {
+        serverModalState.curRow--;
+        updateServerModalFocus();
+      }
+      return;
+    }
+    if (code === 40 || key === 'ArrowDown') {
+      if (serverModalState.curRow < serverModalState.rows.length - 1) {
+        serverModalState.curRow++;
+        updateServerModalFocus();
+      }
+      return;
+    }
+
+    if (code === 13 || key === 'Enter') {
+      var curRowBtns = serverModalState.rows[serverModalState.curRow] || [];
+      var target = curRowBtns[serverModalState.curCol];
+      if (target) {
+        if (target.id === 'tv-server-input') {
+          try { target.focus(); } catch(e) {}
+        } else {
+          handleServerKeyAction(target);
+        }
+      }
+      return;
+    }
+
+    // Handle typing from physical keyboard / remote alphanumeric keys
+    if (e && e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+      appendServerInputText(e.key);
+      return;
+    }
+  }
+
+  // ========== App Start ==========
+  function startApp() {
+    try {
+      console.log('[Lumiere] startApp begin');
+      window._appStarted = true;
+
+      // Ensure full DOM structure is synchronized from /tv/index.html
+      syncDomWithServer(API);
+
+      $loading = document.getElementById('loading');
+      $app = document.getElementById('app');
+      $topbar = document.getElementById('topbar');
+      $content = document.getElementById('content');
+      $detail = document.getElementById('detail');
+
+      if ($loading) {
+        $loading.classList.add('hidden');
+        $loading.style.display = 'none';
+      }
+      if ($app) {
+        $app.classList.remove('hidden');
+        $app.style.display = 'block';
+      }
+
+      updateTvUserBadge();
+
+      var serverUrlEl = document.getElementById('server-url');
+      if (serverUrlEl) serverUrlEl.textContent = API;
+
+      // 1. Keyboard & Navigation MUST be set up first and protected from data loading errors
+      console.log('[Lumiere] setupKeyboard');
+      try {
+        if (typeof setupKeyboard === 'function') setupKeyboard();
+      } catch(kErr) {
+        console.error('[Lumiere] setupKeyboard error:', kErr);
+      }
+
+      console.log('[Lumiere] setupNavigation');
+      try {
+        if (typeof setupNavigation === 'function') setupNavigation();
+      } catch(nErr) {
+        console.error('[Lumiere] setupNavigation error:', nErr);
+      }
+
+      // 2. Load data & other features individually protected
+      console.log('[Lumiere] loadData');
+      try {
+        if (typeof loadData === 'function') loadData();
+      } catch(dErr) {
+        console.error('[Lumiere] loadData error:', dErr);
+      }
+
+      console.log('[Lumiere] setupSearch');
+      try {
+        if (typeof setupSearch === 'function') setupSearch();
+      } catch(sErr) {
+        console.error('[Lumiere] setupSearch error:', sErr);
+      }
+
+      console.log('[Lumiere] setupIptvSearch');
+      try {
+        if (typeof setupIptvSearch === 'function') setupIptvSearch();
+      } catch(isErr) {
+        console.error('[Lumiere] setupIptvSearch error:', isErr);
+      }
+
+      if (typeof setupIptvEvents === 'function') {
+        try {
+          setupIptvEvents();
+        } catch(ieErr) {
+          console.error('[Lumiere] setupIptvEvents error:', ieErr);
+        }
+      }
+
+      if (typeof syncWithServer === 'function') {
+        try {
+          syncWithServer(function() {
+            console.log('[App] Sync complete, loading IPTV');
+            if (typeof loadIptv === 'function') loadIptv();
+          });
+        } catch(swsErr) {
+          console.error('[Lumiere] syncWithServer error:', swsErr);
+        }
+      }
+
+      try {
+        checkDetailParam();
+      } catch(cdErr) {
+        console.error('[Lumiere] checkDetailParam error:', cdErr);
+      }
+
+      setTimeout(function() {
+        try {
+          if (typeof focusNav === 'function') focusNav(0);
+        } catch(fe) {}
+      }, 100);
+
+      // 3. Initialize notifications & EPG reminders
+      try {
+        if (typeof loadNotifications === 'function') loadNotifications();
+        if (typeof loadEpgReminders === 'function') loadEpgReminders();
+        setInterval(function() {
+          if (typeof loadNotifications === 'function') loadNotifications();
+        }, 60000);
+        setInterval(function() {
+          if (typeof checkEpgReminders === 'function') checkEpgReminders();
+        }, 2500);
+      } catch(ne) {
+        console.warn('[Lumiere] Notification/EPG reminder init error:', ne);
+      }
+
+      console.log('[Lumiere] startApp completed successfully!');
+    } catch(e) {
+      console.error('[Lumiere] startApp error: ' + (e.message || e) + '\n' + (e.stack || ''));
+      showError('Ошибка запуска: ' + (e.message || 'unknown'));
+    }
+  }
+
+  // Check URL for ?detail=ID parameter (returning from player)
+  function checkDetailParam() {
+    var search = window.location.search.substring(1);
+    var params = {};
+    search.split('&').forEach(function(pair) {
+      var parts = pair.split('=');
+      if (parts.length === 2) params[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1]);
+    });
+    var detailId = params.detail;
+    if (detailId) {
+      // Fetch movie details and open detail view
+      apiFetch('/api/movies/' + detailId, function(err, data) {
+        if (data && data.id) {
+          showDetail(data);
+        }
+      });
+      // Clean URL
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState({}, '', window.location.pathname);
+      }
+    }
+  }
+
+  // ========== Cinematic Hero Banner (Removed from Home) ==========
+  var currentHeroTitle = null;
+  var heroFocusedBtnIndex = -1;
+
+  function updateHeroBanner(titleData) {
+    // Hero banner removed. Background is handled via debounced updateHomeBg.
+  }
+
+  function setupHeroButtons() {}
+  function focusHeroBtn(idx) {}
+  function clearHeroFocus() {}
+  function handleHeroBtnKeys(code, e) {}
+
+  // ========== Data Loading ==========
+  function loadData() {
+    renderContinueWatching();
+    renderHistoryRecommendations();
+
+    // 1. Trending movies + Top 10 Movies
+    apiFetch('/api/movies/trending', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        state.trendingMovies = data.results;
+        renderTop10Row('top10-movies-items', data.results.slice(0, 10));
+        var trendingSlice = data.results.length > 10 ? data.results.slice(10, 30) : data.results;
+        renderRow('trending-items', trendingSlice);
+      }
+    });
+
+    // 2. Recommendations: Unique movies without duplicates from Trending/Top 10
+    apiFetch('/api/movies/now_playing', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        var seenIds = {};
+        if (state.trendingMovies) {
+          state.trendingMovies.forEach(function(m) { seenIds[m.id] = true; });
+        }
+        var uniqueRecommendations = data.results.filter(function(m) {
+          return !seenIds[m.id];
+        });
+        var recs = uniqueRecommendations.length >= 5 ? uniqueRecommendations : data.results;
+        renderRow('now-playing-items', recs.slice(0, 25));
+      }
+    });
+
+    // 3. Popular movies
+    apiFetch('/api/movies/popular', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        state.movies = data.results;
+        renderRow('popular-items', data.results.slice(0, 25));
+        renderGrid('movies-grid', data.results);
+      }
+    });
+
+    // 4. Top Rated movies (Masterpieces)
+    apiFetch('/api/movies/top_rated', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('top-rated-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 5. Top 10 TV Shows of the week
+    apiFetch('/api/tv/trending', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderTop10Row('top10-tv-items', data.results.slice(0, 10));
+      }
+    });
+
+    // Netflix TV Series & Movies with Week / All-Time tabs
+    setupShelfTabs();
+    loadNetflixRow('movies', 'week');
+    loadNetflixRow('tv', 'week');
+
+    // 6. Popular TV Shows
+    apiFetch('/api/tv/popular', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        state.tvShows = data.results;
+        renderRow('tv-items', data.results.slice(0, 25));
+        renderGrid('tv-grid', data.results);
+      }
+    });
+
+    // 7. Action movies (Боевики и приключения)
+    apiFetch('/api/movies/genre/28?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('action-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 8. Collection Banners (Подборки)
+    if (typeof renderCollectionBanners === 'function') {
+      renderCollectionBanners('banner-items');
+    }
+
+    // 9. Comedy movies (Комедии для отличного настроения)
+    apiFetch('/api/movies/genre/35?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('comedy-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 10. Sci-Fi movies (Фантастика и другие миры)
+    apiFetch('/api/movies/genre/878?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('scifi-items', data.results.slice(0, 25));
+      }
+    });
+
+    // 11. Family & Animation movies (Семейный вечер и анимация)
+    apiFetch('/api/movies/genre/16?page=1', function(err, data) {
+      if (data && data.results && data.results.length > 0) {
+        renderRow('family-items', data.results.slice(0, 25));
+      }
+    });
+
+    // Continue watching from localStorage & server
+    renderContinueWatching();
+
+    loadIptv();
+    loadAndApplyHomeShelves();
+  }
+
+  function loadNetflixRow(type, period) {
+    var endpoint = type === 'movies' ? '/api/movies/netflix' : '/api/tv/netflix';
+    var containerId = type === 'movies' ? 'netflix-movies-items' : 'netflix-tv-items';
+    var tabsId = type === 'movies' ? 'netflix-movies-tabs' : 'netflix-tv-tabs';
+    var container = document.getElementById(containerId);
+    if (container) {
+      container.style.opacity = '0.35';
+      container.style.transition = 'opacity 0.25s ease';
+    }
+    var tabsContainer = document.getElementById(tabsId);
+    if (tabsContainer) {
+      var btns = tabsContainer.querySelectorAll('.shelf-tab');
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute('data-period') === period) {
+          btns[i].classList.add('active');
+        } else {
+          btns[i].classList.remove('active');
+        }
+      }
+    }
+    apiFetch(endpoint + '?period=' + period, function(err, data) {
+      if (container) {
+        container.style.opacity = '1';
+      }
+      if (data && data.results && data.results.length > 0) {
+        renderRow(containerId, data.results.slice(0, 25));
+      }
+    });
+  }
+
+  function setupShelfTabs() {
+    var tabs = document.querySelectorAll('.shelf-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      (function(btn) {
+        if (btn._hasClickBound) return;
+        btn._hasClickBound = true;
+        btn.addEventListener('click', function() {
+          var shelf = btn.getAttribute('data-shelf');
+          var period = btn.getAttribute('data-period');
+          if (shelf && period) {
+            loadNetflixRow(shelf, period);
+          }
+        });
+      })(tabs[i]);
+    }
+  }
+
+  function cleanMovieTitle(raw) {
+    if (!raw) return '';
+    if (typeof raw === 'object') {
+      raw = raw.name || raw.title || '';
+    }
+    if (typeof raw !== 'string') return '';
+    if (raw === '[object Object]') return '';
+    if (raw.indexOf(' / ') !== -1) {
+      var parts = raw.split(' / ');
+      if (/[\u0400-\u04FF]/.test(parts[0])) return parts[0].trim();
+    }
+    return raw.replace(/\.(mkv|mp4|avi|mov|m4v|ts)$/i, '').replace(/_/g, ' ').trim();
+  }
+
+  function launchContinueWatchingItem(item, cName, cPoster) {
+    if (!item) return;
+    var rawName = (cName && typeof cName === 'string') ? cName : '';
+    if (!rawName && item.title) {
+      rawName = (typeof item.title === 'object') ? (item.title.name || item.title.title || '') : item.title;
+    }
+    if (rawName === '[object Object]') rawName = '';
+
+    if (item && item.id) {
+      try {
+        setStorageItem('last_watched_id', String(item.id));
+        var posMap = JSON.parse(getStorageItem('playback_positions') || '{}');
+        if (posMap[item.id]) {
+          posMap[item.id].timestamp = Date.now();
+          setStorageItem('playback_positions', JSON.stringify(posMap));
+        }
+      } catch(e) {}
+    }
+
+    var lastTorrents = {};
+    try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
+    var tObj = lastTorrents[item.id];
+    var isKnownMovie = (Number(item.id) === 13) || (Number(item.id) === 671) ||
+                       ((item.title && item.title.type === 'movie') && Number(item.id) !== 1408) ||
+                       (tObj && tObj.type === 'movie' && Number(item.id) !== 1408);
+    var isTvShow = !isKnownMovie && (
+                   (Number(item.id) === 1408) ||
+                   (tObj && (tObj.type === 'tv' || tObj.season)) ||
+                   (item.title && (item.title.type === 'tv' || item.title.season)) ||
+                   (rawName && /·\s*S\d+/i.test(rawName)) ||
+                   !!getStorageItem('last_season_' + item.id));
+    if (!isTvShow && !isKnownMovie) {
+      for (var lk in localStorage) {
+        if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
+          isTvShow = true;
+          break;
+        }
+      }
+    }
+    var curType = isKnownMovie ? 'movie' : (isTvShow ? 'tv' : ((tObj && tObj.type) || (item.title && item.title.type) || 'movie'));
+    if (isKnownMovie) {
+      rawName = rawName.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
+    if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(rawName) || !rawName)) {
+      rawName = 'Доктор Хаус';
+    }
+
+    state.fromContinueWatching = true;
+    state.playerOpenedFrom = 'app';
+
+    // 1. Determine target season and episode
+    var targetSeason = null;
+    var targetEpisode = null;
+
+    // Priority 1: Check explicit season and episode in rawName (from the card user clicked!)
+    var sMatch = rawName.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || rawName.match(/\bS([0-9]+)E([0-9]+)\b/i);
+    if (sMatch) {
+      targetSeason = parseInt(sMatch[1], 10);
+      targetEpisode = parseInt(sMatch[2], 10);
+    } else {
+      var sOnlyMatch = rawName.match(/·\s*S([0-9]+)/i);
+      if (sOnlyMatch) targetSeason = parseInt(sOnlyMatch[1], 10);
+    }
+
+    // Priority 2: Check playback_positions for this item (including per-episode keys id_sX_eY)
+    try {
+      var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+      if (!targetSeason || !targetEpisode) {
+        var bestEpTime = 0;
+        for (var pk in positions) {
+          if (pk.indexOf(item.id + '_s') === 0) {
+            var epM = pk.match(/_s(\d+)_e(\d+)/);
+            if (epM) {
+              var epItem = positions[pk];
+              var epTs = typeof epItem === 'object' ? (epItem.timestamp || epItem.updatedAt || 0) : 0;
+              if (epTs > bestEpTime) {
+                bestEpTime = epTs;
+                targetSeason = parseInt(epM[1], 10);
+                targetEpisode = parseInt(epM[2], 10);
+              }
+            }
+          }
+        }
+      }
+      if (!targetSeason || !targetEpisode) {
+        var pEntry = positions[item.id];
+        if (pEntry && pEntry.title) {
+          if (!targetSeason && pEntry.title.season) targetSeason = parseInt(pEntry.title.season, 10);
+          if (!targetEpisode && pEntry.title.episode) targetEpisode = parseInt(pEntry.title.episode, 10);
+          if (!targetSeason || !targetEpisode) {
+            var pNameMatch = (pEntry.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (pEntry.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+            if (pNameMatch) {
+              if (!targetSeason) targetSeason = parseInt(pNameMatch[1], 10);
+              if (!targetEpisode) targetEpisode = parseInt(pNameMatch[2], 10);
+            }
+          }
+        }
+      }
+    } catch(e) {}
+
+    // Priority 3: Fallback to tObj / item.title / last_season_ / last_episode_
+    if (!targetSeason && tObj && tObj.season) targetSeason = parseInt(tObj.season, 10);
+    if (!targetEpisode && tObj && tObj.episode) targetEpisode = parseInt(tObj.episode, 10);
+
+    if (item.title && typeof item.title === 'object') {
+      if (!targetSeason && item.title.season) targetSeason = parseInt(item.title.season, 10);
+      if (!targetEpisode && item.title.episode) targetEpisode = parseInt(item.title.episode, 10);
+    }
+
+    if (!targetSeason) {
+      try {
+        var ls = getStorageItem('last_season_' + item.id);
+        if (ls) targetSeason = parseInt(ls, 10);
+      } catch(e) {}
+    }
+    if (!targetEpisode) {
+      try {
+        var le = getStorageItem('last_episode_' + item.id);
+        if (le) targetEpisode = parseInt(le, 10);
+      } catch(e) {}
+    }
+
+    console.log('[TV] launchContinueWatching target: S' + targetSeason + ' E' + targetEpisode + ' for item', item.id, rawName);
+
+    // Ensure state.continueContext is passed so openTorrent knows exact season/episode
+    // CRITICAL: Only use tObj.fileIndex/fileName if tObj actually belongs to the target episode!
+    var canUseTObjFile = Boolean(tObj && (!tObj.episode || tObj.episode === targetEpisode));
+    state.continueContext = {
+      season: targetSeason,
+      episode: targetEpisode,
+      fileIndex: (canUseTObjFile && tObj.fileIndex !== undefined) ? tObj.fileIndex : undefined,
+      fileName: (canUseTObjFile && tObj.fileName) ? tObj.fileName : undefined
+    };
+
+    var poster = cPoster || (item.title && typeof item.title === 'object' && item.title.poster) || '';
+    var baseSeriesName = rawName.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(baseSeriesName) || !baseSeriesName)) {
+      baseSeriesName = 'Доктор Хаус';
+    }
+    var effectiveDetailName = (curType === 'tv' && baseSeriesName) ? baseSeriesName : rawName;
+
+    // Direct resume via last_torrents if it has a magnet
+    if (tObj && tObj.magnet) {
+      state.detail = { id: item.id, name: effectiveDetailName, type: curType, poster: poster };
+      state.activePlayerMedia = { id: item.id, name: effectiveDetailName, type: curType, poster: poster };
+      openTorrent(tObj.magnet, tObj.title || rawName);
+      return;
+    }
+
+    // For TV shows, check season torrent in localStorage
+    var seasonTorrent = null;
+    if (curType === 'tv') {
+      if (targetSeason) {
+        try {
+          seasonTorrent = JSON.parse(getStorageItem('season_torrent_' + item.id + '_' + targetSeason) || 'null');
+        } catch(e) {}
+      }
+      if (!seasonTorrent || !seasonTorrent.magnet) {
+        for (var k in localStorage) {
+          if (k.indexOf('season_torrent_' + item.id + '_') !== -1) {
+            try { seasonTorrent = JSON.parse(localStorage.getItem(k)); } catch(e) {}
+            if (seasonTorrent && seasonTorrent.magnet) break;
+          }
+        }
+      }
+    }
+
+    if (seasonTorrent && seasonTorrent.magnet) {
+      state.detail = { id: item.id, name: effectiveDetailName, type: 'tv', poster: poster, backdrop: item.backdrop || '' };
+      state.activePlayerMedia = { id: item.id, name: effectiveDetailName, type: 'tv', poster: poster };
+      openTorrent(seasonTorrent.magnet, seasonTorrent.title || rawName);
+      return;
+    }
+
+    // Fallback: show details
+    var titleObj = { id: item.id, name: effectiveDetailName, type: curType, poster: poster, backdrop: '', year: 0, runtime: '', rating: '', score: 0, genres: [], description: '' };
+    showDetail(titleObj);
+  }
+
+  function renderContinueWatching() {
+    var container = document.getElementById('continue-items');
+    if (!container) return;
+
+    var now = Date.now();
+    if (!renderContinueWatching._lastSync || (now - renderContinueWatching._lastSync > 15000)) {
+      renderContinueWatching._lastSync = now;
+      if (typeof syncWithServer === 'function') {
+        setTimeout(function() { try { syncWithServer(); } catch(e) {} }, 150);
+      }
+    }
+
+    var positions = {};
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+
+    var lastTorrents = {};
+    try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
+
+    var changed = false;
+    var items = [];
+    var seenIds = {};
+
+    for (var id in positions) {
+      var numId = Number(id);
+      if (isNaN(numId) || numId <= 0) continue;
+      var pos = positions[id];
+
+      var isIptv = (pos && pos.title && pos.title.type === 'iptv') || 
+                   (lastTorrents[id] && lastTorrents[id].type === 'iptv');
+      if (isIptv) {
+        delete positions[id];
+        changed = true;
+        continue;
+      }
+
+      var posTime = (typeof pos === 'object') ? (pos.time || pos.progress || 0) : (typeof pos === 'number' ? pos : 0);
+      var posDuration = (typeof pos === 'object') ? (pos.duration || 0) : 0;
+      var posTs = (typeof pos === 'object' && pos.timestamp) ? Number(pos.timestamp) : 0;
+      if (isNaN(posTs)) posTs = 0;
+      var ltTs = (lastTorrents[id] && lastTorrents[id].timestamp) ? Number(lastTorrents[id].timestamp) : 0;
+      if (isNaN(ltTs)) ltTs = 0;
+      var effectiveTs = Math.max(posTs, ltTs);
+
+      if (posTime >= 1) {
+        var pTitle = (pos && pos.title) || (lastTorrents[id] ? lastTorrents[id].title : null) || 'Видео';
+        items.push({
+          id: numId,
+          time: posTime,
+          duration: posDuration,
+          timestamp: effectiveTs,
+          title: pTitle
+        });
+        seenIds[numId] = true;
+      }
+    }
+
+    // Also check lastTorrents for any newly played items
+    for (var ltId in lastTorrents) {
+      var numLtId = Number(ltId);
+      if (isNaN(numLtId) || numLtId <= 0 || seenIds[numLtId]) continue;
+      var ltItem = lastTorrents[ltId];
+      if (ltItem && (ltItem.magnet || ltItem.title) && ltItem.type !== 'iptv') {
+        var itemTs = Number(ltItem.timestamp) || 0;
+        items.push({
+          id: numLtId,
+          time: 5,
+          duration: 0,
+          timestamp: itemTs,
+          title: ltItem.title || 'Видео'
+        });
+        seenIds[numLtId] = true;
+      }
+    }
+
+    if (changed) {
+      try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+    }
+
+    // Sort: strictly most recently watched first (leftmost) based on true timestamp
+    items.sort(function(a, b) {
+      var timeA = Number(a.timestamp) || 0;
+      var timeB = Number(b.timestamp) || 0;
+      return timeB - timeA;
+    });
+
+
+    if (items.length === 0) {
+      var row = document.getElementById('row-continue');
+      if (row) row.style.display = 'none';
+      return;
+    }
+
+    var row = document.getElementById('row-continue');
+    if (row) row.style.display = 'block';
+
+    container.innerHTML = '';
+    items.slice(0, 12).forEach(function(item) {
+      try {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('data-id', item.id);
+        card._continueItem = item;
+        var rawName = (item.title && typeof item.title === 'object') ? (item.title.name || item.title.logoText || '') : (item.title || '');
+        var poster = (item.title && typeof item.title === 'object') ? (item.title.poster || '') : '';
+        var torrent = lastTorrents[item.id];
+
+        // Immediate cleanup if name is a raw filename but torrent has Russian title
+        var name = rawName;
+        // Self-heal Forrest Gump (ID 13) if corrupted to Japanese show
+        if (Number(item.id) === 13 || /水曜どうでしょう/i.test(name)) {
+          name = 'Форрест Гамп';
+          rawName = 'Форрест Гамп';
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = 'Форрест Гамп';
+            item.title.type = 'movie';
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = 'Форрест Гамп';
+            positions[item.id].title.type = 'movie';
+            try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+          }
+        }
+
+        // Self-heal House M.D. (ID 1408) only if literally collided with movie "1408"
+        if (Number(item.id) === 1408 && (/^(1408|Комната 1408)$/i.test(name) || !name)) {
+          name = 'Доктор Хаус';
+          rawName = 'Доктор Хаус';
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = 'Доктор Хаус';
+            item.title.type = 'tv';
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = 'Доктор Хаус';
+            positions[item.id].title.type = 'tv';
+          }
+          if (lastTorrents[item.id]) {
+            lastTorrents[item.id].type = 'tv';
+            if (/^(1408|Комната 1408)$/i.test(lastTorrents[item.id].title)) {
+              lastTorrents[item.id].title = 'Доктор Хаус';
+            }
+          }
+          try {
+            setStorageItem('playback_positions', JSON.stringify(positions));
+            setStorageItem('last_torrents', JSON.stringify(lastTorrents));
+          } catch(e) {}
+        }
+
+        // Self-heal Harry Potter (ID 671) if corrupted to TV series Moolah Beach
+        if (Number(item.id) === 671) {
+          var cleanHp = 'Гарри Поттер и философский камень';
+          name = cleanHp;
+          rawName = cleanHp;
+          if (item.title && typeof item.title === 'object') {
+            item.title.name = cleanHp;
+            item.title.type = 'movie';
+            delete item.title.season;
+            delete item.title.episode;
+          }
+          if (positions[item.id] && typeof positions[item.id].title === 'object') {
+            positions[item.id].title.name = cleanHp;
+            positions[item.id].title.type = 'movie';
+            delete positions[item.id].title.season;
+            delete positions[item.id].title.episode;
+            try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+          }
+          if (lastTorrents[item.id]) {
+            lastTorrents[item.id].type = 'movie';
+            lastTorrents[item.id].title = cleanHp;
+            delete lastTorrents[item.id].season;
+            delete lastTorrents[item.id].episode;
+            try { setStorageItem('last_torrents', JSON.stringify(lastTorrents)); } catch(e) {}
+          }
+          try {
+            removeStorageItem('last_season_' + item.id);
+            removeStorageItem('last_episode_' + item.id);
+          } catch(e) {}
+        }
+
+        if ((!/[\u0400-\u04FF]/.test(name) || /\.(mkv|mp4|avi)$/i.test(name)) && torrent && torrent.title && /[\u0400-\u04FF]/.test(torrent.title)) {
+          name = cleanMovieTitle(torrent.title);
+        } else if (/\.(mkv|mp4|avi)$/i.test(name)) {
+          name = cleanMovieTitle(name);
+        }
+
+        var imgSrc = imgUrl(poster);
+
+        // Fetch official Russian metadata & poster from API
+        if (item.id && !isNaN(Number(item.id))) {
+          var isKnownMovie = (Number(item.id) === 13) || (Number(item.id) === 671) ||
+                             ((item.title && item.title.type === 'movie') && Number(item.id) !== 1408) ||
+                             (torrent && torrent.type === 'movie' && Number(item.id) !== 1408);
+          var isTvShow = !isKnownMovie && (
+                         (Number(item.id) === 1408) ||
+                         ((item.title && item.title.type === 'tv') || (item.title && item.title.season)) ||
+                         ((torrent && torrent.type === 'tv') || (torrent && torrent.season)) ||
+                         (/ · S[0-9]+/i.test(rawName)) ||
+                         !!getStorageItem('last_season_' + item.id));
+          if (!isTvShow && !isKnownMovie) {
+            for (var lk in localStorage) {
+              if (lk.indexOf('season_torrent_' + item.id + '_') !== -1) {
+                isTvShow = true;
+                break;
+              }
+            }
+          }
+          var itemMediaType = isKnownMovie ? 'movie' : (isTvShow ? 'tv' : 'movie');
+          var apiEndpoint = (itemMediaType === 'tv') ? '/api/tv/' : '/api/movies/';
+
+          var applyApiData = function(data, type) {
+            if (!data) return;
+            var ruName = data.name || data.title;
+            if (ruName) {
+              // Guard: If we already have Russian/Cyrillic name, never overwrite with untranslated Asian characters
+              var hasCyrillicCur = /[\u0400-\u04FF]/.test(name);
+              var hasCyrillicOrLatinNew = /[\u0400-\u04FFa-zA-Z]/.test(ruName);
+              if (hasCyrillicCur && !hasCyrillicOrLatinNew) {
+                return;
+              }
+
+              var displayName = ruName;
+              if (type === 'tv') {
+                var sMatch = rawName.match(/ · S\d+.*$/i) || rawName.match(/S\d+E\d+/i);
+                if (sMatch) {
+                  displayName = ruName + (sMatch[0].indexOf(' · ') === 0 ? sMatch[0] : ' · ' + sMatch[0]);
+                } else {
+                  var epS = (torrent && torrent.season) || (item.title && item.title.season);
+                  var epE = (torrent && torrent.episode) || (item.title && item.title.episode);
+                  if (!epS) {
+                    try {
+                      var lsV = getStorageItem('last_season_' + item.id);
+                      if (lsV) epS = parseInt(lsV, 10);
+                    } catch(e) {}
+                  }
+                  if (!epE) {
+                    try {
+                      var leV = getStorageItem('last_episode_' + item.id);
+                      if (leV) epE = parseInt(leV, 10);
+                    } catch(e) {}
+                  }
+                  if (epS && epE) {
+                    displayName = ruName + ' · S' + (epS < 10 ? '0' + epS : epS) + 'E' + (epE < 10 ? '0' + epE : epE);
+                  }
+                }
+              }
+              var titleEl = card.querySelector('.card-title');
+              if (titleEl) {
+                var tText = titleEl.querySelector('.card-title-text');
+                if (tText) {
+                  tText.textContent = displayName;
+                } else {
+                  titleEl.innerHTML = '<span class="card-title-text">' + esc(displayName) + '</span>';
+                }
+              }
+              card._titleData.name = displayName;
+              name = displayName;
+              if (card.classList.contains('focused') || document.activeElement === card) {
+                if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(card);
+              }
+
+              // Persist clean Russian title in playback_positions
+              if (positions[item.id]) {
+                if (typeof positions[item.id].title !== 'object') {
+                  positions[item.id].title = { name: displayName, poster: data.poster || '', id: item.id, type: type };
+                } else {
+                  positions[item.id].title.name = displayName;
+                  positions[item.id].title.type = type;
+                  if (data.poster && !positions[item.id].title.poster) {
+                    positions[item.id].title.poster = data.poster;
+                  }
+                }
+                try { setStorageItem('playback_positions', JSON.stringify(positions)); } catch(e) {}
+              }
+
+              // Also persist in last_torrents
+              if (lastTorrents[item.id]) {
+                lastTorrents[item.id].title = ruName;
+                lastTorrents[item.id].type = type;
+                try { setStorageItem('last_torrents', JSON.stringify(lastTorrents)); } catch(e) {}
+              }
+            }
+
+            if (data.poster) {
+              var imgEl = card.querySelector('img');
+              if (imgEl && (!imgEl.src || imgEl.src.indexOf('/api/image') === -1)) {
+                imgEl.src = imgUrl(data.poster);
+              }
+            }
+          };
+
+          apiFetch(apiEndpoint + item.id + '?lang=ru', function(err, data) {
+            if ((err || !data) && itemMediaType !== 'tv' && (/ · S[0-9]+/i.test(rawName) || /S\d+E\d+/i.test(rawName))) {
+              apiFetch('/api/tv/' + item.id + '?lang=ru', function(err2, data2) {
+                if (data2) applyApiData(data2, 'tv');
+              });
+              return;
+            }
+            if (data) applyApiData(data, itemMediaType);
+          });
+        }
+
+        var maxDur = item.duration > 0 ? item.duration : 7200;
+        var fillPct = Math.min(100, Math.max(2, (item.time / maxDur) * 100));
+
+        var timeStr = typeof fmtTime === 'function' ? fmtTime(item.time) : (item.time + 'с');
+        var durStr = item.duration ? (' из ' + (typeof fmtTime === 'function' ? fmtTime(item.duration) : (item.duration + 'с'))) : '';
+
+        card._titleData = {
+          id: item.id,
+          name: name,
+          poster: poster,
+          score: null,
+          year: null,
+          genre: 'Продолжить просмотр',
+          overview: 'Вы остановились на ' + timeStr + durStr
+        };
+
+        card.innerHTML = '<div class="card-progress-wrap"><img class="card-img" src="' + esc(imgSrc || '') + '" alt="' + esc(name) + '" loading="lazy">' +
+          '<div class="card-progress-bar"><div class="card-progress-fill" style="width:' + fillPct + '%"></div></div></div>' +
+          '<div class="card-title"><span class="card-title-text">' + esc(name) + '</span></div>';
+
+        card.addEventListener('focus', function() {
+          clearCardFocus();
+          card.classList.add('focused');
+          state._currentFocusedCard = card;
+          if (state.section === 'home' && typeof updateHeroBanner === 'function') {
+            updateHeroBanner(card._titleData);
+          }
+          if (typeof startCardTitleMarquee === 'function') {
+            startCardTitleMarquee(card);
+          }
+        });
+
+        card.addEventListener('blur', function() {
+          card.classList.remove('focused');
+          if (typeof stopCardTitleMarquee === 'function') {
+            stopCardTitleMarquee(card);
+          }
+        });
+
+        card.addEventListener('mouseenter', function() {
+          if (typeof startCardTitleMarquee === 'function') {
+            startCardTitleMarquee(card);
+          }
+        });
+
+        card.addEventListener('mouseleave', function() {
+          if (!card.classList.contains('focused') && document.activeElement !== card) {
+            if (typeof stopCardTitleMarquee === 'function') {
+              stopCardTitleMarquee(card);
+            }
+          }
+        });
+
+        card.addEventListener('click', function() {
+          state._currentFocusedCard = card;
+          state.lastDetailTitleId = item.id;
+          state.fromContinueWatching = true;
+          var titleEl = card.querySelector('.card-title-text');
+          var activeName = (titleEl && titleEl.innerText) ? titleEl.innerText.trim() : ((card._titleData && card._titleData.name) || name);
+          var cleanName = (typeof activeName === 'string' && activeName !== '[object Object]') ? activeName : '';
+          if (!cleanName && item.title) {
+            cleanName = (typeof item.title === 'object') ? (item.title.name || item.title.title || '') : item.title;
+          }
+          if (cleanName === '[object Object]') cleanName = '';
+
+          launchContinueWatchingItem(item, cleanName, poster);
+        });
+
+        container.appendChild(card);
+      } catch(itemErr) {
+        console.error('[Lumiere] Error rendering continue watching item:', itemErr);
+      }
+    });
+  }
+
+  // ========== Server Downloads Shelf (Offline / Zero-Lag Playback) ==========
+  function renderServerDownloads() {
+    var container = document.getElementById('server-downloads-items');
+    var row = document.getElementById('row-server-downloads');
+    if (!container || !row) return;
+
+    apiFetch('/api/downloads/server/list', function(err, res) {
+      if (err || !res || !res.downloads || res.downloads.length === 0) {
+        row.classList.add('hidden');
+        return;
+      }
+
+      var completed = res.downloads.filter(function(d) {
+        return d.status === 'completed';
+      });
+
+      if (completed.length === 0) {
+        row.classList.add('hidden');
+        return;
+      }
+
+      row.classList.remove('hidden');
+      container.innerHTML = '';
+
+      completed.forEach(function(item) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.tabIndex = 0;
+        card.setAttribute('data-id', item.tmdbId || item.id);
+        card.setAttribute('data-title', item.title);
+
+        var pUrl = item.poster ? imgUrl(item.poster) : './icon.png';
+        var sizeMb = item.totalBytes ? Math.round(item.totalBytes / (1024 * 1024)) : 0;
+        var sizeText = sizeMb > 1024 ? (sizeMb / 1024).toFixed(1) + ' ГБ' : (sizeMb + ' МБ');
+
+        card.innerHTML = 
+          '<div class="card-poster-wrap">' +
+            '<img class="card-poster" src="' + esc(pUrl) + '" alt="' + esc(item.title) + '" onerror="this.src=\'./icon.png\';">' +
+            '<div class="card-badge" style="background:#10b981;color:#000;font-weight:800;font-size:12px;padding:3px 8px;border-radius:6px;position:absolute;top:8px;left:8px;">СКАЧАНО</div>' +
+            '<div style="background:rgba(0,0,0,0.75);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;position:absolute;bottom:8px;right:8px;">' + sizeText + '</div>' +
+          '</div>' +
+          '<div class="card-title">' + esc(item.title) + '</div>';
+
+        card.addEventListener('click', function() {
+          var streamUrl = item.hlsUrl
+            ? (item.hlsUrl.startsWith('http') ? item.hlsUrl : (API + item.hlsUrl))
+            : (API + '/api/downloads/server/hls/' + item.id + '/stream.m3u8');
+          openPlayer({
+            url: streamUrl,
+            title: item.title,
+            id: item.tmdbId || item.id || 0,
+            type: item.mediaType || 'movie',
+            poster: item.poster || '',
+            isOffline: true
+          });
+        });
+
+        container.appendChild(card);
+      });
+    });
+  }
+  window.renderServerDownloads = renderServerDownloads;
+
+  // ========== IPTV 50/50 Multi-View (Side-by-Side Dual Player) ==========
+  var tvMultiViewActive = false;
+  var tvMultiViewFocus = 'left';
+
+  function openTvMultiView(channelA, channelB) {
+    var modal = document.getElementById('tv-iptv-multiview');
+    if (!modal) return;
+    if (typeof stopPreview === 'function') stopPreview();
+
+    tvMultiViewActive = true;
+    tvMultiViewFocus = 'left';
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+    var titleLeft = document.getElementById('tv-multi-title-left');
+    var titleRight = document.getElementById('tv-multi-title-right');
+
+    if (titleLeft && channelA) titleLeft.textContent = channelA.name || 'Канал 1';
+    if (titleRight && channelB) titleRight.textContent = channelB.name || 'Канал 2';
+
+    if (videoLeft && channelA && channelA.url) {
+      videoLeft.src = channelA.url;
+      videoLeft.muted = false;
+      videoLeft.play().catch(function() {});
+    }
+    if (videoRight && channelB && channelB.url) {
+      videoRight.src = channelB.url;
+      videoRight.muted = true;
+      videoRight.play().catch(function() {});
+    }
+
+    updateTvMultiViewFocusUI();
+  }
+
+  function updateTvMultiViewFocusUI() {
+    var paneLeft = document.getElementById('tv-multi-left');
+    var paneRight = document.getElementById('tv-multi-right');
+    var badgeLeft = document.getElementById('tv-multi-audio-badge-left');
+    var badgeRight = document.getElementById('tv-multi-audio-badge-right');
+    var indicator = document.getElementById('tv-multiview-audio-indicator');
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+
+    if (tvMultiViewFocus === 'left') {
+      if (paneLeft) {
+        paneLeft.style.borderColor = '#e8c170';
+        paneLeft.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+      }
+      if (paneRight) {
+        paneRight.style.borderColor = 'rgba(255,255,255,0.15)';
+        paneRight.style.boxShadow = 'none';
+      }
+      if (badgeLeft) { badgeLeft.textContent = '🔊 Звук активен'; badgeLeft.style.color = '#6ee7b7'; }
+      if (badgeRight) { badgeRight.textContent = '🔇 Без звука'; badgeRight.style.color = 'rgba(255,255,255,0.4)'; }
+      if (indicator) indicator.textContent = '🔊 Звук: Экран 1 (Слева)';
+      if (videoLeft) videoLeft.muted = false;
+      if (videoRight) videoRight.muted = true;
+    } else {
+      if (paneRight) {
+        paneRight.style.borderColor = '#e8c170';
+        paneRight.style.boxShadow = '0 0 30px rgba(232,193,112,0.4)';
+      }
+      if (paneLeft) {
+        paneLeft.style.borderColor = 'rgba(255,255,255,0.15)';
+        paneLeft.style.boxShadow = 'none';
+      }
+      if (badgeRight) { badgeRight.textContent = '🔊 Звук активен'; badgeRight.style.color = '#6ee7b7'; }
+      if (badgeLeft) { badgeLeft.textContent = '🔇 Без звука'; badgeLeft.style.color = 'rgba(255,255,255,0.4)'; }
+      if (indicator) indicator.textContent = '🔊 Звук: Экран 2 (Справа)';
+      if (videoLeft) videoLeft.muted = true;
+      if (videoRight) videoRight.muted = false;
+    }
+  }
+
+  function closeTvMultiView() {
+    var modal = document.getElementById('tv-iptv-multiview');
+    if (!modal) return;
+    tvMultiViewActive = false;
+    modal.classList.add('hidden');
+    modal.style.display = 'none';
+
+    var videoLeft = document.getElementById('tv-multi-video-left');
+    var videoRight = document.getElementById('tv-multi-video-right');
+    if (videoLeft) { videoLeft.pause(); videoLeft.src = ''; }
+    if (videoRight) { videoRight.pause(); videoRight.src = ''; }
+  }
+  window.openTvMultiView = openTvMultiView;
+  window.closeTvMultiView = closeTvMultiView;
+
+  // ========== Personalized History-based Recommendations ==========
+  function renderHistoryRecommendations() {
+    var container = document.getElementById('recommended-history-items');
+    var row = document.getElementById('row-recommended-history');
+    if (!container || !row) return;
+
+    var positions = {};
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+
+    var watchedIds = [];
+    var watchedItems = [];
+    for (var id in positions) {
+      var numId = parseInt(id);
+      if (numId > 0) {
+        watchedIds.push(numId);
+        var pos = positions[id];
+        var ts = (typeof pos === 'object') ? (pos.timestamp || 0) : 0;
+        var mediaType = (pos && pos.title && pos.title.type) || 'movie';
+        var name = (pos && pos.title && pos.title.name) || '';
+        if (/ · S\d+/i.test(name) || /S\d+E\d+/i.test(name)) {
+          mediaType = 'tv';
+        }
+        if (numId === 13 || /Форрест Гамп/i.test(name) || /Forrest Gump/i.test(name)) {
+          mediaType = 'movie';
+          name = 'Форрест Гамп';
+        }
+        watchedItems.push({ id: numId, timestamp: ts, type: mediaType, name: name });
+      }
+    }
+    watchedItems.sort(function(a, b) { return (b.timestamp || 0) - (a.timestamp || 0); });
+
+    var renderList = function(list) {
+      if (!list || list.length === 0) {
+        row.style.display = 'none';
+        return;
+      }
+      row.style.display = 'block';
+      container.innerHTML = '';
+      list.slice(0, 20).forEach(function(rec) {
+        container.appendChild(createCard(rec));
+      });
+    };
+
+    // If no history yet, populate with top popular movies
+    if (watchedItems.length === 0) {
+      apiFetch('/api/movies/popular', function(err, data) {
+        if (data && data.results && data.results.length > 0) {
+          renderList(data.results);
+        } else {
+          row.style.display = 'none';
+        }
+      });
+      return;
+    }
+
+    // Modern server-side personalized recommendation engine
+    apiPost('/api/recommendations/personal?lang=ru', { items: watchedItems }, function(err, res) {
+      if (!err && res && res.results && Array.isArray(res.results) && res.results.length >= 4) {
+        renderList(res.results);
+        return;
+      }
+
+      // Client-side fallback if server route is temporarily unreachable
+      var sampleItems = watchedItems.slice(0, 5);
+      var collected = [];
+      var seenMap = {};
+      watchedIds.forEach(function(wid) { seenMap[wid] = true; });
+
+      var pending = sampleItems.length;
+      sampleItems.forEach(function(wItem) {
+        var mType = wItem.type === 'tv' ? 'tv' : 'movie';
+        var recUrl = '/api/' + mType + '/' + wItem.id + '/recommendations?lang=ru';
+        apiFetch(recUrl, function(err, data) {
+          pending--;
+          if (data && data.results && Array.isArray(data.results)) {
+            data.results.forEach(function(m) {
+              if (m && m.id && !seenMap[m.id] && m.poster && !m.poster.includes('null')) {
+                // Filter out non-translated obscure Asian titles
+                var mName = m.title || m.name || '';
+                if (/^[\u4e00-\u9fa5\uac00-\ud7af\u3040-\u30ff\s.,:;!?'-]+$/.test(mName)) return;
+
+                seenMap[m.id] = true;
+                collected.push(m);
+              }
+            });
+          }
+          if (pending === 0) {
+            if (collected.length > 0) {
+              // Quality-weighted sorting (penalize 0-vote noise, favor popular acclaimed works)
+              collected.sort(function(a, b) {
+                var scoreA = (a.score || a.vote_average || 7) + (Math.min(10, Math.log10((a.vote_count || 50) + 1) * 2));
+                var scoreB = (b.score || b.vote_average || 7) + (Math.min(10, Math.log10((b.vote_count || 50) + 1) * 2));
+                return scoreB - scoreA;
+              });
+              renderList(collected);
+            } else {
+              apiFetch('/api/movies/popular', function(err2, popData) {
+                if (popData && popData.results) {
+                  renderList(popData.results.filter(function(m) { return !seenMap[m.id]; }));
+                } else {
+                  row.style.display = 'none';
+                }
+              });
+            }
+          }
+        });
+      });
+    });
+  }
+
+
+  // ==================== IPTV ====================
+  // ==================== IPTV ====================
+  var iptvState = {
+    channels: [],
+    groups: [],
+    selectedGroup: 'Все',
+    favorites: {},
+    epgData: {},
+    epgChannelMap: {},
+    epgIconMap: {},
+    epgNameLookup: {},
+    searchQuery: '',
+    focusedCol: -1, // -1=nav/none, 0=categories, 1=channels, 2=preview
+    focusedCat: 0,
+    focusedCh: 0,
+    focusedCol2Index: 0,
+    currentChannel: null,
+    previewVideo: null,
+    playlists: [],
+    selectedPlaylistIndex: -1,
+    navItems: []
+  };
+
+  var iptvLocked = false;
+
+  // ==================== Notifications & EPG Reminders ====================
+  var notifState = {
+    items: [],
+    unreadCount: 0,
+    focusedIndex: -1, // -1: top buttons, 0+: notification cards
+    focusedTopBtn: 0  // 0: #btn-tv-check-episodes, 1: #btn-tv-read-all
+  };
+
+  var epgReminderState = {
+    reminders: [],
+    activeToastReminder: null,
+    dismissedIds: {}
+  };
+
+  function loadIptv(callback) {
+    try {
+      apiFetch('/api/sync/pull', function(err, data) {
+        var playlists = (data && data.iptvPlaylists && data.iptvPlaylists.length > 0) ? data.iptvPlaylists : [];
+        if (playlists.length === 0) {
+          try { playlists = JSON.parse(getStorageItem('lumiere_iptv') || '[]'); } catch(e) {}
+        }
+        playlists = (playlists || []).filter(function(pl) {
+          return pl && pl.url && pl.url.indexOf('test/') === -1 && pl.url.indexOf('https://test') === -1;
+        });
+        iptvState.playlists = playlists;
+        try { setStorageItem('lumiere_iptv', JSON.stringify(playlists)); } catch(e) {}
+
+        var activeIdx = -1;
+        try {
+          var savedPl = getStorageItem('lumiere_active_iptv_playlist');
+          if (savedPl !== null && savedPl !== undefined && savedPl !== '') activeIdx = parseInt(savedPl, 10);
+        } catch(e) {}
+        if (isNaN(activeIdx) || activeIdx >= playlists.length) activeIdx = -1;
+        iptvState.selectedPlaylistIndex = activeIdx;
+
+        loadAllPlaylists(playlists, activeIdx, callback);
+      });
+    } catch(e) { console.error('[IPTV] loadIptv error:', e); if (typeof callback === 'function') callback(e); }
+  }
+
+  function loadAllPlaylists(playlists, activeIdx, callback) {
+    if (!playlists || playlists.length === 0) {
+      iptvState.playlists = [];
+      iptvState.channels = [];
+      iptvState.groups = [];
+      iptvState.selectedPlaylistIndex = -1;
+      renderIptv();
+      if (typeof callback === 'function') callback(null);
+      return;
+    }
+    iptvState.playlists = playlists;
+    var countEl = document.getElementById('iptv-channel-count');
+    var chListEl = document.getElementById('iptv-channels');
+    var catListEl = document.getElementById('iptv-cat-list');
+    if (countEl) countEl.textContent = 'Загрузка...';
+    if (chListEl && (!iptvState.channels || iptvState.channels.length === 0)) {
+      chListEl.innerHTML = '<div style="padding:48px 20px;color:#e8c170;font-size:20px;text-align:center;"><div class="spinner" style="margin:0 auto 20px;"></div>Загрузка списка телеканалов...</div>';
+    }
+    if (catListEl && (!iptvState.channels || iptvState.channels.length === 0)) {
+      catListEl.innerHTML = '<div style="padding:24px 16px;color:rgba(255,255,255,0.5);font-size:16px;">Загрузка...</div>';
+    }
+
+    var loaded = 0;
+    for (var i = 0; i < playlists.length; i++) {
+      (function(idx, pl) {
+        if (pl.channels && pl.channels.length > 0) {
+          var plName = pl.name || ('Плейлист ' + (idx + 1));
+          for (var c = 0; c < pl.channels.length; c++) {
+            pl.channels[c].playlistIndex = idx;
+            pl.channels[c].playlistName = plName;
+            if (!pl.channels[c].id || String(pl.channels[c].id).indexOf('pl' + idx) !== 0) {
+              pl.channels[c].id = 'pl' + idx + '_' + (pl.channels[c].id || c);
+            }
+          }
+          loaded++;
+          if (loaded === playlists.length) {
+            applyActivePlaylist(activeIdx);
+            if (typeof callback === 'function') callback(null);
+          }
+          return;
+        }
+        apiPost('/api/iptv/parse', { url: pl.url }, function(err, data) {
+          loaded++;
+          var chs = (data && data.channels) ? data.channels : [];
+          var grps = (data && data.groups) ? data.groups : [];
+          var plName = pl.name || ('Плейлист ' + (idx + 1));
+          for (var c = 0; c < chs.length; c++) {
+            chs[c].playlistIndex = idx;
+            chs[c].playlistName = plName;
+            chs[c].id = 'pl' + idx + '_' + chs[c].id;
+          }
+          pl.channels = chs;
+          pl.groups = grps;
+          if (data && data.epgUrl) pl.epgUrl = data.epgUrl;
+
+          if (loaded === playlists.length) {
+            applyActivePlaylist(activeIdx);
+            for (var p = 0; p < playlists.length; p++) {
+              if (playlists[p].epgUrl) loadEpg(playlists[p].epgUrl);
+            }
+            if (typeof callback === 'function') callback(null);
+          }
+        });
+      })(i, playlists[i]);
+    }
+  }
+
+  function applyActivePlaylist(plIdx) {
+    iptvState.selectedPlaylistIndex = plIdx;
+    try { setStorageItem('lumiere_active_iptv_playlist', String(plIdx)); } catch(e) {}
+
+    var allChs = [];
+    var allGrps = [];
+    var grpSeen = {};
+
+    var pls = iptvState.playlists || [];
+    if (plIdx === -1) {
+      for (var i = 0; i < pls.length; i++) {
+        var pch = pls[i].channels || [];
+        for (var j = 0; j < pch.length; j++) allChs.push(pch[j]);
+        var pgr = pls[i].groups || [];
+        for (var k = 0; k < pgr.length; k++) {
+          if (!grpSeen[pgr[k]]) { grpSeen[pgr[k]] = true; allGrps.push(pgr[k]); }
+        }
+      }
+    } else if (pls[plIdx]) {
+      allChs = pls[plIdx].channels || [];
+      allGrps = pls[plIdx].groups || [];
+    }
+
+    iptvState.channels = allChs;
+    iptvState.groups = allGrps;
+    if (!iptvState.selectedGroup || iptvState.selectedGroup === 'All') {
+      iptvState.selectedGroup = 'Все';
+    }
+    try { iptvState.favorites = JSON.parse(getStorageItem('lumiere_iptv_fav') || '{}'); } catch(e) {}
+    renderIptv();
+  }
+
+  function loadEpg(epgUrl) {
+    if (!epgUrl) epgUrl = 'https://iptvx.one/EPG';
+    console.log('[IPTV] Loading EPG from:', epgUrl);
+    apiPost('/api/iptv/epg', { url: epgUrl }, function(err, data) {
+      if (err || !data) {
+        console.warn('[IPTV] EPG load error:', err);
+        return;
+      }
+      var parsed = null;
+      try { parsed = typeof data === 'string' ? JSON.parse(data) : data; } catch(e) { return; }
+      if (!parsed) return;
+      if (parsed.epg) iptvState.epgData = parsed.epg;
+      if (parsed.channelMap) iptvState.epgChannelMap = parsed.channelMap;
+      if (parsed.iconMap) iptvState.epgIconMap = parsed.iconMap;
+      for (var name in iptvState.epgChannelMap) {
+        iptvState.epgNameLookup[name.toLowerCase()] = iptvState.epgChannelMap[name];
+      }
+      console.log('[IPTV] EPG loaded successfully, channel count:', Object.keys(iptvState.epgData).length);
+      renderIptv();
+    });
+  }
+
+  function findEpgId(ch) {
+    if (!ch) return null;
+    if (ch.tvgId && iptvState.epgData[ch.tvgId]) return ch.tvgId;
+    if (ch.tvgName) {
+      var tvgNl = ch.tvgName.toLowerCase();
+      if (iptvState.epgNameLookup[tvgNl]) return iptvState.epgNameLookup[tvgNl];
+    }
+    var nl = (ch.name || '').toLowerCase();
+    if (iptvState.epgNameLookup[nl]) return iptvState.epgNameLookup[nl];
+    var clean = nl.replace(/\s*(hd|sd|fhd|4k|uhd)\s*$/i, '').trim();
+    if (clean !== nl && iptvState.epgNameLookup[clean]) return iptvState.epgNameLookup[clean];
+    return null;
+  }
+
+  function getChannelLogo(ch) {
+    if (ch.logo) return ch.logo;
+    var id = findEpgId(ch);
+    if (id && iptvState.epgIconMap && iptvState.epgIconMap[id]) return iptvState.epgIconMap[id];
+    return '';
+  }
+
+  function getCurrentProgram(programs) {
+    if (!programs || programs.length === 0) return null;
+    var nowMs = Date.now();
+    // 1. Exact match by millisecond timestamp
+    for (var i = 0; i < programs.length; i++) {
+      var p = programs[i];
+      if (p.startMs && p.stopMs && nowMs >= p.startMs && nowMs < p.stopMs) {
+        return p;
+      }
+    }
+    // 2. First program that hasn't ended yet
+    for (var j = 0; j < programs.length; j++) {
+      var pj = programs[j];
+      if (pj.stopMs && pj.stopMs > nowMs) {
+        return pj;
+      }
+    }
+    // 3. Fallback to clock match
+    var now = new Date();
+    var cm = now.getHours() * 60 + now.getMinutes();
+    for (var k = 0; k < programs.length; k++) {
+      var pk = programs[k];
+      var sp = (pk.startTime || '').split(':');
+      var ep = (pk.stopTime || '').split(':');
+      if (sp.length < 2 || ep.length < 2) continue;
+      var sm = parseInt(sp[0]) * 60 + parseInt(sp[1]);
+      var em = parseInt(ep[0]) * 60 + parseInt(ep[1]);
+      if (em <= sm) em += 1440;
+      if (cm >= sm && cm < em) return pk;
+    }
+    return programs[0];
+  }
+
+  function getNextProgram(programs) {
+    if (!programs || programs.length === 0) return null;
+    var current = getCurrentProgram(programs);
+    if (!current) return programs.length > 1 ? programs[1] : null;
+    var idx = programs.indexOf(current);
+    if (idx >= 0 && idx < programs.length - 1) return programs[idx + 1];
+    return null;
+  }
+
+  function getProgramProgress(program) {
+    if (!program) return 0;
+    var nowMs = Date.now();
+    if (program.startMs && program.stopMs && program.stopMs > program.startMs) {
+      if (nowMs <= program.startMs) return 0;
+      if (nowMs >= program.stopMs) return 1;
+      return (nowMs - program.startMs) / (program.stopMs - program.startMs);
+    }
+    var now = new Date();
+    var cm = now.getHours() * 60 + now.getMinutes();
+    var sp = (program.startTime || '').split(':');
+    var ep = (program.stopTime || '').split(':');
+    if (sp.length < 2 || ep.length < 2) return 0;
+    var sm = parseInt(sp[0]) * 60 + parseInt(sp[1]);
+    var em = parseInt(ep[0]) * 60 + parseInt(ep[1]);
+    if (em <= sm) em += 1440;
+    if (cm < sm || cm >= em) return 0;
+    return (cm - sm) / (em - sm);
+  }
+
+  // Build category list from channels
+  function buildCategories() {
+    var cats = ['Все', 'Избранное'];
+    var seen = {};
+    for (var i = 0; i < iptvState.channels.length; i++) {
+      var g = iptvState.channels[i].group;
+      if (g && g !== 'Uncategorized' && !seen[g]) {
+        seen[g] = true;
+        cats.push(g);
+      }
+    }
+    return cats;
+  }
+
+  // Get filtered channels
+  function getFilteredChannels() {
+    var channels = iptvState.channels || [];
+    if (iptvState.selectedGroup === 'Избранное') {
+      channels = channels.filter(function(ch) { return !!iptvState.favorites[ch.id]; });
+    } else if (iptvState.selectedGroup !== 'Все') {
+      channels = channels.filter(function(ch) { return ch.group === iptvState.selectedGroup; });
+    }
+    if (iptvState.searchQuery && iptvState.searchQuery.length > 0) {
+      var q = iptvState.searchQuery.toLowerCase();
+      channels = channels.filter(function(ch) {
+        return (ch.name && ch.name.toLowerCase().indexOf(q) >= 0) ||
+               (ch.group && ch.group.toLowerCase().indexOf(q) >= 0);
+      });
+    }
+    return channels;
+  }
+
+  // ========== IPTV Virtual Keyboard (No Native Samsung IME) ==========
+  var iptvOskState = {
+    isOpen: false,
+    lang: 'ru',
+    row: 0,
+    col: 0
+  };
+
+  function openIptvOsk() {
+    iptvOskState.isOpen = true;
+    var overlay = document.getElementById('iptv-osk-overlay');
+    if (overlay) {
+      overlay.classList.remove('hidden');
+      overlay.style.display = 'flex';
+    }
+    renderIptvOsk();
+    updateIptvOskQueryDisplay();
+    focusIptvOskKey(0, 0);
+  }
+
+  function closeIptvOsk() {
+    iptvOskState.isOpen = false;
+    var overlay = document.getElementById('iptv-osk-overlay');
+    if (overlay) {
+      overlay.classList.add('hidden');
+      overlay.style.display = 'none';
+    }
+    clearIptvOskFocus();
+    // Return focus to channels list
+    iptvState.focusedCol = 1;
+    iptvState.focusedCh = 0;
+    renderIptv();
+    focusIptvChannel(0);
+  }
+
+  function updateIptvOskQueryDisplay() {
+    var qText = document.getElementById('iptv-osk-query-text');
+    var sBoxText = document.getElementById('iptv-search-text');
+    var queryVal = iptvState.searchQuery || '';
+    if (qText) qText.textContent = queryVal || '(пусто)';
+    if (sBoxText) {
+      if (queryVal) {
+        sBoxText.textContent = queryVal;
+        sBoxText.classList.remove('placeholder');
+      } else {
+        sBoxText.textContent = 'Поиск канала (OK для ввода)...';
+        sBoxText.classList.add('placeholder');
+      }
+    }
+  }
+
+  function renderIptvOsk() {
+    var container = document.getElementById('iptv-osk-keyboard');
+    if (!container) return;
+
+    var rows = OSK_LAYOUTS[iptvOskState.lang] || OSK_LAYOUTS.ru;
+    var html = '';
+    for (var r = 0; r < rows.length; r++) {
+      html += '<div class="osk-row">';
+      for (var c = 0; c < rows[r].length; c++) {
+        var key = rows[r][c];
+        var isObj = typeof key === 'object';
+        var label = isObj ? key.label : key;
+        var action = isObj ? key.action : 'char';
+        var charVal = isObj ? (key.char || '') : key;
+        var cls = 'osk-key iptv-osk-key';
+        if (isObj && key.wide === 2) cls += ' osk-key-wide-2';
+        if (isObj && key.wide === 4) cls += ' osk-key-wide-4';
+        if (isObj) cls += ' osk-key-action';
+
+        html += '<button type="button" class="' + cls + '" data-r="' + r + '" data-c="' + c + '" data-action="' + action + '" data-char="' + esc(charVal) + '" tabindex="-1">' + esc(label) + '</button>';
+      }
+      html += '</div>';
+    }
+    container.innerHTML = html;
+
+    var closeBtn = document.getElementById('iptv-osk-close-btn');
+    if (closeBtn && !closeBtn._bound) {
+      closeBtn._bound = true;
+      closeBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        closeIptvOsk();
+      });
+    }
+
+    var keyBtns = container.querySelectorAll('.iptv-osk-key');
+    for (var i = 0; i < keyBtns.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var r = parseInt(btn.getAttribute('data-r'));
+          var c = parseInt(btn.getAttribute('data-c'));
+          focusIptvOskKey(r, c);
+          triggerIptvOskKey(btn);
+        });
+      })(keyBtns[i]);
+    }
+  }
+
+  function focusIptvOskKey(r, c) {
+    clearIptvOskFocus();
+    var rows = OSK_LAYOUTS[iptvOskState.lang] || OSK_LAYOUTS.ru;
+    if (r < 0) r = 0;
+    if (r >= rows.length) r = rows.length - 1;
+    if (c < 0) c = 0;
+    if (c >= rows[r].length) c = rows[r].length - 1;
+
+    iptvOskState.row = r;
+    iptvOskState.col = c;
+
+    var target = document.querySelector('.iptv-osk-key[data-r="' + r + '"][data-c="' + c + '"]');
+    if (target) {
+      target.classList.add('focused');
+      try { target.focus(); } catch(e) {}
+    }
+  }
+
+  function clearIptvOskFocus() {
+    var list = document.querySelectorAll('.iptv-osk-key.focused, #iptv-osk-close-btn.focused');
+    for (var i = 0; i < list.length; i++) list[i].classList.remove('focused');
+  }
+
+  function triggerIptvOskKey(btn) {
+    if (!btn) {
+      btn = document.querySelector('.iptv-osk-key[data-r="' + iptvOskState.row + '"][data-c="' + iptvOskState.col + '"]');
+    }
+    if (!btn) return;
+
+    var action = btn.getAttribute('data-action');
+    var charVal = btn.getAttribute('data-char');
+
+    if (action === 'char') {
+      iptvState.searchQuery = (iptvState.searchQuery || '') + charVal.toLowerCase();
+    } else if (action === 'space') {
+      iptvState.searchQuery = (iptvState.searchQuery || '') + ' ';
+    } else if (action === 'backspace') {
+      if (iptvState.searchQuery && iptvState.searchQuery.length > 0) {
+        iptvState.searchQuery = iptvState.searchQuery.substring(0, iptvState.searchQuery.length - 1);
+      }
+    } else if (action === 'clear') {
+      iptvState.searchQuery = '';
+    } else if (action === 'lang') {
+      iptvOskState.lang = (iptvOskState.lang === 'ru') ? 'en' : 'ru';
+      renderIptvOsk();
+      focusIptvOskKey(iptvOskState.row, iptvOskState.col);
+      return;
+    }
+
+    updateIptvOskQueryDisplay();
+    // Live filter channels in background
+    iptvState.focusedCh = 0;
+    renderChannels();
+  }
+
+  function handleIptvOskKeys(code, e) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+
+    if (isBack) {
+      closeIptvOsk();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    var rows = OSK_LAYOUTS[iptvOskState.lang] || OSK_LAYOUTS.ru;
+    var curRowLen = rows[iptvOskState.row].length;
+
+    var closeBtn = document.getElementById('iptv-osk-close-btn');
+    var isOnCloseBtn = closeBtn && closeBtn.classList.contains('focused');
+
+    if (isOnCloseBtn) {
+      if (isDown) {
+        closeBtn.classList.remove('focused');
+        focusIptvOskKey(0, 0);
+      } else if (isEnter) {
+        closeIptvOsk();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isLeft) {
+      if (iptvOskState.col > 0) {
+        focusIptvOskKey(iptvOskState.row, iptvOskState.col - 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (iptvOskState.col < curRowLen - 1) {
+        focusIptvOskKey(iptvOskState.row, iptvOskState.col + 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      if (iptvOskState.row > 0) {
+        var prevLen = rows[iptvOskState.row - 1].length;
+        var targetCol = Math.min(prevLen - 1, Math.round(iptvOskState.col * (prevLen / curRowLen)));
+        focusIptvOskKey(iptvOskState.row - 1, targetCol);
+      } else {
+        clearIptvOskFocus();
+        if (closeBtn) {
+          closeBtn.classList.add('focused');
+          closeBtn.focus();
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      if (iptvOskState.row < rows.length - 1) {
+        var nextLen = rows[iptvOskState.row + 1].length;
+        var targetCol2 = Math.min(nextLen - 1, Math.round(iptvOskState.col * (nextLen / curRowLen)));
+        focusIptvOskKey(iptvOskState.row + 1, targetCol2);
+      } else {
+        closeIptvOsk();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      triggerIptvOskKey();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
+  function setupIptvSearchBox() {
+    var box = document.getElementById('iptv-search-box');
+    if (!box || box._setupDone) return;
+    box._setupDone = true;
+    box.addEventListener('click', function(e) {
+      e.preventDefault();
+      openIptvOsk();
+    });
+    updateIptvOskQueryDisplay();
+  }
+
+  // Ensure IPTV 3-column DOM structure exists even in launcher context
+  function ensureIptvDomStructure() {
+    var sec = document.getElementById('sec-iptv');
+    if (!sec) return;
+    sec.classList.add('iptv-section');
+    var prev = document.getElementById('iptv-preview');
+    if (prev && !document.getElementById('iptv-preview-video-wrap')) {
+      var wrap = document.createElement('div');
+      wrap.id = 'iptv-preview-video-wrap';
+      wrap.className = 'iptv-preview-video-wrap';
+      wrap.innerHTML = '<video id="iptv-preview-video" class="iptv-preview-video" muted autoplay playsinline style="display:none;"></video>' +
+        '<div id="iptv-preview-no-video" class="iptv-preview-no-video"><span style="font-size:36px;">📺</span><span>Предпросмотр канала</span></div>';
+      var banner = document.getElementById('iptv-preview-banner');
+      if (banner) {
+        prev.insertBefore(wrap, banner);
+      } else {
+        prev.insertBefore(wrap, prev.firstChild);
+      }
+    }
+    if (!document.getElementById('iptv-cat-list') || !document.getElementById('iptv-channels') || !document.getElementById('iptv-preview-title')) {
+      sec.innerHTML =
+        '<div id="iptv-categories" class="iptv-col iptv-col-left">' +
+          '<div class="iptv-col-header">Категории</div>' +
+          '<div id="iptv-cat-list" class="iptv-cat-list"></div>' +
+        '</div>' +
+        '<div id="iptv-channels-wrap" class="iptv-col iptv-col-mid">' +
+          '<div class="iptv-col-header" style="display:flex;align-items:center;justify-content:space-between;">' +
+            '<span id="iptv-channel-count">0 каналов</span>' +
+            '<span style="font-size:14px;color:#facc15;font-weight:600;">[Зажатие OK: В избранное]</span>' +
+          '</div>' +
+          '<div class="iptv-search-box" id="iptv-search-box" tabindex="0">' +
+            '<span style="font-size:16px;">🔍</span>' +
+            '<span class="iptv-search-box-text placeholder" id="iptv-search-text">Поиск канала (OK для ввода)...</span>' +
+          '</div>' +
+          '<div id="iptv-channels" class="iptv-channel-list"></div>' +
+        '</div>' +
+        '<div id="iptv-preview" class="iptv-col iptv-col-right">' +
+          '<div id="iptv-preview-video-wrap" class="iptv-preview-video-wrap">' +
+            '<video id="iptv-preview-video" class="iptv-preview-video" muted autoplay playsinline style="display:none;"></video>' +
+            '<div id="iptv-preview-no-video" class="iptv-preview-no-video">' +
+              '<span style="font-size:36px;">📺</span>' +
+              '<span>Предпросмотр канала</span>' +
+            '</div>' +
+          '</div>' +
+          '<div id="iptv-preview-banner" class="iptv-preview-banner">' +
+            '<div id="iptv-preview-logo-box" class="iptv-preview-logo-box">TV</div>' +
+            '<div class="iptv-preview-header-meta">' +
+              '<div class="iptv-preview-live-badge"><span class="live-pulse">●</span> В ЭФИРЕ</div>' +
+              '<div id="iptv-preview-title" class="iptv-preview-title"></div>' +
+              '<div id="iptv-preview-group" class="iptv-preview-group"></div>' +
+            '</div>' +
+          '</div>' +
+          '<div id="iptv-preview-info" class="iptv-preview-info">' +
+            '<div id="iptv-preview-program-box" class="iptv-preview-program-box">' +
+              '<div id="iptv-preview-program" class="iptv-preview-program"></div>' +
+              '<div id="iptv-preview-progress-wrap" class="iptv-preview-progress-wrap">' +
+                '<div id="iptv-preview-progress-fill" class="iptv-preview-progress-fill"></div>' +
+              '</div>' +
+              '<div id="iptv-preview-time" class="iptv-preview-time"></div>' +
+            '</div>' +
+            '<div id="iptv-preview-desc" class="iptv-preview-desc"></div>' +
+            '<div id="iptv-preview-actions" class="iptv-preview-actions">' +
+              '<button id="iptv-btn-play" class="iptv-action-btn primary" tabindex="0">▶ Смотреть во весь экран</button>' +
+              '<button id="iptv-btn-fav" class="iptv-action-btn" tabindex="0">★ В избранное</button>' +
+            '</div>' +
+            '<div id="iptv-epg-schedule" class="iptv-epg-schedule"></div>' +
+          '</div>' +
+        '</div>' +
+        '<div id="iptv-osk-overlay" class="iptv-osk-overlay hidden">' +
+          '<div class="iptv-osk-bar">' +
+            '<span class="iptv-osk-query">Поиск: <span id="iptv-osk-query-text" style="color:#e8c170;"></span></span>' +
+            '<button type="button" id="iptv-osk-close-btn" class="iptv-osk-close-btn" tabindex="0">Готово (↵ к каналам)</button>' +
+          '</div>' +
+          '<div id="iptv-osk-keyboard" class="tv-keyboard"></div>' +
+        '</div>';
+      if (typeof setupIptvEvents === 'function') setupIptvEvents();
+    }
+  }
+
+  // ========== Render ==========
+  function renderIptv() {
+    if (iptvLocked) return;
+    ensureIptvDomStructure();
+    setupIptvSearchBox();
+    renderCategories();
+    renderChannels();
+    renderPreview();
+  }
+
+  function renderCategories() {
+    var container = document.getElementById('iptv-cat-list');
+    if (!container) return;
+
+    var navItems = [];
+    var html = '';
+
+    // 1. If multiple playlists exist, render playlist selector items
+    var pls = iptvState.playlists || [];
+    if (pls.length > 1) {
+      html += '<div class="iptv-section-divider">Плейлисты</div>';
+
+      var isAllActive = (iptvState.selectedPlaylistIndex === -1);
+      var isAllFocused = (iptvState.focusedCol === 0 && iptvState.focusedCat === navItems.length);
+      var allCls = 'iptv-pl-item' + (isAllActive ? ' active' : '') + (isAllFocused ? ' focused' : '');
+      html += '<div class="' + allCls + '" data-nav-idx="' + navItems.length + '" data-type="playlist" data-pl-idx="-1" tabindex="0">' +
+        '<span class="iptv-cat-icon">🌐</span>' +
+        '<span>Все плейлисты</span>' +
+        '<span class="iptv-pl-badge">' + pls.length + '</span>' +
+      '</div>';
+      navItems.push({ type: 'playlist', plIdx: -1 });
+
+      for (var p = 0; p < pls.length; p++) {
+        var isPlActive = (iptvState.selectedPlaylistIndex === p);
+        var isPlFocused = (iptvState.focusedCol === 0 && iptvState.focusedCat === navItems.length);
+        var plCls = 'iptv-pl-item' + (isPlActive ? ' active' : '') + (isPlFocused ? ' focused' : '');
+        var plName = pls[p].name || ('Плейлист ' + (p + 1));
+        html += '<div class="' + plCls + '" data-nav-idx="' + navItems.length + '" data-type="playlist" data-pl-idx="' + p + '" tabindex="0">' +
+          '<span class="iptv-cat-icon">📡</span>' +
+          '<span>' + esc(plName) + '</span>' +
+        '</div>';
+        navItems.push({ type: 'playlist', plIdx: p, name: plName });
+      }
+
+      html += '<div class="iptv-section-divider">Категории</div>';
+    }
+
+    // 2. Render categories
+    var cats = buildCategories();
+    for (var i = 0; i < cats.length; i++) {
+      var cat = cats[i];
+      var isActive = (cat === iptvState.selectedGroup);
+      var isFocused = (iptvState.focusedCol === 0 && iptvState.focusedCat === navItems.length);
+      var cls = 'iptv-cat-item' + (isActive ? ' active' : '') + (isFocused ? ' focused' : '');
+      var icon = cat === 'Все' ? '📺' : cat === 'Избранное' ? '★' : '▸';
+      html += '<div class="' + cls + '" data-nav-idx="' + navItems.length + '" data-type="category" data-cat="' + esc(cat) + '" tabindex="0">' +
+        '<span class="iptv-cat-icon">' + icon + '</span>' +
+        '<span>' + esc(cat) + '</span>' +
+      '</div>';
+      navItems.push({ type: 'category', cat: cat });
+    }
+
+    iptvState.navItems = navItems;
+    container.innerHTML = html;
+
+    var itemEls = container.querySelectorAll('.iptv-pl-item, .iptv-cat-item');
+    for (var ci = 0; ci < itemEls.length; ci++) {
+      (function(idx) {
+        itemEls[idx].addEventListener('click', function() {
+          onCategoryColumnItemSelect(idx);
+        });
+      })(ci);
+    }
+  }
+
+  function onCategoryColumnItemSelect(idx) {
+    var navItems = iptvState.navItems || [];
+    var item = navItems[idx];
+    if (!item) return;
+
+    iptvState.focusedCat = idx;
+    if (item.type === 'playlist') {
+      applyActivePlaylist(item.plIdx);
+      renderCategories();
+      focusIptvCategory(idx);
+    } else if (item.type === 'category') {
+      iptvState.selectedGroup = item.cat;
+      iptvState.focusedCol = 1;
+      iptvState.focusedCh = 0;
+      renderCategories();
+      renderChannels();
+      focusIptvChannel(0);
+    }
+  }
+
+  var iptvRenderLimit = 80;
+  function renderChannels(appendOnly) {
+    var container = document.getElementById('iptv-channels');
+    var countEl = document.getElementById('iptv-channel-count');
+    if (!container) return;
+
+    var channels = getFilteredChannels();
+    if (countEl) countEl.textContent = channels.length + ' каналов';
+
+    if (channels.length === 0) {
+      container.innerHTML = '<div style="padding:20px;color:var(--text-mute);text-align:center;">Нет каналов</div>';
+      return;
+    }
+
+    if (!appendOnly) {
+      iptvRenderLimit = Math.max(80, (iptvState.focusedCh || 0) + 40);
+      container.innerHTML = '';
+    }
+
+    var startIdx = appendOnly ? container.querySelectorAll('.iptv-ch-item').length : 0;
+    var endIdx = Math.min(channels.length, iptvRenderLimit);
+    if (startIdx >= endIdx) return;
+
+    var frag = document.createDocumentFragment();
+    for (var i = startIdx; i < endIdx; i++) {
+      var ch = channels[i];
+      var isFocused = iptvState.focusedCol === 1 && i === iptvState.focusedCh;
+      var isFav = !!iptvState.favorites[ch.id];
+
+      var logo = getChannelLogo(ch);
+      var logoHtml = logo
+        ? '<div class="iptv-ch-logo"><img src="' + esc(logo) + '" onerror="this.style.display=\'none\'" loading="lazy"></div>'
+        : '<div class="iptv-ch-logo-placeholder">TV</div>';
+
+      // Current program
+      var epgId = findEpgId(ch);
+      var programs = epgId && iptvState.epgData[epgId] ? iptvState.epgData[epgId] : null;
+      var current = getCurrentProgram(programs);
+      var progress = getProgramProgress(current);
+
+      var itemEl = document.createElement('div');
+      itemEl.className = 'iptv-ch-item' + (isFocused ? ' focused' : '');
+      itemEl.setAttribute('data-chid', ch.id);
+      itemEl.setAttribute('data-idx', i);
+      var sourceTag = '';
+      if (iptvState.playlists && iptvState.playlists.length > 1 && iptvState.selectedPlaylistIndex === -1 && ch.playlistName) {
+        sourceTag = ' <span class="iptv-ch-source-tag">' + esc(ch.playlistName) + '</span>';
+      }
+      var infoHtml = '<div class="iptv-ch-name">' + esc(ch.name) + sourceTag + '</div>';
+      if (current) {
+        infoHtml += '<div class="iptv-ch-program">' + esc(current.title) + '</div>';
+        infoHtml += '<div class="iptv-ch-progress"><div class="iptv-ch-progress-fill" style="width:' + Math.round(progress * 100) + '%"></div></div>';
+        infoHtml += '<div class="iptv-ch-time">' + esc(current.startTime) + ' - ' + esc(current.stopTime) + '</div>';
+      }
+
+      itemEl.innerHTML = logoHtml +
+        '<div class="iptv-ch-info">' + infoHtml + '</div>' +
+        '<button type="button" class="iptv-ch-fav' + (isFav ? ' active' : '') + '" data-favid="' + esc(ch.id) + '" title="Добавить в избранное">' + (isFav ? '★' : '☆') + '</button>';
+
+      (function(idx, channelObj) {
+        itemEl.addEventListener('click', function(e) {
+          if (e.target && e.target.classList.contains('iptv-ch-fav')) return;
+          iptvState.focusedCol = 1;
+          iptvState.focusedCh = idx;
+          if (channelObj) playChannel(channelObj);
+        });
+        var favBtn = itemEl.querySelector('.iptv-ch-fav');
+        if (favBtn) {
+          favBtn.addEventListener('click', function(e) {
+            e.stopPropagation();
+            toggleFavorite(channelObj.id);
+          });
+        }
+      })(i, ch);
+
+      frag.appendChild(itemEl);
+    }
+    container.appendChild(frag);
+  }
+
+  function renderPreview() {
+    var ch = iptvState.currentChannel;
+    var logoBox = document.getElementById('iptv-preview-logo-box');
+    var nameEl = document.getElementById('iptv-preview-name') || document.getElementById('iptv-preview-title');
+    var groupEl = document.getElementById('iptv-preview-group');
+    var progEl = document.getElementById('iptv-preview-program');
+    var timeEl = document.getElementById('iptv-preview-time');
+    var progressFill = document.getElementById('iptv-preview-progress-fill');
+    var metaEl = document.getElementById('iptv-preview-meta') || document.getElementById('iptv-preview-desc');
+    var playBtn = document.getElementById('iptv-btn-play');
+    var favBtn = document.getElementById('iptv-btn-fav');
+    var schedEl = document.getElementById('iptv-epg-schedule');
+
+    if (!ch) {
+      if (logoBox) logoBox.textContent = 'TV';
+      if (nameEl) nameEl.textContent = '';
+      if (groupEl) groupEl.textContent = '';
+      if (progEl) progEl.textContent = 'Выберите канал';
+      if (timeEl) timeEl.textContent = '';
+      if (progressFill) progressFill.style.width = '0%';
+      if (metaEl) metaEl.textContent = '';
+      if (schedEl) schedEl.innerHTML = '';
+      return;
+    }
+
+    if (logoBox) {
+      var logo = getChannelLogo(ch);
+      if (logo) {
+        logoBox.innerHTML = '<img src="' + esc(logo) + '" onerror="try{if(this.parentNode)this.parentNode.textContent=\'TV\';}catch(e){}">';
+      } else {
+        logoBox.textContent = 'TV';
+      }
+    }
+
+    if (nameEl) nameEl.textContent = ch.name;
+    if (groupEl) groupEl.textContent = ch.group || '';
+
+    var epgId = findEpgId(ch);
+    var programs = epgId && iptvState.epgData[epgId] ? iptvState.epgData[epgId] : null;
+    var current = getCurrentProgram(programs);
+    var progress = getProgramProgress(current);
+
+    if (progEl) {
+      progEl.textContent = current ? current.title : 'Прямой эфир';
+    }
+    if (timeEl) {
+      timeEl.textContent = current ? (current.startTime + ' – ' + current.stopTime) : '';
+    }
+    if (progressFill) {
+      progressFill.style.width = Math.round(progress * 100) + '%';
+    }
+    if (metaEl) {
+      var meta = [];
+      if (current && current.desc) meta.push(current.desc);
+      else if (ch.group) meta.push('Канал из группы «' + ch.group + '»');
+      metaEl.textContent = meta.join(' · ');
+    }
+    if (favBtn) {
+      var isFav = !!(ch && iptvState.favorites[ch.id]);
+      favBtn.textContent = isFav ? '★ В избранном' : '☆ В избранное';
+      favBtn.onclick = function() { if (ch) toggleFavorite(ch.id); };
+    }
+    if (playBtn) {
+      playBtn.onclick = function() { if (ch) playChannel(ch); };
+    }
+
+    // Render full day program schedule
+    if (schedEl) {
+      if (programs && programs.length > 0) {
+        var baseDate = (current && current.startDate) ? current.startDate : (programs[0] ? programs[0].startDate : '');
+        var schedHtml = '<div class="iptv-epg-heading"><span>Программа передач</span><span>' + esc(baseDate) + '</span></div>';
+        schedHtml += '<div class="iptv-epg-list">';
+        for (var pi = 0; pi < programs.length; pi++) {
+          var pItem = programs[pi];
+          var isCur = (pItem === current);
+          var isNextDay = pItem.startDate && baseDate && pItem.startDate !== baseDate;
+          var timePrefix = isNextDay ? '<span style="color:#a78bfa;font-size:15px;margin-right:6px;font-weight:700;">Завтра</span>' : '';
+          var timeStr = esc(pItem.startTime || '') + ' – ' + esc(pItem.stopTime || '');
+          var hasRem = typeof hasEpgReminder === 'function' ? hasEpgReminder(ch.id, pItem.title) : false;
+          schedHtml += '<div class="iptv-epg-item' + (isCur ? ' is-current' : '') + '" data-epg-idx="' + pi + '" tabindex="0">';
+          schedHtml += '<span class="iptv-epg-time">' + timePrefix + timeStr + '</span>';
+          schedHtml += '<span class="iptv-epg-name">' + esc(pItem.title || 'Без названия') + (isCur ? ' <span class="iptv-epg-badge">Сейчас</span>' : '') + (hasRem ? ' <span class="epg-reminder-tag">⏰ Напоминание</span>' : '') + '</span>';
+          schedHtml += '</div>';
+        }
+        schedHtml += '</div>';
+        schedEl.innerHTML = schedHtml;
+        schedEl.style.display = 'block';
+
+        // Add click listeners to EPG items
+        var epgEls = schedEl.querySelectorAll('.iptv-epg-item');
+        for (var ei = 0; ei < epgEls.length; ei++) {
+          (function(itemIdx) {
+            epgEls[itemIdx].addEventListener('click', function() {
+              focusIptvPreview(itemIdx + 2);
+              var pItem = programs[itemIdx];
+              var isCur = (pItem === current);
+              if (isCur) {
+                if (ch) playChannel(ch);
+              } else {
+                if (typeof toggleEpgReminder === 'function') {
+                  toggleEpgReminder(ch, pItem);
+                }
+              }
+            });
+          })(ei);
+        }
+
+        // Auto-scroll so current show is at top of viewport
+        var curEl = schedEl.querySelector('.iptv-epg-item.is-current');
+        if (curEl) {
+          try {
+            if (curEl.scrollIntoViewIfNeeded) {
+              curEl.scrollIntoViewIfNeeded(true);
+            } else {
+              curEl.scrollIntoView({ block: 'start' });
+            }
+          } catch(e) {}
+        }
+      } else {
+        schedEl.innerHTML = '<div style="color:rgba(255,255,255,0.4);font-size:14px;padding:8px 0;">Программа передач отсутствует</div>';
+        schedEl.style.display = 'block';
+      }
+    }
+  }
+
+  var previewPlayTimer = null;
+
+  function startPreview(ch) {
+    if (!ch || !ch.url) return;
+    if (state.section !== 'iptv') return;
+    var video = document.getElementById('iptv-preview-video');
+    var noVideo = document.getElementById('iptv-preview-no-video');
+    if (!video) return;
+
+    var streamUrl = ch.url;
+    if (streamUrl.indexOf('/') === 0) {
+      streamUrl = (typeof getBaseUrl === 'function' ? getBaseUrl() : '') + streamUrl;
+    }
+
+    if (video.getAttribute('data-stream-src') === streamUrl && !video.paused) {
+      return;
+    }
+
+    try { video.pause(); } catch(e) {}
+    video.muted = true;
+    video.setAttribute('data-stream-src', streamUrl);
+    video.setAttribute('src', streamUrl);
+    video.src = streamUrl;
+    video.style.display = 'block';
+    if (noVideo) noVideo.style.display = 'none';
+
+    var p = video.play();
+    if (p && typeof p.catch === 'function') {
+      p.catch(function(err) {
+        console.log('[IPTV Preview] play error:', err);
+      });
+    }
+    if (iptvState) iptvState.previewChannel = ch;
+  }
+
+  function stopPreview() {
+    if (previewPlayTimer) {
+      clearTimeout(previewPlayTimer);
+      previewPlayTimer = null;
+    }
+    if (previewDebounceTimer) {
+      clearTimeout(previewDebounceTimer);
+      previewDebounceTimer = null;
+    }
+    if (iptvState && iptvState._previewTimer) {
+      clearTimeout(iptvState._previewTimer);
+      iptvState._previewTimer = null;
+    }
+    var video = document.getElementById('iptv-preview-video');
+    var noVideo = document.getElementById('iptv-preview-no-video');
+    if (video) {
+      try { video.pause(); } catch(e) {}
+      video.removeAttribute('src');
+      video.removeAttribute('data-stream-src');
+      video.src = '';
+      try { video.load(); } catch(e) {}
+      video.style.display = 'none';
+    }
+    if (noVideo) {
+      noVideo.style.display = 'flex';
+    }
+    if (iptvState) iptvState.previewChannel = null;
+  }
+
+  // ========== Events ==========
+  function setupIptvEvents() {
+    // Category click
+    var catList = document.getElementById('iptv-cat-list');
+    if (catList) {
+      catList.onclick = function(e) {
+        if (iptvLocked) return;
+        var el = e.target;
+        while (el && el !== catList) {
+          if (el.classList && el.classList.contains('iptv-cat-item')) break;
+          el = el.parentNode;
+        }
+        if (el && el.hasAttribute('data-cat')) {
+          var cat = el.getAttribute('data-cat');
+          var idx = parseInt(el.getAttribute('data-idx'));
+          iptvState.selectedGroup = cat;
+          iptvState.focusedCat = idx;
+          iptvState.focusedCol = 1;
+          iptvState.focusedCh = 0;
+          renderIptv();
+          focusIptvChannel(0);
+        }
+      };
+    }
+
+    // Channel click
+    var chList = document.getElementById('iptv-channels');
+    if (chList) {
+      chList.onclick = function(e) {
+        if (iptvLocked) return;
+        // Check fav button
+        var el = e.target;
+        while (el && el !== chList) {
+          if (el.classList && el.classList.contains('iptv-ch-fav')) {
+            var favId = el.getAttribute('data-favid');
+            if (favId) toggleFavorite(favId);
+            return;
+          }
+          el = el.parentNode;
+        }
+        // Play channel
+        var chEl = findChannelEl(e.target);
+        if (chEl) {
+          var chId = chEl.getAttribute('data-chid');
+          var ch = findChannelById(chId);
+          if (ch) playChannel(ch);
+        }
+      };
+    }
+  }
+
+  function toggleFavorite(chId) {
+    iptvLocked = true;
+    if (iptvState.favorites[chId]) delete iptvState.favorites[chId];
+    else iptvState.favorites[chId] = true;
+    try { setStorageItem('lumiere_iptv_fav', JSON.stringify(iptvState.favorites)); } catch(e) {}
+    renderIptv();
+    showToast(iptvState.favorites[chId] ? '★ Канал добавлен в избранное' : '☆ Канал удалён из избранного');
+    setTimeout(function() { iptvLocked = false; }, 300);
+  }
+
+  function findChannelEl(el) {
+    var container = document.getElementById('iptv-channels');
+    while (el && el !== container) {
+      if (el.classList && el.classList.contains('iptv-ch-item') && el.hasAttribute('data-chid')) return el;
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  function findChannelById(chId) {
+    for (var i = 0; i < iptvState.channels.length; i++) {
+      if (iptvState.channels[i].id === chId) return iptvState.channels[i];
+    }
+    return null;
+  }
+
+  function playChannel(ch) {
+    if (!ch) return;
+    openPlayer('?url=' + encodeURIComponent(ch.url) + '&title=' + encodeURIComponent(ch.name));
+  }
+
+  function showToast(msg) {
+    var existing = document.querySelector('.iptv-toast');
+    if (existing) existing.parentNode.removeChild(existing);
+
+    var toast = document.createElement('div');
+    toast.className = 'iptv-toast';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.classList.add('show'); }, 10);
+    setTimeout(function() {
+      toast.classList.remove('show');
+      setTimeout(function() { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+    }, 2000);
+  }
+
+  function setupIptvSearch() { /* search handled via nav */ }
+
+  // ========== Rendering ==========
+
+
+  function renderTop10Row(containerId, titles) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    titles.slice(0, 10).forEach(function(t, i) {
+      t._isTop10 = true;
+      var card = createCard(t, i);
+      card.classList.add('top10-card');
+      var numEl = document.createElement('div');
+      numEl.className = 'top10-num';
+      numEl.textContent = (i + 1);
+      card.insertBefore(numEl, card.firstChild);
+      container.appendChild(card);
+    });
+  }
+
+  function renderRow(containerId, titles) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+    titles.forEach(function(t, i) { container.appendChild(createCard(t, i)); });
+  }
+
+  function renderGrid(gridId, titles) {
+    var grid = document.getElementById(gridId);
+    if (!grid) return;
+    grid.innerHTML = '';
+    titles.forEach(function(t, i) { grid.appendChild(createCard(t, i)); });
+  }
+
+  // ========== Curated TV Collections ==========
+  var TV_COLLECTIONS = [
+    { id: 'masterpieces', name: 'Шедевры мирового кино', subtitle: 'Высочайшие оценки и признание критиков', endpoint: '/api/movies/top_rated', accent: '#e8c170', bg: 'https://image.tmdb.org/t/p/w780/kXfqcdQKsToO0OUXHcrrNCHDBzO.jpg', featured: true },
+    { id: 'sci-fi', name: 'Вселенная Sci-Fi', subtitle: 'Космос, будущее и параллельные миры', genreId: 878, endpoint: '/api/movies/genre/878', accent: '#638cff', bg: 'https://image.tmdb.org/t/p/w780/qeQJx07rK2xm8SD2sJxFKhE7gs0.jpg', featured: true },
+    { id: 'thrillers', name: 'Остросюжетные триллеры', subtitle: 'Напряжение до последней секунды', genreId: 53, endpoint: '/api/movies/genre/53', accent: '#ef4444', bg: 'https://image.tmdb.org/t/p/w780/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg', featured: true },
+    { id: 'anime', name: 'Аниме и Анимация', subtitle: 'Шедевры восточной анимации', genreId: 16, endpoint: '/api/movies/genre/16', accent: '#f472b6', bg: 'https://image.tmdb.org/t/p/w780/kkcwhgSFd81QDlXo8ytrpHPQjhy.jpg', featured: true },
+    { id: 'action', name: 'Боевики и Экшн', subtitle: 'Драйв, погони и масштабные баталии', genreId: 28, endpoint: '/api/movies/genre/28', accent: '#f59e0b', bg: 'https://image.tmdb.org/t/p/w780/caBIySpwuFi2i7ynvHIlnxJLOdN.jpg' },
+    { id: 'comedy', name: 'Комедии и Юмор', subtitle: 'Отличное настроение и море улыбок', genreId: 35, endpoint: '/api/movies/genre/35', accent: '#10b981', bg: 'https://image.tmdb.org/t/p/w780/viZqGq9TNvQ5uXSD4ahg2RpRONT.jpg' },
+    { id: 'crime', name: 'Криминал и Гангстеры', subtitle: 'Улицы, тайны и моральные дилеммы', genreId: 80, endpoint: '/api/movies/genre/80', accent: '#94a3b8', bg: 'https://image.tmdb.org/t/p/w780/tmU7GeKVybMWFButWEGl2M4GeiP.jpg' },
+    { id: 'horror', name: 'Ужасы и Хорроры', subtitle: 'Загадочные явления и леденящий страх', genreId: 27, endpoint: '/api/movies/genre/27', accent: '#a855f7', bg: 'https://image.tmdb.org/t/p/w780/t5zCBSB5xMDKcDqe91qahCOUYVV.jpg' },
+    { id: 'mystery', name: 'Детективы и Загадки', subtitle: 'Запутанные тайны и поиск истины', genreId: 9648, endpoint: '/api/movies/genre/9648', accent: '#818cf8', bg: 'https://image.tmdb.org/t/p/w780/b9q9VmbXDvJmTziRqkwdEmFdwhr.jpg' },
+    { id: 'adventure', name: 'Приключения', subtitle: 'Опасные экспедиции и сокровища', genreId: 12, endpoint: '/api/movies/genre/12', accent: '#38bdf8', bg: 'https://image.tmdb.org/t/p/w780/lzWHmYZrWpmV7gQI2Vs2dIRGsVn.jpg' },
+    { id: 'family', name: 'Семейный вечер', subtitle: 'Добрые истории для любого возраста', genreId: 10751, endpoint: '/api/movies/genre/10751', accent: '#34d399', bg: 'https://image.tmdb.org/t/p/w780/4D1pdB27uph7J8HQzNf8QvvH9bn.jpg' },
+    { id: 'fantasy', name: 'Фэнтези и Магия', subtitle: 'Драконы, волшебство и древние легенды', genreId: 14, endpoint: '/api/movies/genre/14', accent: '#c084fc', bg: 'https://image.tmdb.org/t/p/w780/628Dep6AxEtDxjZoGP78TsOxYbK.jpg' },
+    { id: 'drama', name: 'Драмы', subtitle: 'Глубокие истории о человеческих судьбах', genreId: 18, endpoint: '/api/movies/genre/18', accent: '#fb7185', bg: 'https://image.tmdb.org/t/p/w780/k22XyPbce7zvzzf5OnT4uaY8ZD1.jpg' },
+    { id: 'romance', name: 'Мелодрамы и Любовь', subtitle: 'Романтика, искренние чувства и страсть', genreId: 10749, endpoint: '/api/movies/genre/10749', accent: '#f43f5e', bg: 'https://image.tmdb.org/t/p/w780/d5iIlFn5s0ImszYzBPb8JPIfbXD.jpg' },
+    { id: 'history', name: 'Историческое кино', subtitle: 'Эпохальные события и великие личности', genreId: 36, endpoint: '/api/movies/genre/36', accent: '#d97706', bg: 'https://image.tmdb.org/t/p/w780/8FCHJ21JBQOgATY2WI8vwYAiXg8.jpg' },
+    { id: 'war', name: 'Военное кино', subtitle: 'Мужество, баталии и подвиги', genreId: 10752, endpoint: '/api/movies/genre/10752', accent: '#78716c', bg: 'https://image.tmdb.org/t/p/w780/1ebY06Gc1eUZcCoO7IoD4tWCFxm.jpg' },
+    { id: 'documentary', name: 'Документальные фильмы', subtitle: 'Реальные факты, наука и природа', genreId: 99, endpoint: '/api/movies/genre/99', accent: '#06b6d4', bg: 'https://image.tmdb.org/t/p/w780/dUbP1HNdI0aCq1zgRJw28PWSqmk.jpg' },
+    { id: 'music', name: 'Музыка и Мюзиклы', subtitle: 'Концерты, мюзиклы и ритм', genreId: 10402, endpoint: '/api/movies/genre/10402', accent: '#ec4899', bg: 'https://image.tmdb.org/t/p/w780/ufSwlnECLoUbBjPrFqEQcWBzHwc.jpg' },
+    { id: 'western', name: 'Вестерны', subtitle: 'Дикий Запад, дуэли и ковбои', genreId: 37, endpoint: '/api/movies/genre/37', accent: '#b45309', bg: 'https://image.tmdb.org/t/p/w780/2oZklIzUbvZXXzIFzv7Hi68d6xf.jpg' },
+    { id: 'tv-drama', name: 'Культовые сериалы', subtitle: 'Лучшие драматические саги', genreId: 18, endpoint: '/api/tv/genre/18', accent: '#3b82f6', bg: 'https://image.tmdb.org/t/p/w780/dyFTt1a9ZpFdKE96kPlE9fQvXOJ.jpg' },
+    { id: 'tv-scifi', name: 'Фантастические сериалы', subtitle: 'Эпическая фантастика и фэнтези на ТВ', genreId: 10765, endpoint: '/api/tv/genre/10765', accent: '#8b5cf6', bg: 'https://image.tmdb.org/t/p/w780/c2oiRa7V3bQzof4wVGzLXtWJ5QU.jpg' },
+    { id: 'now-playing', name: 'Свежие цифровые релизы', subtitle: 'Самые последние фильмы в прокате и цифре', endpoint: '/api/movies/now_playing', accent: '#22c55e', bg: 'https://image.tmdb.org/t/p/w780/3icyRAqgakNcQn6aDVz9libFmBA.jpg' }
+  ];
+
+  function renderCollectionBanners(containerId) {
+    var container = document.getElementById(containerId);
+    if (!container) return;
+    container.innerHTML = '';
+
+    // Show top 8 curated banners on Home shelf
+    var bannersToShow = TV_COLLECTIONS.slice(0, 8);
+    bannersToShow.forEach(function(col, i) {
+      var card = document.createElement('div');
+      card.className = 'card collection-tv-card';
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('data-index', i);
+      card._collectionData = col;
+
+      var fallbackImg = col.bg;
+
+      card.innerHTML =
+        '<img class="collection-tv-img" src="' + esc(imgUrl(fallbackImg)) + '" alt="' + esc(col.name) + '" loading="lazy" onerror="this.style.display=\'none\';" />' +
+        '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
+          '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
+          '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
+          '<div class="collection-tv-sub">' + esc(col.subtitle) + '</div>' +
+        '</div>';
+
+      card.addEventListener('click', function() {
+        openTvCollection(col);
+      });
+
+      card.addEventListener('focus', function() {
+        card.classList.add('focused');
+      });
+      card.addEventListener('blur', function() {
+        card.classList.remove('focused');
+      });
+
+      container.appendChild(card);
+    });
+  }
+
+  function openTvCollection(col) {
+    if (!col) return;
+    state.inCollectionDetail = true;
+    switchSection('collections');
+    loadCollectionTitles(col);
+  }
+
+  function renderDownloadsSection() {
+    var grid = document.getElementById('tv-downloads-grid');
+    var badge = document.getElementById('tv-downloads-disk-badge');
+    var empty = document.getElementById('tv-downloads-empty');
+    if (!grid) return;
+    grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Загрузка скачанных файлов...</div>';
+    if (empty) empty.classList.add('hidden');
+
+    apiFetch('/api/downloads/server/list', function(err, res) {
+      if (err || !res) {
+        grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Не удалось получить список загрузок с сервера</div>';
+        return;
+      }
+      var dls = res.downloads || [];
+      var disk = res.disk || {};
+      if (badge && disk.free) {
+        badge.textContent = '💾 Свободно на сервере: ' + disk.free + (disk.total ? (' / ' + disk.total) : '');
+      }
+
+      if (dls.length === 0) {
+        grid.innerHTML = '';
+        if (empty) empty.classList.remove('hidden');
+        return;
+      }
+
+      if (empty) empty.classList.add('hidden');
+      grid.innerHTML = '';
+
+      dls.forEach(function(item, idx) {
+        var card = document.createElement('div');
+        card.className = 'card';
+        card.setAttribute('tabindex', '0');
+        card.setAttribute('data-id', item.id || '');
+        card._downloadItem = item;
+
+        var rawPoster = item.poster || item.poster_path || item.cover || '';
+        var posterUrl = rawPoster ? imgUrl(rawPoster) : '';
+
+        var isDone = item.status === 'completed';
+        var statusBadge = isDone
+          ? '<div style="position:absolute;top:10px;left:10px;background:#22c55e;color:#000;font-size:14px;font-weight:700;padding:4px 10px;border-radius:6px;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,0.6);">ГОТОВО</div>'
+          : '<div style="position:absolute;top:10px;left:10px;background:#eab308;color:#000;font-size:14px;font-weight:700;padding:4px 10px;border-radius:6px;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,0.6);">СКАЧИВАНИЕ ' + (item.progress || 0) + '%</div>';
+
+        var sizeBadge = item.fileSizeFormatted
+          ? '<div style="position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.8);color:#fff;font-size:13px;font-weight:600;padding:3px 8px;border-radius:6px;z-index:3;backdrop-filter:blur(4px);">' + esc(item.fileSizeFormatted) + '</div>'
+          : '';
+
+        var imgHtml = posterUrl
+          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';" />'
+          : '<div class="card-img" style="display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--surface-2);">🎬</div>';
+
+        card.innerHTML =
+          '<div class="card-img-wrap">' +
+            imgHtml +
+            statusBadge +
+            sizeBadge +
+          '</div>' +
+          '<div class="card-title"><span class="card-title-text">' + esc(item.title) + '</span></div>';
+
+        card.addEventListener('focus', function() { startCardTitleMarquee(card); });
+        card.addEventListener('blur', function() { stopCardTitleMarquee(card); });
+        card.addEventListener('mouseenter', function() { startCardTitleMarquee(card); });
+        card.addEventListener('mouseleave', function() {
+          if (!card.classList.contains('focused') && document.activeElement !== card) {
+            stopCardTitleMarquee(card);
+          }
+        });
+
+        card.addEventListener('click', function() {
+          if (isDone && (item.hlsUrl || item.streamUrl)) {
+            var rawUrl = item.hlsUrl || item.streamUrl;
+            var fullStreamUrl = rawUrl.startsWith('http') ? rawUrl : (API + rawUrl);
+            openPlayer({
+              url: fullStreamUrl,
+              title: item.title,
+              id: item.mediaId || item.id || 0,
+              type: item.mediaType || 'movie',
+              poster: posterUrl || '',
+              isOffline: true
+            });
+          } else if (item.mediaType && item.mediaId) {
+            showDetail({ id: item.mediaId, mediaType: item.mediaType });
+          }
+        });
+
+        grid.appendChild(card);
+      });
+    });
+  }
+
+  function renderCollectionsSection() {
+    var grid = document.getElementById('collections-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    state.inCollectionDetail = false;
+
+    var sec = document.getElementById('sec-collections');
+    if (sec) {
+      var subtitleEl = sec.querySelector('.page-subtitle');
+      if (subtitleEl) subtitleEl.textContent = 'Кураторские подборки и все жанры кино';
+    }
+
+    TV_COLLECTIONS.forEach(function(col, i) {
+      var card = document.createElement('div');
+      card.className = 'card collection-tv-card collections-page-card';
+      card.setAttribute('tabindex', '0');
+      card.setAttribute('data-index', i);
+      card._collectionData = col;
+
+      var fallbackImg = col.bg;
+
+      card.innerHTML =
+        '<img class="collection-tv-img" src="' + esc(imgUrl(fallbackImg)) + '" alt="' + esc(col.name) + '" loading="lazy" onerror="this.style.display=\'none\';" />' +
+        '<div class="collection-tv-overlay" style="border-left: 5px solid ' + col.accent + ';">' +
+          '<div class="collection-tv-badge" style="color:' + col.accent + ';">ПОДБОРКА ' + (i + 1 < 10 ? '0' + (i + 1) : (i + 1)) + '</div>' +
+          '<div class="collection-tv-title">' + esc(col.name) + '</div>' +
+          '<div class="collection-tv-sub">' + esc(col.subtitle) + '</div>' +
+        '</div>';
+
+      card.addEventListener('click', function() {
+        openTvCollection(col);
+      });
+
+      card.addEventListener('focus', function() {
+        card.classList.add('focused');
+      });
+      card.addEventListener('blur', function() {
+        card.classList.remove('focused');
+      });
+
+      grid.appendChild(card);
+    });
+  }
+
+  function loadCollectionTitles(col) {
+    var sec = document.getElementById('sec-collections');
+    if (!sec) return;
+    var baseUrl = col.endpoint || ('/api/movies/genre/' + (col.genreId || 878));
+    var sep = baseUrl.indexOf('?') !== -1 ? '&' : '?';
+
+    var subtitleEl = sec.querySelector('.page-subtitle');
+    if (subtitleEl) subtitleEl.textContent = col.name + ' — ' + col.subtitle;
+
+    var grid = document.getElementById('collections-grid');
+    if (!grid) return;
+    grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Загрузка фильмов...</div>';
+
+    var results = [];
+    var pending = 4;
+    var completed = false;
+
+    function renderCollectionResults(list) {
+      if (!grid) return;
+      if (list && list.length > 0) {
+        grid.innerHTML = '';
+        var backBtn = document.createElement('div');
+        backBtn.className = 'card collection-back-btn';
+        backBtn.setAttribute('tabindex', '0');
+        backBtn.style.cssText = 'width:170px;height:255px;display:flex;align-items:center;justify-content:center;flex-direction:column;background:rgba(232,193,112,0.1);border:2px dashed #e8c170;border-radius:14px;cursor:pointer;color:#e8c170;font-size:18px;font-weight:600;flex-shrink:0;box-sizing:border-box;';
+        backBtn.innerHTML = '<span style="font-size:36px;margin-bottom:8px;">←</span>Все подборки';
+        backBtn.addEventListener('click', function() {
+          state.inCollectionDetail = false;
+          renderCollectionsSection();
+        });
+        backBtn.addEventListener('focus', function() { backBtn.classList.add('focused'); });
+        backBtn.addEventListener('blur', function() { backBtn.classList.remove('focused'); });
+        grid.appendChild(backBtn);
+
+        list.forEach(function(t, i) {
+          grid.appendChild(createCard(t, i + 1));
+        });
+
+        setTimeout(function() {
+          var firstCard = grid.querySelector('.card:not(.collection-back-btn)') || backBtn;
+          if (firstCard) {
+            clearCardFocus();
+            clearNavFocus();
+            state.focusedCard = 0;
+            firstCard.classList.add('focused');
+            firstCard.focus();
+          }
+        }, 50);
+      } else {
+        grid.innerHTML = '<div style="color:var(--text-dim);font-size:24px;padding:40px;">Не удалось загрузить фильмы подборки</div>';
+      }
+    }
+
+    function checkDone() {
+      if (completed) return;
+      if (pending === 0 || results.length >= 60) {
+        completed = true;
+        renderCollectionResults(results);
+      }
+    }
+
+    [1, 2, 3, 4].forEach(function(p) {
+      apiFetch(baseUrl + sep + 'page=' + p, function(err, data) {
+        pending--;
+        if (data && data.results && data.results.length > 0) {
+          data.results.forEach(function(t) {
+            if (t && t.id && (t.poster || t.backdrop)) {
+              var exists = false;
+              for (var k = 0; k < results.length; k++) {
+                if (results[k].id === t.id) { exists = true; break; }
+              }
+              if (!exists) results.push(t);
+            }
+          });
+        }
+        checkDone();
+      });
+    });
+
+    setTimeout(function() {
+      if (!completed) {
+        completed = true;
+        renderCollectionResults(results);
+      }
+    }, 1500);
+  }
+
+  // ========== Card Title Marquee Animation ==========
+  var marqueeStyleEl = null;
+  var marqueeTimer = null;
+
+  function startCardTitleMarquee(card) {
+    if (marqueeTimer) {
+      clearTimeout(marqueeTimer);
+      marqueeTimer = null;
+    }
+    if (!card) return;
+    marqueeTimer = setTimeout(function() {
+      if (!card || (!card.classList.contains('focused') && document.activeElement !== card)) return;
+      _doStartCardTitleMarquee(card);
+    }, 400);
+  }
+
+  function _doStartCardTitleMarquee(card) {
+    if (!card) return;
+    var titleEl = card.querySelector('.card-title');
+    if (!titleEl) return;
+    var textEl = titleEl.querySelector('.card-title-text');
+    if (!textEl) {
+      var raw = titleEl.textContent || '';
+      titleEl.innerHTML = '<span class="card-title-text">' + esc(raw) + '</span>';
+      textEl = titleEl.querySelector('.card-title-text');
+    }
+    if (!textEl) return;
+
+    // Reset previous animation state to measure clean un-shifted width
+    textEl.classList.remove('is-marquee');
+    textEl.style.animation = 'none';
+    textEl.style.webkitAnimation = 'none';
+    textEl.style.transform = 'translate3d(0, 0, 0)';
+    textEl.style.webkitTransform = 'translate3d(0, 0, 0)';
+
+    var compStyle = window.getComputedStyle ? window.getComputedStyle(titleEl) : null;
+    var padLeft = compStyle ? parseFloat(compStyle.paddingLeft) || 14 : 14;
+    var padRight = compStyle ? parseFloat(compStyle.paddingRight) || 14 : 14;
+    var containerWidth = titleEl.clientWidth - (padLeft + padRight);
+    var textWidth = textEl.scrollWidth;
+    var overflow = textWidth - containerWidth;
+
+    if (containerWidth > 0 && overflow > 4) {
+      var shiftPx = -(Math.ceil(overflow) + 12);
+      var duration = Math.max(3.5, Math.min(12, (overflow / 32) + 2.5));
+
+      if (!marqueeStyleEl) {
+        marqueeStyleEl = document.getElementById('tv-card-marquee-style');
+        if (!marqueeStyleEl) {
+          marqueeStyleEl = document.createElement('style');
+          marqueeStyleEl.id = 'tv-card-marquee-style';
+          document.head.appendChild(marqueeStyleEl);
+        }
+      }
+
+      var animName = 'marquee_' + Math.floor(Math.random() * 1000000);
+      marqueeStyleEl.textContent =
+        '@keyframes ' + animName + ' {' +
+        '  0%, 18% { -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0); }' +
+        '  65%, 82% { -webkit-transform: translate3d(' + shiftPx + 'px, 0, 0); transform: translate3d(' + shiftPx + 'px, 0, 0); }' +
+        '  100% { -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0); }' +
+        '} ' +
+        '@-webkit-keyframes ' + animName + ' {' +
+        '  0%, 18% { -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0); }' +
+        '  65%, 82% { -webkit-transform: translate3d(' + shiftPx + 'px, 0, 0); transform: translate3d(' + shiftPx + 'px, 0, 0); }' +
+        '  100% { -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0); }' +
+        '}';
+
+      void textEl.offsetWidth; // Force reflow
+      textEl.style.webkitAnimation = animName + ' ' + duration + 's cubic-bezier(0.42, 0, 0.58, 1) infinite';
+      textEl.style.animation = animName + ' ' + duration + 's cubic-bezier(0.42, 0, 0.58, 1) infinite';
+      textEl.classList.add('is-marquee');
+      titleEl.classList.add('has-marquee');
+    }
+  }
+
+  function stopCardTitleMarquee(card) {
+    if (marqueeTimer) {
+      clearTimeout(marqueeTimer);
+      marqueeTimer = null;
+    }
+    if (!card) return;
+    var titleEl = card.querySelector('.card-title');
+    if (titleEl) titleEl.classList.remove('has-marquee');
+    var textEl = card.querySelector('.card-title-text');
+    if (textEl) {
+      textEl.classList.remove('is-marquee');
+      textEl.style.animation = 'none';
+      textEl.style.webkitAnimation = 'none';
+      textEl.style.transform = 'translate3d(0, 0, 0)';
+      textEl.style.webkitTransform = 'translate3d(0, 0, 0)';
+    }
+  }
+
+  function createCard(title, index) {
+    var card = document.createElement('div');
+    card.className = 'card';
+    card.setAttribute('data-index', index);
+    card.setAttribute('data-id', title.id);
+    card.setAttribute('tabindex', '0');
+    card._titleData = title;
+
+    var rawPoster = title.poster || title.poster_path || title.cover || (title.title && typeof title.title === 'object' ? (title.title.poster || title.title.poster_path) : '');
+    var imgSrc = imgUrl(rawPoster);
+    var scoreHtml = title.score ? '<div class="card-score">' + title.score + '</div>' : '';
+
+    card.innerHTML = '<div class="card-img-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(title.name) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';">' + scoreHtml + '</div>' +
+      '<div class="card-title"><span class="card-title-text">' + esc(title.name) + '</span></div>';
+
+    card.addEventListener('focus', function() {
+      if (state.section === 'home' && typeof updateHeroBanner === 'function') {
+        updateHeroBanner(title);
+      }
+      startCardTitleMarquee(card);
+    });
+
+    card.addEventListener('blur', function() {
+      stopCardTitleMarquee(card);
+    });
+
+    card.addEventListener('mouseenter', function() {
+      startCardTitleMarquee(card);
+    });
+
+    card.addEventListener('mouseleave', function() {
+      if (!card.classList.contains('focused') && document.activeElement !== card) {
+        stopCardTitleMarquee(card);
+      }
+    });
+
+    card.addEventListener('click', function() {
+      if (state.section === 'search' && oskState && oskState.query && oskState.query.trim().length >= 2) {
+        saveRecentSearch(oskState.query.trim());
+      }
+      showDetail(title);
+    });
+    return card;
+  }
+
+  // ========== Detail View ==========
+  function showDetail(title) {
+    if (!title) return;
+    if (typeof title.name === 'object' && title.name) {
+      title.name = title.name.name || title.name.title || '';
+    }
+    if (title.name === '[object Object]') title.name = '';
+    if (!title.name && title.title) {
+      title.name = (typeof title.title === 'object') ? (title.title.name || title.title.title || '') : title.title;
+    }
+    if (title.name === '[object Object]') title.name = '';
+
+    // Self-heal House M.D. (ID 1408) if opened or passed as movie 1408
+    if (Number(title.id) === 1408 || /^(1408|Комната 1408)$/i.test(title.name)) {
+      title.type = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(title.name) || !title.name) {
+        title.name = 'Доктор Хаус';
+      }
+    }
+
+    // Self-heal Harry Potter (ID 671)
+    if (Number(title.id) === 671) {
+      title.type = 'movie';
+      title.name = cleanMovieTitle(title.name).replace(/\s*·\s*S\d+.*$/i, '').trim();
+      if (!title.name) title.name = 'Гарри Поттер и философский камень';
+    } else if (Number(title.id) === 13) {
+      title.type = 'movie';
+      title.name = 'Форрест Гамп';
+    } else if (title.type === 'movie' && Number(title.id) !== 1408) {
+      title.type = 'movie';
+      title.name = title.name.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    } else if (title.type !== 'movie' && (/ · S[0-9]+/i.test(title.name))) {
+      title.type = 'tv';
+    }
+
+    if (!$detail) $detail = document.getElementById('detail');
+    if (!$detail) return;
+    $detail.classList.remove('hidden');
+    $detail.classList.remove('screen');
+    $detail.style.display = 'block';
+    $detail.style.zIndex = '900';
+
+    var isMovieType = (title.type === 'movie') || (Number(title.id) === 671) || (Number(title.id) === 13);
+    if (!isMovieType && (title.type === 'tv' || state.detailTab === 'episodes' || (/ · S[0-9]+/i.test(title.name)))) {
+      state.detailTab = 'episodes';
+    } else {
+      state.detailTab = 'torrents';
+    }
+    state.detailSeason = '';
+    state.detail = null;
+    state.detailLoadedId = title.id;
+    if (title && title.id) {
+      state.lastDetailTitleId = title.id;
+    }
+
+    // Loading state
+    renderDetailLoading(title);
+
+    // Fetch full details
+    var isKp = (title.source === 'kp' || title.isKp || !!title.kpId);
+    var type = (!isMovieType && (title.type === 'tv' || (/ · S[0-9]+/i.test(title.name)))) ? 'tv' : 'movies';
+    var cacheKey = (isKp ? 'kp_' : (type + '_')) + title.id;
+    if (state._detailCache && state._detailCache[cacheKey]) {
+      var cached = state._detailCache[cacheKey];
+      state.detail = cached;
+      state.detailLoadedId = cached.id;
+      renderDetail(cached);
+      return;
+    }
+
+    // Loading state
+    renderDetailLoading(title);
+
+    var detailUrl = isKp ? ('/api/kp/' + (title.kpId || title.id)) : ('/api/' + type + '/' + title.id);
+    apiFetch(detailUrl, function(err, data) {
+      if (!state._detailCache) state._detailCache = {};
+      if (data && data.id) {
+        if (isKp) {
+          data.source = 'kp';
+          data.kpId = data.id;
+        }
+        state._detailCache[cacheKey] = data;
+        state.detail = data;
+        state.detailLoadedId = data.id;
+        renderDetail(data);
+      } else {
+        state.detail = title;
+        state.detailLoadedId = title.id;
+        renderDetail(title);
+      }
+    });
+  }
+
+  function renderDetailLoading(title) {
+    if (!$detail) $detail = document.getElementById('detail');
+    if (!$detail) return;
+    $detail.classList.remove('hidden');
+    $detail.classList.remove('screen');
+    $detail.style.display = 'block';
+    $detail.style.zIndex = '900';
+
+    var rawBackdrop = title.backdrop;
+    var hasBackdrop = rawBackdrop && rawBackdrop !== title.poster && !String(rawBackdrop).includes('placeholder');
+    var backdropUrl = hasBackdrop ? imgUrl(rawBackdrop) : '';
+    var typeLabel = title.type === 'tv' ? 'Сериал' : title.type === 'anime' ? 'Аниме' : 'Фильм';
+
+    var html = '';
+    html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
+    if (hasBackdrop && backdropUrl) {
+      html += '<img src="' + esc(backdropUrl) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    }
+    html += '<div class="detail-hero-gradient"></div></div>';
+
+    html += '<div class="detail-overlay">';
+    html += '<div class="detail-top-row"><button id="detail-back-btn" class="detail-back-btn" tabindex="0">‹ Назад</button></div>';
+
+    html += '<div class="detail-upper-hero">';
+    html += '<div class="detail-hero-left">';
+    html += '<div class="detail-label-row"><span class="detail-type-label">' + esc(typeLabel) + '</span></div>';
+    html += '<h1 class="detail-title">' + esc(title.name || '') + '</h1>';
+    if (title.year) {
+      html += '<div class="detail-meta-row"><span class="detail-meta-item">📅 ' + title.year + '</span></div>';
+    }
+    html += '<div class="detail-actions" style="margin-top: 16px;">';
+    html += '<button class="detail-btn detail-btn-primary" id="detail-loading-btn" tabindex="0" style="opacity: 0.7;">⏳ Загрузка...</button>';
+    html += '</div>';
+    html += '</div>'; // end detail-hero-left
+    html += '</div>'; // end detail-upper-hero
+
+    html += '<div class="detail-tabs-bar" style="opacity: 0.6;">';
+    html += '<button class="detail-tab-btn active">' + (title.type === 'tv' ? 'Серии' : 'Торренты') + '</button>';
+    html += '</div>';
+    html += '<div class="detail-tab-content">';
+    html += '<p class="detail-loading-text">Загрузка информации...</p>';
+    html += '</div>';
+    html += '</div>'; // end detail-overlay
+
+    var contentEl = $detail.querySelector('#detail-content');
+    if (contentEl) contentEl.innerHTML = html;
+    bindDetailBack();
+    var bBtn = document.getElementById('detail-back-btn');
+    if (bBtn) {
+      try { bBtn.focus(); } catch(e) {}
+    }
+  }
+
+  function detectBackdropLuminance(url, cb) {
+    if (!url) return cb(false);
+    var img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = function() {
+      try {
+        var canvas = document.createElement('canvas');
+        canvas.width = 40;
+        canvas.height = 40;
+        var ctx = canvas.getContext('2d');
+        if (!ctx) return cb(false);
+        var sx = img.naturalWidth * 0.5;
+        var sy = 0;
+        var sw = img.naturalWidth * 0.5;
+        var sh = img.naturalHeight * 0.6;
+        ctx.drawImage(img, sx, sy, sw, sh, 0, 0, 40, 40);
+        var idata = ctx.getImageData(0, 0, 40, 40).data;
+        var sum = 0, count = 0;
+        for (var i = 0; i < idata.length; i += 4) {
+          sum += (0.299 * idata[i] + 0.587 * idata[i + 1] + 0.114 * idata[i + 2]);
+          count++;
+        }
+        var avg = count > 0 ? (sum / count) / 255 : 0;
+        cb(avg > 0.45);
+      } catch(e) {
+        cb(false);
+      }
+    };
+    img.onerror = function() { cb(false); };
+    img.src = url;
+  }
+
+  function renderDetail(d) {
+    if (!state._detailCache) state._detailCache = {};
+    if (d && d.id) {
+      var cKey = (d.type === 'tv' ? 'tv' : 'movies') + '_' + d.id;
+      state._detailCache[cKey] = d;
+    }
+
+    var poster = imgUrl(d.poster);
+    var rawBackdrop = d.backdrop;
+    var hasBackdrop = rawBackdrop && rawBackdrop !== d.poster && !String(rawBackdrop).includes('placeholder');
+    var backdrop = hasBackdrop ? imgUrl(rawBackdrop) : '';
+    var typeLabel = d.type === 'tv' ? 'Сериал' : d.type === 'anime' ? 'Аниме' : 'Фильм';
+    var html = '';
+
+    // Hero
+    html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
+    if (hasBackdrop && backdrop) {
+      html += '<img src="' + esc(backdrop) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+    }
+    html += '<div class="detail-hero-gradient"></div></div>';
+
+    // Overlay
+    html += '<div class="detail-overlay">';
+
+    // Back button
+    html += '<div class="detail-top-row"><button id="detail-back-btn" class="detail-back-btn" tabindex="0">‹ Назад</button></div>';
+
+    // UPPER SECTION: TWO SIDES (Left side info & actions, Right side 4x2 Cast grid)
+    html += '<div class="detail-upper-hero">';
+
+    // LEFT SIDE: Badges, Title, Meta, Actions & Synopsis (~52%)
+    html += '<div class="detail-hero-left">';
+
+    // Type + genre
+    html += '<div class="detail-label-row"><span class="detail-type-label">' + esc(typeLabel) + '</span>';
+    if (d.genres && d.genres.length > 0) {
+      html += '<span class="detail-sep"> — </span><span class="detail-genre-label">' + esc(d.genres[0]) + '</span>';
+    }
+    html += '</div>';
+
+    // Title
+    html += '<h1 class="detail-title">' + esc(d.logoText || d.name) + '</h1>';
+
+    // Meta: score, year, runtime, rating
+    html += '<div class="detail-meta-row">';
+    if (d.score) html += '<span class="detail-score">★ ' + d.score + '</span>';
+    if (d.year) { html += '<span class="detail-meta-dot"> · </span><span class="detail-meta-item">📅 ' + d.year + '</span>'; }
+    if (d.runtime) { html += '<span class="detail-meta-dot"> · </span><span class="detail-meta-item">⏱ ' + esc(d.runtime) + '</span>'; }
+    if (d.rating) { html += '<span class="detail-meta-dot"> · </span><span class="detail-rating-badge">' + esc(d.rating) + '</span>'; }
+    html += '</div>';
+
+    // Action buttons (Compact & Matching User Mockup)
+    html += '<div class="detail-actions">';
+    var savedTorrent = null;
+    var savedPosition = 0;
+    try { savedTorrent = (JSON.parse(getStorageItem('last_torrents') || '{}'))[d.id] || null; } catch(e) {}
+    try { savedPosition = (JSON.parse(getStorageItem('playback_positions') || '{}'))[d.id] || 0; } catch(e) {}
+    if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
+    var hasResume = savedTorrent && savedPosition > 30;
+
+    if (hasResume) {
+      html += '<button class="detail-btn detail-btn-primary" id="detail-play" tabindex="0">▶ Продолжить</button>';
+    } else {
+      html += '<button class="detail-btn detail-btn-primary" id="detail-play" tabindex="0">▶ Смотреть</button>';
+    }
+    html += '<button class="detail-btn detail-btn-icon" id="detail-watchlist-btn" tabindex="0" title="Буду смотреть">+</button>';
+    html += '<button class="detail-btn detail-btn-icon" id="detail-fav-btn" tabindex="0" title="В закладки">♡</button>';
+    html += '<button class="detail-btn detail-btn-icon" id="detail-watched-btn" tabindex="0" title="Просмотрено">✓</button>';
+    var trackTitle = (d.type === 'tv') ? 'Следить за новыми сериями' : 'Следить за цифровым релизом';
+    html += '<button class="detail-btn detail-btn-icon" id="detail-track-btn" tabindex="0" title="' + esc(trackTitle) + '">🔔</button>';
+    html += '<button class="detail-btn detail-btn-trailer" id="detail-trailer-btn" tabindex="0">🎞 Трейлер</button>';
+    html += '</div>'; // end detail-actions
+
+    // Description (full text)
+    if (d.description) {
+      html += '<div class="detail-desc-wrap"><p class="detail-desc">' + esc(d.description) + '</p></div>';
+    }
+
+    // Left side specs & details: "О фильме" block to perfectly fill the left column
+    html += '<div class="detail-specs-block">';
+    html += '<div class="detail-specs-header">О ' + (d.type === 'tv' ? 'сериале' : 'фильме') + '</div>';
+    html += '<div class="detail-specs-grid">';
+
+    if (d.director) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Режиссёр</span><span class="detail-spec-val">' + esc(d.director) + '</span></div>';
+    }
+
+    var countriesStr = '';
+    if (d.countries && d.countries.length > 0) {
+      countriesStr = d.countries.join(', ');
+    } else if (d.country) {
+      countriesStr = d.country;
+    }
+    if (countriesStr) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Страна</span><span class="detail-spec-val">' + esc(countriesStr) + '</span></div>';
+    }
+
+    if (d.originalTitle && d.originalTitle !== d.name) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Оригинал</span><span class="detail-spec-val detail-spec-italic">' + esc(d.originalTitle) + '</span></div>';
+    }
+
+    if (d.releaseDate || d.year) {
+      var dateStr = d.releaseDate ? d.releaseDate : String(d.year);
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Премьера</span><span class="detail-spec-val">' + esc(dateStr) + '</span></div>';
+    }
+
+    if (d.type === 'tv' && d.seasonsCount) {
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Сезоны</span><span class="detail-spec-val">' + d.seasonsCount + ' ' + (d.seasonsCount === 1 ? 'сезон' : (d.seasonsCount < 5 ? 'сезона' : 'сезонов')) + '</span></div>';
+    }
+
+    if (d.genres && d.genres.length > 0) {
+      html += '<div class="detail-spec-row detail-spec-row-genres"><span class="detail-spec-label">Жанры</span><div class="detail-spec-chips">';
+      d.genres.slice(0, 4).forEach(function(g) {
+        html += '<span class="detail-genre-chip">' + esc(g) + '</span>';
+      });
+      html += '</div></div>';
+    }
+
+    if (d.tagline) {
+      html += '<div class="detail-spec-row detail-spec-row-tagline"><span class="detail-spec-label">Слоган</span><span class="detail-spec-val detail-spec-italic">' + esc(d.tagline) + '</span></div>';
+    }
+
+    if (d.productionCompanies && d.productionCompanies.length > 0) {
+      var prodStr = d.productionCompanies.slice(0, 2).join(', ');
+      html += '<div class="detail-spec-row"><span class="detail-spec-label">Студия</span><span class="detail-spec-val">' + esc(prodStr) + '</span></div>';
+    }
+
+    html += '<div class="detail-spec-row detail-spec-row-tech"><span class="detail-spec-label">Форматы</span><div class="detail-tech-badges">';
+    html += '<span class="detail-tech-badge badge-4k">4K UHD</span>';
+    html += '<span class="detail-tech-badge badge-dv">Dolby Vision</span>';
+    html += '<span class="detail-tech-badge badge-hdr">HDR10+</span>';
+    html += '<span class="detail-tech-badge badge-audio">5.1 / Atmos</span>';
+    html += '</div></div>';
+
+    html += '</div>'; // end detail-specs-grid
+    html += '</div>'; // end detail-specs-block
+
+    html += '</div>'; // end detail-hero-left
+
+    // RIGHT SIDE: Cast Section with 4x2 Grid of 8 Actor Cards
+    html += '<div class="detail-hero-right">';
+    if (d.cast && d.cast.length > 0) {
+      html += '<div class="detail-cast-section">';
+      html += '<div class="detail-cast-header-row"><span class="detail-cast-title">В главных ролях</span>';
+      if (d.cast.length > 8) {
+        html += '<button class="detail-all-cast-btn" id="detail-all-cast-btn" tabindex="0">Все актеры ›</button>';
+      }
+      html += '</div>';
+
+      html += '<div class="detail-cast-grid-4x2">';
+      d.cast.slice(0, 8).forEach(function(c, idx) {
+        var avatar = imgUrl(c.image);
+        var pId = c.id || '';
+        var rawRole = c.role || '';
+        var cleanRole = rawRole.indexOf('/') !== -1 ? rawRole.split('/')[0].trim() : rawRole;
+        html += '<div class="detail-actor-card" data-person-id="' + pId + '" data-person-name="' + esc(c.name) + '" data-cast-idx="' + idx + '" tabindex="0">';
+        html += '<div class="detail-actor-photo"><img src="' + esc(avatar) + '" class="detail-actor-img" onerror="this.style.display=\'none\'" loading="lazy"></div>';
+        html += '<div class="detail-actor-name">' + esc(c.name) + '</div>';
+        if (cleanRole) html += '<div class="detail-actor-role">' + esc(cleanRole) + '</div>';
+        html += '</div>';
+      });
+      html += '</div>'; // end detail-cast-grid-4x2
+      html += '</div>'; // end detail-cast-section
+    }
+    html += '</div>'; // end detail-hero-right
+
+    html += '</div>'; // end detail-upper-hero
+
+    // FULL WIDTH STREAMING SECTION: Tabs & Streams / Torrents
+    html += '<div class="detail-stream-section">';
+
+    // Tabs: Episodes (for TV) / Torrents / Sources
+    if (d.type === 'tv') {
+      html += '<div class="detail-tabs">';
+      html += '<button class="detail-tab active" data-tab="episodes" tabindex="0">Серии</button>';
+      html += '<button class="detail-tab" data-tab="torrents" tabindex="0">Торренты</button>';
+      html += '<button class="detail-tab" data-tab="sources" tabindex="0">Источники</button>';
+      html += '</div>';
+    } else {
+      html += '<div class="detail-tabs">';
+      html += '<button class="detail-tab active" data-tab="torrents" tabindex="0">Торренты</button>';
+      html += '<button class="detail-tab" data-tab="sources" tabindex="0">Источники</button>';
+      html += '</div>';
+    }
+
+    // Season selector for TV shows
+    if (d.type === 'tv') {
+      var savedSeason = 1;
+      try {
+        var sSaved = getStorageItem('last_season_' + d.id);
+        if (sSaved && parseInt(sSaved, 10) > 0) savedSeason = parseInt(sSaved, 10);
+      } catch(e) {}
+      var sCount = d.seasonsCount || (d.seasons && d.seasons.length) || 1;
+      html += '<div class="detail-season-wrap">';
+      html += '<div class="detail-season-title">Сезон:</div>';
+      html += '<div class="detail-season-row" id="season-row">';
+      for (var s = 1; s <= sCount; s++) {
+        var sVal = String(s);
+        var isAct = (state.detailSeason === sVal || (!state.detailSeason && s === savedSeason));
+        html += '<button class="season-btn' + (isAct ? ' active' : '') + '" data-season="' + sVal + '" tabindex="0">' + s + ' сезон</button>';
+      }
+      html += '</div></div>';
+    }
+
+    // Tab content
+    html += '<div class="detail-tab-content">';
+    if (d.type === 'tv') {
+      html += '<div id="episodes-results" class="detail-tab-pane active" data-pane="episodes"><p class="detail-loading-text">Загрузка серий ' + (savedSeason || 1) + ' сезона...</p></div>';
+      html += '<div id="torrent-results" class="detail-tab-pane" data-pane="torrents"><p class="detail-loading-text">Поиск торрентов...</p></div>';
+      html += '<div id="sources-results" class="detail-tab-pane" data-pane="sources"><p class="detail-loading-text">Поиск источников...</p></div>';
+    } else {
+      html += '<div id="torrent-results" class="detail-tab-pane active" data-pane="torrents"><p class="detail-loading-text">Поиск торрентов...</p></div>';
+      html += '<div id="sources-results" class="detail-tab-pane" data-pane="sources"><p class="detail-loading-text">Поиск источников...</p></div>';
+    }
+    html += '</div>'; // end tab-content
+    html += '</div>'; // end detail-stream-section
+
+    // Collection / Franchise section
+    html += '<div class="detail-recommendations-section" id="detail-collection-section" style="display: none;">';
+    html += '<h3 class="detail-rec-title" id="detail-collection-title">🎬 Все части саги</h3>';
+    html += '<div class="row-items detail-rec-items" id="detail-collection-items"></div>';
+    html += '</div>';
+
+    // Bottom recommendations section: "Вам может понравиться"
+    html += '<div class="detail-recommendations-section" id="detail-rec-section">';
+    html += '<h3 class="detail-rec-title">✨ Вам может понравиться</h3>';
+    html += '<div class="row-items detail-rec-items" id="detail-rec-items"><p class="detail-loading-text">Загрузка рекомендаций...</p></div>';
+    html += '</div>';
+
+    html += '</div>'; // end overlay
+
+    if (!$detail) $detail = document.getElementById('detail');
+    if ($detail) {
+      var contentEl = $detail.querySelector('#detail-content');
+      if (contentEl) contentEl.innerHTML = html;
+    }
+
+    state._expandedTorrents = false;
+
+    // Detect backdrop luminance and apply theme to the about card
+    detectBackdropLuminance(backdrop, function(isLight) {
+      var card = document.getElementById('detail-about-card');
+      if (card) {
+        if (isLight) {
+          card.classList.add('theme-light');
+          card.classList.remove('theme-dark');
+        } else {
+          card.classList.add('theme-dark');
+          card.classList.remove('theme-light');
+        }
+      }
+    });
+
+    // Bind events
+    bindDetailBack();
+    bindDetailActions(d);
+    bindCastItems();
+    bindDetailTabs();
+    bindSeasonSelector(d);
+
+    // Load content
+    if (d.type === 'tv') {
+      state.detailTab = 'episodes';
+      var initSeason = 1;
+      try {
+        var lsInit = getStorageItem('last_season_' + d.id);
+        if (lsInit && parseInt(lsInit, 10) > 0) initSeason = parseInt(lsInit, 10);
+      } catch(e) {}
+      state.detailSeason = String(initSeason);
+      loadSeasonEpisodes(d, initSeason);
+      searchTorrents(d, initSeason);
+    } else {
+      state.detailTab = 'torrents';
+      searchTorrents(d, null);
+    }
+    searchSources(d);
+    loadDetailRecommendations(d);
+    loadDetailCollection(d);
+
+    // Focus primary play button
+    setTimeout(function() {
+      var playBtn = document.getElementById('detail-play');
+      if (playBtn) {
+        setDetailFocus(playBtn);
+      }
+    }, 100);
+  }
+
+  function imgUrl(path) {
+    if (!path) return './icon.png';
+    path = String(path).trim();
+    if (!path || path === 'undefined' || path === 'null') return './icon.png';
+
+    // Already a proxy URL -> do not double-wrap
+    if (path.indexOf('/api/image') !== -1) {
+      if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) return path;
+      return API + (path.indexOf('/') === 0 ? path : '/' + path);
+    }
+
+    // Direct TMDB relative path: "/t/p/..." or "/<hash>.jpg"
+    if (path.indexOf('/') === 0 && !path.startsWith('/tv') && !path.startsWith('/assets') && !path.startsWith('/public')) {
+      var tmdbPath = path;
+      if (tmdbPath.indexOf('/t/p/') !== 0) {
+        tmdbPath = '/t/p/w500' + tmdbPath;
+      }
+      return API + '/api/image?url=' + encodeURIComponent('https://image.tmdb.org' + tmdbPath);
+    }
+
+    // Full URL
+    if (path.indexOf('http://') === 0 || path.indexOf('https://') === 0) {
+      if (path.indexOf('image.tmdb.org') !== -1 || path.indexOf('themoviedb.org') !== -1 || path.indexOf('kinopoisk') !== -1 || path.indexOf('yandex.net') !== -1) {
+        return API + '/api/image?url=' + encodeURIComponent(path);
+      }
+      return path;
+    }
+
+    if (path.indexOf('/') === 0) return API + path;
+    return path;
+  }
+
+  function hideDetail() {
+    if (state.inPersonModal) closePersonModal();
+    if (state.inAllCastModal) closeAllCastModal();
+    var now = Date.now();
+    lastBackTimestamp = now;
+    state.modalCloseTimestamp = now;
+    try { if (typeof window !== 'undefined') window.lastBackTimestamp = now; } catch(we) {}
+
+    var closingDetailId = state.detailLoadedId || (state.detail && state.detail.id) || state.lastDetailTitleId;
+
+    if (!$detail) $detail = document.getElementById('detail');
+    if ($detail) {
+      $detail.classList.add('hidden');
+      $detail.style.display = 'none';
+    }
+    state.detailLoadedId = null;
+    var app = document.getElementById('app');
+    if (app) {
+      app.classList.remove('hidden');
+      app.style.display = 'block';
+    }
+
+    var c = document.querySelector('.card.focused');
+    if (!c && closingDetailId) {
+      c = document.querySelector('#continue-items .card[data-id="' + closingDetailId + '"]') ||
+          document.querySelector('#sec-' + state.section + ' .card[data-id="' + closingDetailId + '"]');
+    }
+    if (!c && state.fromContinueWatching) {
+      c = document.querySelector('#continue-items .card');
+    }
+    if (!c && state.section === 'home') {
+      c = document.querySelector('#continue-items .card') ||
+          document.querySelector('#sec-home .card');
+    }
+
+    if (c) {
+      clearCardFocus();
+      clearNavFocus();
+      c.classList.add('focused');
+      state._currentFocusedCard = c;
+      try { c.focus({ preventScroll: true }); } catch(e) { try { c.focus(); } catch(e2) {} }
+      if (typeof scrollToCard === 'function') scrollToCard(c);
+      if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(c);
+      if (state.section === 'home' && c._titleData && typeof updateHeroBanner === 'function') {
+        updateHeroBanner(c._titleData);
+      }
+    } else {
+      focusNav(state.focusedNav || 0);
+    }
+  }
+
+  function playTrailer(d) {
+    if (!d || !d.id) return;
+    if (typeof showToast === 'function') {
+      showToast('Поиск трейлера...');
+    }
+
+    var mType = d.type === 'tv' ? 'tv' : 'movies';
+    apiFetch('/api/' + mType + '/' + d.id + '/trailer?lang=ru', function(err, res) {
+      if (err || !res || !res.trailer || (!res.trailer.streamUrl && !res.trailer.url)) {
+        if (typeof showToast === 'function') {
+          showToast('Трейлер не найден');
+        }
+        return;
+      }
+
+      var trailer = res.trailer;
+      var trailerTitle = trailer.name || ('Трейлер — ' + (d.name || d.title || 'Видео'));
+      var poster = d.poster || (d.title && d.title.poster) || '';
+
+      // Direct HLS video stream from Rutube/balancer - plays natively with hardware AVPlay!
+      if (trailer.streamUrl) {
+        openPlayer('?url=' + encodeURIComponent(trailer.streamUrl) +
+          '&title=' + encodeURIComponent(trailerTitle) +
+          '&poster=' + encodeURIComponent(poster) +
+          '&id=0&type=trailer');
+        return;
+      }
+
+      var trailerUrl = trailer.embedUrl || trailer.url;
+      var existing = document.getElementById('trailer-modal');
+      if (existing) existing.remove();
+
+      var modal = document.createElement('div');
+      modal.id = 'trailer-modal';
+      modal.innerHTML = '<div class="trailer-cinema-wrap">' +
+        '<iframe id="trailer-iframe" src="' + trailerUrl + '" style="width:100%;height:100%;border:none;" allow="autoplay; fullscreen" allowfullscreen></iframe>' +
+        '<button class="trailer-close-btn focused" id="trailer-close-btn" tabindex="0">✕ Закрыть (Назад)</button>' +
+        '</div>';
+
+      document.body.appendChild(modal);
+
+      var closeBtn = document.getElementById('trailer-close-btn');
+      var closeTrailer = function() {
+        if (modal && modal.parentNode) modal.remove();
+        var trailerBtn = document.getElementById('detail-trailer-btn');
+        if (trailerBtn) setDetailFocus(trailerBtn);
+      };
+
+      if (closeBtn) closeBtn.addEventListener('click', closeTrailer);
+      modal.addEventListener('click', function(e) {
+        if (e.target === modal) closeTrailer();
+      });
+    });
+  }
+
+  function loadDetailRecommendations(d) {
+    var container = document.getElementById('detail-rec-items');
+    var section = document.getElementById('detail-rec-section');
+    if (!container || !section) return;
+
+    var mType = d.type === 'tv' ? 'tv' : 'movies';
+    apiFetch('/api/' + mType + '/' + d.id + '/recommendations?lang=ru', function(err, res) {
+      var list = (res && Array.isArray(res.results)) ? res.results : [];
+      list = list.filter(function(item) {
+        return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !String(item.poster).includes('null');
+      });
+
+      if (list.length === 0) {
+        apiFetch('/api/' + mType + '/' + d.id + '/similar?lang=ru', function(err2, res2) {
+          var list2 = (res2 && Array.isArray(res2.results)) ? res2.results : [];
+          list2 = list2.filter(function(item) {
+            return item && item.id && Number(item.id) !== Number(d.id) && item.poster && !String(item.poster).includes('null');
+          });
+          renderDetailRecCards(container, section, list2);
+        });
+        return;
+      }
+
+      renderDetailRecCards(container, section, list);
+    });
+  }
+
+  function renderDetailRecCards(container, section, list) {
+    if (!list || list.length === 0) {
+      section.style.display = 'none';
+      return;
+    }
+    section.style.display = 'block';
+    container.innerHTML = '';
+    list.slice(0, 16).forEach(function(rec, idx) {
+      var card = createCard(rec, idx);
+      card.addEventListener('click', function() {
+        showDetail(rec);
+      });
+      container.appendChild(card);
+    });
+  }
+
+  function loadDetailCollection(d) {
+    var container = document.getElementById('detail-collection-items');
+    var section = document.getElementById('detail-collection-section');
+    var titleEl = document.getElementById('detail-collection-title');
+    if (!container || !section) return;
+
+    if (!d || !d.collection || !d.collection.id) {
+      section.style.display = 'none';
+      return;
+    }
+
+    apiFetch('/api/collections/' + d.collection.id + '?lang=ru', function(err, res) {
+      if (err || !res || !Array.isArray(res.parts) || res.parts.length === 0) {
+        section.style.display = 'none';
+        return;
+      }
+      var colName = res.name || (d.collection && d.collection.name) || 'Все части саги';
+      if (titleEl) {
+        titleEl.textContent = '🎬 ' + colName;
+      }
+      section.style.display = 'block';
+      container.innerHTML = '';
+      res.parts.forEach(function(part, idx) {
+        var card = createCard(part, idx);
+        if (Number(part.id) === Number(d.id)) {
+          card.classList.add('collection-current');
+          var badge = document.createElement('div');
+          badge.className = 'collection-badge-current';
+          badge.textContent = 'Вы смотрите';
+          card.appendChild(badge);
+        }
+        card.addEventListener('click', function() {
+          showDetail(part);
+        });
+        container.appendChild(card);
+      });
+    });
+  }
+
+  function bindDetailBack() {
+    var btn = document.getElementById('detail-back-btn');
+    if (btn) {
+      btn.addEventListener('click', function() { hideDetail(); });
+    }
+  }
+
+  function handleWatchButtonClick(det) {
+    det = det || state.detail;
+    if (!det) return;
+
+    if (det.type === 'tv') {
+      state.detailTab = 'episodes';
+      switchDetailTab('episodes');
+
+      var targetSeason = 1;
+      var targetEp = 1;
+      var foundResume = false;
+
+      // 1. Check state.lastPlayedEpisode
+      if (state.lastPlayedEpisode && state.lastPlayedEpisode.id == det.id) {
+        targetSeason = state.lastPlayedEpisode.season || 1;
+        targetEp = state.lastPlayedEpisode.episode || 1;
+        foundResume = true;
+      }
+
+      // 2. Check localStorage last_season_ / last_episode_
+      if (!foundResume) {
+        var sSaved = parseInt(getStorageItem('last_season_' + det.id), 10);
+        var eSaved = parseInt(getStorageItem('last_episode_' + det.id), 10);
+        if (sSaved && eSaved) {
+          targetSeason = sSaved;
+          targetEp = eSaved;
+          foundResume = true;
+        }
+      }
+
+      // 3. Check playback_positions
+      if (!foundResume) {
+        try {
+          var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+          var bestTime = 0;
+          for (var pk in positions) {
+            if (pk.indexOf(det.id + '_s') === 0) {
+              var m = pk.match(/_s(\d+)_e(\d+)/);
+              if (m) {
+                var pItem = positions[pk];
+                var pTime = typeof pItem === 'object' ? (pItem.updatedAt || pItem.timestamp || pItem.time || 0) : 0;
+                if (pTime > bestTime) {
+                  bestTime = pTime;
+                  targetSeason = parseInt(m[1], 10);
+                  targetEp = parseInt(m[2], 10);
+                  foundResume = true;
+                }
+              }
+            }
+          }
+          if (!foundResume && positions[det.id] && positions[det.id].title) {
+            var pt = positions[det.id].title;
+            if (pt.season && pt.episode) {
+              targetSeason = pt.season;
+              targetEp = pt.episode;
+              foundResume = true;
+            }
+          }
+        } catch(e) {}
+      }
+
+      // 4. Check last_torrents
+      if (!foundResume) {
+        try {
+          var lastT = (JSON.parse(getStorageItem('last_torrents') || '{}'))[det.id];
+          if (lastT && lastT.episode) {
+            targetEp = parseInt(lastT.episode, 10);
+            if (lastT.season) targetSeason = parseInt(lastT.season, 10);
+            foundResume = true;
+          }
+        } catch(e) {}
+      }
+
+      // Try to find the card in current DOM
+      var targetEpCard = document.querySelector('#episodes-results .episode-card[data-season="' + targetSeason + '"][data-episode="' + targetEp + '"]');
+      if (!targetEpCard && !foundResume) {
+        targetEpCard = document.querySelector('#episodes-results .episode-card');
+      }
+
+      if (targetEpCard) {
+        setDetailFocus(targetEpCard);
+        try {
+          targetEpCard.scrollIntoView({ block: 'center', inline: 'nearest' });
+        } catch(se) {}
+        targetEpCard.click();
+      } else {
+        // Set pending resume state and trigger loading the target season
+        state._pendingResumeEpisode = {
+          season: targetSeason,
+          episode: targetEp,
+          autoPlay: true
+        };
+        showTvToast('Продолжаем S' + targetSeason + ' E' + targetEp + '...', 3500);
+
+        var curSeasonNum = parseInt(state.detailSeason, 10) || 1;
+        if (curSeasonNum !== targetSeason) {
+          state.detailSeason = String(targetSeason);
+          var seasonBtn = document.querySelector('.season-btn[data-season="' + targetSeason + '"]');
+          if (seasonBtn) {
+            seasonBtn.click();
+          } else {
+            loadSeasonEpisodes(det, targetSeason);
+          }
+        } else {
+          loadSeasonEpisodes(det, targetSeason);
+        }
+      }
+      return;
+    }
+
+    // Movie:
+    var savedTorrent = null;
+    var savedPosition = 0;
+    if (det.id) {
+      try { savedTorrent = (JSON.parse(getStorageItem('last_torrents') || '{}'))[det.id] || null; } catch(ex) {}
+      try { savedPosition = (JSON.parse(getStorageItem('playback_positions') || '{}'))[det.id] || 0; } catch(ex) {}
+      if (typeof savedPosition === 'object') savedPosition = savedPosition.time || 0;
+    }
+    if (savedTorrent && savedTorrent.magnet && savedPosition > 30) {
+      openTorrent(savedTorrent.magnet, savedTorrent.title || det.name || det.title || '');
+      return;
+    }
+
+    // If torrents already loaded in DOM, open top torrent immediately
+    var firstTorrent = document.querySelector('#torrent-results .torrent-item');
+    if (firstTorrent) {
+      var magnet = firstTorrent.getAttribute('data-magnet');
+      var tTitle = firstTorrent.getAttribute('data-title');
+      if (magnet) {
+        openTorrent(magnet, tTitle);
+        return;
+      }
+    }
+
+    // Check if there is an online source available
+    var firstSource = document.querySelector('#sources-results .source-item');
+    if (firstSource) {
+      firstSource.click();
+      return;
+    }
+
+    // Otherwise show toast and auto-play immediately when torrents load
+    state._autoPlayWhenTorrentsLoaded = true;
+    showTvToast('Поиск лучшей раздачи и запуск видео...', 4000);
+    state.detailTab = 'torrents';
+    switchDetailTab('torrents');
+  }
+
+  function bindDetailActions(d) {
+    var playBtn = document.getElementById('detail-play');
+    if (playBtn) {
+      playBtn.addEventListener('click', function() {
+        handleWatchButtonClick(state.detail || d);
+      });
+    }
+
+    var favBtn = document.getElementById('detail-fav-btn');
+    var watchlistBtn = document.getElementById('detail-watchlist-btn');
+    var watchedBtn = document.getElementById('detail-watched-btn');
+
+    // 1. Favorites ("Закладки") toggle
+    var backBtn = document.getElementById('detail-back-btn');
+    if (backBtn) {
+      backBtn.addEventListener('click', function() {
+        hideDetail();
+      });
+    }
+
+    var trailerBtn = document.getElementById('detail-trailer-btn');
+    if (trailerBtn) {
+      trailerBtn.addEventListener('click', function() {
+        playTrailer(d);
+      });
+    }
+
+    // 1. Favorites ("Закладки") toggle
+    if (favBtn) {
+      apiFetch('/api/user/favorites', function(err, res) {
+        if (!err && res && res.favorites) {
+          var isFav = res.favorites.some(function(f) { return Number(f.tmdbId) === Number(d.id); });
+          if (isFav) {
+            favBtn.classList.add('active-action');
+            favBtn.textContent = '♥';
+            favBtn.style.color = '#f87171';
+          } else {
+            favBtn.classList.remove('active-action');
+            favBtn.textContent = '♡';
+            favBtn.style.color = '';
+          }
+        }
+      });
+      favBtn.addEventListener('click', function() {
+        var isFav = favBtn.classList.contains('active-action');
+        if (isFav) {
+          apiDelete('/api/user/favorites/' + d.id, function(err) {
+            if (!err) {
+              favBtn.classList.remove('active-action');
+              favBtn.textContent = '♡';
+              favBtn.style.color = '';
+              showTvToast('Удалено из закладок', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        } else {
+          apiPost('/api/user/favorites', {
+            tmdbId: d.id, mediaType: d.type || 'movie', titleName: d.logoText || d.name, poster: d.poster
+          }, function(err) {
+            if (!err) {
+              favBtn.classList.add('active-action');
+              favBtn.textContent = '♥';
+              favBtn.style.color = '#f87171';
+              showTvToast('Добавлено в закладки ♥', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Watchlist ("Буду смотреть") toggle
+    if (watchlistBtn) {
+      apiFetch('/api/user/watchlist', function(err, res) {
+        if (!err && res && res.watchlist) {
+          var inWl = res.watchlist.some(function(w) { return Number(w.tmdbId) === Number(d.id); });
+          if (inWl) {
+            watchlistBtn.classList.add('active-action');
+            watchlistBtn.textContent = '✓';
+            watchlistBtn.style.color = '#e8c170';
+          } else {
+            watchlistBtn.classList.remove('active-action');
+            watchlistBtn.textContent = '+';
+            watchlistBtn.style.color = '';
+          }
+        }
+      });
+      watchlistBtn.addEventListener('click', function() {
+        var inWl = watchlistBtn.classList.contains('active-action');
+        if (inWl) {
+          apiDelete('/api/user/watchlist/' + d.id, function(err) {
+            if (!err) {
+              watchlistBtn.classList.remove('active-action');
+              watchlistBtn.textContent = '+';
+              watchlistBtn.style.color = '';
+              showTvToast('Удалено из списка «Буду смотреть»', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        } else {
+          apiPost('/api/user/watchlist', {
+            tmdbId: d.id, mediaType: d.type || 'movie', titleName: d.logoText || d.name, poster: d.poster
+          }, function(err) {
+            if (!err) {
+              watchlistBtn.classList.add('active-action');
+              watchlistBtn.textContent = '✓';
+              watchlistBtn.style.color = '#e8c170';
+              showTvToast('Добавлено в «Буду смотреть» +', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        }
+      });
+    }
+
+    // 3. Watched ("Просмотрено") toggle
+    if (watchedBtn) {
+      apiFetch('/api/user/history', function(err, res) {
+        if (!err && res && res.history) {
+          var isWatched = res.history.some(function(h) { return Number(h.tmdbId) === Number(d.id); });
+          if (isWatched) {
+            watchedBtn.classList.add('active-action');
+            watchedBtn.style.color = '#6ee7b7';
+          } else {
+            watchedBtn.classList.remove('active-action');
+            watchedBtn.style.color = '';
+          }
+        }
+      });
+      watchedBtn.addEventListener('click', function() {
+        var isWatched = watchedBtn.classList.contains('active-action');
+        if (isWatched) {
+          apiDelete('/api/user/history/' + d.id, function(err) {
+            if (!err) {
+              watchedBtn.classList.remove('active-action');
+              watchedBtn.style.color = '';
+              showTvToast('Удалено из просмотренного', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        } else {
+          apiPost('/api/user/history', {
+            tmdbId: d.id, mediaType: d.type || 'movie', titleName: d.logoText || d.name, poster: d.poster, progress: 100, timestamp: Date.now()
+          }, function(err) {
+            if (!err) {
+              watchedBtn.classList.add('active-action');
+              watchedBtn.style.color = '#6ee7b7';
+              showTvToast('Отмечено как просмотренное ✓', 2000);
+              if (state.section === 'my' && typeof loadMyData === 'function') loadMyData();
+            }
+          });
+        }
+      });
+    }
+
+    var trackBtn = document.getElementById('detail-track-btn');
+    if (trackBtn) {
+      var isTv = (d.type === 'tv');
+      var mType = isTv ? 'tv' : 'movie';
+      var subTitleActive = isTv ? 'Отписаться от серий' : 'Отписаться от релиза';
+      var subTitleInactive = isTv ? 'Следить за новыми сериями' : 'Следить за цифровым релизом';
+
+      apiFetch('/api/notifications/is-subscribed/' + d.id + '?mediaType=' + mType, function(err, res) {
+        if (!err && res && res.isSubscribed) {
+          trackBtn.innerHTML = '🔕';
+          trackBtn.setAttribute('title', subTitleActive);
+          trackBtn.classList.add('active-action');
+        } else {
+          trackBtn.innerHTML = '🔔';
+          trackBtn.setAttribute('title', subTitleInactive);
+          trackBtn.classList.remove('active-action');
+        }
+      });
+
+      trackBtn.addEventListener('click', function() {
+        var isSubbed = trackBtn.classList.contains('active-action');
+        if (isSubbed) {
+          apiDelete('/api/notifications/subscribe/' + d.id + '?mediaType=' + mType, function(err) {
+            if (!err) {
+              trackBtn.innerHTML = '🔔';
+              trackBtn.setAttribute('title', subTitleInactive);
+              trackBtn.classList.remove('active-action');
+              showTvToast(isTv ? 'Вы отписались от обновлений серий' : 'Вы отписались от релиза фильма', 2000);
+            }
+          });
+        } else {
+          if (isTv) {
+            var curSeason = 0;
+            var curEpisode = 0;
+            if (d.seasons && Array.isArray(d.seasons)) {
+              for (var si = 0; si < d.seasons.length; si++) {
+                var sObj = d.seasons[si];
+                if (sObj && sObj.season_number > curSeason) {
+                  curSeason = sObj.season_number;
+                  curEpisode = sObj.episode_count || 1;
+                }
+              }
+            }
+            apiPost('/api/notifications/subscribe', {
+              tmdbId: d.id,
+              title: d.logoText || d.name,
+              poster: d.poster,
+              mediaType: 'tv',
+              lastSeason: curSeason,
+              lastEpisode: curEpisode
+            }, function(err) {
+              if (!err) {
+                trackBtn.innerHTML = '🔕';
+                trackBtn.setAttribute('title', subTitleActive);
+                trackBtn.classList.add('active-action');
+                showTvToast('Вы подписались на новые серии!', 2000);
+              }
+            });
+          } else {
+            apiPost('/api/notifications/subscribe', {
+              tmdbId: d.id,
+              title: d.logoText || d.name,
+              poster: d.poster,
+              mediaType: 'movie',
+              year: d.year ? parseInt(d.year, 10) : undefined
+            }, function(err) {
+              if (!err) {
+                trackBtn.innerHTML = '🔕';
+                trackBtn.setAttribute('title', subTitleActive);
+                trackBtn.classList.add('active-action');
+                showTvToast('🔔 Сообщим, когда фильм выйдет в хорошем качестве с чистым звуком!', 3000);
+              }
+            });
+          }
+        }
+      });
+    }
+  }
+
+  function bindCastItems() {
+    var items = document.querySelectorAll('.detail-actor-card, .detail-cast-item');
+    for (var i = 0; i < items.length; i++) {
+      (function(item) {
+        item.addEventListener('click', function() {
+          var pId = item.getAttribute('data-person-id');
+          var pName = item.getAttribute('data-person-name');
+          if (pId) openPersonModal(pId, pName);
+        });
+      })(items[i]);
+    }
+    var allBtn = document.getElementById('detail-all-cast-btn');
+    if (allBtn) {
+      allBtn.addEventListener('click', function() {
+        if (state.detail && state.detail.cast && state.detail.cast.length > 0) {
+          openAllCastModal(state.detail.cast);
+        }
+      });
+    }
+  }
+
+  function openPersonModal(personId, personName) {
+    var modal = document.getElementById('person-modal');
+    if (!modal) return;
+
+    // Remember previously focused element to return focus on modal close
+    var activeEl = document.activeElement;
+    state.personModalReturnEl = (activeEl && activeEl !== document.body) ? activeEl : (document.querySelector('.all-cast-card.focused') || document.querySelector('.detail-actor-card.focused'));
+
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+
+    var nameEl = document.getElementById('person-name');
+    if (nameEl) nameEl.textContent = personName || 'Загрузка...';
+
+    var metaEl = document.getElementById('person-meta');
+    if (metaEl) metaEl.textContent = 'Загрузка данных...';
+
+    var bioEl = document.getElementById('person-bio');
+    if (bioEl) bioEl.textContent = '';
+
+    var imgEl = document.getElementById('person-profile-img');
+    if (imgEl) {
+      imgEl.src = '';
+      imgEl.style.display = 'none';
+    }
+
+    var grid = document.getElementById('person-filmography-grid');
+    if (grid) {
+      grid.innerHTML = '<p style="color:rgba(255,255,255,0.6);font-size:18px;padding:20px;">Загрузка фильмов...</p>';
+      grid.scrollTop = 0;
+    }
+
+    var countEl = document.getElementById('person-filmography-count');
+    if (countEl) countEl.textContent = '';
+
+    // Set state
+    state.inPersonModal = true;
+    var backBtn = document.getElementById('person-modal-back');
+    if (backBtn) {
+      backBtn.classList.add('focused');
+      try { backBtn.focus(); } catch(e) {}
+      backBtn.onclick = function() {
+        closePersonModal();
+      };
+    }
+
+    apiFetch('/api/catalog/person/' + personId, function(err, data) {
+      if (err || !data) {
+        if (metaEl) metaEl.textContent = 'Не удалось загрузить данные персоны';
+        if (grid) grid.innerHTML = '<p style="color:#ef4444;font-size:18px;padding:20px;">Ошибка загрузки</p>';
+        return;
+      }
+
+      if (nameEl) nameEl.textContent = data.name || personName;
+
+      var metaParts = [];
+      if (data.birthday) metaParts.push('Дата рождения: ' + data.birthday);
+      if (data.placeOfBirth) metaParts.push(data.placeOfBirth);
+      if (metaEl) metaEl.textContent = metaParts.join(' · ');
+
+      if (bioEl) bioEl.textContent = data.biography || 'Биография пока отсутствует.';
+
+      if (imgEl && data.profile) {
+        imgEl.src = imgUrl(data.profile);
+        imgEl.style.display = 'block';
+      }
+
+      var credits = data.credits || [];
+      if (countEl) countEl.textContent = credits.length + ' работ';
+
+      if (grid) {
+        if (credits.length === 0) {
+          grid.innerHTML = '<p style="color:rgba(255,255,255,0.5);font-size:18px;padding:20px;">Фильмография пуста</p>';
+        } else {
+          var h = '';
+          credits.forEach(function(c, idx) {
+            h += '<div class="person-movie-card" data-idx="' + idx + '" data-movie-id="' + c.id + '" data-movie-type="' + c.type + '" tabindex="0">';
+            h += '<div class="person-movie-poster-wrap">';
+            h += '<img class="person-movie-poster" src="' + esc(imgUrl(c.poster)) + '" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22170%22 height=%22255%22><rect width=%22100%%22 height=%22100%%22 fill=%22%23161822%22/></svg>\'" loading="lazy">';
+            if (c.score) {
+              h += '<div class="person-movie-score">★ ' + Number(c.score).toFixed(1) + '</div>';
+            }
+            h += '</div>';
+            h += '<div class="person-movie-info">';
+            h += '<div class="person-movie-title">' + esc(c.title) + '</div>';
+            var subParts = [];
+            if (c.year) subParts.push(c.year);
+            if (c.character) subParts.push(c.character);
+            h += '<div class="person-movie-sub">' + esc(subParts.join(' · ')) + '</div>';
+            h += '</div></div>';
+          });
+          grid.innerHTML = h;
+
+          // Bind clicks
+          var movieCards = grid.querySelectorAll('.person-movie-card');
+          movieCards.forEach(function(card) {
+            card.addEventListener('click', function() {
+              var mId = card.getAttribute('data-movie-id');
+              var mType = card.getAttribute('data-movie-type');
+              if (mId) {
+                closePersonModal();
+                if (state.inAllCastModal) {
+                  closeAllCastModal();
+                }
+                showDetail({ id: parseInt(mId, 10), type: mType || 'movie' });
+              }
+            });
+          });
+        }
+      }
+    });
+  }
+
+  function closePersonModal() {
+    var modal = document.getElementById('person-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
+    state.inPersonModal = false;
+
+    // Set cooldown timestamp so duplicate back events from TV remote do not close the detail view!
+    var now = Date.now();
+    lastBackTimestamp = now;
+    state.modalCloseTimestamp = now;
+
+    // Clear focused classes inside modal
+    var modalFocused = document.querySelectorAll('#person-modal .focused');
+    modalFocused.forEach(function(el) { el.classList.remove('focused'); });
+
+    // Explicitly guarantee that $detail is visible and not hidden
+    if (!$detail) $detail = document.getElementById('detail');
+    if ($detail) {
+      $detail.classList.remove('hidden');
+      $detail.style.display = 'block';
+    }
+
+    // Restore focus to what opened the modal
+    var target = state.personModalReturnEl;
+    if (target && document.body.contains(target) && target.id !== 'detail-back-btn') {
+      if (state.inAllCastModal) {
+        focusAllCastCard(target);
+      } else {
+        setDetailFocus(target);
+      }
+    } else {
+      if (state.inAllCastModal) {
+        var firstAllCast = document.querySelector('.all-cast-card');
+        if (firstAllCast) focusAllCastCard(firstAllCast);
+      } else {
+        var firstActor = document.querySelector('.detail-actor-card');
+        if (firstActor) {
+          setDetailFocus(firstActor);
+        } else {
+          var playBtn = document.getElementById('detail-play');
+          if (playBtn) setDetailFocus(playBtn);
+        }
+      }
+    }
+  }
+
+  function handlePersonModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      var now = Date.now();
+      lastBackTimestamp = now;
+      state.modalCloseTimestamp = now;
+      closePersonModal();
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      return true;
+    }
+
+    var cards = Array.from(document.querySelectorAll('.person-movie-card'));
+    var backBtn = document.getElementById('person-modal-back');
+    var focusedCard = document.querySelector('.person-movie-card.focused');
+    var isBackFocused = backBtn && backBtn.classList.contains('focused');
+    var grid = document.getElementById('person-filmography-grid');
+    var COLS = 7;
+
+    function focusCardItem(card) {
+      if (!card) return;
+      if (focusedCard) focusedCard.classList.remove('focused');
+      if (backBtn) backBtn.classList.remove('focused');
+      card.classList.add('focused');
+      try { card.focus(); } catch(ex) {}
+
+      // Scroll inside grid container smoothly WITHOUT scrollIntoView
+      if (grid) {
+        var cardTop = card.offsetTop;
+        var cardHeight = card.offsetHeight;
+        var gridScroll = grid.scrollTop;
+        var gridHeight = grid.clientHeight;
+        if (cardTop < gridScroll) {
+          grid.scrollTop = Math.max(0, cardTop - 12);
+        } else if (cardTop + cardHeight > gridScroll + gridHeight) {
+          grid.scrollTop = cardTop + cardHeight - gridHeight + 12;
+        }
+      }
+    }
+
+    if (code === 13 || code === 29443 || code === 65385 || code === 65376 || key === 'Enter') {
+      if (isBackFocused) {
+        closePersonModal();
+      } else if (focusedCard) {
+        focusedCard.click();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 38 || key === 'ArrowUp') {
+      if (focusedCard) {
+        var idxU = cards.indexOf(focusedCard);
+        if (idxU >= COLS) {
+          focusCardItem(cards[idxU - COLS]);
+        } else {
+          // In top row, go to Back button
+          focusedCard.classList.remove('focused');
+          if (backBtn) {
+            backBtn.classList.add('focused');
+            try { backBtn.focus(); } catch(ex) {}
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 40 || key === 'ArrowDown') {
+      if (isBackFocused && cards.length > 0) {
+        backBtn.classList.remove('focused');
+        focusCardItem(cards[0]);
+      } else if (focusedCard) {
+        var idxD = cards.indexOf(focusedCard);
+        var targetD = idxD + COLS;
+        if (targetD < cards.length) {
+          focusCardItem(cards[targetD]);
+        } else {
+          var lastRowStart = Math.floor(cards.length / COLS) * COLS;
+          if (idxD < lastRowStart && cards.length - 1 >= lastRowStart) {
+            focusCardItem(cards[cards.length - 1]);
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 37 || key === 'ArrowLeft') {
+      if (focusedCard) {
+        var idxL = cards.indexOf(focusedCard);
+        if (idxL % COLS > 0) {
+          focusCardItem(cards[idxL - 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 39 || key === 'ArrowRight') {
+      if (focusedCard) {
+        var idxR = cards.indexOf(focusedCard);
+        if ((idxR % COLS < COLS - 1) && (idxR + 1 < cards.length)) {
+          focusCardItem(cards[idxR + 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
+  // ========== All Cast Modal ==========
+  function openAllCastModal(castList) {
+    var modal = document.getElementById('all-cast-modal');
+    if (!modal) return;
+
+    var cast = castList || (state.detail && state.detail.cast) || [];
+    if (!cast || cast.length === 0) return;
+
+    // Remember previously focused element to return focus on modal close
+    var activeEl = document.activeElement;
+    state.allCastModalReturnEl = (activeEl && activeEl !== document.body) ? activeEl : document.getElementById('detail-all-cast-btn');
+
+    modal.classList.remove('hidden');
+    modal.style.display = 'flex';
+    state.inAllCastModal = true;
+
+    var countEl = document.getElementById('all-cast-count');
+    if (countEl) {
+      var n = cast.length;
+      var word = 'актёров';
+      if (n % 10 === 1 && n % 100 !== 11) {
+        word = 'актёр';
+      } else if (n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20)) {
+        word = 'актёра';
+      }
+      countEl.textContent = n + ' ' + word;
+    }
+
+    var grid = document.getElementById('all-cast-grid');
+    if (grid) {
+      grid.scrollTop = 0;
+      var h = '';
+      cast.forEach(function(c, idx) {
+        var avatar = imgUrl(c.image);
+        var pId = c.id || '';
+        var rawRole = c.role || '';
+        var cleanRole = rawRole.indexOf('/') !== -1 ? rawRole.split('/')[0].trim() : rawRole;
+        h += '<div class="all-cast-card" data-idx="' + idx + '" data-person-id="' + pId + '" data-person-name="' + esc(c.name) + '" tabindex="0">';
+        h += '<div class="all-cast-card-photo">';
+        if (c.image) {
+          h += '<img src="' + esc(avatar) + '" class="all-cast-card-img" onerror="this.style.display=\'none\'" loading="lazy">';
+        } else {
+          h += '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.3);font-size:32px;">👤</div>';
+        }
+        h += '</div>';
+        h += '<div class="all-cast-card-name">' + esc(c.name || 'Неизвестный') + '</div>';
+        if (cleanRole) h += '<div class="all-cast-card-role">' + esc(cleanRole) + '</div>';
+        h += '</div>';
+      });
+      grid.innerHTML = h;
+
+      // Bind click handlers to cards
+      var cards = grid.querySelectorAll('.all-cast-card');
+      cards.forEach(function(card) {
+        card.addEventListener('click', function() {
+          var pId = card.getAttribute('data-person-id');
+          var pName = card.getAttribute('data-person-name');
+          if (pId) {
+            focusAllCastCard(card);
+            openPersonModal(pId, pName);
+          }
+        });
+      });
+    }
+
+    var backBtn = document.getElementById('all-cast-modal-back');
+    if (backBtn) {
+      backBtn.onclick = function() {
+        closeAllCastModal();
+      };
+    }
+
+    modal.onclick = function(e) {
+      if (e.target === modal) {
+        closeAllCastModal();
+      }
+    };
+
+    // Auto-focus first card in grid after modal opens
+    setTimeout(function() {
+      var firstCard = document.querySelector('.all-cast-card');
+      if (firstCard) {
+        focusAllCastCard(firstCard);
+      } else if (backBtn) {
+        backBtn.classList.add('focused');
+        try { backBtn.focus(); } catch(e) {}
+      }
+    }, 50);
+  }
+
+  function focusAllCastCard(card) {
+    if (!card) return;
+    var allCastModal = document.getElementById('all-cast-modal');
+    if (allCastModal) {
+      var prevFocused = allCastModal.querySelectorAll('.focused');
+      prevFocused.forEach(function(el) { el.classList.remove('focused'); });
+    }
+
+    card.classList.add('focused');
+    try { card.focus({ preventScroll: true }); } catch(e) {
+      try { card.focus(); } catch(e2) {}
+    }
+
+    var grid = document.getElementById('all-cast-grid');
+    if (grid) {
+      var cardTop = card.offsetTop;
+      var cardHeight = card.offsetHeight;
+      var gridScroll = grid.scrollTop;
+      var gridHeight = grid.clientHeight;
+      if (cardTop < gridScroll) {
+        grid.scrollTop = Math.max(0, cardTop - 16);
+      } else if (cardTop + cardHeight > gridScroll + gridHeight) {
+        grid.scrollTop = cardTop + cardHeight - gridHeight + 16;
+      }
+    }
+  }
+
+  function closeAllCastModal() {
+    var modal = document.getElementById('all-cast-modal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+    }
+    state.inAllCastModal = false;
+
+    // Cooldown timestamp so duplicate back events from TV remote do not close the detail view!
+    var now = Date.now();
+    lastBackTimestamp = now;
+    state.modalCloseTimestamp = now;
+
+    // Clear focused classes inside modal
+    if (modal) {
+      var modalFocused = modal.querySelectorAll('.focused');
+      modalFocused.forEach(function(el) { el.classList.remove('focused'); });
+    }
+
+    // Guarantee that $detail is visible
+    if (!$detail) $detail = document.getElementById('detail');
+    if ($detail) {
+      $detail.classList.remove('hidden');
+      $detail.style.display = 'block';
+    }
+
+    // Restore focus to what opened all-cast modal (typically #detail-all-cast-btn)
+    var target = state.allCastModalReturnEl;
+    if (target && document.body.contains(target) && target.id !== 'detail-back-btn') {
+      setDetailFocus(target);
+    } else {
+      var allBtn = document.getElementById('detail-all-cast-btn');
+      if (allBtn) {
+        setDetailFocus(allBtn);
+      } else {
+        var firstActor = document.querySelector('.detail-actor-card');
+        if (firstActor) setDetailFocus(firstActor);
+        else {
+          var playBtn = document.getElementById('detail-play');
+          if (playBtn) setDetailFocus(playBtn);
+        }
+      }
+    }
+  }
+
+  function handleAllCastModalKey(code, key, e) {
+    if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+      var now = Date.now();
+      lastBackTimestamp = now;
+      state.modalCloseTimestamp = now;
+      closeAllCastModal();
+      if (e && e.preventDefault) e.preventDefault();
+      if (e && e.stopPropagation) e.stopPropagation();
+      return true;
+    }
+
+    var cards = Array.from(document.querySelectorAll('.all-cast-card'));
+    var backBtn = document.getElementById('all-cast-modal-back');
+    var focusedCard = document.querySelector('.all-cast-card.focused');
+    var isBackFocused = backBtn && backBtn.classList.contains('focused');
+    var COLS = 6;
+
+    if (code === 13 || code === 29443 || code === 65385 || code === 65376 || key === 'Enter') {
+      if (isBackFocused) {
+        closeAllCastModal();
+      } else if (focusedCard) {
+        focusedCard.click();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 38 || key === 'ArrowUp') {
+      if (focusedCard) {
+        var idxU = cards.indexOf(focusedCard);
+        if (idxU >= COLS) {
+          focusAllCastCard(cards[idxU - COLS]);
+        } else {
+          // In top row, go to Back button
+          focusedCard.classList.remove('focused');
+          if (backBtn) {
+            backBtn.classList.add('focused');
+            try { backBtn.focus(); } catch(ex) {}
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 40 || key === 'ArrowDown') {
+      if (isBackFocused && cards.length > 0) {
+        backBtn.classList.remove('focused');
+        focusAllCastCard(cards[0]);
+      } else if (focusedCard) {
+        var idxD = cards.indexOf(focusedCard);
+        var targetD = idxD + COLS;
+        if (targetD < cards.length) {
+          focusAllCastCard(cards[targetD]);
+        } else {
+          var lastRowStart = Math.floor(cards.length / COLS) * COLS;
+          if (idxD < lastRowStart && cards.length - 1 >= lastRowStart) {
+            focusAllCastCard(cards[cards.length - 1]);
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 37 || key === 'ArrowLeft') {
+      if (focusedCard) {
+        var idxL = cards.indexOf(focusedCard);
+        if (idxL % COLS > 0) {
+          focusAllCastCard(cards[idxL - 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    if (code === 39 || key === 'ArrowRight') {
+      if (focusedCard) {
+        var idxR = cards.indexOf(focusedCard);
+        if ((idxR % COLS < COLS - 1) && (idxR + 1 < cards.length)) {
+          focusAllCastCard(cards[idxR + 1]);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return true;
+    }
+
+    return false;
+  }
+
+  function bindDetailTabs() {
+    $detail.querySelectorAll('.detail-tab').forEach(function(tab) {
+      tab.addEventListener('click', function() {
+        var tabName = tab.getAttribute('data-tab');
+        state.detailTab = tabName;
+        switchDetailTab(tabName);
+      });
+    });
+  }
+
+  function switchDetailTab(tabName) {
+    $detail.querySelectorAll('.detail-tab').forEach(function(t) {
+      t.classList.toggle('active', t.getAttribute('data-tab') === tabName);
+    });
+    $detail.querySelectorAll('.detail-tab-pane').forEach(function(p) {
+      p.classList.toggle('active', p.getAttribute('data-pane') === tabName);
+    });
+  }
+
+  function bindSeasonSelector(title) {
+    var btns = document.querySelectorAll('.season-btn');
+    for (var i = 0; i < btns.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function() {
+          var val = btn.getAttribute('data-season') || '1';
+          state.detailSeason = val;
+          try {
+            var showId = (state.detail && state.detail.id) || (title && title.id);
+            if (showId) setStorageItem('last_season_' + showId, val);
+          } catch(e) {}
+          var all = document.querySelectorAll('.season-btn');
+          for (var j = 0; j < all.length; j++) {
+            all[j].classList.toggle('active', all[j] === btn);
+          }
+          var sNum = parseInt(val, 10) || 1;
+          loadSeasonEpisodes(state.detail || title, sNum);
+          searchTorrents(state.detail || title, sNum);
+        });
+      })(btns[i]);
+    }
+  }
+
+  // Toast message on TV
+  function showTvToast(msg, duration) {
+    var existing = document.getElementById('tv-toast');
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var toast = document.createElement('div');
+    toast.id = 'tv-toast';
+    toast.style.cssText = 'position:fixed;bottom:48px;left:50%;transform:translateX(-50%);background:rgba(18,22,32,0.96);border:1.5px solid #e8c170;color:#fff;padding:16px 32px;border-radius:14px;font-size:18px;font-weight:700;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,0.85);backdrop-filter:blur(10px);pointer-events:none;';
+    toast.textContent = msg;
+    document.body.appendChild(toast);
+    setTimeout(function() {
+      if (toast && toast.parentNode) toast.parentNode.removeChild(toast);
+    }, duration || 3500);
+  }
+
+  // Parse season and episode from file object or filename/path
+  function parseTorrentFileMeta(fileOrName) {
+    var pathStr = '';
+    var nameStr = '';
+    if (typeof fileOrName === 'string') {
+      pathStr = fileOrName;
+      nameStr = fileOrName.split('/').pop().split('\\').pop() || fileOrName;
+    } else if (fileOrName && typeof fileOrName === 'object') {
+      pathStr = fileOrName.path || fileOrName.name || '';
+      var rawName = fileOrName.name || fileOrName.path || '';
+      nameStr = rawName.split('/').pop().split('\\').pop() || rawName;
+    }
+
+    var nameLower = (nameStr || '').toLowerCase();
+    var season = null;
+    var episode = null;
+
+    // 1. SxxExx or Sxx.Exx or Sxx_Exx in filename (handles trailing underscores e.g. S01E10_[Kyrazh-Bambej])
+    var m = nameLower.match(/[sS]0?(\d{1,2})[._\-\s]*[eE]0?(\d{1,3})(?=[^0-9]|$)/);
+    if (m) {
+      season = parseInt(m[1], 10);
+      episode = parseInt(m[2], 10);
+    }
+
+    // 2. 01x05 or 1x05 in filename
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,2})[xх]0?(\d{1,3})(?=[^0-9]|$)/);
+      if (m) {
+        season = parseInt(m[1], 10);
+        episode = parseInt(m[2], 10);
+      }
+    }
+
+    // Standalone season in filename (e.g. S05)
+    if (season == null) {
+      var sAlone = nameLower.match(/(?:^|[\s._\-])[sS]0?(\d{1,2})(?:[\s._\-]|$)/);
+      if (sAlone) {
+        season = parseInt(sAlone[1], 10);
+      }
+    }
+
+    // 3. Check directory structure for season if not found in filename (deepest folder upwards)
+    if (season == null && pathStr) {
+      var parts = pathStr.split(/[\/\\]/);
+      parts.pop(); // Remove filename itself
+      for (var i = parts.length - 1; i >= 0; i--) {
+        var folder = parts[i].toLowerCase();
+        // Skip multi-season ranges like "Season 1-12" or "Сезоны 1-4"
+        if (/(?:season|сезон)s?\s*0?\d+\s*[-–—]\s*0?\d+/i.test(folder)) {
+          continue;
+        }
+        var sMatch = folder.match(/(?:^|[\s._\-])(?:season|сезон|s)[\s._\-]*0?(\d{1,2})(?:[\s._\-]|$)/i) ||
+                     folder.match(/^0?(\d{1,2})\s*(?:-?й|-ый)?\s*(?:сезон|season)$/i);
+        if (sMatch) {
+          season = parseInt(sMatch[1], 10);
+          break;
+        }
+      }
+    }
+
+    // 4. Extract episode from filename if not yet found
+    if (episode == null) {
+      m = nameLower.match(/(?:сери[яий]|эпизод|выпуск|ep\.?|episode\.?)\s*[:]?\s*0?(\d{1,3})(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      m = nameLower.match(/(?:^|[^0-9])0?(\d{1,3})\s*(?:сери[яий]|эпизод|выпуск|ep|episode)(?=[^0-9]|$)/i);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Leading number e.g. "05 - Winter.mkv" or "10. Совокупность лжи.mkv"
+      m = nameLower.match(/^(?:\[[^\]]*\]\s*)?0?(\d{1,3})[\s._\-]/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+    if (episode == null) {
+      // Number before extension "Show.05.mkv"
+      m = nameLower.match(/[\s._\-]0?(\d{1,2})\.(?:mkv|avi|mp4|ts|m4v)$/);
+      if (m) episode = parseInt(m[1], 10);
+    }
+
+    return { season: season, episode: episode };
+  }
+  window.parseTorrentFileMeta = parseTorrentFileMeta;
+
+  function findTorrentEpisodeFile(files, targetSeason, targetEpisode) {
+    if (!files || files.length === 0) return null;
+
+    // Pass 1: Match BOTH Season and Episode
+    if (targetSeason != null && targetEpisode != null) {
+      for (var i = 0; i < files.length; i++) {
+        var f = files[i];
+        var meta = parseTorrentFileMeta(f);
+        if (meta.season === targetSeason && meta.episode === targetEpisode) {
+          return f;
+        }
+      }
+    }
+
+    // Pass 2: If season was not explicitly detectable in files, but episode matches,
+    // only use if torrent does NOT have multiple detectable seasons
+    if (targetEpisode != null) {
+      var hasMultipleSeasons = false;
+      var detectedSeasons = {};
+      for (var j = 0; j < Math.min(files.length, 50); j++) {
+        var m = parseTorrentFileMeta(files[j]);
+        if (m.season != null) {
+          detectedSeasons[m.season] = true;
+          if (Object.keys(detectedSeasons).length > 1) {
+            hasMultipleSeasons = true;
+            break;
+          }
+        }
+      }
+
+      if (!hasMultipleSeasons) {
+        for (var k = 0; k < files.length; k++) {
+          var f2 = files[k];
+          var meta2 = parseTorrentFileMeta(f2);
+          if (meta2.episode === targetEpisode) {
+            return f2;
+          }
+        }
+      }
+    }
+
+    return null;
+  }
+  window.findTorrentEpisodeFile = findTorrentEpisodeFile;
+
+  // Extract episode number from filename or file object
+  function extractEpisodeNumber(fileOrName, fallbackIndex, seasonNum) {
+    if (!fileOrName) return (fallbackIndex != null ? fallbackIndex + 1 : 1);
+    var meta = parseTorrentFileMeta(fileOrName);
+    if (seasonNum != null && meta.season != null && meta.season !== seasonNum) {
+      return null;
+    }
+    if (meta.episode != null) return meta.episode;
+    return (fallbackIndex != null ? fallbackIndex + 1 : 1);
+  }
+
+  function loadSeasonEpisodes(title, seasonNum) {
+    var container = document.getElementById('episodes-results');
+    if (!container) return;
+
+    var showId = (title && title.id) || (state.detail && state.detail.id);
+    if (!showId) {
+      container.innerHTML = '<p class="detail-empty-text">Серии не найдены</p>';
+      return;
+    }
+
+    container.innerHTML = '<p class="detail-loading-text">Загрузка серий ' + seasonNum + ' сезона...</p>';
+
+    var isKp = (title && (title.source === 'kp' || title.isKp || !!title.kpId)) ||
+               (state.detail && (state.detail.source === 'kp' || state.detail.isKp || !!state.detail.kpId));
+    var kpId = (title && title.kpId) || (state.detail && state.detail.kpId) || showId;
+    var epUrl = isKp ? ('/api/kp/' + kpId + '/season/' + seasonNum) : ('/api/tv/' + showId + '/season/' + seasonNum);
+
+    apiFetch(epUrl, function(err, data) {
+      if (err || !data || !data.episodes || data.episodes.length === 0) {
+        container.innerHTML = '<p class="detail-empty-text">Серии ' + seasonNum + ' сезона не найдены</p>';
+        return;
+      }
+
+      var episodes = data.episodes;
+      state.seasonEpisodes = state.seasonEpisodes || {};
+      state.seasonEpisodes[showId + '_s' + seasonNum] = episodes;
+      var today = new Date().toISOString().slice(0, 10);
+      
+      // Filter out unreleased future episodes
+      var maxAiredNum = 0;
+      var hasAnyDates = false;
+      for (var k = 0; k < episodes.length; k++) {
+        var epCheck = episodes[k];
+        if (epCheck.aired && epCheck.aired !== '—') {
+          var dCheck = String(epCheck.aired).slice(0, 10);
+          if (/^\d{4}-\d{2}-\d{2}$/.test(dCheck)) {
+            hasAnyDates = true;
+            if (dCheck <= today && epCheck.episode > maxAiredNum) {
+              maxAiredNum = epCheck.episode;
+            }
+          }
+        }
+      }
+
+      if (hasAnyDates && maxAiredNum > 0) {
+        var airedOnly = episodes.filter(function(ep) {
+          if (ep.isAired !== undefined) return ep.isAired;
+          if (ep.aired && ep.aired !== '—') {
+            var dStr = String(ep.aired).slice(0, 10);
+            if (/^\d{4}-\d{2}-\d{2}$/.test(dStr)) {
+              return dStr <= today;
+            }
+          }
+          return ep.episode <= maxAiredNum;
+        });
+        if (airedOnly.length > 0) {
+          episodes = airedOnly;
+        }
+      }
+
+      var watchedList = [];
+      try {
+        var wRaw = getStorageItem('watched_episodes_' + showId);
+        if (wRaw) watchedList = JSON.parse(wRaw);
+      } catch(we) {}
+      var playbackPositions = {};
+      try {
+        playbackPositions = JSON.parse(getStorageItem('playback_positions') || '{}');
+      } catch(pe) {}
+
+      var html = '<div class="episodes-grid">';
+      for (var i = 0; i < episodes.length; i++) {
+        var ep = episodes[i];
+        var epStill = ep.thumbnail ? imgUrl(ep.thumbnail) : imgUrl((title && (title.backdrop || title.poster)) || '');
+        var epTitle = ep.title || ('Серия ' + ep.episode);
+        var epNumText = 'S' + seasonNum + ' E' + ep.episode;
+        var duration = ep.runtime || '';
+
+        var isWatched = false;
+        var watchProgressPct = 0;
+        var epKey = seasonNum + '_' + ep.episode;
+        if (Array.isArray(watchedList) && watchedList.indexOf(epKey) !== -1) {
+          isWatched = true;
+        }
+        var posKey = showId + '_s' + seasonNum + '_e' + ep.episode;
+        var pos = playbackPositions[posKey] || (playbackPositions[showId] && playbackPositions[showId].season === seasonNum && playbackPositions[showId].episode === ep.episode ? playbackPositions[showId] : null);
+        if (pos) {
+          var cTime = typeof pos === 'object' ? (pos.time || pos.progress || 0) : pos;
+          var dur = typeof pos === 'object' ? (pos.duration || 0) : 0;
+          if (dur > 0 && cTime > 0) {
+            watchProgressPct = Math.min(100, Math.round((cTime / dur) * 100));
+            if (watchProgressPct >= 85 || (dur > 60 && cTime >= dur - 60)) {
+              isWatched = true;
+            }
+          }
+        }
+
+        var cardClass = 'episode-card' + (isWatched ? ' ep-watched' : '');
+        html += '<div class="' + cardClass + '" data-index="' + i + '" data-episode="' + ep.episode + '" data-season="' + seasonNum + '" tabindex="0">';
+        html += '  <div class="ep-still-box">';
+        if (epStill) {
+          html += '    <img src="' + esc(epStill) + '" class="ep-still-img" onerror="this.src=\'/tv/placeholder.png\'" loading="lazy">';
+        }
+        html += '    <div class="ep-badge-num">' + epNumText + '</div>';
+        if (duration && duration !== '—') {
+          html += '    <div class="ep-badge-dur">' + esc(duration) + '</div>';
+        }
+        if (isWatched) {
+          html += '    <div class="ep-badge-watched">✔ Просмотрено</div>';
+        } else if (ep.isAired === false || (ep.aired && ep.aired !== '—' && /^\d{4}-\d{2}-\d{2}$/.test(String(ep.aired).slice(0, 10)) && String(ep.aired).slice(0, 10) > today)) {
+          var dateParts = String(ep.aired || '').slice(0, 10).split('-');
+          var dateStr = (dateParts.length === 3) ? (dateParts[2] + '.' + dateParts[1] + '.' + dateParts[0]) : '';
+          html += '    <div class="ep-badge-unreleased" style="position:absolute; top:6px; right:6px; background:rgba(225,29,72,0.9); color:#fff; font-size:11px; font-weight:700; padding:2px 8px; border-radius:4px; z-index:2;">' + (dateStr ? ('Премьера ' + dateStr) : 'Не вышла') + '</div>';
+        }
+        if (watchProgressPct > 3 && !isWatched) {
+          html += '    <div class="ep-progress-bar"><div class="ep-progress-fill" style="width:' + watchProgressPct + '%;"></div></div>';
+        }
+        html += '  </div>';
+        html += '  <div class="ep-content">';
+        html += '    <div class="ep-header">';
+        html += '      <span class="ep-num-label">' + ep.episode + '.</span>';
+        html += '      <div class="ep-title">' + esc(epTitle) + '</div>';
+        html += '    </div>';
+        if (ep.synopsis) {
+          html += '    <div class="ep-synopsis">' + esc(ep.synopsis) + '</div>';
+        }
+        html += '  </div>';
+        html += '  <div class="ep-actions">';
+        html += '    <button class="ep-play-btn" tabindex="-1">';
+        html += '      <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>';
+        html += '      <span>Смотреть</span>';
+        html += '    </button>';
+        html += '  </div>';
+        html += '</div>';
+      }
+      html += '</div>';
+      container.innerHTML = html;
+
+      var cards = container.querySelectorAll('.episode-card');
+      for (var j = 0; j < cards.length; j++) {
+        (function(card, epItem) {
+          card.addEventListener('click', function() {
+            playSeasonEpisode(title, seasonNum, epItem);
+          });
+        })(cards[j], episodes[j]);
+      }
+
+      // Check pending resume episode (from "Продолжить" button)
+      if (state._pendingResumeEpisode && state._pendingResumeEpisode.season === seasonNum) {
+        var pEp = state._pendingResumeEpisode.episode;
+        var pAuto = state._pendingResumeEpisode.autoPlay;
+        state._pendingResumeEpisode = null;
+        state._pendingPlayFirstEpisode = false;
+        var targetCard = container.querySelector('.episode-card[data-episode="' + pEp + '"]');
+        if (targetCard) {
+          setDetailFocus(targetCard);
+          try { targetCard.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
+          if (pAuto) {
+            targetCard.click();
+          }
+          return;
+        }
+      }
+
+      if (state._pendingPlayFirstEpisode) {
+        state._pendingPlayFirstEpisode = false;
+        var firstEpEl = container.querySelector('.episode-card');
+        if (firstEpEl) {
+          setDetailFocus(firstEpEl);
+          try { firstEpEl.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
+          firstEpEl.click();
+        }
+        return;
+      }
+
+      // If returning from player or opening detail, keep last watched episode focused and centered!
+      var preserveEp = (state.lastPlayedEpisode && state.lastPlayedEpisode.id == showId && state.lastPlayedEpisode.season === seasonNum && state.lastPlayedEpisode.episode) ||
+                       (parseInt(getStorageItem('last_season_' + showId), 10) === seasonNum ? parseInt(getStorageItem('last_episode_' + showId), 10) : null);
+      if (preserveEp) {
+        var pCard = container.querySelector('.episode-card[data-episode="' + preserveEp + '"]');
+        if (pCard && !document.querySelector('.episode-card.focused')) {
+          setDetailFocus(pCard);
+          try { pCard.scrollIntoView({ block: 'center', inline: 'nearest' }); } catch(e) {}
+        }
+      }
+    });
+  }
+
+  function playSeasonEpisode(title, seasonNum, ep, optPoster, autoPlayDirect) {
+    var showId = (typeof title === 'number') ? title : ((title && title.id) || (state.detail && state.detail.id) || 0);
+    var showName = (typeof title === 'string') ? title : ((title && (title.name || title.title)) || (state.detail && (state.detail.name || state.detail.title)) || '');
+    if (!showName && showId && state.detail && state.detail.id === showId) {
+      showName = state.detail.name || state.detail.title || '';
+    }
+    seasonNum = parseInt(seasonNum, 10) || 1;
+    var epNum = (typeof ep === 'number') ? ep : (ep && (ep.episode || ep.episode_number) ? (ep.episode || ep.episode_number) : 1);
+    var epObj = (typeof ep === 'object' && ep) ? ep : { episode: epNum, episode_number: epNum, title: 'Серия ' + epNum };
+    epObj.episode = epNum;
+
+    // Persist current played episode in memory and localStorage immediately
+    state.lastPlayedEpisode = {
+      id: showId,
+      season: seasonNum,
+      episode: epNum
+    };
+    try {
+      if (showId) {
+        setStorageItem('last_season_' + showId, String(seasonNum));
+        setStorageItem('last_episode_' + showId, String(epNum));
+      }
+    } catch(e) {}
+
+    var epTitleStr = showName + ' · S' + (seasonNum < 10 ? '0' + seasonNum : seasonNum) + ' E' + (epNum < 10 ? '0' + epNum : epNum) + (epObj.title ? ' · ' + epObj.title : '');
+    var epPoster = (epObj.thumbnail ? imgUrl(epObj.thumbnail) : '') || optPoster || ((title && title.poster) || (state.detail && state.detail.poster) || '');
+
+    showTvToast('Поиск серии ' + epNum + ' (' + seasonNum + ' сезон)...', 4000);
+
+    var cacheKey = (showId ? String(showId) : '') + '_' + showName;
+    var allTorrents = (state._torrentCache && state._torrentCache[cacheKey]) || null;
+
+    function proceedWithTorrents(torrentsList) {
+      if (!torrentsList || torrentsList.length === 0) {
+        showTvToast('Торренты не найдены. Открываем онлайн-источники...', 3500);
+        state.detailTab = 'sources';
+        switchDetailTab('sources');
+        return;
+      }
+
+      var showYr = (state.activeMovie && state.activeMovie.year) ? parseInt(state.activeMovie.year, 10) : 0;
+      var filtered = torrentsList.filter(function(item) {
+        return matchesTorrentSeason(item.title || '', seasonNum, showYr);
+      });
+      if (filtered.length === 0) filtered = torrentsList;
+
+      var epMatches = [];
+      var epFallbacks = [];
+      filtered.forEach(function(item) {
+        var epCheck = checkTorrentEpisode(item.title || '', seasonNum, epNum);
+        if (epCheck.matches) {
+          var scored = Object.assign({}, item);
+          scored._epBonus = epCheck.score || 0;
+          scored._epExact = Boolean(epCheck.exact);
+          epMatches.push(scored);
+        } else {
+          epFallbacks.push(item);
+        }
+      });
+      var candidateList = (epMatches.length > 0 ? epMatches : epFallbacks);
+
+      var savedKey = 'season_torrent_' + showId + '_' + seasonNum;
+      var savedTorrent = null;
+      try { savedTorrent = JSON.parse(getStorageItem(savedKey) || 'null'); } catch(e) {}
+
+      var sorted = candidateList.slice().sort(function(a, b) {
+        var scoreA = scoreTorrent(a) + (a._epBonus || 0);
+        var scoreB = scoreTorrent(b) + (b._epBonus || 0);
+        return scoreB - scoreA;
+      });
+
+      if (savedTorrent && savedTorrent.magnet) {
+        var foundIdx = -1;
+        for (var si = 0; si < sorted.length; si++) {
+          if (sorted[si].magnet === savedTorrent.magnet) { foundIdx = si; break; }
+        }
+        if (foundIdx > 0) {
+          var item = sorted.splice(foundIdx, 1)[0];
+          sorted.unshift(item);
+        }
+      }
+
+      function tryCandidate(idx) {
+        if (idx >= sorted.length || idx >= 6) {
+          showTvToast('Торренты недоступны. Открываем онлайн-источники...', 3500);
+          state.detailTab = 'sources';
+          switchDetailTab('sources');
+          return;
+        }
+
+        var candidate = sorted[idx];
+        if (!candidate || !candidate.magnet) {
+          tryCandidate(idx + 1);
+          return;
+        }
+
+        showTvToast('Подключение к раздаче' + (idx > 0 ? ' (вариант ' + (idx + 1) + ')...' : '...'), 3000);
+
+        apiPost('/api/torrents/stream', { magnet: candidate.magnet, title: candidate.title }, function(err, data) {
+          if (err || !data || !data.files || data.files.length === 0) {
+            console.warn('[Lumiere] Candidate failed to load metadata:', candidate.title, 'trying next candidate...');
+            tryCandidate(idx + 1);
+            return;
+          }
+
+          var files = data.files;
+          state.activeTorrentFiles = files;
+          state.torrentFiles = files;
+          state._lastMagnet = candidate.magnet;
+          var matchedFile = null;
+
+          // 1. Try matching with season & episode precision (checks both file path and name)
+          matchedFile = findTorrentEpisodeFile(files, seasonNum, epNum);
+
+          // 2. Fallback: If file name did not contain episode number, but candidate release itself was an exact match for this episode!
+          if (!matchedFile && files.length > 0) {
+            var candCheck = checkTorrentEpisode(candidate.title, seasonNum, epNum);
+            if (candCheck && candCheck.exact) {
+              matchedFile = files[0];
+            }
+          }
+
+          // 3. Auto-play direct fallback: only if single season torrent and files length matches episode index
+          if (!matchedFile && autoPlayDirect && seasonNum <= 1 && files.length >= epNum && epNum > 0) {
+            var isMultiSeason = false;
+            for (var chk = 0; chk < Math.min(files.length, 30); chk++) {
+              var chkMeta = parseTorrentFileMeta(files[chk]);
+              if (chkMeta.season && chkMeta.season > 1) {
+                isMultiSeason = true;
+                break;
+              }
+            }
+            if (!isMultiSeason) {
+              matchedFile = files[epNum - 1];
+            }
+          }
+
+          if (matchedFile) {
+            matchedFile.season = seasonNum;
+            matchedFile.episode = epNum;
+            try {
+              var sTorrentData = {
+                magnet: candidate.magnet,
+                title: candidate.title,
+                season: seasonNum,
+                episode: epNum,
+                fileIndex: matchedFile.id,
+                fileName: matchedFile.name
+              };
+              setStorageItem(savedKey, JSON.stringify(sTorrentData));
+              setStorageItem('last_season_' + showId, String(seasonNum));
+              setStorageItem('last_episode_' + showId, String(epNum));
+
+              var lastTorrentsMap = JSON.parse(getStorageItem('last_torrents') || '{}');
+              lastTorrentsMap[showId] = {
+                magnet: candidate.magnet,
+                title: epTitleStr,
+                type: 'tv',
+                season: seasonNum,
+                episode: epNum,
+                fileIndex: matchedFile.id,
+                fileName: matchedFile.name
+              };
+              setStorageItem('last_torrents', JSON.stringify(lastTorrentsMap));
+            } catch(se) {}
+
+            playFile(matchedFile, epTitleStr, showId, epPoster, files, autoPlayDirect ? 0 : undefined);
+          } else {
+            if (idx + 1 < Math.min(sorted.length, 6)) {
+              tryCandidate(idx + 1);
+            } else {
+              showTvToast('Серия ' + epNum + ' не найдена в раздачах', 3500);
+              state.detailTab = 'sources';
+              switchDetailTab('sources');
+            }
+          }
+        });
+      }
+
+      tryCandidate(0);
+    }
+
+    if (allTorrents) {
+      proceedWithTorrents(allTorrents);
+    } else {
+      var queries = getTorrentSmartQueries(title || state.detail || { name: showName });
+      if (!queries || queries.length === 0) queries = [showName];
+
+      var tmdbParam = showId ? '&tmdbId=' + showId : '';
+      var typeParam = '&type=tv';
+
+      var merged = [];
+      var seen = {};
+      var pending = queries.length;
+
+      queries.forEach(function(qStr) {
+        apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam, function(err, data) {
+          var list = (data && data.results) ? data.results : [];
+          list.forEach(function(item) {
+            var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+            if (!seen[k]) {
+              seen[k] = true;
+              merged.push(item);
+            }
+          });
+          pending--;
+          if (pending <= 0) {
+            if (!state._torrentCache) state._torrentCache = {};
+            state._torrentCache[cacheKey] = merged;
+            proceedWithTorrents(merged);
+          }
+        });
+      });
+    }
+  }
+
+  // ========== Sources ==========
+  function searchSources(title) {
+    var container = document.getElementById('sources-results');
+    if (!container) return;
+
+    var searchType = title.type === 'tv' ? 'series' : 'movie';
+    apiFetch('/api/online/search?q=' + encodeURIComponent(title.name) + '&type=' + searchType, function(err, data) {
+      if (err || !data || !data.results || data.results.length === 0) {
+        container.innerHTML = '<p class="detail-empty-text">Источники не найдены</p>';
+        return;
+      }
+
+      var providerLabels = { collaps: 'Collaps', hdvb: 'HDVB', phantom: 'Phantom' };
+      var html = '<div class="detail-sources-list">';
+      data.results.slice(0, 10).forEach(function(item, i) {
+        html += '<div class="detail-source-item source-item" data-index="' + i + '" data-provider="' + esc(item.provider) + '" data-id="' + esc(item.id) + '" tabindex="0">';
+        html += '<div class="detail-source-info"><div class="detail-source-title">' + esc(item.title) + '</div>';
+        html += '<div class="detail-source-meta">' + (providerLabels[item.provider] || item.provider);
+        if (item.year) html += ' · ' + item.year;
+        html += '</div></div>';
+        html += '<span class="detail-source-play">Смотреть</span>';
+        html += '</div>';
+      });
+      html += '</div>';
+      container.innerHTML = html;
+
+      container.querySelectorAll('.source-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+          var provider = item.getAttribute('data-provider');
+          var id = item.getAttribute('data-id');
+          var hlsUrl = '/api/online/hls/' + provider + '/' + encodeURIComponent(id);
+          var sIdNum = (title && title.id) || 0;
+          var sPoster = (title && title.poster) || '';
+          var sType = (title && title.type) || (state.detail && state.detail.type) || 'movie';
+          openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(title.name) + '&id=' + sIdNum + '&poster=' + encodeURIComponent(sPoster) + '&type=' + encodeURIComponent(sType));
+        });
+      });
+    });
+  }
+
+  // ========== Torrent Meta Badges (.mkv, .avi, 1080p, etc.) ==========
+  function parseTorrentMeta(str, extraVoices) {
+    if (!str) return [];
+    var tags = [];
+    var s = str.toUpperCase();
+
+    // 1. Container / File Format (.mkv, .avi, .mp4, etc.)
+    if (/\.MKV\b|\[MKV\]|\bMKV\b/.test(s)) {
+      tags.push({ text: '.MKV', type: 'fmt' });
+    } else if (/\.AVI\b|\[AVI\]|\bAVI\b|\b(XVID|DIVX)\b/.test(s)) {
+      tags.push({ text: '.AVI', type: 'fmt' });
+    } else if (/\.MP4\b|\[MP4\]|\bMP4\b/.test(s)) {
+      tags.push({ text: '.MP4', type: 'fmt' });
+    } else if (/\.TS\b|\[TS\]|\bM2TS\b|\bBDMV\b/.test(s)) {
+      tags.push({ text: '.TS', type: 'fmt' });
+    } else if (/\.MOV\b|\bMOV\b/.test(s)) {
+      tags.push({ text: '.MOV', type: 'fmt' });
+    } else if (/\b(SATRIP|TVRIP|IPTVRIP)\b/.test(s) && !/\b(AVC|H\.?264|1080P|720P)\b/.test(s)) {
+      tags.push({ text: '.AVI', type: 'fmt' });
+    }
+
+    // 2. Resolution
+    if (/\b(4K|UHD|2160P)\b/.test(s)) tags.push({ text: '4K UHD', type: 'res-4k' });
+    else if (/\b(1080P|1080I|FHD|FULL[\s._-]?HD)\b/.test(s)) tags.push({ text: '1080p', type: 'res-1080' });
+    else if (/\b(720P|HD)\b/.test(s)) tags.push({ text: '720p', type: 'res-720' });
+    else if (/\b(480P|576P|SD)\b/.test(s)) tags.push({ text: 'SD', type: 'res-sd' });
+
+    // 3. Video HDR / Dynamic Range
+    if (/\b(DV|DOLBY[\s._-]?VISION)\b/.test(s)) tags.push({ text: 'Dolby Vision', type: 'hdr-dv' });
+    else if (/\bHDR10\+\b/.test(s)) tags.push({ text: 'HDR10+', type: 'hdr' });
+    else if (/\b(HDR10|HDR)\b/.test(s)) tags.push({ text: 'HDR', type: 'hdr' });
+
+    // 4. Codec
+    if (/\b(HEVC|H\.?265|X265)\b/.test(s)) tags.push({ text: 'HEVC', type: 'codec' });
+    else if (/\b(AVC|H\.?264|X264)\b/.test(s)) tags.push({ text: 'H.264', type: 'codec' });
+    else if (/\bAV1\b/.test(s)) tags.push({ text: 'AV1', type: 'codec' });
+    else if (/\b(XVID|DIVX)\b/.test(s)) tags.push({ text: 'XviD', type: 'codec' });
+
+    // 5. Color bit depth
+    if (/\b(10-?BIT|10BIT|HI10P)\b/.test(s)) tags.push({ text: '10-bit', type: 'color' });
+
+    // 6. Rip / Release Quality
+    if (/\b(REMUX|BD-REMUX|BDREMUX)\b/.test(s)) tags.push({ text: 'Remux', type: 'qual' });
+    else if (/\b(BDRIP|BRRIP|BLURAY|BLU-RAY)\b/.test(s)) tags.push({ text: 'BDRip', type: 'qual' });
+    else if (/\b(WEB-DL|WEBDL|WEB-DLRIP)\b/.test(s)) tags.push({ text: 'WEB-DL', type: 'qual' });
+    else if (/\bWEBRIP\b/.test(s)) tags.push({ text: 'WEBRip', type: 'qual' });
+    else if (/\b(HDTV|HDTVRIP)\b/.test(s)) tags.push({ text: 'HDTV', type: 'qual' });
+    else if (/\b(DVDRIP|DVD9|DVD5|DVD)\b/.test(s)) tags.push({ text: 'DVDRip', type: 'qual' });
+    else if (/\b(CAM|CAMRIP|TELESYNC|TELE-SYNC|TS-RIP)\b/.test(s)) tags.push({ text: 'CAM', type: 'qual-cam' });
+
+    // 7. Audio
+    if (/\b(ATMOS|DOLBY[\s._-]?ATMOS)\b/.test(s)) tags.push({ text: 'Dolby Atmos', type: 'audio-atmos' });
+    if (/\b(DTS-HD[\s._-]?MA|DTS-HD)\b/.test(s)) tags.push({ text: 'DTS-HD', type: 'audio' });
+    else if (/\b(DTS-HR|DTS)\b/.test(s)) tags.push({ text: 'DTS', type: 'audio' });
+    else if (/\b(AC3|DD5\.?1|DD\+|E-AC3|DOLBY[\s._-]?DIGITAL|5\.1)\b/.test(s)) tags.push({ text: '5.1 Audio', type: 'audio' });
+    else if (/\bAAC\b/.test(s)) tags.push({ text: 'AAC', type: 'audio' });
+
+    // 8. Dubbing / Studio / Voiceover tag
+    var dubs = [];
+    if (extraVoices && Array.isArray(extraVoices)) {
+      for (var vi = 0; vi < extraVoices.length; vi++) {
+        var ev = (extraVoices[vi] || '').trim();
+        if (ev && dubs.indexOf(ev) === -1) dubs.push(ev);
+      }
+    }
+    // Delimited D / MVO / DVO / AVO / LVO / VO
+    if (/[\s|\[\/(]D[\s|\]\/),]/i.test(str) || /\|\s*D\s*\|/i.test(str) || /\|\s*D\s*$/i.test(str)) {
+      if (dubs.indexOf('Дубляж') === -1) dubs.push('Дубляж');
+    }
+    if (/[\s|\[\/(]ПД[\s|\]\/),]/i.test(str) || /\bPD\b/i.test(str)) {
+      if (dubs.indexOf('Проф. дубляж') === -1) dubs.push('Проф. дубляж');
+    }
+    if (/[\s|\[\/(]MVO[\s|\]\/),]/i.test(str) || /\bМВО\b/i.test(str)) {
+      if (dubs.indexOf('MVO') === -1) dubs.push('MVO');
+    }
+    if (/[\s|\[\/(]ПМ[\s|\]\/),]/i.test(str) || /\bPM\b/i.test(str)) {
+      if (dubs.indexOf('Проф. многоголосый') === -1) dubs.push('Проф. многоголосый');
+    }
+    if (/[\s|\[\/(]DVO[\s|\]\/),]/i.test(str) || /\bДВО\b/i.test(str)) {
+      if (dubs.indexOf('DVO') === -1) dubs.push('DVO');
+    }
+    if (/[\s|\[\/(]AVO[\s|\]\/),]/i.test(str) || /\bАVO\b/i.test(str) || /\bАВО\b/i.test(str)) {
+      if (dubs.indexOf('AVO') === -1) dubs.push('AVO');
+    }
+    if (/[\s|\[\/(]LVO[\s|\]\/),]/i.test(str) || /\bЛВО\b/i.test(str)) {
+      if (dubs.indexOf('LVO') === -1) dubs.push('LVO');
+    }
+    if (/[\s|\[\/(]VO[\s|\]\/),]/i.test(str)) {
+      if (dubs.indexOf('Закадровый') === -1) dubs.push('Закадровый');
+    }
+    if (/\b(Дубляж|Дублированный)\b/i.test(str)) {
+      if (dubs.indexOf('Дубляж') === -1) dubs.push('Дубляж');
+    }
+    if (/\b(Многоголосый|Проф\.?\s*многоголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Многоголосый') === -1) dubs.push('Многоголосый');
+    }
+    if (/\b(Двуголосый|Двухголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Двуголосый') === -1) dubs.push('Двуголосый');
+    }
+    if (/\b(Одноголосый)\b/i.test(str)) {
+      if (dubs.indexOf('Одноголосый') === -1) dubs.push('Одноголосый');
+    }
+    if (/\b(Авторский)\b/i.test(str)) {
+      if (dubs.indexOf('Авторский') === -1) dubs.push('Авторский');
+    }
+    if (/\b(Субтитры)\b/i.test(str)) {
+      if (dubs.indexOf('Субтитры') === -1) dubs.push('Субтитры');
+    }
+    var otMatch = str.match(/\bот\s+([a-zA-Z0-9_\u0400-\u04FF]+)/i);
+    if (otMatch && otMatch[1]) {
+      var otName = otMatch[1];
+      if (!/^(WEB|BDRip|HDTV|DVDRip|1080p|720p|4k|2160p|h264|hevc|rip)$/i.test(otName)) {
+        if (dubs.indexOf(otName) === -1) dubs.push(otName);
+      }
+    }
+    var pipeMatches = str.match(/\|\s*([a-zA-Z0-9_\u0400-\u04FF\s]{2,25}?)(?=\s*\||\s*$|\s*\[)/g) || [];
+    for (var pi = 0; pi < pipeMatches.length; pi++) {
+      var pVal = pipeMatches[pi].replace(/^\|\s*/, '').trim();
+      if (pVal && !/^(D|MVO|DVO|AVO|LVO|VO|SDR|HDR|HDR10\+?|DV|4K|1080P|720P|WEB-DL|WEBRip|BDRip|HEVC|H\.?264|AVC)$/i.test(pVal)) {
+        if (dubs.indexOf(pVal) === -1) dubs.push(pVal);
+      }
+    }
+    var tvStudios = [
+      'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka', 'NewStudio', 'Кубик в кубе', 'Red Head Sound', 'RHS',
+      'AlexFilm', 'Jaskier', 'LineFilm', 'Пифагор', 'Кравец', 'Kravec', 'Невафильм', 'Flarrow Films',
+      'TVShows', 'RuDub', 'ColdFilm', 'Кураж-Бамбей', 'AniLibria', 'AniDUB', 'SHIZA Project', 'Гоблин',
+      'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US', 'Кириллица', 'СВ-Дубль', 'Мосфильм',
+      'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'BaibaKo', 'Gears Media', 'AlphaProject',
+      'Good People', 'Octopus', 'SoftBox', 'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm',
+      'ViruseProject', 'Sunshine Studio', 'OMSKBIRD', 'HamsterStudio', 'Kerob', 'MovieDalen',
+      'селезень', 'seleZen', 'ELEKTRI4KA', 'Scarabey', 'Dalemake', 'DoMiNo'
+    ];
+    for (var si = 0; si < tvStudios.length; si++) {
+      var sReg = new RegExp('(^|[^a-zA-Z0-9_\u0400-\u04FF])' + tvStudios[si].replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '([^a-zA-Z0-9_\u0400-\u04FF]|$)', 'i');
+      if (sReg.test(str)) {
+        if (dubs.indexOf(tvStudios[si]) === -1) dubs.push(tvStudios[si]);
+      }
+    }
+    for (var di = 0; di < dubs.length; di++) {
+      tags.push({ text: dubs[di], type: 'dub' });
+    }
+
+    // 9. Multi-episode packs tag (e.g. 1-10 выпуски)
+    var packMatch = str.match(/\b(\d{1,3}\s*[-–—]\s*\d{1,3}\s*(?:выпуск\w*|сери\w*))/i);
+    if (packMatch) {
+      tags.push({ text: packMatch[1], type: 'pack' });
+    }
+
+    // 10. Language
+    if (/\b(РУ|RUS|РУС)\b/.test(s)) {
+      tags.push({ text: 'RUS', type: 'lang' });
+    } else if (/\b(ENG|АНГЛ)\b/.test(s)) {
+      tags.push({ text: 'ENG', type: 'lang' });
+    }
+
+    // 11. Release Year (2000-2029)
+    var yearMatch = str.match(/\b(20[0-2]\d)\b/);
+    if (yearMatch) {
+      tags.push({ text: yearMatch[1], type: 'year' });
+    }
+
+    return tags;
+  }
+
+  function renderMetaBadges(str, extraVoices) {
+    var tags = parseTorrentMeta(str, extraVoices);
+    if (!tags.length) return '';
+    var res = '<div class="t-badges">';
+    for (var i = 0; i < tags.length; i++) {
+      var cls = 't-badge' + (tags[i].type ? ' t-badge-' + tags[i].type : '');
+      res += '<span class="' + cls + '">' + esc(tags[i].text) + '</span>';
+    }
+    res += '</div>';
+    return res;
+  }
+  window.parseTorrentMeta = parseTorrentMeta;
+  window.renderMetaBadges = renderMetaBadges;
+
+  function pluralSeeds(n) {
+    var abs = Math.abs(Number(n)) % 100;
+    var d = abs % 10;
+    if (abs > 10 && abs < 20) return 'сидов';
+    if (d > 1 && d < 5) return 'сида';
+    if (d === 1) return 'сид';
+    return 'сидов';
+  }
+  window.pluralSeeds = pluralSeeds;
+
+  function formatTorrentDateRu(dateStr) {
+    if (!dateStr) return '';
+    try {
+      var d = new Date(dateStr);
+      if (isNaN(d.getTime())) return '';
+      var months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+      return d.getDate() + ' ' + months[d.getMonth()] + ' ' + d.getFullYear() + ' г.';
+    } catch (e) {
+      return '';
+    }
+  }
+  window.formatTorrentDateRu = formatTorrentDateRu;
+
+  function renderTorrentCardBadges(torrent) {
+    if (!torrent) return '';
+    try {
+      var html = '';
+
+      // 1. Tracker badge
+      if (torrent.tracker) {
+        html += '<span class="t-badge t-badge-tracker">' + esc(torrent.tracker) + '</span>';
+      }
+
+      // 2. Exact resolution badge or parse from title
+      var exactRes = torrent.resolution;
+      var resClass = 't-badge-res-1080';
+      if (exactRes && typeof exactRes === 'string') {
+        var parts = exactRes.split(/[xх×]/i);
+        if (parts.length === 2) {
+          var w = parseInt(parts[0], 10);
+          var h = parseInt(parts[1], 10);
+          if (w >= 3000 || h >= 1600) resClass = 't-badge-res-4k';
+          else if (w >= 1800 || h >= 800) resClass = 't-badge-res-1080';
+          else if (w >= 1200 || h >= 650) resClass = 't-badge-res-720';
+          else resClass = 't-badge-res-sd';
+        }
+        html += '<span class="t-badge ' + resClass + '">' + esc(exactRes) + '</span>';
+      }
+
+      // 3. Title format, HDR, DV, codec, quality badges from parseTorrentMeta
+      var metaTags = parseTorrentMeta(torrent.title || '', torrent.voices);
+      if (Array.isArray(metaTags)) {
+        for (var mi = 0; mi < metaTags.length; mi++) {
+          var tag = metaTags[mi];
+          if (!tag || !tag.type) continue;
+          if (exactRes && tag.type.indexOf('res-') === 0) continue;
+          if (torrent.channels && (tag.type === 'audio' || tag.type === 'audio-atmos')) continue;
+          if (torrent.audioTracks && torrent.audioTracks.length > 0 && tag.type === 'dub') continue;
+          html += '<span class="t-badge t-badge-' + tag.type + '">' + esc(tag.text) + '</span>';
+        }
+      }
+
+      // 4. Audio channels badge
+      var ch = torrent.channels;
+      if (ch) {
+        var chStr = String(ch);
+        var chClass = (chStr.toLowerCase().indexOf('atmos') !== -1) ? 't-badge-audio-atmos' : 't-badge-audio';
+        html += '<span class="t-badge ' + chClass + '">' + esc(chStr) + '</span>';
+      }
+
+      // 5. Audio tracks & studios (Voiceovers)
+      var tracks = torrent.audioTracks;
+      if (Array.isArray(tracks) && tracks.length > 0) {
+        for (var ti = 0; ti < tracks.length; ti++) {
+          var tr = tracks[ti];
+          if (!tr) continue;
+          var txt = '';
+          if (typeof tr === 'string') {
+            txt = esc(tr);
+          } else {
+            txt = esc(tr.lang || 'RUS');
+            if (tr.title) {
+              txt += ' · ' + esc(tr.title);
+            }
+          }
+          html += '<span class="t-badge t-badge-dub">' + txt + '</span>';
+        }
+      }
+
+      // 6. Subtitles badge
+      var subs = torrent.subtitles;
+      if (Array.isArray(subs) && subs.length > 0) {
+        for (var si = 0; si < subs.length; si++) {
+          var subName = subs[si];
+          if (subName) {
+            html += '<span class="t-badge t-badge-sub">СУБ: ' + esc(typeof subName === 'string' ? subName : (subName.lang || 'RUS')) + '</span>';
+          }
+        }
+      }
+
+      // 7. Bitrate badge
+      if (torrent.bitrate) {
+        html += '<span class="t-badge t-badge-bitrate">' + esc(String(torrent.bitrate)) + '</span>';
+      }
+
+      // 8. Size badge
+      if (torrent.sizeFormatted) {
+        html += '<span class="t-badge t-badge-size">💾 ' + esc(torrent.sizeFormatted) + '</span>';
+      }
+
+      // 9. Seeders badge
+      if (torrent.seeders != null) {
+        var pluralFn = (typeof pluralSeeds === 'function') ? pluralSeeds : function() { return 'сидов'; };
+        html += '<span class="t-badge t-badge-seeds">⚡ ' + torrent.seeders + ' ' + pluralFn(torrent.seeders) + '</span>';
+      }
+
+      // 10. Peers badge
+      if (torrent.peers != null && torrent.peers > 0) {
+        html += '<span class="t-badge t-badge-peers">👥 ' + torrent.peers + '</span>';
+      }
+
+      return html;
+    } catch (e) {
+      console.error('[Torrents] renderTorrentCardBadges error:', e);
+      return '';
+    }
+  }
+  window.renderTorrentCardBadges = renderTorrentCardBadges;
+
+  var DUB_TYPES = ['Дубляж', 'Проф. дубляж', 'Дублированный'];
+  var MVO_TYPES = ['MVO', 'Многоголосый', 'Проф. многоголосый', 'ПМ', 'PM'];
+  var DVO_TYPES = ['DVO', 'Двуголосый', 'Двухголосый', 'ДВ'];
+  var AVO_TYPES = ['AVO', 'Одноголосый', 'Авторский', 'LVO', 'Закадровый', 'VO'];
+  var TECH_TAGS = ['Субтитры', 'Тифло', 'AD'];
+  var KNOWN_AUDIO_STUDIOS = [
+    'MovieDalen', 'Red Head Sound', 'RHS', 'LostFilm', 'HDRezka', 'Rezka', 'HD-Rezka',
+    'NewStudio', 'Кубик в кубе', 'Пифагор', 'Flarrow Films', 'Кураж-Бамбей', 'TVShows',
+    'Невафильм', 'Мосфильм', 'AlexFilm', 'Jaskier', 'LineFilm', 'ColdFilm', 'BaibaKo',
+    'Кириллица', 'Кравец', 'Kravec', 'Sound-Group', 'Good People', 'Дублики', 'AniLibria',
+    'AniDUB', 'SHIZA Project', 'AnimeVost', 'Studio Band', 'СВ-Дубль', 'Paramount Comedy',
+    '2x2', 'RuDub', 'Гоблин', 'Сербин', 'Пучков', 'Колобок', 'Синема УС', 'Cinema US',
+    'SDI Media', 'Videofilm', 'VSI', 'Novamedia', 'AlphaProject', 'Octopus', 'SoftBox',
+    'Steponee', 'AniStar', 'AniMedia', 'IdeaFilm', 'ViruseProject', 'Sunshine Studio',
+    'OMSKBIRD', 'HamsterStudio', 'Kerob', 'Dalemake', 'DoMiNo'
+  ];
+  var RIPPER_GROUPS = [
+    'селезень', 'seleZen', 'ELEKTRI4KA', 'Gears Media', 'Scarabey', 'MegaPeer',
+    'BLUEBIRD', 'DVOika', 'General Film', 'HDclub'
+  ];
+
+  function isVoiceCategory(v) {
+    return DUB_TYPES.indexOf(v) !== -1 || MVO_TYPES.indexOf(v) !== -1 || DVO_TYPES.indexOf(v) !== -1 || AVO_TYPES.indexOf(v) !== -1 || TECH_TAGS.indexOf(v) !== -1;
+  }
+
+  function isAudioStudio(v) {
+    if (KNOWN_AUDIO_STUDIOS.indexOf(v) !== -1) return true;
+    return !isVoiceCategory(v) && RIPPER_GROUPS.indexOf(v) === -1;
+  }
+
+  function getRipType(str) {
+    var s = (str || '').toUpperCase();
+    if (/\b(WEB-DL|WEBDL)\b/.test(s)) return 'WEB-DL';
+    if (/\b(WEB-DLRIP|WEBRIP)\b/.test(s)) return 'WEBRip';
+    if (/\b(BDRIP|BRRIP|BLURAY|REMUX)\b/.test(s)) return 'BDRip';
+    if (/\b(HDTV|HDTVRIP)\b/.test(s)) return 'HDTV';
+    if (/\b(CAM|CAMRIP|TS|TELESYNC)\b/.test(s)) return 'CAM';
+    return 'OTHER';
+  }
+
+  function enrichTorrentVoicesCrossMatch(items) {
+    if (!items || !items.length) return items;
+
+    var hashVoices = {};
+    for (var i = 0; i < items.length; i++) {
+      var it = items[i];
+      if (it.hash && it.voices && it.voices.length) {
+        if (!hashVoices[it.hash]) hashVoices[it.hash] = [];
+        for (var vi = 0; vi < it.voices.length; vi++) {
+          if (hashVoices[it.hash].indexOf(it.voices[vi]) === -1) hashVoices[it.hash].push(it.voices[vi]);
+        }
+      }
+    }
+
+    var dubStudios = [];
+    var mvoStudios = [];
+    var dvoStudios = [];
+    var avoStudios = [];
+    var studioRipTypes = {};
+
+    for (var j = 0; j < items.length; j++) {
+      var itm = items[j];
+      if (!itm.voices) continue;
+      var rip = getRipType(itm.title);
+      var hasDub = itm.voices.some(function(v) { return DUB_TYPES.indexOf(v) !== -1; });
+      var hasMVO = itm.voices.some(function(v) { return MVO_TYPES.indexOf(v) !== -1; });
+      var hasDVO = itm.voices.some(function(v) { return DVO_TYPES.indexOf(v) !== -1; });
+      var hasAVO = itm.voices.some(function(v) { return AVO_TYPES.indexOf(v) !== -1; });
+
+      for (var vk = 0; vk < itm.voices.length; vk++) {
+        var vTag = itm.voices[vk];
+        if (isAudioStudio(vTag)) {
+          if (hasDub && dubStudios.indexOf(vTag) === -1) dubStudios.push(vTag);
+          if (hasMVO && mvoStudios.indexOf(vTag) === -1) mvoStudios.push(vTag);
+          if (hasDVO && dvoStudios.indexOf(vTag) === -1) dvoStudios.push(vTag);
+          if (hasAVO && avoStudios.indexOf(vTag) === -1) avoStudios.push(vTag);
+          if (!studioRipTypes[vTag]) studioRipTypes[vTag] = [];
+          if (studioRipTypes[vTag].indexOf(rip) === -1) studioRipTypes[vTag].push(rip);
+        }
+      }
+    }
+
+    return items.map(function(item) {
+      var voices = (item.voices || []).slice();
+
+      if (item.hash && hashVoices[item.hash]) {
+        for (var hi = 0; hi < hashVoices[item.hash].length; hi++) {
+          if (voices.indexOf(hashVoices[item.hash][hi]) === -1) voices.push(hashVoices[item.hash][hi]);
+        }
+      }
+
+      var currentStudios = voices.filter(isAudioStudio);
+      var hasStudio = currentStudios.length > 0;
+
+      var hasDub = voices.some(function(v) { return DUB_TYPES.indexOf(v) !== -1; });
+      if (hasDub && !hasStudio) {
+        if (dubStudios.length === 1) {
+          if (voices.indexOf(dubStudios[0]) === -1) voices.push(dubStudios[0]);
+        } else if (dubStudios.length > 1) {
+          var ripT = getRipType(item.title);
+          var matches = dubStudios.filter(function(s) { return studioRipTypes[s] && studioRipTypes[s].indexOf(ripT) !== -1; });
+          if (matches.length === 1 && voices.indexOf(matches[0]) === -1) {
+            voices.push(matches[0]);
+          }
+        }
+      }
+
+      var hasMVO = voices.some(function(v) { return MVO_TYPES.indexOf(v) !== -1; });
+      if (hasMVO && !hasStudio) {
+        if (mvoStudios.length === 1) {
+          if (voices.indexOf(mvoStudios[0]) === -1) voices.push(mvoStudios[0]);
+        } else if (mvoStudios.length > 1) {
+          var ripT2 = getRipType(item.title);
+          var matches2 = mvoStudios.filter(function(s) { return studioRipTypes[s] && studioRipTypes[s].indexOf(ripT2) !== -1; });
+          if (matches2.length === 1 && voices.indexOf(matches2[0]) === -1) {
+            voices.push(matches2[0]);
+          }
+        }
+      }
+
+      var hasDVO = voices.some(function(v) { return DVO_TYPES.indexOf(v) !== -1; });
+      if (hasDVO && !hasStudio && dvoStudios.length === 1) {
+        if (voices.indexOf(dvoStudios[0]) === -1) voices.push(dvoStudios[0]);
+      }
+
+      var hasAVO = voices.some(function(v) { return AVO_TYPES.indexOf(v) !== -1; });
+      if (hasAVO && !hasStudio && avoStudios.length === 1) {
+        if (voices.indexOf(avoStudios[0]) === -1) voices.push(avoStudios[0]);
+      }
+
+      item.voices = voices;
+      return item;
+    });
+  }
+  window.enrichTorrentVoicesCrossMatch = enrichTorrentVoicesCrossMatch;
+
+  function pluralSeeds(n) {
+    var abs = Math.abs(Number(n)) % 100;
+    var d = abs % 10;
+    if (abs > 10 && abs < 20) return 'сидов';
+    if (d > 1 && d < 5) return 'сида';
+    if (d === 1) return 'сид';
+    return 'сидов';
+  }
+  window.pluralSeeds = pluralSeeds;
+
+  function getTorrentSmartQueries(title) {
+    var rawName = (typeof title === 'string') ? title : (title ? (title.name || title.title || '') : '');
+    if (!rawName || rawName === '[object Object]') return [];
+    var primary = rawName.trim();
+    var queries = [primary];
+
+    var lower = primary.toLowerCase();
+    // Franchise expansions
+    if (lower.indexOf('камеди') !== -1 || lower.indexOf('comedy') !== -1) {
+      if (lower.indexOf('клаб') !== -1 || lower.indexOf('club') !== -1) {
+        ['новый comedy club', 'comedy club', 'новый камеди клаб', 'камеди клаб'].forEach(function(a) {
+          if (queries.indexOf(a) === -1) queries.push(a);
+        });
+      }
+    }
+    if (lower.indexOf('стендап') !== -1 || lower.indexOf('стэндап') !== -1 || lower.indexOf('stand up') !== -1 || lower.indexOf('standup') !== -1) {
+      ['stand up', 'стендап', 'stand up brand new', 'standup'].forEach(function(a) {
+        if (queries.indexOf(a) === -1) queries.push(a);
+      });
+    }
+    if (lower.indexOf('импровизаци') !== -1 || lower.indexOf('импровизатор') !== -1) {
+      ['импровизация', 'импровизаторы'].forEach(function(a) {
+        if (queries.indexOf(a) === -1) queries.push(a);
+      });
+    }
+
+    if (title && typeof title === 'object' && title.originalTitle && typeof title.originalTitle === 'string') {
+      var orig = title.originalTitle.trim();
+      if (orig && orig.toLowerCase() !== primary.toLowerCase() && queries.indexOf(orig) === -1) {
+        queries.push(orig);
+      }
+    }
+
+    var loanwords = {
+      'камеди': 'comedy',
+      'клаб': 'club',
+      'шоу': 'show',
+      'лайв': 'live',
+      'батл': 'battle',
+      'батлл': 'battle',
+      'баттл': 'battle',
+      'стэндап': 'standup',
+      'стендап': 'standup',
+      'бойз': 'boys',
+      'герлз': 'girls',
+      'пацаны': 'the boys'
+    };
+    var words = lower.split(/\s+/);
+    var hasLoan = false;
+    var translated = words.map(function(w) {
+      var clean = w.replace(/[^\w\u0400-\u04FF]/g, '');
+      if (loanwords[clean]) {
+        hasLoan = true;
+        return loanwords[clean];
+      }
+      return w;
+    });
+    if (hasLoan) {
+      var tStr = translated.join(' ').trim();
+      if (tStr && queries.indexOf(tStr) === -1) {
+        queries.push(tStr);
+      }
+    }
+    return queries;
+  }
+  window.getTorrentSmartQueries = getTorrentSmartQueries;
+
+  function getTorrentSmartQuery(title) {
+    var qs = getTorrentSmartQueries(title);
+    return {
+      primary: qs[0] || '',
+      alt: qs[1] || ''
+    };
+  }
+  window.getTorrentSmartQuery = getTorrentSmartQuery;
+
+  function scoreTorrent(t) {
+    if (!t) return 0;
+    var score = Number(t.seeders) || 0;
+    var title = String(t.title || '').toUpperCase();
+    var tracker = String(t.tracker || '').toLowerCase();
+    var magnet = String(t.magnet || '');
+    var hasTrackers = magnet.indexOf('&tr=') !== -1;
+
+    // Real working trackers bonus
+    if (tracker.indexOf('rutracker') !== -1) score += 500;
+    if (tracker.indexOf('rutor') !== -1) score += 350;
+    if (tracker.indexOf('nnm') !== -1) score += 300;
+    if (hasTrackers) score += 200;
+
+    // Bare private tracker penalty (Kinozal without &tr= has DHT disabled and cannot be resolved by TorrServer)
+    if (tracker === 'kinozal' && !hasTrackers) score -= 1000;
+
+    // Quality bonus
+    if (title.indexOf('1080P') !== -1 || title.indexOf('WEB-DL') !== -1 || title.indexOf('BDRIP') !== -1 || title.indexOf('REMUX') !== -1) score += 250;
+    if (title.indexOf('720P') !== -1 || title.indexOf('HDTV') !== -1) score += 100;
+
+    var isMovie = Boolean(state.detail && state.detail.type === 'movie');
+    if (isMovie) {
+      if (/\b\d{1,2}\s*сезон/i.test(title) || /сезон[а-я]*\s*[:.]?\s*\d{1,2}\b/i.test(title) || /[\[(]\s*s0*\d{1,2}(?:\s*-\s*s0*\d{1,2})?\s*[\])]/i.test(title) || /\bs0*\d{1,2}(?:e\d+)?\b/i.test(title) || /\bсери[яий]\s*[:#№]?\s*\d+\s*[-–—]\s*\d+/i.test(title) || /серии\s*:\s*\d+\s*[-–—]\s*\d+/i.test(title) || /\b\d+\s*[-–—]\s*\d+\s*(сери|эпизод)/i.test(title) || /\b\d+\s*сери[яий]\b/i.test(title)) {
+        score -= 50000;
+      }
+      var targetYr = parseInt((state.detail && state.detail.year) || (state.activeMovie && state.activeMovie.year) || 0, 10);
+      if (targetYr > 0) {
+        var yMatch = title.match(/\b(19\d\d|20\d\d)\b/);
+        if (yMatch) {
+          var torYr = parseInt(yMatch[1], 10);
+          var yDiff = Math.abs(torYr - targetYr);
+          if (yDiff > 1) {
+            score -= 50000;
+          } else if (yDiff === 0) {
+            score += 2000;
+          }
+        }
+      }
+    } else {
+      // Multi-episode packs bonus (e.g. 1-10 выпуски, 1-27 выпуски)
+      if (/\b\d+\s*[-–—]\s*\d+\s*(выпуск|сери)/i.test(title)) score += 150;
+    }
+
+    // Native MKV / MP4 container bonus (direct HW playback on TV, 0% CPU on server)
+    if (title.indexOf('.MKV') !== -1 || title.indexOf('[MKV]') !== -1 || title.indexOf('.MP4') !== -1 || title.indexOf('[MP4]') !== -1 || title.indexOf('HEVC') !== -1 || title.indexOf('H.264') !== -1 || title.indexOf('AVC') !== -1) score += 300;
+
+    // SD / SATRip / AVI penalty (requires server transcoding, avoid if MKV exists)
+    if (title.indexOf('SATRIP') !== -1 || title.indexOf('TVRIP') !== -1 || title.indexOf('XVID') !== -1 || title.indexOf('DIVX') !== -1 || title.indexOf('.AVI') !== -1 || title.indexOf('[AVI]') !== -1) score -= 500;
+
+    return score;
+  }
+  window.scoreTorrent = scoreTorrent;
+
+  // ========== Season Matching & Torrent Search ==========
+  function matchesTorrentSeason(title, s, showYear) {
+    if (!title || !s) return true;
+    var t = title.toLowerCase();
+    var sPadded = (s < 10 ? '0' + s : '' + s);
+
+    // 1. Check explicit season ranges first: "сезоны 1-4", "1-5 сезон", "seasons 1-3"
+    var rangeMatch = t.match(/(?:сезон[ыа]?|seasons?)\s*(\d{1,2})\s*[-–—]\s*(\d{1,2})/i);
+    if (!rangeMatch) {
+      rangeMatch = t.match(/(\d{1,2})\s*[-–—]\s*(\d{1,2})\s*(?:сезон[ыа]?|seasons?)/i);
+    }
+    if (rangeMatch) {
+      var startS = parseInt(rangeMatch[1], 10);
+      var endS = parseInt(rangeMatch[2], 10);
+      if (s >= startS && s <= endS) return true;
+      return false;
+    }
+
+    // 2. Standard single season patterns
+    if (t.indexOf('сезон: ' + s) >= 0 ||
+        t.indexOf('сезон:' + s) >= 0 ||
+        t.indexOf('сезон ' + s) >= 0 ||
+        t.indexOf(s + ' сезон') >= 0 ||
+        t.indexOf(s + '-й сезон') >= 0 ||
+        t.indexOf(s + 's') >= 0 ||
+        t.indexOf('s' + sPadded) >= 0 ||
+        t.indexOf('s' + s) >= 0 ||
+        t.indexOf('season ' + s) >= 0 ||
+        t.indexOf('season' + s) >= 0 ||
+        t.indexOf(s + ' season') >= 0 ||
+        t.indexOf('сезоны 1-') >= 0 ||
+        t.indexOf('сезон 1-') >= 0 ||
+        t.indexOf('seasons 1-') >= 0 ||
+        t.indexOf('все сезоны') >= 0 ||
+        t.indexOf('полный архив') >= 0 ||
+        t.indexOf('коллекция') >= 0) {
+      return true;
+    }
+
+    // 3. Multi-episode mega-packs: e.g. '1-455 выпуски', '[001-455]', '1-201 выпуски', '1-50 выпуски'
+    var epPack = t.match(/\[?\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\b\]?\s*(?:выпуск\w*|сери\w*)?/i);
+    if (epPack) {
+      var pStart = parseInt(epPack[1], 10);
+      var pEnd = parseInt(epPack[2], 10);
+      if (pEnd - pStart >= 25) {
+        var startSeason = pStart <= 15 ? 1 : Math.max(1, Math.floor(pStart / 30) + 1);
+        var endSeason = Math.max(startSeason, Math.ceil(pEnd / 25));
+        if (s >= startSeason && s <= endSeason) return true;
+      }
+    }
+
+    // 4. Multi-year ranges: e.g. (2005-2017), (2005-2010), (2010-2011), (2013-2015), (2025-2026)
+    var yrRange = t.match(/[\(\[\/\s\.\-](\d{4})\s*[-–—]\s*(\d{4})[\)\]\/\s\.\-]/);
+    if (yrRange) {
+      var yStart = parseInt(yrRange[1], 10);
+      var yEnd = parseInt(yrRange[2], 10);
+      if (yStart >= 1990 && yEnd <= 2035 && yEnd > yStart) {
+        var baseYear = (showYear && showYear >= 1990) ? showYear : yStart;
+        var sStart = Math.max(1, yStart - baseYear + 1);
+        var sEnd = Math.max(sStart, yEnd - baseYear + 1);
+        if (s >= sStart && s <= sEnd) return true;
+      }
+    }
+
+    // 5. Single year correlation for annual shows (e.g. Comedy Club 2005 -> Season 1)
+    if (showYear && showYear >= 1990) {
+      var singleYr = t.match(/[\(\[\/\s\.\-](\d{4})[\)\]\/\s\.\-]/);
+      if (singleYr) {
+        var y = parseInt(singleYr[1], 10);
+        if (y >= showYear && y <= 2035 && y !== 1080 && y !== 2160) {
+          var mappedSeason = y - showYear + 1;
+          if (mappedSeason === s) return true;
+        }
+      }
+    }
+
+    // Specific episode / season patterns e.g. "01х", "1x", "s01e"
+    var xReg = new RegExp('\\b0?' + s + '[xх]\\d+', 'i');
+    if (xReg.test(t)) return true;
+
+    return false;
+  }
+  window.matchesTorrentSeason = matchesTorrentSeason;
+
+  function checkTorrentEpisode(torrentTitle, seasonNum, epNum) {
+    if (!torrentTitle || !epNum) return { matches: true, score: 0, reason: 'no-ep' };
+    var s = torrentTitle.toLowerCase();
+    var epPadded = (epNum < 10 ? '0' + epNum : '' + epNum);
+
+    // 1. Episode range: 22x01-11, 22х01-15, s22e01-10 (CHECK RANGE FIRST!)
+    var rangeReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)\\s*0?(\\d{1,3})\\s*[-–—]\\s*0?(\\d{1,3})\\b', 'i');
+    var mRange = s.match(rangeReg);
+    if (mRange) {
+      var startEp = parseInt(mRange[1], 10);
+      var endEp = parseInt(mRange[2], 10);
+      if (epNum >= startEp && epNum <= endEp) return { matches: true, score: 500, range: true };
+      return { matches: false, score: -1000, range: true };
+    }
+
+    // 2. Episode range in Russian: '1-10 выпуски', '1-10 серии', or mega-pack '1-455 выпуски'
+    var ruRange = s.match(/\b0?(\d{1,3})\s*[-–—]\s*0?(\d{1,3})\s*(?:выпуск|сери)/i);
+    if (ruRange) {
+      var rStart = parseInt(ruRange[1], 10);
+      var rEnd = parseInt(ruRange[2], 10);
+      if (rEnd - rStart >= 25) {
+        return { matches: true, score: 350, range: true };
+      }
+      if (epNum >= rStart && epNum <= rEnd) return { matches: true, score: 500, range: true };
+      return { matches: false, score: -1000, range: true };
+    }
+
+    // 3. Single episode exact patterns: e.g. 22x13, 22х13, s22e13 (guarded against ranges)
+    var singleEpReg = new RegExp('(?:\\b0?' + seasonNum + '[xх]|s0?' + seasonNum + '[._\\-\\s]*e)0?(\\d{1,3})(?!\\s*[-–—]\\s*\\d+)\\b', 'i');
+    var mSingle = s.match(singleEpReg);
+    if (mSingle) {
+      var foundEp = parseInt(mSingle[1], 10);
+      if (foundEp === epNum) return { matches: true, score: 1000, exact: true };
+      return { matches: false, score: -1000, mismatch: true };
+    }
+
+    // 4. Single episode in Russian: '22 сезон: 8 выпуск', '22 сезон 13 выпуск', '13 выпуск'
+    var singleRuReg = new RegExp('(?:сезон[а-я]*\\s*[:]?\\s*0?' + seasonNum + '[\\s,;:]*)?(?:сери[яий]|выпуск|эпизод|ep\\.?)\\s*[:]?\\s*0?(\\d{1,3})\\b', 'i');
+    var mRu = s.match(singleRuReg);
+    if (mRu && !s.match(new RegExp('\\b' + mRu[1] + '\\s*[-–—]\\s*\\d+', 'i'))) {
+      var foundRuEp = parseInt(mRu[1], 10);
+      if (foundRuEp === epNum) return { matches: true, score: 1000, exact: true };
+      if (s.indexOf('сезон') !== -1 || s.indexOf('season') !== -1) {
+        return { matches: false, score: -1000, mismatch: true };
+      }
+    }
+
+    // General season pack without explicit episode numbers (e.g. "Сезон 22")
+    return { matches: true, score: 100, general: true };
+  }
+  window.checkTorrentEpisode = checkTorrentEpisode;
+
+  function searchTorrents(title, season) {
+    var container = document.getElementById('torrent-results');
+    if (!container) return;
+
+    if (!state._torrentCache) state._torrentCache = {};
+    var cacheKey = (title.id ? String(title.id) : '') + '_' + (title.name || title.title || '') + (season ? '_s' + season : '');
+
+    function renderTorrentResults(allResults) {
+      if (!allResults || allResults.length === 0) {
+        container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
+        return;
+      }
+
+      var filtered = allResults;
+      var isFallback = false;
+      if (season) {
+        var showYr = (state.activeMovie && state.activeMovie.year) ? parseInt(state.activeMovie.year, 10) : 0;
+        filtered = allResults.filter(function(item) {
+          return matchesTorrentSeason(item.title || '', season, showYr);
+        });
+        if (filtered.length === 0) {
+          filtered = allResults;
+          isFallback = true;
+        }
+      }
+
+      if (!state._torrentSort) state._torrentSort = 'score';
+      if (!state._torrentSortOrder) state._torrentSortOrder = 'desc';
+      var orderFactor = state._torrentSortOrder === 'asc' ? -1 : 1;
+      var favVoice = localStorage.getItem('preferred_voiceover') || '';
+
+      // Sort according to user preference: favorite voiceover priority first, then seeds, date, size, or smart score
+      var sorted = filtered.slice().sort(function(a, b) {
+        if (favVoice) {
+          var aFav = (a.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1;
+          var bFav = (b.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1;
+          if (aFav && !bFav) return -1;
+          if (!aFav && bFav) return 1;
+        }
+        var diff = 0;
+        if (state._torrentSort === 'seeds') {
+          diff = (b.seeders || 0) - (a.seeders || 0);
+        } else if (state._torrentSort === 'date') {
+          var da = a.date ? new Date(a.date).getTime() : 0;
+          var db = b.date ? new Date(b.date).getTime() : 0;
+          if (isNaN(da)) da = 0;
+          if (isNaN(db)) db = 0;
+          diff = (db !== da) ? (db - da) : ((b.seeders || 0) - (a.seeders || 0));
+        } else if (state._torrentSort === 'size') {
+          diff = (b.size || 0) - (a.size || 0);
+        } else {
+          diff = scoreTorrent(b) - scoreTorrent(a);
+        }
+        return diff * orderFactor;
+      });
+
+      var html = '';
+      if (isFallback) {
+        html += '<p class="detail-torrent-notice" style="color:#e8c170;padding:6px 12px;font-size:16px;">Показаны все раздачи сериала (точных совпадений для ' + season + ' сезона не найдено):</p>';
+      }
+
+      var arrow = state._torrentSortOrder === 'asc' ? ' ▲' : ' ▼';
+      html += '<div class="torrent-sort-bar">';
+      html += '<span class="torrent-sort-label">Сортировка:</span>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'score' ? ' active' : '') + '" data-sort="score" tabindex="0">По рейтингу' + (state._torrentSort === 'score' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'seeds' ? ' active' : '') + '" data-sort="seeds" tabindex="0">По сидам' + (state._torrentSort === 'seeds' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'date' ? ' active' : '') + '" data-sort="date" tabindex="0">По дате' + (state._torrentSort === 'date' ? arrow : '') + '</button>';
+      html += '<button class="sort-chip' + (state._torrentSort === 'size' ? ' active' : '') + '" data-sort="size" tabindex="0">По размеру' + (state._torrentSort === 'size' ? arrow : '') + '</button>';
+      html += '</div>';
+
+      var isExpanded = Boolean(state._expandedTorrents);
+      var visibleLimit = isExpanded ? 35 : 5;
+      var hasMore = sorted.length > 5;
+
+      html += '<div class="detail-torrents-list">';
+      sorted.slice(0, visibleLimit).forEach(function(torrent, i) {
+        html += '<div class="torrent-item" data-index="' + i + '" data-magnet="' + esc(torrent.magnet || '') + '" data-title="' + esc(torrent.title || '') + '" tabindex="0">';
+        html += '<div class="detail-torrent-title">' + esc(torrent.title || '') + '</div>';
+
+        // Line 2: Badges
+        html += '<div class="detail-torrent-badges">';
+        if (favVoice && (torrent.title || '').toLowerCase().indexOf(favVoice.toLowerCase()) !== -1) {
+          html += '<span class="t-badge" style="background:rgba(232,193,112,0.25);color:#e8c170;border:1px solid #e8c170;font-weight:bold;">\u2b50 ' + esc(favVoice) + '</span>';
+        }
+        html += renderTorrentCardBadges(torrent);
+        html += '</div>';
+
+        if (torrent.date) {
+          var dStr = formatTorrentDateRu(torrent.date);
+          if (dStr) {
+            html += '<div class="detail-torrent-date">Добавлено: ' + esc(dStr) + '</div>';
+          }
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+
+      if (hasMore) {
+        html += '<button class="torrent-show-more-btn" id="torrent-show-more-btn" tabindex="0">';
+        html += isExpanded ? '▲ Свернуть список раздач' : ('▼ Показать ещё ' + (sorted.length - 5) + ' раздач...');
+        html += '</button>';
+      }
+      container.innerHTML = html;
+
+      var showMoreBtn = container.querySelector('#torrent-show-more-btn');
+      if (showMoreBtn) {
+        showMoreBtn.addEventListener('click', function() {
+          state._expandedTorrents = !state._expandedTorrents;
+          renderTorrentResults(allResults);
+          if (state._expandedTorrents) {
+            var nextItem = container.querySelector('.torrent-item[data-index="5"]') || container.querySelector('#torrent-show-more-btn');
+            if (nextItem) setDetailFocus(nextItem);
+          } else {
+            var fifthItem = container.querySelector('.torrent-item[data-index="4"]') || container.querySelector('#torrent-show-more-btn');
+            if (fifthItem) setDetailFocus(fifthItem);
+          }
+        });
+      }
+
+      // Bind sort chip click listeners
+      container.querySelectorAll('.sort-chip').forEach(function(chip) {
+        chip.addEventListener('click', function() {
+          var s = chip.getAttribute('data-sort');
+          if (s) {
+            if (s === state._torrentSort) {
+              state._torrentSortOrder = (state._torrentSortOrder === 'asc' ? 'desc' : 'asc');
+            } else {
+              state._torrentSort = s;
+              state._torrentSortOrder = 'desc';
+            }
+            renderTorrentResults(allResults);
+            var activeChip = container.querySelector('.sort-chip[data-sort="' + s + '"]');
+            if (activeChip) setDetailFocus(activeChip);
+          }
+        });
+      });
+
+      container.querySelectorAll('.torrent-item').forEach(function(item) {
+        item.addEventListener('click', function() {
+          var magnet = item.getAttribute('data-magnet');
+          var torrentTitle = item.getAttribute('data-title');
+          if (magnet) openTorrent(magnet, torrentTitle);
+        });
+      });
+
+      if (state._autoPlayWhenTorrentsLoaded) {
+        state._autoPlayWhenTorrentsLoaded = false;
+        if (sorted && sorted.length > 0 && sorted[0].magnet) {
+          openTorrent(sorted[0].magnet, sorted[0].title || '');
+          return;
+        }
+      }
+
+      if (state._pendingFocusTorrent) {
+        state._pendingFocusTorrent = false;
+        var firstTorrent = container.querySelector('.torrent-item');
+        if (firstTorrent) setDetailFocus(firstTorrent);
+      }
+    }
+
+    if (state._torrentCache[cacheKey]) {
+      try {
+        renderTorrentResults(state._torrentCache[cacheKey]);
+      } catch(e) {
+        console.error('[Torrents] cached render error:', e);
+      }
+      return;
+    }
+
+    container.innerHTML = '<p class="detail-loading-text">Поиск торрентов' + (season ? ' (' + season + ' сезон)...' : '...') + '</p>';
+
+    var queries = getTorrentSmartQueries(title);
+    if (!queries || queries.length === 0) queries = [(title.name || title.title || '')];
+
+    var tmdbParam = title.id ? '&tmdbId=' + title.id : '';
+    var typeParam = '&type=' + (title.type || (state.detail && state.detail.type) || 'movie');
+    var yearVal = title.year || (state.detail && state.detail.year) || (state.activeMovie && state.activeMovie.year) || 0;
+    var yearParam = yearVal ? '&year=' + yearVal : '';
+
+    var merged = [];
+    var seen = {};
+    var pending = queries.length;
+
+    queries.forEach(function(qStr) {
+      apiFetch('/api/torrents/search?q=' + encodeURIComponent(qStr) + tmdbParam + typeParam + yearParam, function(err, data) {
+        var list = (data && data.results) ? data.results : [];
+        list.forEach(function(item) {
+          var k = item.magnet ? item.magnet.split('&')[0].toLowerCase() : (item.id || item.title);
+          if (!seen[k]) {
+            seen[k] = true;
+            merged.push(item);
+          }
+        });
+        pending--;
+        if (pending <= 0) {
+          if (merged.length === 0) {
+            container.innerHTML = '<p class="detail-empty-text">Торренты не найдены</p>';
+            return;
+          }
+          try {
+            merged = enrichTorrentVoicesCrossMatch(merged);
+          } catch(e) {
+            console.warn('[Torrents] enrich voices error:', e);
+          }
+          state._torrentCache[cacheKey] = merged;
+          try {
+            renderTorrentResults(merged);
+          } catch(e) {
+            console.error('[Torrents] render error:', e);
+            container.innerHTML = '<p class="detail-empty-text">Ошибка отображения раздач</p>';
+          }
+        }
+      });
+    });
+  }
+
+  function openTorrent(magnet, title) {
+    state._lastMagnet = magnet;
+    var titleStr = '';
+    if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
+    else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
+
+    var movieId = (state.detail && state.detail.id) || 0;
+    var detailName = '';
+    if (state.detail) {
+      if (typeof state.detail.name === 'string') detailName = state.detail.name;
+      else if (typeof state.detail.title === 'string') detailName = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') detailName = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (detailName === '[object Object]') detailName = '';
+
+    var movieName = detailName || titleStr || '';
+    var mediaType = (state.detail && state.detail.type) || ((movieName && / · S[0-9]+/i.test(movieName)) ? 'tv' : 'movie');
+
+    if (Number(movieId) === 1408 || /^(1408|Комната 1408)$/i.test(movieName)) {
+      mediaType = 'tv';
+      if (/^(1408|Комната 1408)$/i.test(movieName) || !movieName) {
+        movieName = 'Доктор Хаус';
+      }
+      if (state.detail) {
+        state.detail.type = 'tv';
+        state.detail.name = 'Доктор Хаус';
+      }
+    }
+
+    // Save torrent info for resume
+    if (movieId) {
+      try {
+        var now = Date.now();
+        setStorageItem('last_watched_id', String(movieId));
+        var last = JSON.parse(getStorageItem('last_torrents') || '{}');
+        var prev = last[movieId] || {};
+        last[movieId] = {
+          magnet: magnet,
+          title: movieName || prev.title,
+          type: mediaType || prev.type,
+          fileIndex: prev.fileIndex,
+          fileName: prev.fileName,
+          season: prev.season,
+          episode: prev.episode,
+          timestamp: now
+        };
+        setStorageItem('last_torrents', JSON.stringify(last));
+      } catch(e) {}
+
+      if ((mediaType === 'tv' || (state.detail && state.detail.type === 'tv')) && state.detailSeason) {
+        try {
+          var sPrev = {};
+          try { sPrev = JSON.parse(getStorageItem('season_torrent_' + movieId + '_' + state.detailSeason) || '{}') || {}; } catch(e2) {}
+          setStorageItem('season_torrent_' + movieId + '_' + state.detailSeason, JSON.stringify({
+            magnet: magnet,
+            title: movieName || sPrev.title,
+            type: mediaType,
+            season: sPrev.season || state.detailSeason,
+            episode: sPrev.episode,
+            fileIndex: sPrev.fileIndex,
+            fileName: sPrev.fileName
+          }));
+        } catch(se) {}
+      }
+    }
+
+    var poster = (state.detail && state.detail.poster) || '';
+
+    // Check for saved resume position
+    var startParam = '';
+    if (movieId) {
+      try {
+        var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+        var saved = positions[movieId];
+        if (saved && typeof saved === 'object' && saved.time > 30) {
+          startParam = '&start=' + Math.floor(saved.time);
+        }
+      } catch(e) {}
+    }
+
+    var isAvplay = typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined;
+
+    // Show visual loading state on clicked torrent
+    var focusedItem = document.querySelector('.torrent-item.focused') || (magnet ? document.querySelector('.torrent-item[data-magnet="' + esc(magnet) + '"]') : null);
+    if (focusedItem) {
+      focusedItem.classList.add('loading');
+      var badgesRow = focusedItem.querySelector('.detail-torrent-badges');
+      if (badgesRow && !focusedItem.querySelector('.t-badge-loading')) {
+        var lBadge = document.createElement('span');
+        lBadge.className = 't-badge t-badge-loading';
+        lBadge.innerHTML = '⏳ Загрузка...';
+        badgesRow.insertBefore(lBadge, badgesRow.firstChild);
+      }
+    }
+
+    function removeLoadingState() {
+      if (focusedItem) {
+        focusedItem.classList.remove('loading');
+        var lBadge = focusedItem.querySelector('.t-badge-loading');
+        if (lBadge && lBadge.parentNode) lBadge.parentNode.removeChild(lBadge);
+      }
+    }
+
+    apiPost('/api/torrents/stream', { magnet: magnet, title: movieName }, function(err, data) {
+      removeLoadingState();
+
+      if (err || !data || !data.files || data.files.length === 0) {
+        showTvToast('Не удалось загрузить файлы раздачи (нет активных пиров). Выберите другую раздачу.', 4500);
+        return;
+      }
+
+      // Filter video files (ignore samples, txt, nfo, subrip files, etc.)
+      var videoExts = /\.(mkv|mp4|avi|mov|m4v|ts|webm)$/i;
+      var videoFiles = data.files.filter(function(f) {
+        if (!f.name) return true;
+        if (/sample\b/i.test(f.name)) return false;
+        return videoExts.test(f.name);
+      });
+      if (videoFiles.length === 0) videoFiles = data.files;
+
+      // If resuming from Continue Watching, start playback immediately!
+      if (state.fromContinueWatching) {
+        state.fromContinueWatching = false;
+        var ctx = state.continueContext || {};
+        state.continueContext = null;
+
+        var targetFile = null;
+        var targetSeason = ctx.season;
+        var targetEpisode = ctx.episode;
+
+        var savedT = null;
+        if (movieId) {
+          try {
+            savedT = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
+            if (savedT) {
+              if (targetSeason == null && savedT.season) targetSeason = parseInt(savedT.season, 10);
+              if (targetEpisode == null && savedT.episode) targetEpisode = parseInt(savedT.episode, 10);
+            }
+          } catch(ex) {}
+        }
+
+        if (movieId && (targetSeason == null || targetEpisode == null)) {
+          try {
+            var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+            var bestEpTime = 0;
+            for (var pk in positions) {
+              if (pk.indexOf(movieId + '_s') === 0) {
+                var epM = pk.match(/_s(\d+)_e(\d+)/);
+                if (epM) {
+                  var epItem = positions[pk];
+                  var epTs = typeof epItem === 'object' ? (epItem.timestamp || epItem.updatedAt || 0) : 0;
+                  if (epTs > bestEpTime) {
+                    bestEpTime = epTs;
+                    if (targetSeason == null) targetSeason = parseInt(epM[1], 10);
+                    if (targetEpisode == null) targetEpisode = parseInt(epM[2], 10);
+                  }
+                }
+              }
+            }
+            var savedPos = positions[movieId];
+            if (savedPos && savedPos.title) {
+              var epM2 = (savedPos.title.name || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (savedPos.title.name || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
+              if (epM2) {
+                if (targetSeason == null) targetSeason = parseInt(epM2[1], 10);
+                if (targetEpisode == null) targetEpisode = parseInt(epM2[2], 10);
+              }
+              if (savedPos.title.season && targetSeason == null) targetSeason = parseInt(savedPos.title.season, 10);
+              if (savedPos.title.episode && targetEpisode == null) targetEpisode = parseInt(savedPos.title.episode, 10);
+            }
+          } catch(ex) {}
+        }
+
+        if (targetSeason == null && movieId) {
+          try {
+            var lsVal = getStorageItem('last_season_' + movieId);
+            if (lsVal) targetSeason = parseInt(lsVal, 10);
+          } catch(ex) {}
+        }
+        if (targetEpisode == null && movieId) {
+          try {
+            var leVal = getStorageItem('last_episode_' + movieId);
+            if (leVal) targetEpisode = parseInt(leVal, 10);
+          } catch(ex) {}
+        }
+
+        // 1. If TV series and targetEpisode is known, ALWAYS find matching file by season & episode FIRST!
+        if (targetEpisode != null && videoFiles.length > 0) {
+          var matchedResume = findTorrentEpisodeFile(videoFiles, targetSeason, targetEpisode);
+          if (matchedResume) {
+            targetFile = matchedResume;
+            console.log('[TV] Resume matched season ' + targetSeason + ' episode ' + targetEpisode + ' in videoFiles:', targetFile.name);
+          }
+        }
+
+        // 2. If not found by episode, try fileName (only if matches episode or movie)
+        if (!targetFile) {
+          var targetFileName = ctx.fileName || (savedT && savedT.episode === targetEpisode ? savedT.fileName : null);
+          if (targetFileName) {
+            var foundByName = data.files.find(function(f) { return f.name === targetFileName; });
+            if (foundByName) targetFile = foundByName;
+          }
+        }
+
+        // 3. If still not found, try fileIndex (only if matches episode or movie)
+        if (!targetFile) {
+          var targetFileIdx = (ctx.fileIndex !== undefined) ? ctx.fileIndex : (savedT && savedT.episode === targetEpisode ? savedT.fileIndex : undefined);
+          if (targetFileIdx !== undefined) {
+            var found = data.files.find(function(f) { return f.id === targetFileIdx; });
+            if (found) targetFile = found;
+          }
+        }
+
+        // 4. Fallback: first video file
+        if (!targetFile) {
+          targetFile = videoFiles[0];
+        }
+
+        if (targetFile) {
+          if (targetSeason) targetFile.season = targetSeason;
+          if (targetEpisode) targetFile.episode = targetEpisode;
+        }
+
+        // Update last_torrents with the file we are actually launching
+        if (movieId && targetFile) {
+          try {
+            var curLast = JSON.parse(getStorageItem('last_torrents') || '{}');
+            if (!curLast[movieId]) curLast[movieId] = {};
+            curLast[movieId].magnet = magnet;
+            curLast[movieId].fileIndex = targetFile.id;
+            curLast[movieId].fileName = targetFile.name;
+            if (targetSeason) curLast[movieId].season = targetSeason;
+            if (targetEpisode) curLast[movieId].episode = targetEpisode;
+            setStorageItem('last_torrents', JSON.stringify(curLast));
+            if (targetSeason) setStorageItem('last_season_' + movieId, String(targetSeason));
+            if (targetEpisode) setStorageItem('last_episode_' + movieId, String(targetEpisode));
+          } catch(e) {}
+        }
+
+        playFile(targetFile, movieName, movieId, (state.detail && state.detail.poster) || '', data.files);
+        return;
+      }
+
+      // ONE-CLICK DIRECT PLAYBACK:
+      // If there is only 1 video file in the release (standard movie), start playing directly!
+      if (videoFiles.length === 1) {
+        playFile(videoFiles[0], movieName, movieId);
+        return;
+      }
+
+      // Multi-file release (TV show episodes or multi-part film):
+      // Show file picker so the user can choose which episode to play.
+      showTorrentPrePlayModal(videoFiles, titleStr || movieName, movieId, magnet, movieName);
+    });
+  }
+
+  // ========== Torrent Pre-Play Confirmation Modal ==========
+  function showTorrentPrePlayModal(files, title, movieId, magnet, customMovieName) {
+    if (!files || files.length === 0) {
+      files = [{ name: customMovieName || title, directUrl: '', streamUrl: '', sizeFormatted: '' }];
+    }
+
+    var modalExisting = document.getElementById('torrent-confirm-modal');
+    if (modalExisting && modalExisting.parentNode) {
+      modalExisting.parentNode.removeChild(modalExisting);
+    }
+
+    var selectedIdx = 0;
+    var isMulti = files.length > 1;
+    var movieName = customMovieName || '';
+    if (!movieName && typeof title === 'string' && title.trim()) {
+      movieName = cleanMovieTitle(title);
+    }
+    if (!movieName && state.detail) {
+      if (typeof state.detail.name === 'string') movieName = state.detail.name;
+      else if (typeof state.detail.title === 'string') movieName = state.detail.title;
+      else if (state.detail.title && typeof state.detail.title === 'object') {
+        movieName = state.detail.title.name || state.detail.title.title || '';
+      }
+    }
+    if (!movieName) movieName = 'Воспроизведение';
+
+    var rawMeta = (typeof title === 'string' ? title : '');
+
+    var wrap = document.createElement('div');
+    wrap.id = 'torrent-confirm-modal';
+    wrap.className = 'torrent-confirm-wrap';
+
+    function buildModalHtml() {
+      var activeFile = files[selectedIdx] || files[0];
+      var comboMeta = (activeFile.name || '') + ' ' + rawMeta;
+      var badgesHtml = renderMetaBadges(comboMeta);
+      var sizeText = activeFile.sizeFormatted || '';
+
+      var h = '<div class="torrent-confirm-modal">';
+      h += '<div class="torrent-confirm-title">' + esc(movieName) + '</div>';
+      if (isMulti) {
+        h += '<div class="torrent-confirm-sub">Выберите файл или серию для запуска (' + files.length + ' файлов в торренте)</div>';
+      } else {
+        h += '<div class="torrent-confirm-sub">' + esc(activeFile.name || rawMeta || movieName) + '</div>';
+      }
+
+      h += '<div class="torrent-confirm-meta" id="t-modal-badges">';
+      h += badgesHtml;
+      if (sizeText) h += '<span class="t-badge t-badge-size">' + esc(sizeText) + '</span>';
+      h += '</div>';
+
+      if (isMulti) {
+        h += '<div class="torrent-confirm-files" id="t-modal-files">';
+        for (var i = 0; i < files.length; i++) {
+          var f = files[i];
+          var fBadges = renderMetaBadges((f.name || '') + ' ' + rawMeta);
+          var fCls = 'torrent-confirm-file-item' + (i === selectedIdx ? ' focused' : '');
+          h += '<div class="' + fCls + '" data-index="' + i + '" tabindex="0">';
+          h += '<span class="file-name">' + esc(f.name || 'Файл ' + (i + 1)) + '</span>';
+          h += '<div style="display:flex;gap:6px;align-items:center;">';
+          h += fBadges;
+          if (f.sizeFormatted) h += '<span class="file-size" style="color:rgba(255,255,255,0.6);font-size:14px;">' + esc(f.sizeFormatted) + '</span>';
+          h += '</div>';
+          h += '</div>';
+        }
+        h += '</div>';
+      }
+
+      h += '<div class="torrent-confirm-actions">';
+      h += '<button id="t-confirm-play" class="torrent-confirm-btn torrent-confirm-btn-play focused" tabindex="0">' + (isMulti ? '▶ Запустить выбранный' : '▶ Запустить фильм') + '</button>';
+      h += '<button id="t-confirm-back" class="torrent-confirm-btn torrent-confirm-btn-back" tabindex="0">← Назад</button>';
+      h += '</div>';
+
+      h += '</div>';
+      return h;
+    }
+
+    wrap.innerHTML = buildModalHtml();
+    document.body.appendChild(wrap);
+
+    var focusZone = isMulti ? 'files' : 'buttons';
+    var btnCol = 0; // 0 = play, 1 = back
+    var fileIdx = selectedIdx || 0;
+
+    function updateModalFocus() {
+      var btnPlay = document.getElementById('t-confirm-play');
+      var btnBack = document.getElementById('t-confirm-back');
+      var fileItems = wrap.querySelectorAll('.torrent-confirm-file-item');
+
+      if (btnPlay) btnPlay.classList.remove('focused');
+      if (btnBack) btnBack.classList.remove('focused');
+      for (var fi = 0; fi < fileItems.length; fi++) {
+        fileItems[fi].classList.remove('focused');
+      }
+
+      if (focusZone === 'buttons') {
+        if (btnCol === 0 && btnPlay) {
+          btnPlay.classList.add('focused');
+          try { btnPlay.focus(); } catch(e) {}
+        } else if (btnCol === 1 && btnBack) {
+          btnBack.classList.add('focused');
+          try { btnBack.focus(); } catch(e) {}
+        }
+      } else if (focusZone === 'files' && fileItems.length > 0) {
+        if (fileIdx < 0) fileIdx = 0;
+        if (fileIdx >= fileItems.length) fileIdx = fileItems.length - 1;
+        fileItems[fileIdx].classList.add('focused');
+        try { fileItems[fileIdx].focus(); fileItems[fileIdx].scrollIntoView(false); } catch(e) {}
+      }
+    }
+
+    function closeModal() {
+      if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', confirmKeyHandler, true);
+      window.closeTorrentConfirmModal = null;
+      var firstTorrent = document.querySelector('.torrent-item.focused') || document.querySelector('.torrent-item');
+      if (firstTorrent) {
+        try { firstTorrent.classList.add('focused'); firstTorrent.focus(); } catch(e) {}
+      }
+    }
+    window.closeTorrentConfirmModal = closeModal;
+
+    function startPlayback() {
+      var targetFile = files[selectedIdx] || files[0];
+      if (wrap && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      document.removeEventListener('keydown', confirmKeyHandler, true);
+      window.closeTorrentConfirmModal = null;
+      playFile(targetFile, movieName || title, movieId);
+    }
+
+    var bindEvents = function() {
+      var btnPlay = document.getElementById('t-confirm-play');
+      var btnBack = document.getElementById('t-confirm-back');
+      if (btnPlay) btnPlay.addEventListener('click', startPlayback);
+      if (btnBack) btnBack.addEventListener('click', closeModal);
+
+      var fileItems = wrap.querySelectorAll('.torrent-confirm-file-item');
+      for (var i = 0; i < fileItems.length; i++) {
+        (function(idx) {
+          fileItems[idx].addEventListener('click', function() {
+            selectedIdx = idx;
+            startPlayback();
+          });
+        })(i);
+      }
+    };
+    bindEvents();
+    updateModalFocus();
+
+    var confirmKeyHandler = function(e) {
+      var code = e.keyCode || e.which;
+      var key = e.key;
+
+      if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+        closeModal();
+        if (e.preventDefault) e.preventDefault();
+        if (e.stopPropagation) e.stopPropagation();
+        return;
+      }
+
+      var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+      var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+      var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+      var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+      var isEnter = code === 13 || code === 29443 || code === 65385 || code === 65376 || key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK';
+
+      if (focusZone === 'buttons') {
+        if (isLeft) {
+          btnCol = 0;
+          updateModalFocus();
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (isRight) {
+          btnCol = 1;
+          updateModalFocus();
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (isUp && isMulti) {
+          focusZone = 'files';
+          updateModalFocus();
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (isEnter) {
+          if (btnCol === 0) startPlayback();
+          else closeModal();
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+      } else if (focusZone === 'files') {
+        var fileItems = wrap.querySelectorAll('.torrent-confirm-file-item');
+        if (isUp) {
+          if (fileIdx > 0) {
+            fileIdx--;
+            selectedIdx = fileIdx;
+            updateModalFocus();
+            var badgesContainer = document.getElementById('t-modal-badges');
+            if (badgesContainer && files[selectedIdx]) {
+              var combo = (files[selectedIdx].name || '') + ' ' + rawMeta;
+              var bHtml = renderMetaBadges(combo);
+              if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
+              badgesContainer.innerHTML = bHtml;
+            }
+          }
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (isDown) {
+          if (fileIdx < fileItems.length - 1) {
+            fileIdx++;
+            selectedIdx = fileIdx;
+            updateModalFocus();
+            var badgesContainer = document.getElementById('t-modal-badges');
+            if (badgesContainer && files[selectedIdx]) {
+              var combo = (files[selectedIdx].name || '') + ' ' + rawMeta;
+              var bHtml = renderMetaBadges(combo);
+              if (files[selectedIdx].sizeFormatted) bHtml += '<span class="t-badge">' + esc(files[selectedIdx].sizeFormatted) + '</span>';
+              badgesContainer.innerHTML = bHtml;
+            }
+          } else {
+            focusZone = 'buttons';
+            btnCol = 0;
+            updateModalFocus();
+          }
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (isEnter) {
+          selectedIdx = fileIdx;
+          startPlayback();
+          if (e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+    };
+
+    document.addEventListener('keydown', confirmKeyHandler, true);
+  }
+
+  function playFile(file, title, movieId, customPoster, optFiles, optStart) {
+    var isAvplay = (typeof webapis !== 'undefined' && webapis.avplay !== null && webapis.avplay !== undefined) || (typeof tizen !== 'undefined');
+    var isAvi = file && file.name && /\.avi$/i.test(file.name);
+    var url = '';
+
+    if (isAvplay && isAvi && file && file.hlsUrl) {
+      // Samsung Tizen 2018+ hardware AVPlay does not support XviD/DivX in AVI containers.
+      // Route AVI through backend ffmpeg on-the-fly HLS transcoding to ensure 100% smooth playback without errors!
+      var hlsPath = file.hlsUrl;
+      if (hlsPath.indexOf('/api/torrents/hls/stream.m3u8') === -1 && hlsPath.indexOf('/api/torrents/hls') !== -1) {
+        hlsPath = hlsPath.replace('/api/torrents/hls', '/api/torrents/hls/stream.m3u8');
+      }
+      if (hlsPath.indexOf('vcodec=') === -1) {
+        hlsPath += (hlsPath.indexOf('?') === -1 ? '?' : '&') + 'vcodec=h264';
+      }
+      url = hlsPath.indexOf('/') === 0 ? (API + hlsPath) : hlsPath;
+      console.log('[TV] Routing AVI file through HLS transcoding for AVPlay:', url);
+    } else {
+      if (file && file.directUrl) {
+        url = file.directUrl;
+      } else if (file && file.streamUrl) {
+        url = file.streamUrl;
+      }
+      if (!url && file && file.id !== undefined) {
+        var activeMag = state._lastMagnet || (state.activeTorrent && state.activeTorrent.magnet) || '';
+        if (activeMag) {
+          url = '/api/torrents/proxy/' + encodeURIComponent(file.name || 'video.mkv') + '?link=' + encodeURIComponent(activeMag) + '&index=' + file.id;
+        }
+      }
+      if (url && url.indexOf('/') === 0) url = API + url;
+
+      // For Tizen AVPlay on MKV/MP4: route directly to TorrServer port 8590 for native RFC 7233 byte-range seeking
+      if (isAvplay && url.indexOf('/api/torrents/proxy') !== -1) {
+        if (!API || API.indexOf('https:') !== 0) {
+          var torrPort = '8590';
+          var torrHost = API ? (API.replace(/:\d+$/, '') + ':' + torrPort) : ('http://' + (window.location.hostname || 'localhost') + ':' + torrPort);
+          var proxyMatch = url.match(/\/api\/torrents\/proxy(?:\/([^?]+))?(\?.*)?$/);
+          if (proxyMatch) {
+            var torrFileName = proxyMatch[1] || (file && file.name) || 'video.mkv';
+            var torrQuery = proxyMatch[2] || '';
+            if (torrQuery.indexOf('play') === -1) {
+              torrQuery += (torrQuery ? '&' : '?') + 'play';
+            }
+            url = torrHost + '/stream/' + encodeURIComponent(decodeURIComponent(torrFileName)) + torrQuery;
+            console.log('[TV] Converted proxy stream to direct TorrServer URL for AVPlay:', url);
+          }
+        }
+      }
+    }
+    var detailName = '';
+    if (state.detail) {
+      if (typeof state.detail.name === 'string') detailName = state.detail.name;
+      else if (typeof state.detail.title === 'string') detailName = state.detail.title;
+      else if (state.detail.name && typeof state.detail.name === 'object') detailName = state.detail.name.name || state.detail.name.title || '';
+    }
+    if (detailName === '[object Object]') detailName = '';
+
+    var titleStr = '';
+    if (typeof title === 'string') titleStr = (title === '[object Object]') ? '' : title;
+    else if (title && typeof title === 'object') titleStr = title.name || title.title || '';
+
+    movieId = movieId || (state.detail && state.detail.id) || 0;
+    var poster = customPoster || (state.detail && state.detail.poster) || '';
+
+    // Check if the item is explicitly a movie!
+    var itemType = (state.detail && state.detail.type) || '';
+    var isMovie = (itemType === 'movie') || (Number(movieId) === 13);
+    var isExplicitTv = (Number(movieId) === 1408) || (itemType === 'tv') || (/ · S[0-9]+/i.test(titleStr)) || (/ · S[0-9]+/i.test(detailName));
+
+    // Extract season and episode clues before constructing title ONLY for TV series!
+    var sNum = null;
+    var eNum = null;
+    var epMatch = null;
+    if (!isMovie) {
+      sNum = (file && file.season) || null;
+      eNum = (file && file.episode) || null;
+      if (!sNum || !eNum) {
+        if (file) {
+          var meta = parseTorrentFileMeta(file);
+          if (meta.season) sNum = meta.season;
+          if (meta.episode) eNum = meta.episode;
+        }
+      }
+      if (!sNum || !eNum) {
+        epMatch = (titleStr || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || 
+                  (detailName || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) ||
+                  ((file && file.name) || '').match(/\bS([0-9]+)E([0-9]+)\b/i) ||
+                  ((file && file.name) || '').match(/\b([0-9]+)x([0-9]+)\b/i);
+        if (epMatch) {
+          if (!sNum) sNum = parseInt(epMatch[1], 10);
+          if (!eNum) eNum = parseInt(epMatch[2], 10);
+        }
+      }
+      if (!sNum && movieId && isExplicitTv) {
+        try {
+          var ltObj = JSON.parse(getStorageItem('last_torrents') || '{}')[movieId];
+          if (ltObj && ltObj.season) { sNum = parseInt(ltObj.season, 10); eNum = parseInt(ltObj.episode, 10); }
+        } catch(ex) {}
+        if (!sNum) {
+          try {
+            var lsVal = getStorageItem('last_season_' + movieId);
+            if (lsVal) sNum = parseInt(lsVal, 10);
+          } catch(ex) {}
+        }
+      }
+      if (!eNum && movieId && isExplicitTv) {
+        try {
+          var leVal = getStorageItem('last_episode_' + movieId);
+          if (leVal) eNum = parseInt(leVal, 10);
+        } catch(ex) {}
+      }
+    }
+
+    var isTv = !isMovie && (isExplicitTv || (sNum != null && eNum != null));
+    var mediaType = isMovie ? 'movie' : (isTv ? 'tv' : (itemType || 'movie'));
+
+    var baseSeriesName = (detailName || titleStr || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
+    if (Number(movieId) === 1408 && (/^(1408|Комната 1408)$/i.test(baseSeriesName) || !baseSeriesName)) {
+      baseSeriesName = 'Доктор Хаус';
+    }
+
+    var epTitlePart = '';
+    var epTitleMatch = (titleStr || '').match(/·\s*S\d+\s*E\d+\s*·\s*(.+)$/i);
+    if (epTitleMatch && epTitleMatch[1]) {
+      epTitlePart = epTitleMatch[1].trim();
+    } else if (state.seasonEpisodes && state.seasonEpisodes[movieId + '_s' + sNum]) {
+      var foundEp = state.seasonEpisodes[movieId + '_s' + sNum].find(function(e) { return (e.episode || e.episode_number) === eNum; });
+      if (foundEp && foundEp.title && foundEp.title !== ('Серия ' + eNum)) {
+        epTitlePart = foundEp.title;
+      }
+    }
+
+    var name = '';
+    if (isTv && sNum && eNum) {
+      name = (baseSeriesName || 'Сериал') + ' · S' + (sNum < 10 ? '0' + sNum : sNum) + 'E' + (eNum < 10 ? '0' + eNum : eNum) + (epTitlePart ? ' · ' + epTitlePart : '');
+    } else if (titleStr && (titleStr.indexOf(' · S') !== -1 || !detailName)) {
+      name = titleStr;
+    } else if (detailName) {
+      if (isTv && file && file.name && file.name !== detailName) {
+        name = detailName + ' · ' + file.name;
+      } else {
+        name = detailName;
+      }
+    } else {
+      name = (file && file.name) || titleStr || '';
+    }
+    if (name === '[object Object]' || !name) {
+      name = (file && file.name) || 'Видео';
+    }
+    if (isMovie && name) {
+      name = name.replace(/\s*·\s*S\d+.*$/i, '').trim();
+    }
+
+    // Check for saved resume position (for series, ensure position is for THIS episode, not the whole series!)
+    var startParam = '';
+    if (optStart === 0) {
+      startParam = '&start=0';
+    } else if (movieId) {
+      try {
+        var positions = JSON.parse(getStorageItem('playback_positions') || '{}');
+        var saved = null;
+        if (epMatch || (sNum && eNum)) {
+          var epKey = movieId + '_s' + sNum + '_e' + eNum;
+          saved = positions[epKey];
+          if (!saved && positions[movieId]) {
+            var posTitle = (positions[movieId].title && positions[movieId].title.name) || '';
+            var posEpMatch = posTitle.match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || posTitle.match(/\bS([0-9]+)E([0-9]+)\b/i);
+            if (posEpMatch && parseInt(posEpMatch[1], 10) === sNum && parseInt(posEpMatch[2], 10) === eNum) {
+              saved = positions[movieId];
+            } else if (positions[movieId].title && positions[movieId].title.season === sNum && positions[movieId].title.episode === eNum) {
+              saved = positions[movieId];
+            }
+          }
+        } else if (!isTv) {
+          saved = positions[movieId];
+        }
+        if (saved) {
+          var sTime = Math.floor((typeof saved === 'object') ? (saved.time || saved.progress || 0) : saved);
+          var sDur = Math.floor((typeof saved === 'object') ? (saved.duration || 0) : 0);
+          if (sDur > 120 && (sDur - sTime <= 60 || (sTime / sDur) > 0.90)) {
+            saved = null;
+          } else if (sTime > 5) {
+            startParam = '&start=' + sTime;
+          }
+        }
+      } catch(e) {}
+
+      var startSec = 0;
+      if (optStart === 0) {
+        startSec = 0;
+      } else if (startParam) {
+        var sm = startParam.match(/start=(\d+)/);
+        if (sm) startSec = parseInt(sm[1], 10);
+      }
+
+      try {
+        var now = Date.now();
+        setStorageItem('last_watched_id', String(movieId));
+
+        var posMap = JSON.parse(getStorageItem('playback_positions') || '{}');
+        if (!posMap[movieId]) posMap[movieId] = {};
+        posMap[movieId].timestamp = now;
+        if (isTv) {
+          posMap[movieId].time = startSec;
+        }
+        if (!posMap[movieId].title) {
+          posMap[movieId].title = { name: name, poster: poster, id: movieId, type: mediaType, season: sNum, episode: eNum };
+        } else if (typeof posMap[movieId].title === 'object') {
+          posMap[movieId].title.name = name;
+          posMap[movieId].title.type = mediaType;
+          if (sNum) posMap[movieId].title.season = sNum;
+          if (eNum) posMap[movieId].title.episode = eNum;
+          if (poster && !posMap[movieId].title.poster) posMap[movieId].title.poster = poster;
+        }
+        setStorageItem('playback_positions', JSON.stringify(posMap));
+
+        var lastT = JSON.parse(getStorageItem('last_torrents') || '{}');
+        if (!lastT[movieId]) lastT[movieId] = {};
+        lastT[movieId].timestamp = now;
+        if (file && file.id !== undefined) lastT[movieId].fileIndex = file.id;
+        if (file && file.name) lastT[movieId].fileName = file.name;
+        if (isTv) {
+          lastT[movieId].type = 'tv';
+          if (sNum) lastT[movieId].season = sNum;
+          if (eNum) lastT[movieId].episode = eNum;
+        }
+        setStorageItem('last_torrents', JSON.stringify(lastT));
+        if (isTv && sNum) {
+          setStorageItem('last_season_' + movieId, String(sNum));
+        }
+        if (isTv && eNum) {
+          setStorageItem('last_episode_' + movieId, String(eNum));
+        }
+      } catch(le) {}
+    }
+
+    state.activeFile = file;
+    var fileIdx = (file && file.id !== undefined) ? file.id : -1;
+    if (optStart === 0) {
+      startSec = 0;
+    } else if (startParam) {
+      var sm = startParam.match(/start=(\d+)/);
+      if (sm) startSec = parseInt(sm[1], 10);
+    }
+    var effectiveFiles = optFiles || state.activeTorrentFiles || (state.torrentFiles || []);
+    if (effectiveFiles.length > 0) {
+      state.activeTorrentFiles = effectiveFiles;
+    }
+
+    var knownDur = 0;
+    if (typeof sDur === 'number' && sDur > 60) {
+      knownDur = sDur;
+    } else if (file && file.duration && file.duration > 60) {
+      knownDur = file.duration;
+    } else if (Number(movieId) === 1408) {
+      knownDur = 2640;
+    } else if (state.detail) {
+      var dRt = 0;
+      if (typeof state.detail.runtime === 'number' && state.detail.runtime > 0) {
+        dRt = state.detail.runtime;
+      } else if (typeof state.detail.runtime === 'string') {
+        var rtMatch = state.detail.runtime.match(/(\d+)/);
+        if (rtMatch) dRt = parseInt(rtMatch[1], 10);
+      } else if (Array.isArray(state.detail.episode_run_time) && state.detail.episode_run_time.length > 0) {
+        dRt = parseInt(state.detail.episode_run_time[0], 10) || 0;
+      }
+      if (dRt > 0) knownDur = dRt * 60;
+    }
+    if (knownDur <= 0 && isTv) {
+      knownDur = 2700;
+    }
+
+    openPlayer({
+      url: url,
+      api: API,
+      title: name,
+      id: movieId,
+      type: mediaType,
+      poster: poster,
+      duration: knownDur,
+      start: (optStart === 0) ? 0 : startSec,
+      isNextEpisodeAutoplay: Boolean(optStart === 0),
+      fileIndex: fileIdx,
+      link: state._lastMagnet || (state.activeTorrent && state.activeTorrent.magnet) || '',
+      files: effectiveFiles
+    });
+  }
+
+  // ========== Sync ==========
+  function syncWithServer(callback) {
+    // Pull data from server
+    apiFetch('/api/sync', function(err, data) {
+      console.log('[Sync] callback err:', err ? err.message : null, 'data:', data ? Object.keys(data) : null);
+      if (err || !data) { if (callback) callback(); return; }
+
+      // Sync user preferred voiceover
+      apiFetch('/api/user/voiceover', function(vErr, vData) {
+        if (!vErr && vData && vData.voiceover) {
+          localStorage.setItem('preferred_voiceover', vData.voiceover);
+        }
+      });
+
+      try {
+      console.log('[Sync] data keys:', Object.keys(data));
+      // Merge IPTV playlists (per-user scoped)
+      if (data.iptvPlaylists && Array.isArray(data.iptvPlaylists) && data.iptvPlaylists.length > 0) {
+        var validPls = data.iptvPlaylists.filter(function(pl) {
+          return pl && pl.url && pl.url.indexOf('test/') === -1 && pl.url.indexOf('https://test') === -1;
+        });
+        if (validPls.length > 0) {
+          console.log('[Sync] Saving', validPls.length, 'IPTV playlists');
+          setStorageItem('lumiere_iptv', JSON.stringify(validPls));
+        }
+      } else {
+        console.log('[Sync] No IPTV playlists');
+      }
+
+      // Periodically refresh home shelves order from server
+      loadAndApplyHomeShelves();
+
+      // Merge playback positions from server (strictly preserving watch timestamp)
+      if (data.watchHistory && Array.isArray(data.watchHistory) && data.watchHistory.length > 0) {
+        var local = {};
+        var lastTorrents = {};
+        try { local = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e2) {}
+        try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e2) {}
+        try { data.watchHistory.forEach(function(item) {
+          var id = item.tmdbId;
+          if (!id) return;
+          var realWatchTime = Number(item.timestamp) || new Date(item.updatedAt).getTime() || 0;
+          var localItem = local[id];
+          if (!localItem || realWatchTime >= (localItem.timestamp || 0)) {
+            var existingName = (localItem && localItem.title && localItem.title.name) || '';
+            var serverTitle = item.titleName || '';
+            var chosenName = serverTitle;
+            if (existingName && /[\u0400-\u04FF]/.test(existingName) && !/[\u0400-\u04FF]/.test(serverTitle)) {
+              chosenName = existingName;
+            }
+            var itemType = item.mediaType || (localItem && localItem.title && localItem.title.type) || 'movie';
+            if (Number(id) === 1408) {
+              itemType = 'tv';
+              if (/^(1408|Комната 1408)$/i.test(chosenName) || !chosenName) {
+                chosenName = 'Доктор Хаус';
+              }
+            }
+            local[id] = {
+              time: item.progress || 0,
+              duration: item.duration || (localItem && localItem.duration) || 0,
+              season: item.season || (localItem && localItem.season) || undefined,
+              episode: item.episode || (localItem && localItem.episode) || undefined,
+              timestamp: realWatchTime,
+              title: {
+                name: chosenName,
+                poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '',
+                id: id,
+                type: itemType,
+                season: item.season || (localItem && localItem.season) || undefined,
+                episode: item.episode || (localItem && localItem.episode) || undefined
+              }
+            };
+            if (itemType === 'tv' && item.season && item.episode) {
+              var epKey = id + '_s' + item.season + '_e' + item.episode;
+              local[epKey] = {
+                time: item.progress || 0,
+                duration: item.duration || 0,
+                timestamp: realWatchTime,
+                title: { name: chosenName, poster: item.poster || '', id: id, type: itemType, season: item.season, episode: item.episode }
+              };
+              setStorageItem('last_season_' + id, String(item.season));
+              setStorageItem('last_episode_' + id, String(item.episode));
+            }
+            if (item.torrentMagnet) {
+              if (!lastTorrents[id]) lastTorrents[id] = {};
+              lastTorrents[id].magnet = item.torrentMagnet;
+              if (item.torrentTitle) lastTorrents[id].title = item.torrentTitle;
+              lastTorrents[id].timestamp = realWatchTime;
+              lastTorrents[id].type = itemType;
+              if (itemType === 'tv' && item.season) lastTorrents[id].season = item.season;
+              if (itemType === 'tv' && item.episode) lastTorrents[id].episode = item.episode;
+            }
+          }
+        });
+        setStorageItem('playback_positions', JSON.stringify(local));
+        setStorageItem('last_torrents', JSON.stringify(lastTorrents));
+        } catch(e3) { console.error('[Lumiere] watchHistory merge error:', e3); }
+      }
+
+      // Merge favorites
+      if (data.favorites && Array.isArray(data.favorites) && data.favorites.length > 0) {
+        var favs = {};
+        data.favorites.forEach(function(f) { favs[f.tmdbId] = f; });
+        setStorageItem('lumiere_favorites', JSON.stringify(favs));
+      }
+
+      // Refresh continue watching
+      renderContinueWatching();
+      } catch(e) { console.error('[Lumiere] Sync error:', e); }
+
+      if (callback) callback();
+    });
+
+    // Push local data to server
+    pushLocalData();
+  }
+
+  function pushLocalData() {
+    var positions = {};
+    var lastTorrentsMap = {};
+    try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+    try { lastTorrentsMap = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
+
+    var history = [];
+    for (var id in positions) {
+      var pos = positions[id];
+      if (typeof pos === 'object' && pos.time > 10) {
+        var titleName = '';
+        var poster = '';
+        if (pos.title && typeof pos.title === 'object') {
+          titleName = pos.title.name || '';
+          poster = pos.title.poster || '';
+        } else {
+          titleName = pos.title || '';
+        }
+        var mType = (pos.title && pos.title.type) || 'movie';
+        if (Number(id) === 1408) {
+          mType = 'tv';
+          if (/^(1408|Комната 1408)$/i.test(titleName)) titleName = 'Доктор Хаус';
+        }
+        var sNum = pos.season || (pos.title && pos.title.season) || null;
+        var eNum = pos.episode || (pos.title && pos.title.episode) || null;
+        var dur = pos.duration || null;
+        var tInfo = lastTorrentsMap[id] || null;
+        var magnet = (tInfo && tInfo.magnet) || null;
+        var tTitle = (tInfo && tInfo.title) || null;
+
+        history.push({
+          tmdbId: Number(id),
+          mediaType: mType,
+          titleName: titleName,
+          poster: poster,
+          progress: Math.round(pos.time),
+          timestamp: pos.timestamp || Date.now(),
+          season: sNum ? Number(sNum) : null,
+          episode: eNum ? Number(eNum) : null,
+          duration: dur ? Number(dur) : null,
+          torrentMagnet: magnet,
+          torrentTitle: tTitle
+        });
+      }
+    }
+
+    if (history.length > 0) {
+      apiPost('/api/sync/push', { watchHistory: history }, function() {});
+    }
+  }
+  window.syncWithServer = syncWithServer;
+
+  // ========== Search & On-Screen Keyboard ==========
+  var searchTimer = null;
+  var OSK_LAYOUTS = {
+    ru: [
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+      ['Й', 'Ц', 'У', 'К', 'Е', 'Н', 'Г', 'Ш', 'Щ', 'З', 'Х', 'Ъ'],
+      ['Ф', 'Ы', 'В', 'А', 'П', 'Р', 'О', 'Л', 'Д', 'Ж', 'Э'],
+      ['Я', 'Ч', 'С', 'М', 'И', 'Т', 'Ь', 'Б', 'Ю', 'Ё'],
+      [
+        { id: 'lang', label: 'ENG', action: 'lang', wide: 2 },
+        { id: 'space', label: 'ПРОБЕЛ', action: 'space', wide: 4 },
+        { id: 'backspace', label: '⌫', action: 'backspace', wide: 2 },
+        { id: 'clear', label: 'ОЧИСТИТЬ', action: 'clear', wide: 2 }
+      ]
+    ],
+    en: [
+      ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'],
+      ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P'],
+      ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', '-', '.'],
+      ['Z', 'X', 'C', 'V', 'B', 'N', 'M', '!', '?', '/'],
+      [
+        { id: 'lang', label: 'РУС', action: 'lang', wide: 2 },
+        { id: 'space', label: 'SPACE', action: 'space', wide: 4 },
+        { id: 'backspace', label: '⌫', action: 'backspace', wide: 2 },
+        { id: 'clear', label: 'CLEAR', action: 'clear', wide: 2 }
+      ]
+    ]
+  };
+
+  var oskState = {
+    lang: 'ru',
+    row: 0,
+    col: 0,
+    query: ''
+  };
+
+  function renderOsk() {
+    var container = document.getElementById('tv-keyboard');
+    if (!container) return;
+
+    var rows = OSK_LAYOUTS[oskState.lang] || OSK_LAYOUTS.ru;
+    var html = '';
+    for (var r = 0; r < rows.length; r++) {
+      html += '<div class="osk-row">';
+      for (var c = 0; c < rows[r].length; c++) {
+        var key = rows[r][c];
+        var isObj = typeof key === 'object';
+        var label = isObj ? key.label : key;
+        var action = isObj ? key.action : 'char';
+        var charVal = isObj ? (key.char || '') : key;
+        var cls = 'osk-key';
+        if (isObj && key.wide === 2) cls += ' osk-key-wide-2';
+        if (isObj && key.wide === 4) cls += ' osk-key-wide-4';
+        if (isObj) cls += ' osk-key-action';
+
+        html += '<button type="button" class="' + cls + '" data-r="' + r + '" data-c="' + c + '" data-action="' + action + '" data-char="' + esc(charVal) + '" tabindex="-1">' + esc(label) + '</button>';
+      }
+      html += '</div>';
+    }
+    container.innerHTML = html;
+
+    // Attach click handlers for pointer / mouse
+    var keyBtns = container.querySelectorAll('.osk-key');
+    for (var i = 0; i < keyBtns.length; i++) {
+      (function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.preventDefault();
+          var r = parseInt(btn.getAttribute('data-r'));
+          var c = parseInt(btn.getAttribute('data-c'));
+          focusOskKey(r, c);
+          triggerOskKey(btn);
+        });
+      })(keyBtns[i]);
+    }
+  }
+
+  function focusOskKey(r, c) {
+    clearNavFocus();
+    clearCardFocus();
+    state.focusedCard = null;
+
+    var rows = OSK_LAYOUTS[oskState.lang] || OSK_LAYOUTS.ru;
+    if (r < 0) r = 0;
+    if (r >= rows.length) r = rows.length - 1;
+    if (c < 0) c = 0;
+    if (c >= rows[r].length) c = rows[r].length - 1;
+
+    oskState.row = r;
+    oskState.col = c;
+
+    var prev = document.querySelectorAll('.osk-key.focused');
+    for (var i = 0; i < prev.length; i++) prev[i].classList.remove('focused');
+
+    var target = document.querySelector('.osk-key[data-r="' + r + '"][data-c="' + c + '"]');
+    if (target) {
+      target.classList.add('focused');
+      try { target.focus(); } catch(fe) {}
+    }
+  }
+
+  function clearOskFocus() {
+    var list = document.querySelectorAll('.osk-key.focused');
+    for (var i = 0; i < list.length; i++) list[i].classList.remove('focused');
+  }
+
+  function focusOskFromBottom() {
+    var rows = OSK_LAYOUTS[oskState.lang] || OSK_LAYOUTS.ru;
+    var bottomRow = rows.length - 1;
+    focusOskKey(bottomRow, 1);
+  }
+
+  function updateOskQueryDisplay() {
+    var queryText = document.getElementById('search-query-text');
+    if (!queryText) return;
+    if (oskState.query && oskState.query.length > 0) {
+      queryText.textContent = oskState.query;
+      queryText.classList.remove('placeholder');
+    } else {
+      queryText.textContent = 'Введите название фильма или сериала...';
+      queryText.classList.add('placeholder');
+    }
+  }
+
+  function triggerOskKey(btn) {
+    if (!btn) {
+      btn = document.querySelector('.osk-key[data-r="' + oskState.row + '"][data-c="' + oskState.col + '"]');
+    }
+    if (!btn) return;
+
+    var action = btn.getAttribute('data-action');
+    var charVal = btn.getAttribute('data-char');
+
+    if (action === 'char') {
+      oskState.query += charVal.toLowerCase();
+    } else if (action === 'space') {
+      oskState.query += ' ';
+    } else if (action === 'backspace') {
+      if (oskState.query.length > 0) {
+        oskState.query = oskState.query.substring(0, oskState.query.length - 1);
+      }
+    } else if (action === 'clear') {
+      oskState.query = '';
+    } else if (action === 'lang') {
+      oskState.lang = (oskState.lang === 'ru') ? 'en' : 'ru';
+      renderOsk();
+      focusOskKey(oskState.row, oskState.col);
+      return;
+    }
+
+    updateOskQueryDisplay();
+
+    if (searchTimer) clearTimeout(searchTimer);
+    var q = oskState.query.trim();
+    if (!q) {
+      var container = document.getElementById('search-results');
+      if (container) container.innerHTML = '';
+      return;
+    }
+
+    searchTimer = setTimeout(function() {
+      performSearch(q);
+    }, 300);
+  }
+
+  function handleOskKeys(code, e) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+
+    var rows = OSK_LAYOUTS[oskState.lang] || OSK_LAYOUTS.ru;
+    var curRowLen = rows[oskState.row].length;
+
+    if (isLeft) {
+      if (oskState.col > 0) {
+        focusOskKey(oskState.row, oskState.col - 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (oskState.col < curRowLen - 1) {
+        focusOskKey(oskState.row, oskState.col + 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      if (oskState.row > 0) {
+        var prevLen = rows[oskState.row - 1].length;
+        var targetCol = Math.min(prevLen - 1, Math.round(oskState.col * (prevLen / curRowLen)));
+        focusOskKey(oskState.row - 1, targetCol);
+      } else {
+        clearOskFocus();
+        focusNav(state.focusedNav || 0);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      if (oskState.row < rows.length - 1) {
+        var nextLen = rows[oskState.row + 1].length;
+        var targetCol2 = Math.min(nextLen - 1, Math.round(oskState.col * (nextLen / curRowLen)));
+        focusOskKey(oskState.row + 1, targetCol2);
+      } else {
+        var chipEls = getSearchChipElements();
+        if (chipEls.length > 0) {
+          clearOskFocus();
+          focusSearchChip(0);
+        } else {
+          var tabFocused = focusSearchSourceTab();
+          if (!tabFocused) {
+            var firstResult = document.querySelector('#search-results .card');
+            if (firstResult) {
+              clearOskFocus();
+              firstResult.classList.add('focused');
+              firstResult.focus();
+              state.focusedCard = 0;
+            }
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      triggerOskKey();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
+  var searchChipIndex = -1;
+  function getSearchChipElements() {
+    var wrap = document.getElementById('search-history-wrap');
+    if (!wrap || wrap.style.display === 'none') return [];
+    var chips = Array.prototype.slice.call(wrap.querySelectorAll('.search-chip'));
+    var clearBtn = wrap.querySelector('#btn-clear-search-history');
+    if (clearBtn) chips.push(clearBtn);
+    return chips;
+  }
+
+  function clearSearchChipFocus() {
+    searchChipIndex = -1;
+    var els = getSearchChipElements();
+    for (var i = 0; i < els.length; i++) {
+      els[i].classList.remove('focused');
+    }
+  }
+
+  function focusSearchChip(idx) {
+    var els = getSearchChipElements();
+    if (els.length === 0) return false;
+    clearOskFocus();
+    clearNavFocus();
+    clearCardFocus();
+    clearSearchChipFocus();
+    idx = Math.max(0, Math.min(idx, els.length - 1));
+    searchChipIndex = idx;
+    els[idx].classList.add('focused');
+    try { els[idx].focus(); } catch(e) {}
+    try { els[idx].scrollIntoView({ block: 'nearest' }); } catch(e) {}
+    return true;
+  }
+
+  function activateSearchChip(chip) {
+    if (!chip) return;
+    var queryVal = chip.getAttribute('data-query');
+    if (queryVal) {
+      oskState.query = queryVal;
+      updateOskQueryDisplay();
+      clearSearchChipFocus();
+      performSearch(queryVal);
+      // Wait for search results to render and automatically focus first result card
+      setTimeout(function() {
+        var firstResult = document.querySelector('#search-results .card');
+        if (firstResult) {
+          clearNavFocus();
+          clearOskFocus();
+          clearSearchChipFocus();
+          firstResult.classList.add('focused');
+          try { firstResult.focus(); } catch(fe) {}
+          state.focusedCard = 0;
+        }
+      }, 350);
+    }
+  }
+
+  function handleSearchChipKeys(code, e) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var els = getSearchChipElements();
+
+    if (isLeft) {
+      if (searchChipIndex > 0) {
+        focusSearchChip(searchChipIndex - 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (searchChipIndex < els.length - 1) {
+        focusSearchChip(searchChipIndex + 1);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      clearSearchChipFocus();
+      focusOskFromBottom();
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      clearSearchChipFocus();
+      var tabFocused = focusSearchSourceTab();
+      if (!tabFocused) {
+        var firstCard = document.querySelector('#search-results .card');
+        if (firstCard) {
+          focusCard(0);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      if (els[searchChipIndex]) {
+        var targetEl = els[searchChipIndex];
+        if (targetEl.id === 'btn-clear-search-history') {
+          clearRecentSearches();
+          focusOskFromBottom();
+        } else {
+          activateSearchChip(targetEl);
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
+  function getRecentSearches() {
+    try {
+      var list = JSON.parse(getStorageItem('recent_searches') || '[]');
+      return list.filter(function(item) {
+        return typeof item === 'string' && item.trim().length >= 2;
+      });
+    } catch(e) { return []; }
+  }
+
+  function saveRecentSearch(q) {
+    if (!q) return;
+    var trimmed = q.trim();
+    if (trimmed.length < 2) return;
+    try {
+      var list = getRecentSearches();
+      list = list.filter(function(item) { return item.toLowerCase() !== trimmed.toLowerCase(); });
+      list.unshift(trimmed);
+      if (list.length > 12) list = list.slice(0, 12);
+      setStorageItem('recent_searches', JSON.stringify(list));
+      renderRecentSearches();
+    } catch(e) {}
+  }
+
+  function clearRecentSearches() {
+    try {
+      removeStorageItem('recent_searches');
+      renderRecentSearches();
+    } catch(e) {}
+  }
+
+
+  function renderRecentSearches() {
+    var wrap = document.getElementById('search-history-wrap');
+    if (!wrap) return;
+    var list = getRecentSearches();
+    if (!list || list.length === 0) {
+      wrap.innerHTML = '';
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    var html = '<div class="search-history-header">' +
+      '<span class="search-history-title">История поиска</span>' +
+      '<button type="button" class="search-history-clear" id="btn-clear-search-history" tabindex="0">Очистить</button>' +
+      '</div>' +
+      '<div class="search-history-chips">';
+    for (var i = 0; i < list.length; i++) {
+      html += '<button type="button" class="search-chip" data-query="' + esc(list[i]) + '" tabindex="0">' +
+        '<span>' + esc(list[i]) + '</span>' +
+        '</button>';
+    }
+    html += '</div>';
+    wrap.innerHTML = html;
+
+    var clearBtn = wrap.querySelector('#btn-clear-search-history');
+    if (clearBtn) {
+      clearBtn.addEventListener('click', function(e) {
+        e.preventDefault();
+        clearRecentSearches();
+      });
+    }
+
+    var chips = wrap.querySelectorAll('.search-chip');
+    for (var j = 0; j < chips.length; j++) {
+      (function(chip) {
+        chip.addEventListener('click', function(e) {
+          e.preventDefault();
+          activateSearchChip(chip);
+        });
+      })(chips[j]);
+    }
+  }
+
+  var searchSourceState = {
+    activeSource: 'tmdb',
+    tmdbResults: [],
+    kpResults: [],
+    tmdbCount: 0,
+    kpCount: 0,
+    focusedTabIdx: -1
+  };
+
+  function setupSearchSourceTabs() {
+    var tmdbTab = document.getElementById('tab-source-tmdb');
+    var kpTab = document.getElementById('tab-source-kp');
+
+    if (tmdbTab) {
+      tmdbTab.onclick = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        switchSearchSource('tmdb');
+      };
+    }
+    if (kpTab) {
+      kpTab.onclick = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        switchSearchSource('kp');
+      };
+    }
+  }
+
+  function updateSearchSourceBadges() {
+    var tmdbCountEl = document.getElementById('count-source-tmdb');
+    var kpCountEl = document.getElementById('count-source-kp');
+    if (tmdbCountEl) tmdbCountEl.textContent = '(' + (searchSourceState.tmdbCount || 0) + ')';
+    if (kpCountEl) kpCountEl.textContent = '(' + (searchSourceState.kpCount || 0) + ')';
+  }
+
+  function updateSearchSourceTabStyles() {
+    var tmdbTab = document.getElementById('tab-source-tmdb');
+    var kpTab = document.getElementById('tab-source-kp');
+    if (tmdbTab) {
+      if (searchSourceState.activeSource === 'tmdb') {
+        tmdbTab.classList.add('active');
+      } else {
+        tmdbTab.classList.remove('active');
+      }
+    }
+    if (kpTab) {
+      if (searchSourceState.activeSource === 'kp') {
+        kpTab.classList.add('active');
+      } else {
+        kpTab.classList.remove('active');
+      }
+    }
+  }
+
+  function switchSearchSource(source) {
+    if (source !== 'tmdb' && source !== 'kp') source = 'tmdb';
+    searchSourceState.activeSource = source;
+    updateSearchSourceTabStyles();
+    renderCurrentSearchResults();
+  }
+
+  function renderCurrentSearchResults() {
+    var container = document.getElementById('search-results');
+    if (!container) return;
+
+    var items = (searchSourceState.activeSource === 'kp') ? searchSourceState.kpResults : searchSourceState.tmdbResults;
+    if (!items || items.length === 0) {
+      var srcName = (searchSourceState.activeSource === 'kp') ? 'Кинопоиске' : 'TMDB';
+      var q = (oskState && oskState.query && oskState.query.trim()) || '';
+      if (!q) {
+        container.innerHTML = '';
+      } else {
+        container.innerHTML = '<p class="detail-empty-text">Ничего не найдено в ' + srcName + '</p>';
+      }
+      return;
+    }
+
+    container.innerHTML = '';
+    items.slice(0, 30).forEach(function(t, i) {
+      var card = createCard(t, i);
+      if (searchSourceState.activeSource === 'kp') {
+        card.setAttribute('data-source', 'kp');
+        card.setAttribute('data-kpid', t.id);
+        t.source = 'kp';
+        t.kpId = t.id;
+        card._titleData = t;
+      }
+      container.appendChild(card);
+    });
+  }
+
+  function clearSearchSourceTabFocus() {
+    searchSourceState.focusedTabIdx = -1;
+    var tabs = document.querySelectorAll('.search-source-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.remove('focused');
+    }
+  }
+
+  function focusSearchSourceTab(idx) {
+    clearOskFocus();
+    clearNavFocus();
+    clearCardFocus();
+    clearSearchChipFocus();
+    state.focusedCard = null;
+
+    var tabs = document.querySelectorAll('.search-source-tab');
+    if (!tabs || tabs.length === 0) return false;
+
+    if (idx === undefined || idx === null || idx < 0) {
+      idx = (searchSourceState.activeSource === 'kp') ? 1 : 0;
+    }
+    idx = Math.max(0, Math.min(idx, 1));
+    searchSourceState.focusedTabIdx = idx;
+
+    for (var i = 0; i < tabs.length; i++) {
+      tabs[i].classList.remove('focused');
+    }
+    if (tabs[idx]) {
+      tabs[idx].classList.add('focused');
+      try { tabs[idx].focus(); } catch(e) {}
+      return true;
+    }
+    return false;
+  }
+
+  function handleSearchSourceTabKeys(code, e, targetFocus) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+
+    var curIdx = searchSourceState.focusedTabIdx;
+    if (curIdx < 0) {
+      curIdx = (targetFocus && targetFocus.getAttribute('data-source') === 'kp') ? 1 : 0;
+    }
+
+    if (isLeft) {
+      if (curIdx > 0) {
+        focusSearchSourceTab(0);
+        switchSearchSource('tmdb');
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (curIdx < 1) {
+        focusSearchSourceTab(1);
+        switchSearchSource('kp');
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      clearSearchSourceTabFocus();
+      var chipEls = getSearchChipElements();
+      if (chipEls.length > 0) {
+        focusSearchChip(0);
+      } else {
+        focusOskFromBottom();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      clearSearchSourceTabFocus();
+      var firstResult = document.querySelector('#search-results .card');
+      if (firstResult) {
+        firstResult.classList.add('focused');
+        try { firstResult.focus(); } catch(fe) {}
+        state.focusedCard = 0;
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      var source = (curIdx === 1) ? 'kp' : 'tmdb';
+      switchSearchSource(source);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
+  function setupSearch() {
+    var secSearch = document.getElementById('sec-search');
+    if (secSearch && !document.getElementById('tv-keyboard')) {
+      secSearch.innerHTML = '<h1 class="page-title">Поиск</h1>' +
+        '<div class="search-tv-container" id="search-tv-container">' +
+          '<div class="search-query-bar" id="search-query-bar">' +
+            '<span class="search-query-icon">🔍</span>' +
+            '<span class="search-query-text placeholder" id="search-query-text">Введите название фильма или сериала...</span>' +
+            '<span class="search-query-cursor">|</span>' +
+          '</div>' +
+          '<div class="tv-keyboard" id="tv-keyboard"></div>' +
+          '<div class="search-history-wrap" id="search-history-wrap"></div>' +
+        '</div>' +
+        '<div class="search-source-tabs" id="search-source-tabs">' +
+          '<button type="button" class="search-source-tab active" id="tab-source-tmdb" data-source="tmdb" tabindex="0">' +
+            '<span class="tab-label">TMDB</span>' +
+            '<span class="tab-count" id="count-source-tmdb">(0)</span>' +
+          '</button>' +
+          '<button type="button" class="search-source-tab" id="tab-source-kp" data-source="kp" tabindex="0">' +
+            '<span class="tab-label">Кинопоиск</span>' +
+            '<span class="tab-count" id="count-source-kp">(0)</span>' +
+          '</button>' +
+        '</div>' +
+        '<div id="search-results" class="grid"></div>';
+    }
+    renderOsk();
+    updateOskQueryDisplay();
+    renderRecentSearches();
+    setupSearchSourceTabs();
+    updateSearchSourceBadges();
+    updateSearchSourceTabStyles();
+  }
+
+  function performSearch(query) {
+    var container = document.getElementById('search-results');
+    if (!container) return;
+
+    if (!query || !query.trim()) {
+      searchSourceState.tmdbResults = [];
+      searchSourceState.kpResults = [];
+      searchSourceState.tmdbCount = 0;
+      searchSourceState.kpCount = 0;
+      searchSourceState.activeSource = 'tmdb';
+      updateSearchSourceBadges();
+      updateSearchSourceTabStyles();
+      container.innerHTML = '';
+      return;
+    }
+
+    apiFetch('/api/search?q=' + encodeURIComponent(query), function(err, data) {
+      if (err || !data) {
+        searchSourceState.tmdbResults = [];
+        searchSourceState.kpResults = [];
+        searchSourceState.tmdbCount = 0;
+        searchSourceState.kpCount = 0;
+        updateSearchSourceBadges();
+        updateSearchSourceTabStyles();
+        container.innerHTML = '<p class="detail-empty-text">Ничего не найдено</p>';
+        return;
+      }
+
+      var tmdbData = data.tmdb || {};
+      var kpData = data.kp || {};
+
+      var tmdbResults = Array.isArray(tmdbData.results) ? tmdbData.results : (data.results || []);
+      var kpResults = Array.isArray(kpData.results) ? kpData.results : [];
+
+      kpResults.forEach(function(it) {
+        it.source = 'kp';
+        it.kpId = it.id;
+      });
+
+      var tmdbCount = (typeof tmdbData.count === 'number') ? tmdbData.count : tmdbResults.length;
+      var kpCount = (typeof kpData.count === 'number') ? kpData.count : kpResults.length;
+
+      searchSourceState.tmdbResults = tmdbResults;
+      searchSourceState.kpResults = kpResults;
+      searchSourceState.tmdbCount = tmdbCount;
+      searchSourceState.kpCount = kpCount;
+
+      if (tmdbResults.length === 0 && kpResults.length > 0) {
+        searchSourceState.activeSource = 'kp';
+      } else if (tmdbResults.length > 0 && searchSourceState.activeSource !== 'kp') {
+        searchSourceState.activeSource = 'tmdb';
+      }
+
+      updateSearchSourceBadges();
+      updateSearchSourceTabStyles();
+      renderCurrentSearchResults();
+    });
+  }
+
+  // ========== Navigation ==========
+  function setupNavigation() {
+    document.querySelectorAll('.nav-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var sec = btn.getAttribute('data-section');
+        if (sec === 'switch-profile') {
+          showProfilePicker();
+        } else {
+          switchSection(sec);
+        }
+      });
+    });
+
+    var changeServerBtn = document.getElementById('btn-change-server');
+    if (changeServerBtn) {
+      changeServerBtn.addEventListener('click', function() {
+        localStorage.removeItem(SERVER_KEY);
+        window.location.reload();
+      });
+    }
+
+    var forceReloadBtn = document.getElementById('btn-force-reload');
+    if (forceReloadBtn) {
+      forceReloadBtn.addEventListener('click', function() {
+        showTvToast('Перезагрузка и очистка кэша...', 2000);
+        setTimeout(function() {
+          try { window.location.reload(true); } catch(e) { window.location.reload(); }
+        }, 300);
+      });
+    }
+
+    function clearUnscopedCaches() {
+      try {
+        var keys = ['lumiere_iptv', 'iptv_playlists', 'lumiere_active_iptv_playlist', 'lumiere_iptv_fav', 'playback_positions', 'last_torrents'];
+        for (var i = 0; i < keys.length; i++) localStorage.removeItem(keys[i]);
+      } catch(e) {}
+      if (typeof iptvState !== 'undefined') {
+        iptvState.playlists = [];
+        iptvState.channels = [];
+        iptvState.groups = [];
+        iptvState.selectedPlaylistIndex = -1;
+      }
+    }
+
+    var switchProfileBtn = document.getElementById('btn-switch-profile');
+    if (switchProfileBtn) {
+      switchProfileBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
+        state.user = null;
+        if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
+        if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
+        loadProfilesAndShowPicker();
+      });
+    }
+
+    var profileSwitchBtn = document.getElementById('btn-profile-switch');
+    if (profileSwitchBtn) {
+      profileSwitchBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
+        state.user = null;
+        if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
+        if ($loading) { $loading.classList.remove('hidden'); $loading.style.display = 'flex'; }
+        loadProfilesAndShowPicker();
+      });
+    }
+
+    var profileLogoutBtn = document.getElementById('btn-profile-logout');
+    if (profileLogoutBtn) {
+      profileLogoutBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
+        window.location.reload();
+      });
+    }
+
+    var changeServerBtn = document.getElementById('btn-change-server');
+    if (changeServerBtn) {
+      changeServerBtn.addEventListener('click', function() {
+        openServerModal();
+      });
+    }
+
+    var logoutBtn = document.getElementById('btn-logout');
+    if (logoutBtn) {
+      logoutBtn.addEventListener('click', function() {
+        localStorage.removeItem(TOKEN_KEY);
+        clearUnscopedCaches();
+        window.location.reload();
+      });
+    }
+
+    var clearHistoryBtn = document.getElementById('btn-clear-history');
+    if (clearHistoryBtn) {
+      clearHistoryBtn.addEventListener('click', function() {
+        localStorage.removeItem('playback_positions');
+        localStorage.removeItem('last_torrents');
+        renderContinueWatching();
+        alert('История просмотров очищена');
+      });
+    }
+
+    var checkEpBtn = document.getElementById('btn-tv-check-episodes');
+    if (checkEpBtn) {
+      checkEpBtn.onclick = executeCheckEpisodes;
+      checkEpBtn.addEventListener('click', executeCheckEpisodes);
+    }
+
+    var readAllBtn = document.getElementById('btn-tv-read-all');
+    if (readAllBtn) {
+      readAllBtn.onclick = executeReadAllNotifications;
+      readAllBtn.addEventListener('click', executeReadAllNotifications);
+    }
+  }
+
+  function executeCheckEpisodes() {
+    showTvToast('Проверка новых серий...', 3000);
+    var checkBtn = document.getElementById('btn-tv-check-episodes');
+    if (checkBtn) {
+      checkBtn.classList.add('loading');
+      checkBtn.textContent = '⏳ Проверка...';
+    }
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications/check' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiPost(url, { userId: uId }, function(err, res) {
+      if (checkBtn) {
+        checkBtn.classList.remove('loading');
+        checkBtn.textContent = '🔄 Проверить серии';
+      }
+      if (!err && res && res.success !== false) {
+        var count = (res.newEpisodesFound || 0) + (res.newMoviesFound || 0);
+        showTvToast(count > 0 ? ('Найдено новых релизов: ' + count) : 'Новых серий не найдено', 3000);
+        loadNotifications();
+      } else {
+        var errMsg = (res && res.error) || (err && err.message) || 'Ошибка проверки серий';
+        showTvToast('Ошибка: ' + errMsg, 3000);
+      }
+    });
+  }
+
+  function executeReadAllNotifications() {
+    showTvToast('Помечаем как прочитанные...', 2000);
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications/read-all' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiPut(url, { userId: uId }, function(err, res) {
+      if (!err && (!res || res.success !== false)) {
+        for (var i = 0; i < notifState.items.length; i++) {
+          notifState.items[i].isRead = true;
+        }
+        notifState.unreadCount = 0;
+        updateNotifBadge();
+        renderNotifications();
+        showTvToast('Все уведомления прочитаны', 2500);
+        focusNotificationElement('topBtn', 1);
+      } else {
+        var errMsg = (res && res.error) || (err && err.message) || 'Не удалось обновить';
+        showTvToast('Ошибка: ' + errMsg, 3000);
+      }
+    });
+  }
+
+  // ========== Notifications System ==========
+  function loadNotifications(callback) {
+    var uId = (state.user && state.user.id) || '';
+    var url = '/api/notifications' + (uId ? ('?userId=' + encodeURIComponent(uId)) : '');
+    apiFetch(url, function(err, data) {
+      if (!err && data) {
+        notifState.items = data.notifications || [];
+        notifState.unreadCount = data.unreadCount || 0;
+        updateNotifBadge();
+        if (state.section === 'notifications') {
+          renderNotifications();
+        }
+      }
+      if (typeof callback === 'function') callback(err, data);
+    });
+  }
+
+  function updateNotifBadge() {
+    var badge = document.getElementById('tv-notif-badge');
+    if (!badge) return;
+    if (notifState.unreadCount > 0) {
+      badge.textContent = notifState.unreadCount > 99 ? '99+' : notifState.unreadCount;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  function renderNotifications() {
+    var container = document.getElementById('tv-notif-container');
+    if (!container) return;
+    if (!notifState.items || notifState.items.length === 0) {
+      container.innerHTML = '<div class="tv-notif-empty">Нет новых уведомлений</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < notifState.items.length; i++) {
+      var item = notifState.items[i];
+      var isUnread = !item.isRead;
+      var posterSrc = item.poster ? imgUrl(item.poster) : '';
+      var timeFormatted = '';
+      if (item.createdAt) {
+        try {
+          var d = new Date(item.createdAt);
+          timeFormatted = d.toLocaleDateString('ru-RU') + ' ' + d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+        } catch(de) {}
+      }
+      html += '<div class="tv-notif-card' + (isUnread ? ' unread' : '') + '" data-notif-idx="' + i + '" tabindex="0">';
+      if (item.poster) {
+        html += '<img src="' + esc(posterSrc) + '" class="tv-notif-poster" onerror="this.style.display=\'none\'">';
+      }
+      html += '<div class="tv-notif-info">';
+      html += '<div class="tv-notif-title">' + esc(item.title || 'Уведомление') + '</div>';
+      html += '<div class="tv-notif-msg">' + esc(item.message || '') + '</div>';
+      if (timeFormatted) {
+        html += '<div class="tv-notif-meta">' + esc(timeFormatted) + '</div>';
+      }
+      html += '</div>';
+      html += '<div class="tv-notif-action-tag">▶ Смотреть</div>';
+      html += '</div>';
+    }
+    container.innerHTML = html;
+
+    // Attach click listeners to cards
+    var cardEls = container.querySelectorAll('.tv-notif-card');
+    for (var ci = 0; ci < cardEls.length; ci++) {
+      (function(idx) {
+        cardEls[idx].addEventListener('click', function() {
+          openNotification(notifState.items[idx]);
+        });
+      })(ci);
+    }
+
+    // Also ensure top action buttons are bound
+    var checkEpBtn = document.getElementById('btn-tv-check-episodes');
+    if (checkEpBtn) checkEpBtn.onclick = executeCheckEpisodes;
+    var readAllBtn = document.getElementById('btn-tv-read-all');
+    if (readAllBtn) readAllBtn.onclick = executeReadAllNotifications;
+  }
+
+  function openNotification(item) {
+    if (!item) return;
+    if (!item.isRead) {
+      item.isRead = true;
+      if (notifState.unreadCount > 0) notifState.unreadCount--;
+      updateNotifBadge();
+      apiPut('/api/notifications/' + item.id + '/read', {}, function() {});
+      renderNotifications();
+    }
+    var mediaId = item.mediaId || (item.actionData && item.actionData.seriesId);
+    var mediaType = item.mediaType || 'tv';
+    if (mediaId) {
+      var titleObj = {
+        id: mediaId,
+        type: mediaType,
+        name: item.title || (item.actionData && item.actionData.title) || 'Сериал',
+        poster: item.poster || ''
+      };
+      if (item.actionData && item.actionData.season) {
+        state.detailSeason = String(item.actionData.season);
+      }
+      state.detailTab = 'episodes';
+      showDetail(titleObj);
+    }
+  }
+
+  function focusNotificationElement(targetType, index) {
+    clearAllFocus();
+    var checkBtn = document.getElementById('btn-tv-check-episodes');
+    var readAllBtn = document.getElementById('btn-tv-read-all');
+    var cards = document.querySelectorAll('#tv-notif-container .tv-notif-card');
+
+    if (targetType === 'topBtn') {
+      notifState.focusedIndex = -1;
+      notifState.focusedTopBtn = index;
+      var btn = (index === 0) ? checkBtn : readAllBtn;
+      if (btn) {
+        btn.classList.add('focused');
+        try { btn.focus(); } catch(e) {}
+      }
+    } else if (targetType === 'card') {
+      if (cards.length === 0) {
+        focusNotificationElement('topBtn', 0);
+        return;
+      }
+      index = Math.max(0, Math.min(index, cards.length - 1));
+      notifState.focusedIndex = index;
+      cards[index].classList.add('focused');
+      try { cards[index].focus(); } catch(e) {}
+      try { cards[index].scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch(se) {}
+    }
+  }
+
+  function handleNotificationsKeys(code, e) {
+    var key = e ? e.key : '';
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack' || key === 'Back';
+
+    var focusedBtn = document.querySelector('.notif-btn.focused') || (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('notif-btn') ? document.activeElement : null);
+    var cards = document.querySelectorAll('#tv-notif-container .tv-notif-card');
+    var isOnTopBtn = !!focusedBtn || notifState.focusedIndex === -1;
+
+    if (isBack) {
+      clearAllFocus();
+      focusNav(8);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isOnTopBtn) {
+      var isCheckBtn = (focusedBtn && focusedBtn.id === 'btn-tv-check-episodes') || notifState.focusedTopBtn === 0;
+
+      if (isLeft) {
+        focusNotificationElement('topBtn', 0);
+      } else if (isRight) {
+        focusNotificationElement('topBtn', 1);
+      } else if (isUp) {
+        clearAllFocus();
+        focusNav(8);
+      } else if (isDown) {
+        if (cards.length > 0) {
+          focusNotificationElement('card', 0);
+        }
+      } else if (isEnter) {
+        if (isCheckBtn) {
+          executeCheckEpisodes();
+        } else {
+          executeReadAllNotifications();
+        }
+      }
+    } else {
+      // On notification card
+      if (isUp) {
+        if (notifState.focusedIndex > 0) {
+          focusNotificationElement('card', notifState.focusedIndex - 1);
+        } else {
+          focusNotificationElement('topBtn', 0);
+        }
+      } else if (isDown) {
+        if (notifState.focusedIndex < cards.length - 1) {
+          focusNotificationElement('card', notifState.focusedIndex + 1);
+        }
+      } else if (isLeft || isRight) {
+        // stay focused
+      } else if (isEnter) {
+        if (cards[notifState.focusedIndex]) {
+          cards[notifState.focusedIndex].click();
+        } else if (notifState.items && notifState.items[notifState.focusedIndex]) {
+          openNotification(notifState.items[notifState.focusedIndex]);
+        }
+      }
+    }
+    if (e && e.preventDefault) e.preventDefault();
+  }
+
+  // ========== My Library Section ("Моё") ==========
+  var myState = {
+    activeTab: 'watched', // 'watched' | 'watchlist' | 'favorites'
+    watched: [],
+    watchlist: [],
+    favorites: [],
+    focusedTabIdx: 0,
+  };
+
+  function setupMySection() {
+    var tabs = document.querySelectorAll('.my-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      (function(idx) {
+        var btn = tabs[idx];
+        btn.onclick = function() {
+          var sub = btn.getAttribute('data-tab');
+          switchMyTab(sub);
+        };
+        btn.onfocus = function() {
+          myState.focusedTabIdx = idx;
+        };
+      })(i);
+    }
+  }
+
+  function switchMyTab(sub) {
+    myState.activeTab = sub || 'watched';
+    var tabs = document.querySelectorAll('.my-tab');
+    for (var i = 0; i < tabs.length; i++) {
+      var isAct = tabs[i].getAttribute('data-tab') === myState.activeTab;
+      tabs[i].classList.toggle('active', isAct);
+      if (isAct) myState.focusedTabIdx = i;
+    }
+    loadMyData();
+  }
+
+  function loadMyData() {
+    var grid = document.getElementById('my-grid');
+    var emptyEl = document.getElementById('my-empty');
+    if (!grid) return;
+    grid.innerHTML = '<div style="color:rgba(255,255,255,0.4);padding:40px;font-size:18px;">Загрузка...</div>';
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    if (myState.activeTab === 'watched') {
+      apiFetch('/api/user/history', function(err, data) {
+        var items = (data && data.history) || [];
+        var titles = items.map(function(h) {
+          return {
+            id: h.tmdbId,
+            name: h.titleName,
+            type: h.mediaType || 'movie',
+            poster: h.poster || '',
+            backdrop: h.poster || '',
+            score: 0,
+            progress: h.progress || 0
+          };
+        });
+
+        try {
+          var raw = getStorageItem('playback_positions');
+          var pos = raw ? JSON.parse(raw) : {};
+          var existingIds = {};
+          titles.forEach(function(t) { existingIds[t.id] = true; });
+          Object.keys(pos).forEach(function(k) {
+            var val = pos[k];
+            var tObj = val && val.title;
+            if (tObj && tObj.id && !existingIds[tObj.id] && ((val.time || 0) > 30)) {
+              titles.push({
+                id: tObj.id,
+                name: tObj.name,
+                type: tObj.type || 'movie',
+                poster: tObj.poster || '',
+                backdrop: tObj.backdrop || '',
+                score: 0,
+                progress: 0
+              });
+            }
+          });
+        } catch(e) {}
+
+        myState.watched = titles;
+        renderMyGrid(titles, '🕒', 'История просмотров пуста', 'Здесь появятся фильмы и сериалы, которые вы начнете смотреть');
+      });
+    } else if (myState.activeTab === 'watchlist') {
+      apiFetch('/api/user/watchlist', function(err, data) {
+        var items = (data && data.watchlist) || [];
+        var titles = items.map(function(w) {
+          return {
+            id: w.tmdbId,
+            name: w.titleName,
+            type: w.mediaType || 'movie',
+            poster: w.poster || '',
+            backdrop: w.poster || '',
+            score: 0
+          };
+        });
+        myState.watchlist = titles;
+        renderMyGrid(titles, '🔖', 'Список «Буду смотреть» пуст', 'Добавляйте фильмы и сериалы кнопкой «Буду смотреть» в карточке фильма');
+      });
+    } else if (myState.activeTab === 'favorites') {
+      apiFetch('/api/user/favorites', function(err, data) {
+        var items = (data && data.favorites) || [];
+        var titles = items.map(function(f) {
+          return {
+            id: f.tmdbId,
+            name: f.titleName,
+            type: f.mediaType || 'movie',
+            poster: f.poster || '',
+            backdrop: f.poster || '',
+            score: 0
+          };
+        });
+        myState.favorites = titles;
+        renderMyGrid(titles, '❤️', 'В закладках пока ничего нет', 'Добавляйте фильмы и сериалы в закладки кнопкой «В закладки» (сердечко)');
+      });
+    }
+  }
+
+  function renderMyGrid(titles, icon, emptyTitle, emptyDesc) {
+    var grid = document.getElementById('my-grid');
+    var emptyEl = document.getElementById('my-empty');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!titles || titles.length === 0) {
+      if (emptyEl) {
+        var iconEl = document.getElementById('my-empty-icon');
+        var tEl = document.getElementById('my-empty-title');
+        var dEl = document.getElementById('my-empty-desc');
+        if (iconEl) iconEl.textContent = icon;
+        if (tEl) tEl.textContent = emptyTitle;
+        if (dEl) dEl.textContent = emptyDesc;
+        emptyEl.classList.remove('hidden');
+      }
+      return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+    titles.forEach(function(t, i) {
+      grid.appendChild(createCard(t, i));
+    });
+  }
+
+  function focusMyTab(index) {
+    var tabs = document.querySelectorAll('.my-tab');
+    if (tabs.length === 0) return;
+    if (index < 0) index = 0;
+    if (index >= tabs.length) index = tabs.length - 1;
+    clearAllFocus();
+    myState.focusedTabIdx = index;
+    tabs[index].classList.add('focused');
+    try { tabs[index].focus(); } catch(e) {}
+  }
+
+  function handleMyTabKeys(code, e) {
+    var isLeft = code === 37 || e.key === 'ArrowLeft';
+    var isRight = code === 39 || e.key === 'ArrowRight';
+    var isUp = code === 38 || e.key === 'ArrowUp';
+    var isDown = code === 40 || e.key === 'ArrowDown';
+    var isEnter = isEnterKey(code, e.key);
+    var isBack = code === 10009 || code === 27 || e.key === 'Escape' || e.key === 'GoBack';
+
+    var tabs = document.querySelectorAll('.my-tab');
+    if (isBack) {
+      clearAllFocus();
+      focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 5);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isLeft) {
+      if (myState.focusedTabIdx > 0) {
+        focusMyTab(myState.focusedTabIdx - 1);
+        switchMyTab(tabs[myState.focusedTabIdx].getAttribute('data-tab'));
+      }
+    } else if (isRight) {
+      if (myState.focusedTabIdx < tabs.length - 1) {
+        focusMyTab(myState.focusedTabIdx + 1);
+        switchMyTab(tabs[myState.focusedTabIdx].getAttribute('data-tab'));
+      }
+    } else if (isUp) {
+      clearAllFocus();
+      focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 5);
+    } else if (isDown) {
+      var cards = getVisibleCards();
+      if (cards.length > 0) {
+        clearAllFocus();
+        focusCard(0);
+      }
+    } else if (isEnter) {
+      if (tabs[myState.focusedTabIdx]) {
+        switchMyTab(tabs[myState.focusedTabIdx].getAttribute('data-tab'));
+      }
+    }
+    if (e && e.preventDefault) e.preventDefault();
+  }
+
+  // ========== EPG Reminders & Auto-Switch ==========
+  function loadEpgReminders(callback) {
+    apiFetch('/api/epg/reminders', function(err, data) {
+      if (!err && data) {
+        epgReminderState.reminders = data.reminders || [];
+      }
+      if (typeof callback === 'function') callback(err, data);
+    });
+  }
+
+  function hasEpgReminder(channelId, programTitle) {
+    if (!epgReminderState.reminders || !programTitle) return false;
+    for (var i = 0; i < epgReminderState.reminders.length; i++) {
+      var r = epgReminderState.reminders[i];
+      if (String(r.channelId) === String(channelId) && r.programTitle === programTitle) {
+        return r;
+      }
+    }
+    return null;
+  }
+
+  function toggleEpgReminder(ch, prog) {
+    if (!ch || !prog) return;
+    var existing = hasEpgReminder(ch.id, prog.title);
+    if (existing) {
+      apiDelete('/api/epg/reminders/' + existing.id, function(err) {
+        if (!err) {
+          epgReminderState.reminders = epgReminderState.reminders.filter(function(r) { return r.id !== existing.id; });
+          showTvToast('Напоминание отменено', 2000);
+          renderPreview();
+        }
+      });
+    } else {
+      var startMs = 0;
+      var stopMs = 0;
+      if (prog.startMs) {
+        startMs = prog.startMs;
+        stopMs = prog.stopMs || (startMs + 3600000);
+      } else if (prog.startDate && prog.startTime) {
+        try {
+          var dateParts = prog.startDate.split('-');
+          var timeParts = prog.startTime.split(':');
+          var d = new Date(parseInt(dateParts[0], 10), parseInt(dateParts[1], 10) - 1, parseInt(dateParts[2], 10), parseInt(timeParts[0], 10), parseInt(timeParts[1], 10));
+          startMs = d.getTime();
+          stopMs = startMs + 3600000;
+        } catch(de) {
+          startMs = Date.now() + 600000;
+          stopMs = startMs + 3600000;
+        }
+      } else {
+        startMs = Date.now() + 600000;
+        stopMs = startMs + 3600000;
+      }
+
+      var body = {
+        channelId: String(ch.id),
+        channelName: ch.name || '',
+        programTitle: prog.title || 'Телепередача',
+        startMs: startMs,
+        stopMs: stopMs,
+        autoSwitch: true
+      };
+
+      apiPost('/api/epg/reminders', body, function(err, res) {
+        if (!err && res) {
+          body.id = res.id;
+          epgReminderState.reminders.push(body);
+          showTvToast('⏰ Напоминание установлено: ' + prog.title, 3000);
+          renderPreview();
+        }
+      });
+    }
+  }
+
+  function checkEpgReminders() {
+    if (!epgReminderState.reminders || epgReminderState.reminders.length === 0) return;
+    var now = Date.now();
+    var toast = document.getElementById('tv-epg-switch-toast');
+    if (!toast) return;
+
+    var activeFound = null;
+    for (var i = 0; i < epgReminderState.reminders.length; i++) {
+      var r = epgReminderState.reminders[i];
+      if (epgReminderState.dismissedIds[r.id]) continue;
+      var diffMs = r.startMs - now;
+
+      // Within 60 seconds of start and up to 10 seconds past start
+      if (diffMs <= 60000 && diffMs >= -10000) {
+        activeFound = r;
+        break;
+      }
+    }
+
+    if (!activeFound) {
+      if (epgReminderState.activeToastReminder) {
+        dismissEpgToast();
+      }
+      return;
+    }
+
+    epgReminderState.activeToastReminder = activeFound;
+    var remainingSec = Math.max(0, Math.ceil((activeFound.startMs - now) / 1000));
+
+    var progEl = document.getElementById('switch-toast-prog');
+    var chEl = document.getElementById('switch-toast-ch');
+    var countdownEl = document.getElementById('switch-toast-countdown');
+
+    if (progEl) progEl.textContent = activeFound.programTitle;
+    if (chEl) chEl.textContent = 'Канал: ' + activeFound.channelName;
+    if (countdownEl) countdownEl.textContent = remainingSec > 0 ? ('Переключение через ' + remainingSec + ' сек') : 'Переключение сейчас...';
+
+    toast.classList.remove('hidden');
+
+    if (remainingSec <= 0) {
+      executeEpgToastSwitch();
+    }
+  }
+
+  function executeEpgToastSwitch() {
+    var reminder = epgReminderState.activeToastReminder;
+    dismissEpgToast();
+    if (!reminder) return;
+
+    // Remove reminder from list and server
+    apiDelete('/api/epg/reminders/' + reminder.id, function() {});
+    epgReminderState.reminders = epgReminderState.reminders.filter(function(r) { return r.id !== reminder.id; });
+
+    // Close any open movie player
+    var playerContainer = document.getElementById('player-container');
+    if (playerContainer && !playerContainer.classList.contains('hidden')) {
+      try { closePlayer(); } catch(e) {}
+    }
+
+    // Switch section to iptv
+    switchSection('iptv');
+
+    // Find channel in iptvState.channels
+    var chToPlay = null;
+    if (iptvState.channels && iptvState.channels.length > 0) {
+      for (var ci = 0; ci < iptvState.channels.length; ci++) {
+        var ch = iptvState.channels[ci];
+        if (String(ch.id) === String(reminder.channelId) || (ch.name && ch.name.toLowerCase() === (reminder.channelName || '').toLowerCase())) {
+          chToPlay = ch;
+          break;
+        }
+      }
+    }
+
+    if (!chToPlay) {
+      chToPlay = {
+        id: reminder.channelId,
+        name: reminder.channelName,
+        url: reminder.channelUrl || ''
+      };
+    }
+
+    showTvToast('⏰ Автопереключение: ' + reminder.programTitle, 3500);
+    playChannel(chToPlay);
+  }
+
+  function dismissEpgToast() {
+    var toast = document.getElementById('tv-epg-switch-toast');
+    if (toast) toast.classList.add('hidden');
+    if (epgReminderState.activeToastReminder) {
+      epgReminderState.dismissedIds[epgReminderState.activeToastReminder.id] = true;
+      epgReminderState.activeToastReminder = null;
+    }
+  }
+
+  function switchSection(section) {
+    if (section === 'switch-profile') {
+      showProfilePicker();
+      return;
+    }
+    if (section === 'home') {
+      state._homeArrivalTimestamp = Date.now();
+      loadAndApplyHomeShelves();
+    }
+    if (section !== 'iptv' && typeof stopPreview === 'function') {
+      stopPreview();
+    }
+    state.section = section;
+    state.focusedCard = null;
+
+    // Clean up any lingering modals when switching sections
+    var exitModal = document.getElementById('exit-confirm-modal');
+    if (exitModal && exitModal.parentNode) {
+      exitModal.parentNode.removeChild(exitModal);
+    }
+    if (typeof window.closeTorrentConfirmModal === 'function') {
+      try { window.closeTorrentConfirmModal(); } catch(e) {}
+    } else {
+      var tcModal = document.getElementById('torrent-confirm-modal');
+      if (tcModal && tcModal.parentNode) tcModal.parentNode.removeChild(tcModal);
+    }
+
+    if (section !== 'search') {
+      clearOskFocus();
+    }
+
+    document.querySelectorAll('.nav-btn').forEach(function(btn) {
+      btn.classList.toggle('active', btn.getAttribute('data-section') === section);
+    });
+
+    document.querySelectorAll('.section').forEach(function(sec) {
+      sec.classList.toggle('active', sec.id === 'sec-' + section);
+    });
+
+    $content.scrollTop = 0;
+
+    if (section === 'downloads') {
+      if (typeof renderDownloadsSection === 'function') {
+        renderDownloadsSection();
+      }
+    }
+
+    if (section === 'collections') {
+      if (!state.inCollectionDetail && typeof renderCollectionsSection === 'function') {
+        renderCollectionsSection();
+      }
+    }
+
+    if (section === 'search') {
+      if (typeof setupSearch === 'function') setupSearch();
+      if (typeof renderRecentSearches === 'function') renderRecentSearches();
+    }
+
+    if (section === 'settings') {
+      var srvEl = document.getElementById('tv-server-url');
+      if (srvEl) srvEl.textContent = API || localStorage.getItem(SERVER_KEY) || localStorage.getItem('lumiere_server_url') || '--';
+      var usrEl = document.getElementById('tv-user-email');
+      if (usrEl && state.user) usrEl.textContent = state.user.name || state.user.email || 'Пользователь';
+    }
+
+    if (section === 'iptv') {
+      iptvLocked = false;
+      ensureIptvDomStructure();
+      if (!iptvState.channels || iptvState.channels.length === 0) {
+        loadIptv();
+      } else {
+        var curFiltered = getFilteredChannels();
+        if (curFiltered.length === 0) {
+          iptvState.selectedGroup = 'Все';
+          iptvState.focusedCat = 0;
+        }
+        renderIptv();
+        if (!iptvState.epgData || Object.keys(iptvState.epgData).length === 0) {
+          loadEpg();
+        }
+      }
+      var curCh = iptvState.focusedCh || 0;
+      var chs = getFilteredChannels();
+      if (curCh < 0 || curCh >= chs.length) {
+        curCh = 0;
+        iptvState.focusedCh = 0;
+      }
+      if (chs && chs[curCh]) {
+        updatePreview(chs[curCh]);
+      }
+      var isNavActive = !!document.querySelector('.nav-btn.focused');
+      if (!isNavActive) {
+        iptvState.focusedCol = 1;
+        if (typeof focusIptvChannel === 'function') {
+          focusIptvChannel(curCh);
+        }
+      } else {
+        iptvState.focusedCol = -1;
+      }
+    }
+
+    if (section === 'notifications') {
+      notifState.focusedIndex = -1;
+      notifState.focusedTopBtn = 0;
+      loadNotifications(function() {
+        var isNavActive = !!document.querySelector('.nav-btn.focused');
+        if (!isNavActive) {
+          focusNotificationElement('topBtn', 0);
+        }
+      });
+    }
+
+    if (section === 'my') {
+      setupMySection();
+      loadMyData();
+    }
+
+    if (section === 'profile') {
+      renderProfileStats();
+    }
+  }
+
+  // ========== Profile & Statistics View ==========
+  function renderProfileStats() {
+    var user = state.user;
+    if (!user) {
+      try {
+        user = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+      } catch(e) {}
+    }
+
+    var $avatarLarge = document.getElementById('tv-profile-avatar-large');
+    var $nameLarge = document.getElementById('tv-profile-name-large');
+    var $roleBadge = document.getElementById('tv-profile-role-badge');
+    var $emailSub = document.getElementById('tv-profile-email-sub');
+    var $statHours = document.getElementById('tv-stat-hours');
+    var $statCount = document.getElementById('tv-stat-count');
+    var $statDevice = document.getElementById('tv-stat-device');
+    var $genresList = document.getElementById('tv-profile-genres-list');
+
+    var displayName = user ? (user.name || user.username || user.login || 'Пользователь') : 'Пользователь';
+    if ($nameLarge) $nameLarge.textContent = displayName;
+
+    if ($avatarLarge) {
+      if (user && user.avatar) {
+        if (user.avatar.indexOf('http') === 0 || user.avatar.indexOf('/') === 0) {
+          $avatarLarge.innerHTML = '<img src="' + user.avatar + '" style="width:100%;height:100%;border-radius:50%;object-fit:cover;" />';
+        } else {
+          $avatarLarge.textContent = user.avatar;
+        }
+      } else {
+        $avatarLarge.textContent = displayName.charAt(0).toUpperCase();
+      }
+    }
+
+    if ($roleBadge) {
+      if (user && user.role === 'admin') {
+        $roleBadge.textContent = 'Администратор';
+        $roleBadge.className = 'profile-role-badge profile-role-admin';
+      } else if (user && user.isKids) {
+        $roleBadge.textContent = 'Детский профиль';
+        $roleBadge.className = 'profile-role-badge profile-role-kids';
+      } else {
+        $roleBadge.textContent = 'Основной профиль';
+        $roleBadge.className = 'profile-role-badge';
+      }
+    }
+
+    if ($emailSub) {
+      $emailSub.textContent = (user && user.email) ? user.email : '';
+    }
+
+    function applyStats(stats) {
+      if (!stats) return;
+      if ($statHours) {
+        var hrs = stats.totalWatchHours !== undefined ? stats.totalWatchHours : (stats.totalWatchSeconds / 3600);
+        $statHours.textContent = hrs >= 1 ? (hrs.toFixed(1) + ' ч') : (Math.round((stats.totalWatchSeconds || 0) / 60) + ' мин');
+      }
+      if ($statCount) {
+        var cntText = stats.watchedCount || 0;
+        if (stats.moviesCount > 0 || stats.seriesCount > 0) {
+          cntText = stats.watchedCount + ' (' + (stats.moviesCount || 0) + ' филм. / ' + (stats.episodesCount || stats.seriesCount || 0) + ' сер.)';
+        }
+        $statCount.textContent = cntText;
+      }
+      if ($statDevice) {
+        var dName = stats.primaryDevice || (window.tizen ? 'Samsung Tizen TV' : 'Samsung Smart TV');
+        $statDevice.textContent = dName;
+      }
+      if ($genresList) {
+        if (Array.isArray(stats.favoriteGenres) && stats.favoriteGenres.length > 0) {
+          var gHtml = '';
+          stats.favoriteGenres.forEach(function(g) {
+            var gName = typeof g === 'object' ? (g.name || '') : g;
+            var gCount = typeof g === 'object' ? (g.count || 0) : 1;
+            var gPct = typeof g === 'object' ? (g.pct || 100) : 100;
+            gHtml += '<div class="profile-genre-row">' +
+              '<span class="profile-genre-name">' + esc(gName) + '</span>' +
+              '<div class="profile-genre-bar-wrap"><div class="profile-genre-bar" style="width:' + gPct + '%"></div></div>' +
+              '<span class="profile-genre-count">' + gCount + '</span>' +
+              '</div>';
+          });
+          $genresList.innerHTML = gHtml;
+        } else {
+          $genresList.innerHTML = '<div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>';
+        }
+      }
+    }
+
+    // 1. Fetch unified synchronized stats from backend
+    apiFetch('/api/user/stats', function(err, serverStats) {
+      if (!err && serverStats && serverStats.success) {
+        applyStats(serverStats);
+      } else {
+        // Fallback to local playback_positions if server offline
+        var positions = {};
+        try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+        var totalSec = 0, count = 0;
+        for (var k in positions) {
+          if (!positions.hasOwnProperty(k)) continue;
+          var pos = positions[k];
+          if (!pos) continue;
+          var t = typeof pos === 'object' ? (pos.time || 0) : Number(pos);
+          if (t > 15) {
+            count++;
+            var dur = (typeof pos === 'object' && pos.duration > 0) ? pos.duration : 7200;
+            totalSec += Math.min(t, dur);
+          }
+        }
+        applyStats({
+          totalWatchSeconds: totalSec,
+          totalWatchHours: totalSec / 3600,
+          watchedCount: count,
+          favoriteGenres: []
+        });
+      }
+    });
+  }
+
+  // ========== D-pad Navigation ==========
+  var lpTimer = null;
+  var lpTriggered = false;
+  var lpChannelId = null;
+
+  function registerTizenKeys() {
+    try {
+      if (window.tizen && tizen.tvinputdevice) {
+        // Explicitly unregister Volume keys so native Samsung TV volume overlay and speaker control work
+        try { tizen.tvinputdevice.unregisterKey('VolumeUp'); } catch(ve1) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeDown'); } catch(ve2) {}
+        try { tizen.tvinputdevice.unregisterKey('VolumeMute'); } catch(ve3) {}
+
+        var keys = [
+          'MediaPlayPause', 'MediaPlay', 'MediaPause', 'MediaStop',
+          'MediaFastForward', 'MediaRewind',
+          'ColorF0Red', 'ColorF1Green', 'ColorF2Yellow', 'ColorF3Blue',
+          'ChannelUp', 'ChannelDown'
+        ];
+        for (var i = 0; i < keys.length; i++) {
+          try { tizen.tvinputdevice.registerKey(keys[i]); } catch(ke) {}
+        }
+        console.log('[Lumiere] Registered Tizen remote keys (Volume keys left to native TV control)');
+      }
+    } catch(te) {
+      console.warn('[Lumiere] tvinputdevice not available:', te);
+    }
+  }
+
+  // ========== Exit Confirmation Modal ==========
+  var exitModalFocusIndex = 1; // 0 = "Выйти", 1 = "Отмена" (safe default)
+
+  function showExitConfirmModal() {
+    var existing = document.getElementById('exit-confirm-modal');
+    if (existing) {
+      updateExitModalFocus();
+      return;
+    }
+
+    var wrap = document.createElement('div');
+    wrap.id = 'exit-confirm-modal';
+    wrap.className = 'exit-modal-backdrop';
+
+    var html = '<div class="exit-modal-box">' +
+      '<div class="exit-modal-icon">✕</div>' +
+      '<div class="exit-modal-title">Закрыть приложение?</div>' +
+      '<div class="exit-modal-sub">Вы действительно хотите выйти из Lumiere?</div>' +
+      '<div class="exit-modal-actions">' +
+        '<button id="btn-exit-cancel" class="exit-btn exit-btn-cancel focused" data-idx="1" tabindex="0">Отмена</button>' +
+        '<button id="btn-exit-confirm" class="exit-btn exit-btn-exit" data-idx="0" tabindex="0">Выйти</button>' +
+      '</div>' +
+    '</div>';
+
+    wrap.innerHTML = html;
+    document.body.appendChild(wrap);
+
+    exitModalFocusIndex = 1; // Default to "Отмена"
+    updateExitModalFocus();
+
+    var btnCancel = document.getElementById('btn-exit-cancel');
+    var btnExit = document.getElementById('btn-exit-confirm');
+    if (btnCancel) {
+      btnCancel.addEventListener('click', function() {
+        closeExitConfirmModal();
+      });
+    }
+    if (btnExit) {
+      btnExit.addEventListener('click', function() {
+        executeAppExit();
+      });
+    }
+  }
+  window.showExitConfirmModal = showExitConfirmModal;
+
+  function closeExitConfirmModal(noNavFocus) {
+    var modal = document.getElementById('exit-confirm-modal');
+    if (modal && modal.parentNode) {
+      modal.parentNode.removeChild(modal);
+    }
+    state._homeArrivalTimestamp = Date.now();
+    if (!noNavFocus) {
+      focusNav(0);
+    }
+  }
+  window.closeExitConfirmModal = closeExitConfirmModal;
+
+  function executeAppExit() {
+    console.log('[Lumiere] User confirmed app exit');
+    try {
+      if (window.tizen && tizen.application) {
+        tizen.application.getCurrentApplication().exit();
+      } else if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+        window.Capacitor.Plugins.App.exitApp();
+      } else if (navigator.app && navigator.app.exitApp) {
+        navigator.app.exitApp();
+      } else {
+        window.close();
+      }
+    } catch(e) {
+      console.error('[Lumiere] Exit error:', e);
+    }
+  }
+
+  function updateExitModalFocus() {
+    var btnCancel = document.getElementById('btn-exit-cancel');
+    var btnExit = document.getElementById('btn-exit-confirm');
+    if (!btnCancel || !btnExit) return;
+
+    if (exitModalFocusIndex === 1) {
+      btnCancel.classList.add('focused');
+      btnCancel.focus();
+      btnExit.classList.remove('focused');
+    } else {
+      btnExit.classList.add('focused');
+      btnExit.focus();
+      btnCancel.classList.remove('focused');
+    }
+  }
+
+  function handleExitModalKey(code, key, e) {
+    var isLeft = (code === 37 || key === 'ArrowLeft' || key === 'Left');
+    var isRight = (code === 39 || key === 'ArrowRight' || key === 'Right');
+    var isEnter = isEnterKey(code, key);
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+
+    if (isBack) {
+      closeExitConfirmModal();
+      return true;
+    }
+
+    if (isLeft || isRight) {
+      exitModalFocusIndex = (exitModalFocusIndex === 1) ? 0 : 1;
+      updateExitModalFocus();
+      return true;
+    }
+
+    if (isEnter) {
+      if (exitModalFocusIndex === 0) {
+        executeAppExit();
+      } else {
+        closeExitConfirmModal();
+      }
+      return true;
+    }
+
+    return true;
+  }
+
+  function handleBackKey(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    if (e && e.repeat) return;
+
+    // 0. If player open, forward directly to player without triggering tv.js debounce!
+    var playerContainer = document.getElementById('player-container');
+    if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
+      if (typeof window.handlePlayerKey === 'function') {
+        window.handlePlayerKey(10009, 'Escape', e);
+      } else if (typeof window.handlePlayerBackKey === 'function') {
+        window.handlePlayerBackKey();
+      } else {
+        closePlayer();
+      }
+      return;
+    }
+
+    var now = Date.now();
+    var lastShared = Math.max(lastBackTimestamp, (typeof window !== 'undefined' && window.lastBackTimestamp) || 0);
+    if (now - lastShared < 600 || (state.modalCloseTimestamp && now - state.modalCloseTimestamp < 600) || (state._justClosedPlayer && now - state._justClosedPlayer < 600)) {
+      console.log('[Lumiere] Ignoring rapid duplicate back key (within cooldown)');
+      return;
+    }
+    lastBackTimestamp = now;
+    try { if (typeof window !== 'undefined') window.lastBackTimestamp = now; } catch(we) {}
+    console.log('[Lumiere] Back key pressed');
+
+    // -2. If server configuration modal is open, close it
+    var serverModal = document.getElementById('tv-server-modal');
+    if (serverModal && !serverModal.classList.contains('hidden') && serverModal.style.display !== 'none') {
+      closeServerModal();
+      return;
+    }
+
+    // -1.5. If trailer modal open, close it
+    var trailerModal = document.getElementById('trailer-modal');
+    if (trailerModal) {
+      trailerModal.remove();
+      var trailerBtn = document.getElementById('detail-trailer-btn');
+      if (trailerBtn) setDetailFocus(trailerBtn);
+      return;
+    }
+
+    // -1. If exit confirmation modal open, close it
+    var exitModal = document.getElementById('exit-confirm-modal');
+    if (exitModal) {
+      closeExitConfirmModal();
+      return;
+    }
+
+    // -0.5. If person / actor modal open, close it and return
+    var personModal = document.getElementById('person-modal');
+    if (state.inPersonModal || (personModal && !personModal.classList.contains('hidden') && personModal.style.display !== 'none')) {
+      closePersonModal();
+      return;
+    }
+
+    // -0.4. If all cast modal open, close it and return
+    var allCastModal = document.getElementById('all-cast-modal');
+    if (state.inAllCastModal || (allCastModal && !allCastModal.classList.contains('hidden') && allCastModal.style.display !== 'none')) {
+      closeAllCastModal();
+      return;
+    }
+
+    // 0. If torrent confirmation modal open, close it
+    var confirmModal = document.getElementById('torrent-confirm-modal');
+    if (confirmModal) {
+      if (typeof window.closeTorrentConfirmModal === 'function') {
+        window.closeTorrentConfirmModal();
+      } else if (confirmModal.parentNode) {
+        confirmModal.parentNode.removeChild(confirmModal);
+      }
+      return;
+    }
+
+    // 2. If detail modal open, close it
+    if ($detail && !$detail.classList.contains('hidden')) {
+      hideDetail();
+      return;
+    }
+
+    // 3. If in IPTV virtual keyboard: close it
+    if (iptvOskState && iptvOskState.isOpen) {
+      closeIptvOsk();
+      return;
+    }
+
+    // 4. If in collections section and viewing specific collection contents: exit to collections list
+    if (state.section === 'collections' && state.inCollectionDetail) {
+      state.inCollectionDetail = false;
+      renderCollectionsSection();
+      return;
+    }
+
+    // Helper to find nav button index by section name
+    function getNavIndexForSection(sec) {
+      var btns = document.querySelectorAll('.nav-btn');
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].getAttribute('data-section') === sec) return i;
+      }
+      return 0;
+    }
+
+    // 5. Check if focus is CURRENTLY on the top navigation bar
+    var navFocusedBtn = document.querySelector('.nav-btn.focused') || 
+      (document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('nav-btn') ? document.activeElement : null);
+
+    // LEVEL 1: Focus is anywhere INSIDE page content -> jump directly to current section's top nav button!
+    if (!navFocusedBtn) {
+      clearAllFocus();
+      clearCardFocus();
+      clearSearchSourceTabFocus();
+      clearSearchChipFocus();
+      clearOskFocus();
+      clearIptvFocus();
+      if (typeof stopPreview === 'function') stopPreview();
+      state.focusedCard = null;
+
+      var targetNavIdx = getNavIndexForSection(state.section);
+      focusNav(targetNavIdx);
+      return;
+    }
+
+    // LEVEL 2: Focus IS on Top Nav button of a NON-HOME section -> return to "Главная"!
+    if (state.section !== 'home') {
+      clearAllFocus();
+      switchSection('home');
+      focusNav(0);
+      state._homeArrivalTimestamp = Date.now();
+      return;
+    }
+
+    // LEVEL 3: Focus IS on "Главная" in Top Nav -> show exit confirmation modal
+    if (now - (state._homeArrivalTimestamp || 0) < 1000) {
+      console.log('[Lumiere] Ignoring Back key immediately after arriving on Home');
+      return;
+    }
+
+    showExitConfirmModal();
+  }
+
+  function isEnterKey(code, key) {
+    return code === 13 || code === 23 || code === 66 || code === 29443 || code === 65385 || code === 65376 ||
+      key === 'Enter' || key === 'Select' || key === 'Ok' || key === 'OK' || key === 'Accept' || key === 'Return';
+  }
+
+  var _keyboardSetup = false;
+  function setupKeyboard() {
+    if (_keyboardSetup) return;
+    _keyboardSetup = true;
+
+    registerTizenKeys();
+
+    try {
+      window.focus();
+      if (document.body) document.body.focus();
+    } catch(fe) {}
+
+    // Hardware back key on Samsung Tizen
+    window.addEventListener('tizenhwkey', function(e) {
+      if (e.keyName === 'back') {
+        handleBackKey(e);
+      }
+    });
+
+    // Hardware back key on Android TV / Cordova / Capacitor
+    document.addEventListener('backbutton', function(e) {
+      if (e && e.preventDefault) e.preventDefault();
+      handleBackKey(e);
+    });
+
+    if (window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App) {
+      try {
+        window.Capacitor.Plugins.App.addListener('backButton', function(data) {
+          handleBackKey(data);
+        });
+      } catch(ce) {}
+    }
+
+    var onKeyDown = function(e) {
+      try {
+      var code = e.keyCode || e.which;
+      var key = e.key;
+
+      // Android TV / Remote keycode normalization
+      if (code === 19) { code = 38; key = 'ArrowUp'; }
+      if (code === 20) { code = 40; key = 'ArrowDown'; }
+      if (code === 21) { code = 37; key = 'ArrowLeft'; }
+      if (code === 22) { code = 39; key = 'ArrowRight'; }
+      if (code === 23 || code === 66) { code = 13; key = 'Enter'; }
+      if (code === 4) { code = 27; key = 'Escape'; }
+      if (code === 85 || code === 126 || code === 127) { key = 'MediaPlayPause'; }
+      if (code === 89) { key = 'MediaRewind'; }
+      if (code === 90) { key = 'MediaFastForward'; }
+
+      console.log('[KEY] code=' + code + ' key=' + key);
+
+      // -5. If Server change modal is open:
+      var serverModal = document.getElementById('tv-server-modal');
+      if (serverModal && !serverModal.classList.contains('hidden') && serverModal.style.display !== 'none') {
+        handleServerModalKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      // -4.5. If Error screen on loading is active:
+      var loadingScreen = document.getElementById('loading');
+      var errRetryBtn = document.getElementById('tv-err-btn-retry');
+      if (loadingScreen && !loadingScreen.classList.contains('hidden') && errRetryBtn) {
+        handleErrorScreenKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      // -4. If EPG auto-switch toast is active:
+      var switchToast = document.getElementById('tv-epg-switch-toast');
+      if (switchToast && !switchToast.classList.contains('hidden')) {
+        if (isEnterKey(code, key)) {
+          if (typeof executeEpgToastSwitch === 'function') {
+            executeEpgToastSwitch();
+          }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        } else if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          if (typeof dismissEpgToast === 'function') {
+            dismissEpgToast();
+          }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // -3. If PIN dialog is open:
+      var pinModal = document.getElementById('tv-pin-modal');
+      if (pinModal && !pinModal.classList.contains('hidden') && pinModal.style.display !== 'none') {
+        handlePinModalKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      // -2. If Profile picker screen is active:
+      var profileScreen = document.getElementById('profile-screen');
+      if (profileScreen && !profileScreen.classList.contains('hidden') && profileScreen.style.display !== 'none') {
+        handleProfilePickerKey(code, key, e);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+
+      // -1. If exit confirmation modal is open:
+      var exitModal = document.getElementById('exit-confirm-modal');
+      if (exitModal) {
+        if (state.section !== 'home') {
+          closeExitConfirmModal(true);
+        } else {
+          handleExitModalKey(code, key, e);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // 0. If torrent confirmation modal is open:
+      var confirmModal = document.getElementById('torrent-confirm-modal');
+      if (confirmModal) {
+        if (state.section === 'iptv') {
+          if (typeof window.closeTorrentConfirmModal === 'function') {
+            try { window.closeTorrentConfirmModal(); } catch(cme) {}
+          } else if (confirmModal.parentNode) {
+            confirmModal.parentNode.removeChild(confirmModal);
+          }
+        } else {
+          if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+            if (typeof window.closeTorrentConfirmModal === 'function') {
+              window.closeTorrentConfirmModal();
+            } else if (confirmModal.parentNode) {
+              confirmModal.parentNode.removeChild(confirmModal);
+            }
+            if (e.preventDefault) e.preventDefault();
+          }
+          return;
+        }
+      }
+
+      // 1. If player is open, forward ALL keys directly to handlePlayerKey
+      var playerContainer = document.getElementById('player-container');
+      if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
+        var isBackKey = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+        if (typeof window.handlePlayerKey === 'function') {
+          window.handlePlayerKey(code, key, e);
+        } else if (isBackKey) {
+          closePlayer();
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        if (e && e.stopPropagation) e.stopPropagation();
+        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+        return;
+      }
+
+      if (e._handledByLumiere) return;
+      try { e._handledByLumiere = true; } catch(he) {}
+
+      // IPTV virtual keyboard active: route all keys directly
+      if (iptvOskState && iptvOskState.isOpen) {
+        handleIptvOskKeys(code, e);
+        return;
+      }
+
+      // Person / Actor modal active: route all keys directly (including Back key!)
+      var personModalEl = document.getElementById('person-modal');
+      var isPersonModalOpen = state.inPersonModal || (personModalEl && !personModalEl.classList.contains('hidden') && personModalEl.style.display !== 'none');
+      if (isPersonModalOpen) {
+        handlePersonModalKey(code, key, e);
+        return;
+      }
+
+      // All Cast modal active: route all keys directly (including Back key!)
+      var allCastModalEl = document.getElementById('all-cast-modal');
+      var isAllCastModalOpen = state.inAllCastModal || (allCastModalEl && !allCastModalEl.classList.contains('hidden') && allCastModalEl.style.display !== 'none');
+      if (isAllCastModalOpen) {
+        handleAllCastModalKey(code, key, e);
+        return;
+      }
+
+      // Cooldown after closing person modal or player: absorb any trailing Back key duplicates from TV remote!
+      if (state.modalCloseTimestamp && (Date.now() - state.modalCloseTimestamp < 700)) {
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+      if (state._justClosedPlayer && (Date.now() - state._justClosedPlayer < 700)) {
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // Back / Return / Escape key
+      if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+        handleBackKey(e);
+        return;
+      }
+
+      // Long-press detection on Enter for IPTV channels (650ms to toggle favorite)
+      if (state.section === 'iptv' && iptvState.focusedCol === 1 && iptvState.focusedCh >= 0) {
+        if (isEnterKey(code, key) && !iptvLocked) {
+          if (!e.repeat && !iptvLpTimer) {
+            iptvLpTriggered = false;
+            var channelsList = getFilteredChannels();
+            var curChannel = channelsList[iptvState.focusedCh];
+            if (curChannel) {
+              iptvLpChannel = curChannel;
+              iptvLpTimer = setTimeout(function() {
+                iptvLpTriggered = true;
+                iptvLpTimer = null;
+                if (iptvLpChannel) {
+                  toggleFavorite(iptvLpChannel.id);
+                }
+              }, 650);
+            }
+          }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // TV IPTV Multi-view handler
+      if (tvMultiViewActive) {
+        if (code === 37 || key === 'ArrowLeft' || key === 'Left' || code === 49) {
+          tvMultiViewFocus = 'left';
+          updateTvMultiViewFocusUI();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (code === 39 || key === 'ArrowRight' || key === 'Right' || code === 50) {
+          tvMultiViewFocus = 'right';
+          updateTvMultiViewFocusUI();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack') {
+          closeTvMultiView();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+
+      // Detail view handler
+      if ($detail && !$detail.classList.contains('hidden')) {
+        handleDetailKeys(code, e);
+        return;
+      }
+
+      handleMainKeys(code, e);
+      } catch(keyErr) {
+        console.error('[KEY-ERROR]', keyErr.message, keyErr.stack);
+        try {
+          var dbg = document.getElementById('_key_debug');
+          if (!dbg) { dbg = document.createElement('div'); dbg.id = '_key_debug'; dbg.style.cssText = 'position:fixed;bottom:10px;left:10px;color:#f87171;font-size:18px;z-index:999999;background:rgba(0,0,0,0.9);padding:10px 16px;border-radius:8px;max-width:800px;'; document.body.appendChild(dbg); }
+          dbg.textContent = 'KEY ERR: ' + (keyErr.message || keyErr);
+        } catch(de) {}
+      }
+    };
+
+    var onKeyUp = function(e) {
+      var playerContainer = document.getElementById('player-container');
+      if (playerContainer && !playerContainer.classList.contains('hidden') && playerContainer.innerHTML !== '') {
+        return;
+      }
+
+      var code = e.keyCode || e.which;
+      var key = e.key;
+      if (!isEnterKey(code, key)) return;
+
+      // Handle IPTV short press vs long press release
+      if (state.section === 'iptv' && iptvState.focusedCol === 1) {
+        if (iptvLpTimer) {
+          clearTimeout(iptvLpTimer);
+          iptvLpTimer = null;
+        }
+        if (!iptvLpTriggered && iptvLpChannel && !iptvLocked) {
+          playChannel(iptvLpChannel);
+        }
+        iptvLpTriggered = false;
+        iptvLpChannel = null;
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+    };
+
+    // Single capture listener on window
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
+    console.log('[Lumiere] setupKeyboard: key listeners registered OK');
+  }
+
+  function handleShelfTabKeys(code, e, tabEl) {
+    var key = e ? e.key : '';
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+    var isBack = code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack';
+
+    if (isBack) {
+      clearAllFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    var group = tabEl.closest('.shelf-tab-group');
+    var row = tabEl.closest('.row');
+    var tabs = group ? Array.prototype.slice.call(group.querySelectorAll('.shelf-tab')) : [];
+    var tabIdx = tabs.indexOf(tabEl);
+
+    if (isLeft) {
+      if (tabIdx > 0) {
+        tabEl.classList.remove('focused');
+        tabs[tabIdx - 1].classList.add('focused');
+        try { tabs[tabIdx - 1].focus(); } catch(err) {}
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isRight) {
+      if (tabIdx >= 0 && tabIdx < tabs.length - 1) {
+        tabEl.classList.remove('focused');
+        tabs[tabIdx + 1].classList.add('focused');
+        try { tabs[tabIdx + 1].focus(); } catch(err) {}
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isEnter) {
+      var shelfType = tabEl.getAttribute('data-shelf');
+      var period = tabEl.getAttribute('data-period');
+      if (shelfType && period && typeof loadNetflixRow === 'function') {
+        loadNetflixRow(shelfType, period);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isDown) {
+      tabEl.classList.remove('focused');
+      if (row) {
+        var rowCards = Array.prototype.slice.call(row.querySelectorAll('.card'));
+        if (rowCards.length > 0) {
+          var allCards = getVisibleCards();
+          var targetCard = rowCards[0];
+          var gIdx = allCards.indexOf(targetCard);
+          if (gIdx >= 0) {
+            focusCard(gIdx);
+          } else {
+            targetCard.classList.add('focused');
+            targetCard.focus();
+          }
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+      }
+      focusCard(state.focusedCard || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    if (isUp) {
+      tabEl.classList.remove('focused');
+      if (row) {
+        var rows = getVisibleRows();
+        var curRowIdx = rows.indexOf(row);
+        if (curRowIdx > 0) {
+          var prevRow = rows[curRowIdx - 1];
+          var prevCards = Array.prototype.slice.call(prevRow.querySelectorAll('.card'));
+          if (prevCards.length > 0) {
+            var allVisible = getVisibleCards();
+            var prevTarget = prevCards[0];
+            var pIdx = allVisible.indexOf(prevTarget);
+            if (pIdx >= 0) {
+              focusCard(pIdx);
+            } else {
+              prevTarget.classList.add('focused');
+              prevTarget.focus();
+            }
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+        }
+      }
+      clearAllFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+  }
+
+  function handleMainKeys(code, e) {
+    var key = e.key;
+    var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
+    var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
+    var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
+    var isDown = code === 40 || key === 'ArrowDown' || key === 'Down';
+    var isEnter = isEnterKey(code, key);
+
+    var focusedEl = document.querySelector('.focused');
+    var activeEl = document.activeElement;
+    var targetFocus = focusedEl || ((activeEl && activeEl !== document.body) ? activeEl : null);
+
+    var isOnNav = !!(targetFocus && targetFocus.classList.contains('nav-btn') && targetFocus.classList.contains('focused'));
+    var isOnChip = (state.section === 'search' && !!(targetFocus && (targetFocus.classList.contains('search-chip') || targetFocus.id === 'btn-clear-search-history')));
+    var isOnSearchTab = (state.section === 'search' && !!(targetFocus && targetFocus.classList.contains('search-source-tab')));
+    var isOnIptv = (state.section === 'iptv' && !!(targetFocus && (targetFocus.classList.contains('iptv-ch-item') || targetFocus.classList.contains('iptv-cat-item') || targetFocus.classList.contains('iptv-action-btn') || targetFocus.classList.contains('iptv-epg-item') || targetFocus.classList.contains('iptv-channel'))));
+    var isOnCard = !!(targetFocus && targetFocus.classList.contains('card'));
+    var isOnShelfTab = !!(targetFocus && targetFocus.classList.contains('shelf-tab'));
+    var isOnOsk = (state.section === 'search' && !!(targetFocus && targetFocus.classList.contains('osk-key')));
+    var settingBtns = document.querySelectorAll('#sec-settings .setting-btn');
+    var focusedSetting = targetFocus && targetFocus.classList.contains('setting-btn') ? targetFocus : null;
+    var isOnSetting = (state.section === 'settings' && focusedSetting !== null);
+    var profileBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+    var focusedProfileBtn = targetFocus && targetFocus.classList.contains('profile-action-btn') ? targetFocus : null;
+    var isOnProfile = (state.section === 'profile' && focusedProfileBtn !== null);
+    var isOnNotif = (state.section === 'notifications' && !!(targetFocus && (targetFocus.classList.contains('notif-btn') || targetFocus.classList.contains('tv-notif-card'))));
+    var isOnMyTab = (state.section === 'my' && !!(targetFocus && targetFocus.classList.contains('my-tab')));
+
+    // If focused on OSK, route keys directly to handleOskKeys
+    if (isOnOsk) {
+      handleOskKeys(code, e);
+      return;
+    }
+
+    if (isOnSearchTab) {
+      handleSearchSourceTabKeys(code, e, targetFocus);
+      return;
+    }
+
+    if (isOnChip) {
+      handleSearchChipKeys(code, e);
+      return;
+    }
+
+    if (isOnNotif) {
+      handleNotificationsKeys(code, e);
+      return;
+    }
+
+    if (isOnMyTab) {
+      handleMyTabKeys(code, e);
+      return;
+    }
+
+    if (isOnShelfTab) {
+      handleShelfTabKeys(code, e, targetFocus);
+      return;
+    }
+
+    // IPTV navigation: route to handleIptvKeys unless user is navigating top navbar
+    if (state.section === 'iptv') {
+      if (isOnNav) {
+        if (isLeft) { focusNavDelta(-1); if (e && e.preventDefault) e.preventDefault(); return; }
+        if (isRight) { focusNavDelta(1); if (e && e.preventDefault) e.preventDefault(); return; }
+        if (isDown || isEnter) {
+          clearNavFocus();
+          iptvState.focusedCol = 1;
+          focusIptvChannel(iptvState.focusedCh || 0);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      handleIptvKeys(code, e);
+      return;
+    }
+
+    // FOCUS RECOVERY: If nothing is focused, recover focus!
+    if (!isOnNav && !isOnCard && !isOnSetting && !isOnOsk && !isOnChip && !isOnIptv && !isOnNotif && !isOnProfile && !isOnShelfTab) {
+      if (state.section === 'iptv') {
+        if (iptvState.focusedCol === -1) {
+          focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+          return;
+        }
+        focusIptvChannel(iptvState.focusedCh || 0);
+        return;
+      }
+      if (state.section === 'notifications') {
+        focusNotificationElement('topBtn', 0);
+        return;
+      }
+      console.log('[Lumiere] Recovering focus to nav button');
+      focusNav(state.focusedNav || 0);
+      isOnNav = true;
+    }
+
+    // Profile buttons handling
+    if (isOnProfile) {
+      var pIdx = -1;
+      for (var pi = 0; pi < profileBtns.length; pi++) {
+        if (profileBtns[pi] === focusedProfileBtn) { pIdx = pi; break; }
+      }
+      if (isLeft) {
+        if (pIdx > 0) {
+          focusedProfileBtn.classList.remove('focused');
+          profileBtns[pIdx - 1].classList.add('focused');
+          profileBtns[pIdx - 1].focus();
+        } else {
+          focusedProfileBtn.classList.remove('focused');
+          focusNav(state.focusedNav);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isRight) {
+        if (pIdx >= 0 && pIdx < profileBtns.length - 1) {
+          focusedProfileBtn.classList.remove('focused');
+          profileBtns[pIdx + 1].classList.add('focused');
+          profileBtns[pIdx + 1].focus();
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isUp) {
+        var secPr = document.getElementById('sec-profile');
+        if (secPr && secPr.scrollTop > 50) {
+          secPr.scrollTop = Math.max(0, secPr.scrollTop - 180);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        focusedProfileBtn.classList.remove('focused');
+        focusNav(state.focusedNav);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isEnter) {
+        focusedProfileBtn.click();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isDown) {
+        var secPr = document.getElementById('sec-profile');
+        if (secPr) {
+          secPr.scrollTop = Math.min(secPr.scrollTop + 180, secPr.scrollHeight);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      return;
+    }
+
+    // Settings buttons handling
+    if (isOnSetting) {
+      var sIdx = -1;
+      for (var si = 0; si < settingBtns.length; si++) {
+        if (settingBtns[si] === focusedSetting) { sIdx = si; break; }
+      }
+      if (isDown) {
+        if (sIdx >= 0 && sIdx < settingBtns.length - 1) {
+          focusedSetting.classList.remove('focused');
+          settingBtns[sIdx + 1].classList.add('focused');
+          settingBtns[sIdx + 1].focus();
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isUp) {
+        if (sIdx > 0) {
+          focusedSetting.classList.remove('focused');
+          settingBtns[sIdx - 1].classList.add('focused');
+          settingBtns[sIdx - 1].focus();
+        } else {
+          focusedSetting.classList.remove('focused');
+          focusNav(state.focusedNav);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isEnter) {
+        focusedSetting.click();
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      if (isLeft || isRight) {
+        focusedSetting.classList.remove('focused');
+        focusNav(state.focusedNav);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      return;
+    }
+
+    if (isLeft) {
+      if (isOnNav) focusNavDelta(-1);
+      else if (isOnCard) focusCardDelta(-1);
+      if (e && e.preventDefault) e.preventDefault();
+    } else if (isRight) {
+      if (isOnNav) focusNavDelta(1);
+      else if (isOnCard) focusCardDelta(1);
+      if (e && e.preventDefault) e.preventDefault();
+    } else if (isUp) {
+      if (isOnCard) {
+        var moved = focusCardUp();
+        if (!moved) {
+          clearCardFocus();
+          state.focusedCard = null;
+          if (state.section === 'my') {
+            focusMyTab(myState.focusedTabIdx || 0);
+          } else if (state.section === 'search') {
+            var tabFocused = focusSearchSourceTab();
+            if (!tabFocused) {
+              var chipEls = getSearchChipElements();
+              if (chipEls.length > 0) {
+                focusSearchChip(0);
+              } else {
+                focusOskFromBottom();
+              }
+            }
+          } else {
+            focusNav(state.focusedNav || 0);
+          }
+        }
+      }
+      if (e && e.preventDefault) e.preventDefault();
+    } else if (isDown) {
+      if (isOnNav) {
+        if (state.section === 'iptv') {
+          clearNavFocus();
+          iptvState.focusedCol = 1;
+          focusIptvChannel(iptvState.focusedCh || 0);
+        } else if (state.section === 'search') {
+          clearNavFocus();
+          focusOskKey(0, 0);
+        } else if (state.section === 'my') {
+          clearNavFocus();
+          focusMyTab(myState.focusedTabIdx || 0);
+        } else if (state.section === 'settings') {
+          var sBtns = document.querySelectorAll('#sec-settings .setting-btn');
+          if (sBtns.length > 0) {
+            clearNavFocus();
+            sBtns[0].classList.add('focused');
+            sBtns[0].focus();
+          }
+        } else if (state.section === 'notifications') {
+          clearNavFocus();
+          focusNotificationElement('topBtn', 0);
+        } else if (state.section === 'profile') {
+          var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+          if (prBtns.length > 0) {
+            clearNavFocus();
+            prBtns[0].classList.add('focused');
+            prBtns[0].focus();
+          }
+        } else {
+          var cards = getVisibleCards();
+          if (cards.length > 0) {
+            clearNavFocus();
+            state.focusedCard = 0;
+            focusCard(0);
+          }
+        }
+      } else if (isOnCard) {
+        focusCardDown();
+      }
+      if (e && e.preventDefault) e.preventDefault();
+    } else if (isEnter) {
+      if (isOnNav) {
+        var navBtns = document.querySelectorAll('.nav-btn');
+        var curNavBtn = navBtns[state.focusedNav];
+        var curNavSec = curNavBtn ? curNavBtn.getAttribute('data-section') : '';
+        if (curNavSec === 'switch-profile') {
+          showProfilePicker();
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (state.section === 'search') {
+          clearNavFocus();
+          focusOskKey(0, 0);
+        } else if (state.section === 'iptv') {
+          clearNavFocus();
+          iptvState.focusedCol = 1;
+          focusIptvChannel(iptvState.focusedCh || 0);
+        } else if (state.section === 'my') {
+          clearNavFocus();
+          focusMyTab(myState.focusedTabIdx || 0);
+        } else if (state.section === 'settings') {
+          var sBtns = document.querySelectorAll('#sec-settings .setting-btn');
+          if (sBtns.length > 0) {
+            clearNavFocus();
+            sBtns[0].classList.add('focused');
+            sBtns[0].focus();
+          }
+        } else if (state.section === 'notifications') {
+          clearNavFocus();
+          focusNotificationElement('topBtn', 0);
+        } else if (state.section === 'profile') {
+          var prBtns = document.querySelectorAll('#sec-profile .profile-action-btn');
+          if (prBtns.length > 0) {
+            clearNavFocus();
+            prBtns[0].classList.add('focused');
+            prBtns[0].focus();
+          }
+        } else {
+          var cards = getVisibleCards();
+          if (cards.length > 0) {
+            clearNavFocus();
+            state.focusedCard = 0;
+            focusCard(0);
+          }
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+      selectFocused();
+      if (e && e.preventDefault) e.preventDefault();
+    }
+  }
+
+  // IPTV three-column D-pad navigation
+  function handleIptvKeys(code, e) {
+    if (iptvState.focusedCol < 0 || iptvState.focusedCol > 2) {
+      iptvState.focusedCol = 1;
+      if (iptvState.focusedCh < 0) iptvState.focusedCh = 0;
+    }
+    var channels = getFilteredChannels();
+    var cats = buildCategories();
+    var key = e ? e.key : '';
+
+    // Recover focus if nothing inside IPTV currently has .focused
+    var curFocused = document.querySelector('#sec-iptv .focused');
+    if (!curFocused) {
+      if (iptvState.focusedCol === 0) {
+        focusIptvCategory(iptvState.focusedCat || 0);
+      } else if (iptvState.focusedCol === 2) {
+        focusIptvPreview(iptvState.focusedCol2Index || 0);
+      } else {
+        focusIptvChannel(iptvState.focusedCh || 0);
+      }
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
+    // Yellow button (405 / ColorF2Yellow), Green button (404 / ColorF1Green) or key 'f' / 'F' to toggle favorite!
+    var isFavKey = (code === 405 || code === 404 || key === 'ColorF2Yellow' || key === 'ColorF1Green' || key === 'f' || key === 'F');
+    if (isFavKey) {
+      if (iptvState.focusedCol === 1 && channels[iptvState.focusedCh]) {
+        toggleFavorite(channels[iptvState.focusedCh].id);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      } else if (iptvState.focusedCol === 2 && iptvState.currentChannel) {
+        toggleFavorite(iptvState.currentChannel.id);
+        if (e && e.preventDefault) e.preventDefault();
+        return;
+      }
+    }
+
+    switch (code) {
+      case 37: // Left — move to categories column or within preview
+        if (iptvState.focusedCol === 1) {
+          if (iptvState.focusedCh === -1) {
+            var sInp = document.getElementById('iptv-search-box');
+            if (sInp) sInp.classList.remove('focused');
+          }
+          iptvState.focusedCol = 0;
+          if (iptvState.focusedCat >= cats.length) iptvState.focusedCat = cats.length - 1;
+          focusIptvCategory(iptvState.focusedCat);
+        } else if (iptvState.focusedCol === 2) {
+          if (iptvState.focusedCol2Index === 1) {
+            // From Fav button to Play button
+            focusIptvPreview(0);
+          } else {
+            // From Play button or EPG items back to channels column
+            iptvState.focusedCol = 1;
+            if (iptvState.focusedCh < 0) iptvState.focusedCh = 0;
+            focusIptvChannel(iptvState.focusedCh);
+          }
+        }
+        e.preventDefault();
+        break;
+
+      case 39: // Right — move to channels or preview
+        if (iptvState.focusedCol === 0) {
+          iptvState.focusedCol = 1;
+          iptvState.focusedCh = 0;
+          var curItem = (iptvState.navItems && iptvState.navItems[iptvState.focusedCat]) || null;
+          if (curItem && curItem.type === 'category') {
+            iptvState.selectedGroup = curItem.cat;
+            renderChannels();
+          }
+          focusIptvChannel(0);
+        } else if (iptvState.focusedCol === 1) {
+          if (iptvState.focusedCh === -1) {
+            var sBox = document.getElementById('iptv-search-box');
+            if (sBox) sBox.classList.remove('focused');
+          }
+          focusIptvPreview(0);
+        } else if (iptvState.focusedCol === 2) {
+          if (iptvState.focusedCol2Index === 0) {
+            // From Play button to Fav button
+            focusIptvPreview(1);
+          }
+        }
+        e.preventDefault();
+        break;
+
+      case 38: // Up
+        if (iptvState.focusedCol === 0) {
+          // Categories & Playlists
+          if (iptvState.focusedCat > 0) {
+            iptvState.focusedCat--;
+            focusIptvCategory(iptvState.focusedCat);
+          } else {
+            iptvState.focusedCol = -1;
+            clearIptvFocus();
+            focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+          }
+        } else if (iptvState.focusedCol === 1) {
+          // Channels
+          if (iptvState.focusedCh > 0) {
+            iptvState.focusedCh--;
+            focusIptvChannel(iptvState.focusedCh);
+          } else if (iptvState.focusedCh === 0) {
+            // Move up to channel search box
+            iptvState.focusedCh = -1;
+            var sBoxUp = document.getElementById('iptv-search-box');
+            if (sBoxUp) {
+              clearIptvFocus();
+              sBoxUp.classList.add('focused');
+              try { sBoxUp.focus(); } catch(se) {}
+            } else {
+              iptvState.focusedCol = -1;
+              clearIptvFocus();
+              focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+            }
+          } else {
+            // Already on search box -> go to nav
+            iptvState.focusedCol = -1;
+            clearIptvFocus();
+            focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+          }
+        } else if (iptvState.focusedCol === 2) {
+          // Column 2 Preview & EPG
+          if (iptvState.focusedCol2Index > 2) {
+            focusIptvPreview(iptvState.focusedCol2Index - 1);
+          } else if (iptvState.focusedCol2Index === 2) {
+            focusIptvPreview(0); // From first EPG item to Play button
+          } else {
+            // From Play/Fav button go to top nav
+            iptvState.focusedCol = -1;
+            clearIptvFocus();
+            focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+          }
+        }
+        e.preventDefault();
+        break;
+
+      case 40: // Down
+        if (iptvState.focusedCol === 0) {
+          // Categories & Playlists
+          var navItems = iptvState.navItems || [];
+          var maxIdx = navItems.length > 0 ? (navItems.length - 1) : (cats.length - 1);
+          if (iptvState.focusedCat < maxIdx) {
+            iptvState.focusedCat++;
+            focusIptvCategory(iptvState.focusedCat);
+          }
+        } else if (iptvState.focusedCol === 1) {
+          // Channels
+          if (iptvState.focusedCh < 0) {
+            // Move down from search box to channel 0
+            var sBoxDown = document.getElementById('iptv-search-box');
+            if (sBoxDown) sBoxDown.classList.remove('focused');
+            iptvState.focusedCh = 0;
+            focusIptvChannel(0);
+          } else if (iptvState.focusedCh < channels.length - 1) {
+            iptvState.focusedCh++;
+            focusIptvChannel(iptvState.focusedCh);
+          }
+        } else if (iptvState.focusedCol === 2) {
+          // Column 2 Preview & EPG
+          var epgListCount = document.querySelectorAll('#iptv-epg-schedule .iptv-epg-item').length;
+          if (iptvState.focusedCol2Index < 2) {
+            // From Play/Fav down to first EPG item (index 2) if exists
+            if (epgListCount > 0) {
+              focusIptvPreview(2);
+            }
+          } else {
+            var currentEpgSubIdx = iptvState.focusedCol2Index - 2;
+            if (currentEpgSubIdx < epgListCount - 1) {
+              focusIptvPreview(iptvState.focusedCol2Index + 1);
+            }
+          }
+        }
+        e.preventDefault();
+        break;
+
+      case 13: // Enter — play channel or select playlist/category
+      case 29443:
+      case 65385:
+        if (iptvState.focusedCol === 0) {
+          onCategoryColumnItemSelect(iptvState.focusedCat);
+        } else if (iptvState.focusedCol === 1) {
+          if (iptvState.focusedCh === -1) {
+            openIptvOsk();
+          } else if (channels[iptvState.focusedCh]) {
+            // Short press playback is handled by onKeyUp; if invoked via click, play channel
+            playChannel(channels[iptvState.focusedCh]);
+          }
+        } else if (iptvState.focusedCol === 2) {
+          if (iptvState.focusedCol2Index === 1 && iptvState.currentChannel) {
+            toggleFavorite(iptvState.currentChannel.id);
+          } else if (iptvState.focusedCol2Index === 0 && iptvState.currentChannel) {
+            playChannel(iptvState.currentChannel);
+          } else if (iptvState.focusedCol2Index >= 2 && iptvState.currentChannel) {
+            var epgIdx = iptvState.focusedCol2Index - 2;
+            var epgId = findEpgId(iptvState.currentChannel);
+            var progs = epgId && iptvState.epgData[epgId] ? iptvState.epgData[epgId] : null;
+            if (progs && progs[epgIdx]) {
+              var curProg = getCurrentProgram(progs);
+              if (progs[epgIdx] === curProg) {
+                playChannel(iptvState.currentChannel);
+              } else {
+                if (typeof toggleEpgReminder === 'function') {
+                  toggleEpgReminder(iptvState.currentChannel, progs[epgIdx]);
+                }
+              }
+            }
+          }
+        }
+        e.preventDefault();
+        break;
+
+      case 10009: // Back
+        if (iptvState.focusedCol === 2) {
+          iptvState.focusedCol = 1;
+          if (iptvState.focusedCh < 0) iptvState.focusedCh = 0;
+          focusIptvChannel(iptvState.focusedCh);
+        } else if (iptvState.focusedCol === 1) {
+          if (iptvState.focusedCh === -1) {
+            var sBoxBack = document.getElementById('iptv-search-box');
+            if (sBoxBack) sBoxBack.classList.remove('focused');
+          }
+          iptvState.focusedCol = 0;
+          focusIptvCategory(iptvState.focusedCat || 0);
+        } else {
+          if (typeof stopPreview === 'function') stopPreview();
+          iptvState.focusedCol = -1;
+          clearIptvFocus();
+          focusNav(state.focusedNav !== undefined && state.focusedNav !== null ? state.focusedNav : 4);
+        }
+        e.preventDefault();
+        break;
+    }
+  }
+
+  function focusIptvChannel(index) {
+    iptvState.focusedCol = 1;
+    var channels = getFilteredChannels();
+    if (!channels || channels.length === 0) {
+      focusIptvCategory(iptvState.focusedCat || 0);
+      return;
+    }
+    if (index < 0) index = 0;
+    if (index >= channels.length) index = channels.length - 1;
+    iptvState.focusedCh = index;
+
+    if (index >= iptvRenderLimit - 15 && iptvRenderLimit < channels.length) {
+      iptvRenderLimit = Math.min(channels.length, iptvRenderLimit + 60);
+      renderChannels(true);
+    }
+    var items = document.querySelectorAll('#iptv-channels .iptv-ch-item');
+    if (items.length === 0) {
+      renderChannels();
+      items = document.querySelectorAll('#iptv-channels .iptv-ch-item');
+    }
+    if (items.length > 0) {
+      if (index >= items.length) index = items.length - 1;
+      clearIptvFocus();
+      clearNavFocus();
+      items[index].classList.add('focused');
+      try { items[index].focus(); } catch(e) {}
+      items[index].scrollIntoView(false);
+      if (channels[index]) updatePreview(channels[index]);
+    }
+  }
+
+  function focusIptvCategory(index) {
+    iptvState.focusedCol = 0;
+    var items = document.querySelectorAll('#iptv-cat-list .iptv-pl-item, #iptv-cat-list .iptv-cat-item');
+    if (items.length === 0) {
+      renderCategories();
+      items = document.querySelectorAll('#iptv-cat-list .iptv-pl-item, #iptv-cat-list .iptv-cat-item');
+    }
+    if (items.length > 0) {
+      index = Math.max(0, Math.min(index, items.length - 1));
+      iptvState.focusedCat = index;
+      clearIptvFocus();
+      clearNavFocus();
+      items[index].classList.add('focused');
+      try { items[index].focus(); } catch(e) {}
+      items[index].scrollIntoView(false);
+    }
+  }
+
+  function focusIptvPreview(idx) {
+    clearIptvFocus();
+    clearNavFocus();
+    iptvState.focusedCol = 2;
+    iptvState.focusedCol2Index = idx;
+    var pBtn = document.getElementById('iptv-btn-play');
+    var fBtn = document.getElementById('iptv-btn-fav');
+    var epgItems = document.querySelectorAll('#iptv-epg-schedule .iptv-epg-item');
+
+    if (idx === 0) {
+      if (pBtn) {
+        pBtn.classList.add('focused');
+        try { pBtn.focus(); } catch(e) {}
+      }
+    } else if (idx === 1) {
+      if (fBtn) {
+        fBtn.classList.add('focused');
+        try { fBtn.focus(); } catch(e) {}
+      }
+    } else {
+      var epgIdx = idx - 2;
+      if (epgItems && epgItems[epgIdx]) {
+        var el = epgItems[epgIdx];
+        el.classList.add('focused');
+        try { el.focus(); } catch(e) {}
+        try {
+          if (el.scrollIntoViewIfNeeded) {
+            el.scrollIntoViewIfNeeded(false);
+          } else {
+            el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }
+        } catch(se) {}
+      }
+    }
+  }
+
+  function clearIptvFocus() {
+    var sBox = document.getElementById('iptv-search-box');
+    if (sBox) sBox.classList.remove('focused');
+    document.querySelectorAll('.iptv-cat-item.focused, .iptv-ch-item.focused, .iptv-channel.focused, .iptv-action-btn.focused, .iptv-epg-item.focused').forEach(function(el) {
+      el.classList.remove('focused');
+    });
+  }
+
+  var previewDebounceTimer = null;
+  function updatePreview(ch) {
+    if (!ch) return;
+    if (state.section !== 'iptv') return;
+    iptvState.currentChannel = ch;
+    if (previewDebounceTimer) clearTimeout(previewDebounceTimer);
+    previewDebounceTimer = setTimeout(function() {
+      if (state.section !== 'iptv') return;
+      renderPreview();
+    }, 50);
+
+    if (previewPlayTimer) clearTimeout(previewPlayTimer);
+    previewPlayTimer = setTimeout(function() {
+      if (state.section !== 'iptv') return;
+      startPreview(ch);
+    }, 400);
+  }
+
+  function scrollIntoViewIfNeeded(el, container) {
+    if (!el) return;
+    if (!container) {
+      if ($detail && !$detail.classList.contains('hidden') && $detail.contains(el)) {
+        container = $detail;
+      } else {
+        container = document.getElementById('content') || document.body;
+      }
+    }
+    if (!container || !container.getBoundingClientRect) return;
+
+    var cRect = container.getBoundingClientRect();
+    var eRect = el.getBoundingClientRect();
+    var pad = 90;
+
+    if (eRect.top < cRect.top + pad) {
+      container.scrollTop += (eRect.top - (cRect.top + pad));
+    } else if (eRect.bottom > cRect.bottom - pad) {
+      container.scrollTop += (eRect.bottom - (cRect.bottom - pad));
+    }
+  }
+
+  function setDetailFocus(el) {
+    if (!el) return;
+    if (state._focusedDetailEl && state._focusedDetailEl !== el) {
+      state._focusedDetailEl.classList.remove('focused');
+    }
+    if ($detail) {
+      var cur = $detail.querySelector('.focused');
+      if (cur && cur !== el) cur.classList.remove('focused');
+    }
+    state._focusedDetailEl = el;
+    el.classList.add('focused');
+    try {
+      el.focus({ preventScroll: true });
+    } catch(e) {
+      try { el.focus(); } catch(e2) {}
+    }
+    scrollIntoViewIfNeeded(el, $detail);
+  }
+
+  function handleDetailKeys(code, e) {
+    if (!$detail) $detail = document.getElementById('detail');
+    if (!$detail) return;
+
+    var playBtn = document.getElementById('detail-play');
+    var trackBtn = document.getElementById('detail-track-btn');
+    var favBtn = document.getElementById('detail-fav-btn');
+    var activePane = state.detailTab === 'sources' ? '#sources-results' : (state.detailTab === 'episodes' ? '#episodes-results' : '#torrent-results');
+    var itemClass = state.detailTab === 'sources' ? '.source-item' : (state.detailTab === 'episodes' ? '.episode-card' : '.torrent-item');
+    var items = $detail ? $detail.querySelectorAll(activePane + ' ' + itemClass) : [];
+    var seasonBtns = $detail ? $detail.querySelectorAll('.season-btn') : [];
+    var tabs = $detail ? $detail.querySelectorAll('.detail-tab') : [];
+    var sortChips = $detail ? Array.prototype.slice.call($detail.querySelectorAll(activePane + ' .sort-chip')) : [];
+
+    var activeEl = document.activeElement;
+    var focused = (activeEl && $detail.contains(activeEl) && activeEl !== $detail) ? activeEl : $detail.querySelector('.focused');
+
+    // Auto-focus play button if nothing in detail has focus
+    if (!focused) {
+      if (playBtn) {
+        setDetailFocus(playBtn);
+        focused = playBtn;
+      }
+    }
+
+    var actionBtns = Array.prototype.slice.call(document.querySelectorAll('.detail-actions button'));
+    var actionIdx = actionBtns.indexOf(focused);
+    var isActionBtn = (actionIdx !== -1);
+    var isTab = focused && focused.classList.contains('detail-tab');
+    var isSeason = focused && focused.classList.contains('season-btn');
+    var sortChipIdx = sortChips.indexOf(focused);
+    var isSortChip = (sortChipIdx !== -1);
+    var isItem = focused && (focused.classList.contains('torrent-item') || focused.classList.contains('source-item') || focused.classList.contains('episode-card'));
+    var castItems = Array.prototype.slice.call($detail.querySelectorAll('.detail-actor-card, .detail-cast-item'));
+    var allCastBtn = document.getElementById('detail-all-cast-btn');
+    var isAllCast = (focused === allCastBtn);
+    var castIdx = castItems.indexOf(focused);
+    var isCast = (castIdx !== -1);
+    var detailBackBtn = document.getElementById('detail-back-btn');
+    var isDetailBack = (focused === detailBackBtn);
+
+    var showMoreBtn = $detail ? $detail.querySelector('#torrent-show-more-btn') : null;
+    var isShowMore = (focused === showMoreBtn);
+    var colCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-collection-items .card')) : [];
+    var colIdx = colCards.indexOf(focused);
+    var isCol = (colIdx !== -1);
+    var recCards = $detail ? Array.prototype.slice.call($detail.querySelectorAll('#detail-rec-items .card')) : [];
+    var recIdx = recCards.indexOf(focused);
+    var isRec = (recIdx !== -1);
+
+    switch (code) {
+      case 10009: // Back
+      case 27:
+        var tModal = document.getElementById('trailer-modal');
+        if (tModal) {
+          tModal.remove();
+          var tBtn = document.getElementById('detail-trailer-btn');
+          if (tBtn) setDetailFocus(tBtn);
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if (state.modalCloseTimestamp && (Date.now() - state.modalCloseTimestamp < 700)) {
+          if (e && e.preventDefault) e.preventDefault();
+          return;
+        }
+        if ($detail) $detail.classList.add('hidden');
+        setTimeout(function() { var c = document.querySelector('.card.focused'); if (c) c.focus(); }, 100);
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+
+      case 37: // Left
+        if (isAllCast) {
+          if (detailBackBtn) {
+            setDetailFocus(detailBackBtn);
+          } else {
+            var targetL = actionBtns[actionBtns.length - 1] || actionBtns[0] || playBtn;
+            if (targetL) setDetailFocus(targetL);
+          }
+        } else if (isCast) {
+          if (castIdx % 4 === 0) {
+            var targetLeft = actionBtns[actionBtns.length - 1] || actionBtns[0] || playBtn || (tabs.length > 0 ? tabs[0] : null);
+            if (targetLeft) setDetailFocus(targetLeft);
+          } else if (castIdx > 0) {
+            setDetailFocus(castItems[castIdx - 1]);
+          }
+        } else if (isActionBtn) {
+          if (actionIdx > 0) setDetailFocus(actionBtns[actionIdx - 1]);
+        } else if (isTab) {
+          var prevTab = focused.previousElementSibling;
+          if (prevTab && prevTab.classList.contains('detail-tab')) {
+            prevTab.click();
+            setDetailFocus(prevTab);
+          }
+        } else if (isSeason) {
+          var prevSeason = focused.previousElementSibling;
+          if (prevSeason && prevSeason.classList.contains('season-btn')) {
+            setDetailFocus(prevSeason);
+            try { prevSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
+          }
+        } else if (isRec) {
+          if (recIdx > 0) {
+            setDetailFocus(recCards[recIdx - 1]);
+            try { recCards[recIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isCol) {
+          if (colIdx > 0) {
+            setDetailFocus(colCards[colIdx - 1]);
+            try { colCards[colIdx - 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isSortChip) {
+          if (sortChipIdx > 0) setDetailFocus(sortChips[sortChipIdx - 1]);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+
+      case 39: // Right
+        if (isDetailBack) {
+          if (allCastBtn) setDetailFocus(allCastBtn);
+          else if (castItems.length > 0) setDetailFocus(castItems[0]);
+        } else if (isActionBtn) {
+          if (actionIdx < actionBtns.length - 1) {
+            setDetailFocus(actionBtns[actionIdx + 1]);
+          } else if (castItems.length > 0) {
+            setDetailFocus(castItems[0]);
+          }
+        } else if (isCast) {
+          if ((castIdx % 4 < 3) && (castIdx + 1 < castItems.length)) {
+            setDetailFocus(castItems[castIdx + 1]);
+          }
+        } else if (isTab) {
+          var nextTab = focused.nextElementSibling;
+          if (nextTab && nextTab.classList.contains('detail-tab')) {
+            nextTab.click();
+            setDetailFocus(nextTab);
+          }
+        } else if (isSeason) {
+          var nextSeason = focused.nextElementSibling;
+          if (nextSeason && nextSeason.classList.contains('season-btn')) {
+            setDetailFocus(nextSeason);
+            try { nextSeason.scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(se) {}
+          }
+        } else if (isRec) {
+          if (recIdx < recCards.length - 1) {
+            setDetailFocus(recCards[recIdx + 1]);
+            try { recCards[recIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isCol) {
+          if (colIdx < colCards.length - 1) {
+            setDetailFocus(colCards[colIdx + 1]);
+            try { colCards[colIdx + 1].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isSortChip) {
+          if (sortChipIdx < sortChips.length - 1) setDetailFocus(sortChips[sortChipIdx + 1]);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+
+      case 38: // Up
+        if (isActionBtn) {
+          if (detailBackBtn) setDetailFocus(detailBackBtn);
+        } else if (isCast) {
+          if (castIdx >= 4) {
+            setDetailFocus(castItems[castIdx - 4]);
+          } else if (allCastBtn) {
+            setDetailFocus(allCastBtn);
+          } else {
+            var backBtn = document.getElementById('detail-back-btn');
+            if (backBtn) setDetailFocus(backBtn);
+          }
+        } else if (isAllCast) {
+          var bBtn = document.getElementById('detail-back-btn');
+          if (bBtn) setDetailFocus(bBtn);
+        } else if (isRec) {
+          if (colCards.length > 0) {
+            var targetColIdx = Math.min(recIdx, colCards.length - 1);
+            setDetailFocus(colCards[targetColIdx]);
+            try { colCards[targetColIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (items.length > 0) {
+            setDetailFocus(items[items.length - 1]);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (seasonBtns.length > 0) {
+            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
+            setDetailFocus(activeSeason);
+          } else if (tabs.length > 0) {
+            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
+            setDetailFocus(curTab);
+          }
+        } else if (isCol) {
+          if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (items.length > 0) {
+            setDetailFocus(items[items.length - 1]);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (seasonBtns.length > 0) {
+            var activeSeason = $detail.querySelector('.season-btn.active') || seasonBtns[0];
+            setDetailFocus(activeSeason);
+          } else if (tabs.length > 0) {
+            var curTab = $detail.querySelector('.detail-tab.active') || tabs[0];
+            setDetailFocus(curTab);
+          }
+        } else if (isShowMore) {
+          if (items.length > 0) {
+            var targetIdx = state._expandedTorrents ? (items.length - 1) : Math.min(4, items.length - 1);
+            setDetailFocus(items[targetIdx]);
+          } else if (tabs.length > 0) {
+            setDetailFocus(tabs[0]);
+          }
+        } else if (isSortChip) {
+          var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
+          if (activeSeason) {
+            setDetailFocus(activeSeason);
+          } else {
+            var curTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+            if (curTab) setDetailFocus(curTab);
+          }
+        } else if (isItem) {
+          var targetClass = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
+          var prevItem = focused.previousElementSibling;
+          while (prevItem && !prevItem.classList.contains(targetClass)) {
+            prevItem = prevItem.previousElementSibling;
+          }
+          if (prevItem) {
+            setDetailFocus(prevItem);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else {
+            var activeSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
+            if (activeSeason) {
+              setDetailFocus(activeSeason);
+            } else {
+              var curTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+              if (curTab) setDetailFocus(curTab);
+            }
+          }
+        } else if (isSeason) {
+          var cTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+          if (cTab) setDetailFocus(cTab);
+        } else if (isTab) {
+          var actBtn = document.getElementById('detail-play') || (actionBtns.length > 0 ? actionBtns[0] : null);
+          if (actBtn) setDetailFocus(actBtn);
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+
+      case 40: // Down
+        if (isDetailBack) {
+          if (playBtn) setDetailFocus(playBtn);
+          else if (actionBtns.length > 0) setDetailFocus(actionBtns[0]);
+        } else if (isAllCast) {
+          if (castItems.length > 0) setDetailFocus(castItems[0]);
+        } else if (isCast) {
+          if (castIdx + 4 < castItems.length) {
+            setDetailFocus(castItems[castIdx + 4]);
+          } else {
+            var firstT = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+            if (firstT) setDetailFocus(firstT);
+          }
+        } else if (isActionBtn) {
+          var firstTab = $detail.querySelector('.detail-tab.active') || (tabs.length > 0 ? tabs[0] : null);
+          if (firstTab) setDetailFocus(firstTab);
+        } else if (isTab) {
+          var actSeason = $detail.querySelector('.season-btn.active') || (seasonBtns.length > 0 ? seasonBtns[0] : null);
+          if (actSeason) {
+            setDetailFocus(actSeason);
+          } else if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (items.length > 0) {
+            setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isSeason) {
+          if (sortChips.length > 0) {
+            var actChip = $detail.querySelector(activePane + ' .sort-chip.active') || sortChips[0];
+            setDetailFocus(actChip);
+          } else if (items.length > 0) {
+            setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isSortChip) {
+          if (items.length > 0) {
+            setDetailFocus(items[0]);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isItem) {
+          var targetClassDown = (state.detailTab === 'episodes' ? 'episode-card' : (state.detailTab === 'sources' ? 'source-item' : 'torrent-item'));
+          var nextItem = focused.nextElementSibling;
+          while (nextItem && !nextItem.classList.contains(targetClassDown)) {
+            nextItem = nextItem.nextElementSibling;
+          }
+          if (nextItem && nextItem.offsetParent !== null) {
+            setDetailFocus(nextItem);
+          } else if (showMoreBtn && showMoreBtn.offsetParent !== null) {
+            setDetailFocus(showMoreBtn);
+          } else if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isShowMore) {
+          if (colCards.length > 0) {
+            setDetailFocus(colCards[0]);
+            try { colCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          } else if (recCards.length > 0) {
+            setDetailFocus(recCards[0]);
+            try { recCards[0].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isCol) {
+          if (recCards.length > 0) {
+            var targetRecIdx = Math.min(colIdx, recCards.length - 1);
+            setDetailFocus(recCards[targetRecIdx]);
+            try { recCards[targetRecIdx].scrollIntoView({ inline: 'center', behavior: 'smooth' }); } catch(sc) {}
+          }
+        } else if (isRec) {
+          // Bottom reached
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+
+      case 13: // Enter
+      case 29443:
+      case 65385:
+      case 65376:
+        if (focused) {
+          if (isShowMore) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isCol) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isRec) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isDetailBack) {
+            hideDetail();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isAllCast) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isCast) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (isSortChip) {
+            focused.click();
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          }
+          if (focused.id === 'detail-play') {
+            handleWatchButtonClick(state.detail);
+            if (e && e.preventDefault) e.preventDefault();
+            return;
+          } else if (focused.classList.contains('season-btn')) {
+            focused.click();
+          } else if (focused.classList.contains('episode-card')) {
+            focused.click();
+          } else if (focused.classList.contains('torrent-item')) {
+            var magnet = focused.getAttribute('data-magnet');
+            var torrentTitle = focused.getAttribute('data-title');
+            if (magnet) openTorrent(magnet, torrentTitle);
+          } else if (focused.classList.contains('source-item')) {
+            var sProvider = focused.getAttribute('data-provider');
+            var sId = focused.getAttribute('data-id');
+            var sName = state.detail ? state.detail.name : '';
+            var hlsUrl = '/api/online/hls/' + sProvider + '/' + encodeURIComponent(sId);
+            var sIdNum2 = (state.detail && state.detail.id) || 0;
+            var sPoster2 = (state.detail && state.detail.poster) || '';
+            var sType2 = (state.detail && state.detail.type) || 'movie';
+            openPlayer('?url=' + encodeURIComponent(hlsUrl) + '&title=' + encodeURIComponent(sName) + '&id=' + sIdNum2 + '&poster=' + encodeURIComponent(sPoster2) + '&type=' + encodeURIComponent(sType2));
+          } else if (focused.classList.contains('detail-tab')) {
+            var tName = focused.getAttribute('data-tab');
+            state.detailTab = tName;
+            switchDetailTab(tName);
+          } else {
+            try { focused.click(); } catch(ex) {}
+          }
+        }
+        if (e && e.preventDefault) e.preventDefault();
+        break;
+    }
+  }
+
+  // Scroll helper — scroll element into view smoothly without jitter
+  function scrollToCenter(el) {
+    scrollIntoViewIfNeeded(el);
+  }
+
+  function focusDetailItem(list, fromIndex, toIndex) {
+    setDetailFocus(list[toIndex]);
+  }
+
+  function clearAllFocus() {
+    clearCardFocus();
+    var focused = document.querySelectorAll('.focused');
+    for (var fi = 0; fi < focused.length; fi++) {
+      focused[fi].classList.remove('focused');
+      try { focused[fi].blur(); } catch(e) {}
+    }
+  }
+
+  // Nav focus
+  function focusNav(index) {
+    var btns = document.querySelectorAll('.nav-btn');
+    if (index < 0 || index >= btns.length) return;
+    clearAllFocus();
+    state.focusedNav = index;
+    state.focusedCard = null;
+    btns[index].classList.add('focused');
+    btns[index].focus();
+    var sec = btns[index].getAttribute('data-section');
+    if (sec && sec !== 'switch-profile') {
+      switchSection(sec);
+    }
+  }
+
+  function focusNavDelta(delta) {
+    var btns = document.querySelectorAll('.nav-btn');
+    var newIndex = state.focusedNav + delta;
+    if (newIndex < 0) newIndex = 0;
+    if (newIndex >= btns.length) newIndex = btns.length - 1;
+    focusNav(newIndex);
+  }
+
+  function clearNavFocus() {
+    document.querySelectorAll('.nav-btn').forEach(function(b) {
+      b.classList.remove('focused');
+      try { b.blur(); } catch(e) {}
+    });
+  }
+
+  // Card focus
+  function focusCard(index) {
+    var cards = getVisibleCards();
+    if (cards.length === 0) return;
+    clearCardFocus();
+    index = Math.max(0, Math.min(index, cards.length - 1));
+    state.focusedCard = index;
+    state._currentFocusedCard = cards[index];
+    cards[index].classList.add('focused');
+    scrollToCard(cards[index]);
+    try { cards[index].focus({ preventScroll: true }); } catch(e) { try { cards[index].focus(); } catch(e2) {} }
+    if (typeof startCardTitleMarquee === 'function') {
+      startCardTitleMarquee(cards[index]);
+    }
+    // Set home background to movie backdrop (debounced)
+    updateHomeBg(cards[index]);
+  }
+
+  var homeBgTimer = null;
+  function updateHomeBg(cardEl) {
+    if (homeBgTimer) clearTimeout(homeBgTimer);
+    homeBgTimer = setTimeout(function() {
+      var bg = document.getElementById('home-bg');
+      if (!bg || !cardEl) return;
+      var img = cardEl.querySelector('img');
+      if (img && img.src) {
+        bg.style.backgroundImage = 'url(' + img.src + ')';
+        bg.classList.add('visible');
+      }
+    }, 250);
+  }
+
+  function clearHomeBg() {
+    var bg = document.getElementById('home-bg');
+    if (bg) bg.classList.remove('visible');
+  }
+
+  function scrollToCard(el) {
+    if (!el) return;
+    var rowItems = el.parentElement;
+    if (rowItems && (rowItems.classList.contains('row-items') || rowItems.classList.contains('iptv-channels-row'))) {
+      var elLeft = el.offsetLeft;
+      var elW = el.offsetWidth;
+      var parentW = rowItems.clientWidth;
+      rowItems.scrollLeft = elLeft - (parentW / 2) + (elW / 2);
+    }
+    var content = document.getElementById('content');
+    if (content) {
+      var elRect = el.getBoundingClientRect();
+      var contentRect = content.getBoundingClientRect();
+      if (elRect.top < contentRect.top + 60) {
+        content.scrollTop -= (contentRect.top + 60 - elRect.top);
+      } else if (elRect.bottom > contentRect.bottom - 20) {
+        content.scrollTop += (elRect.bottom - contentRect.bottom + 20);
+      }
+    }
+  }
+
+  var SHELF_ROW_MAP = {
+    'continueWatching': 'row-continue',
+    'top10Movies': 'row-top10-movies',
+    'netflixMovies': 'row-netflix-movies',
+    'nowPlaying': 'row-now-playing',
+    'top10Tv': 'row-top10-tv',
+    'netflixTv': 'row-netflix-tv',
+    'topRated': 'row-top-rated',
+    'action': 'row-action',
+    'banner': 'row-banner',
+    'comedy': 'row-comedy',
+    'scifi': 'row-scifi',
+    'family': 'row-family',
+    'popular': 'row-popular',
+    'popularMovies': 'row-popular',
+    'tv': 'row-tv',
+    'popularTv': 'row-tv',
+    'trending': 'row-trending',
+    'recommendedHistory': 'row-recommended-history'
+  };
+
+  function applyHomeShelvesLayout(shelves) {
+    var sec = document.getElementById('sec-home');
+    if (!sec || !Array.isArray(shelves)) return;
+
+    var rowElements = [];
+    var processedIds = {};
+
+    for (var i = 0; i < shelves.length; i++) {
+      var item = shelves[i];
+      var rowId = SHELF_ROW_MAP[item.id] || item.id;
+      var rowEl = document.getElementById(rowId);
+      if (rowEl && rowEl.parentNode === sec && !processedIds[rowId]) {
+        processedIds[rowId] = true;
+        if (item.enabled === false) {
+          rowEl.style.display = 'none';
+        } else {
+          rowEl.style.display = '';
+        }
+        rowElements.push(rowEl);
+      }
+    }
+
+    var allRows = Array.prototype.slice.call(sec.querySelectorAll('.row'));
+    for (var j = 0; j < allRows.length; j++) {
+      if (!processedIds[allRows[j].id]) {
+        rowElements.push(allRows[j]);
+      }
+    }
+
+    for (var k = 0; k < rowElements.length; k++) {
+      sec.appendChild(rowElements[k]);
+    }
+  }
+  window.applyHomeShelvesLayout = applyHomeShelvesLayout;
+
+  function loadAndApplyHomeShelves(callback) {
+    var local = null;
+    try { local = JSON.parse(localStorage.getItem('lumiere_home_shelves') || 'null'); } catch(e) {}
+    if (local && Array.isArray(local) && local.length > 0) {
+      applyHomeShelvesLayout(local);
+    }
+    apiFetch('/api/user/preferences', function(err, data) {
+      if (data && data.preferences && Array.isArray(data.preferences.homeShelves) && data.preferences.homeShelves.length > 0) {
+        try {
+          localStorage.setItem('lumiere_home_shelves', JSON.stringify(data.preferences.homeShelves));
+        } catch(se) {}
+        applyHomeShelvesLayout(data.preferences.homeShelves);
+      }
+      if (typeof callback === 'function') callback(null, data);
+    });
+  }
+  window.loadAndApplyHomeShelves = loadAndApplyHomeShelves;
+
+  function getVisibleRows() {
+    var sec = document.getElementById('sec-' + state.section);
+    if (!sec) return [];
+    var rows = Array.prototype.slice.call(sec.querySelectorAll('.row'));
+    return rows.filter(function(r) {
+      if (r.style.display === 'none' || r.classList.contains('hidden')) return false;
+      var cards = r.querySelectorAll('.card');
+      return cards.length > 0;
+    });
+  }
+
+  function focusCardDelta(delta) {
+    var activeCard = state._currentFocusedCard || document.querySelector('.card.focused');
+    if (activeCard && activeCard.parentElement && activeCard.parentElement.classList.contains('row-items')) {
+      var target = delta > 0 ? activeCard.nextElementSibling : activeCard.previousElementSibling;
+      while (target && !target.classList.contains('card')) {
+        target = delta > 0 ? target.nextElementSibling : target.previousElementSibling;
+      }
+      if (target) {
+        clearCardFocus();
+        state._currentFocusedCard = target;
+        target.classList.add('focused');
+        scrollToCard(target);
+        try { target.focus({ preventScroll: true }); } catch(e) { try { target.focus(); } catch(e2) {} }
+        if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(target);
+        updateHomeBg(target);
+        return;
+      }
+    }
+
+    var cards = getVisibleCards();
+    if (cards.length === 0) return;
+    if (state.focusedCard === null) {
+      focusCard(0);
+      return;
+    }
+    var currentCard = cards[state.focusedCard];
+    if (currentCard) {
+      var currentRow = currentCard.closest('.row');
+      if (currentRow) {
+        var rowCards = Array.prototype.slice.call(currentRow.querySelectorAll('.card'));
+        var idxInRow = rowCards.indexOf(currentCard);
+        if (idxInRow >= 0) {
+          var targetIdxInRow = idxInRow + delta;
+          if (targetIdxInRow < 0 || targetIdxInRow >= rowCards.length) {
+            return;
+          }
+          var nextGlobalIdx = cards.indexOf(rowCards[targetIdxInRow]);
+          if (nextGlobalIdx >= 0) {
+            focusCard(nextGlobalIdx);
+            return;
+          }
+        }
+      }
+    }
+    var newIndex = state.focusedCard + delta;
+    newIndex = Math.max(0, Math.min(newIndex, cards.length - 1));
+    focusCard(newIndex);
+  }
+
+  function focusCardUp() {
+    var cards = getVisibleCards();
+    if (cards.length === 0 || state.focusedCard === null) return false;
+    var current = cards[state.focusedCard];
+    if (!current) return false;
+
+    var currentRow = current.closest('.row');
+    if (currentRow) {
+      var tabGroup = currentRow.querySelector('.shelf-tab-group');
+      if (tabGroup) {
+        var activeTab = tabGroup.querySelector('.shelf-tab.active') || tabGroup.querySelector('.shelf-tab');
+        if (activeTab) {
+          clearCardFocus();
+          activeTab.classList.add('focused');
+          try { activeTab.focus(); } catch(err) {}
+          return true;
+        }
+      }
+      var rows = getVisibleRows();
+      var curRowIdx = rows.indexOf(currentRow);
+      if (curRowIdx > 0) {
+        var prevRow = rows[curRowIdx - 1];
+        var prevCards = Array.prototype.slice.call(prevRow.querySelectorAll('.card'));
+        if (prevCards.length > 0) {
+          var curRect = current.getBoundingClientRect();
+          var curCenterX = curRect.left + curRect.width / 2;
+          var bestCard = prevCards[0];
+          var bestDist = Infinity;
+          for (var i = 0; i < prevCards.length; i++) {
+            var cRect = prevCards[i].getBoundingClientRect();
+            var cCenterX = cRect.left + cRect.width / 2;
+            var dist = Math.abs(cCenterX - curCenterX);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestCard = prevCards[i];
+            }
+          }
+          var prevGlobalIdx = cards.indexOf(bestCard);
+          if (prevGlobalIdx >= 0) {
+            clearCardFocus();
+            state.focusedCard = prevGlobalIdx;
+            state._currentFocusedCard = bestCard;
+            bestCard.classList.add('focused');
+            scrollToCard(bestCard);
+            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+            updateHomeBg(bestCard);
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
+    // Grid fallback (e.g. search / collections)
+    var currentRect = current.getBoundingClientRect();
+    var curCenterX2 = currentRect.left + currentRect.width / 2;
+    var candidates = [];
+    for (var j = 0; j < cards.length; j++) {
+      if (j === state.focusedCard) continue;
+      var r = cards[j].getBoundingClientRect();
+      if (r.bottom <= currentRect.top + 15) {
+        candidates.push({ card: cards[j], index: j, rect: r });
+      }
+    }
+    if (candidates.length === 0) return false;
+
+    var maxBottom = -Infinity;
+    for (var k = 0; k < candidates.length; k++) {
+      if (candidates[k].rect.bottom > maxBottom) maxBottom = candidates[k].rect.bottom;
+    }
+    var rowCandidates = candidates.filter(function(item) {
+      return Math.abs(item.rect.bottom - maxBottom) < 40;
+    });
+    var bestItem = rowCandidates[0];
+    var bestH = Infinity;
+    for (var m = 0; m < rowCandidates.length; m++) {
+      var cX = rowCandidates[m].rect.left + rowCandidates[m].rect.width / 2;
+      var dX = Math.abs(cX - curCenterX2);
+      if (dX < bestH) {
+        bestH = dX;
+        bestItem = rowCandidates[m];
+      }
+    }
+    if (bestItem) {
+      clearCardFocus();
+      state.focusedCard = bestItem.index;
+      cards[bestItem.index].classList.add('focused');
+      scrollToCard(cards[bestItem.index]);
+      cards[bestItem.index].focus();
+      if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(cards[bestItem.index]);
+      return true;
+    }
+    return false;
+  }
+
+  function focusCardDown() {
+    var cards = getVisibleCards();
+    if (cards.length === 0 || state.focusedCard === null) return;
+    var current = cards[state.focusedCard];
+    if (!current) return;
+
+    var currentRow = current.closest('.row');
+    if (currentRow) {
+      var rows = getVisibleRows();
+      var curRowIdx = rows.indexOf(currentRow);
+      if (curRowIdx >= 0 && curRowIdx < rows.length - 1) {
+        var nextRow = rows[curRowIdx + 1];
+        var nextCards = Array.prototype.slice.call(nextRow.querySelectorAll('.card'));
+        if (nextCards.length > 0) {
+          var curRect = current.getBoundingClientRect();
+          var curCenterX = curRect.left + curRect.width / 2;
+          var bestCard = nextCards[0];
+          var bestDist = Infinity;
+          for (var i = 0; i < nextCards.length; i++) {
+            var cRect = nextCards[i].getBoundingClientRect();
+            var cCenterX = cRect.left + cRect.width / 2;
+            var dist = Math.abs(cCenterX - curCenterX);
+            if (dist < bestDist) {
+              bestDist = dist;
+              bestCard = nextCards[i];
+            }
+          }
+          var nextGlobalIdx = cards.indexOf(bestCard);
+          if (nextGlobalIdx >= 0) {
+            clearCardFocus();
+            state.focusedCard = nextGlobalIdx;
+            state._currentFocusedCard = bestCard;
+            bestCard.classList.add('focused');
+            scrollToCard(bestCard);
+            try { bestCard.focus({ preventScroll: true }); } catch(e) { try { bestCard.focus(); } catch(e2) {} }
+            if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(bestCard);
+            updateHomeBg(bestCard);
+            return;
+          }
+        }
+      }
+      return;
+    }
+
+    // Grid fallback
+    var currentRect = current.getBoundingClientRect();
+    var curCenterX2 = currentRect.left + currentRect.width / 2;
+    var candidates = [];
+    for (var j = 0; j < cards.length; j++) {
+      if (j === state.focusedCard) continue;
+      var r = cards[j].getBoundingClientRect();
+      if (r.top >= currentRect.bottom - 15) {
+        candidates.push({ card: cards[j], index: j, rect: r });
+      }
+    }
+    if (candidates.length === 0) return;
+
+    var minTop = Infinity;
+    for (var k = 0; k < candidates.length; k++) {
+      if (candidates[k].rect.top < minTop) minTop = candidates[k].rect.top;
+    }
+    var rowCandidates = candidates.filter(function(item) {
+      return Math.abs(item.rect.top - minTop) < 40;
+    });
+    var bestItem = rowCandidates[0];
+    var bestH = Infinity;
+    for (var m = 0; m < rowCandidates.length; m++) {
+      var cX = rowCandidates[m].rect.left + rowCandidates[m].rect.width / 2;
+      var dX = Math.abs(cX - curCenterX2);
+      if (dX < bestH) {
+        bestH = dX;
+        bestItem = rowCandidates[m];
+      }
+    }
+    if (bestItem) {
+      clearCardFocus();
+      state.focusedCard = bestItem.index;
+      cards[bestItem.index].classList.add('focused');
+      scrollToCard(cards[bestItem.index]);
+      cards[bestItem.index].focus();
+      if (typeof startCardTitleMarquee === 'function') startCardTitleMarquee(cards[bestItem.index]);
+    }
+  }
+
+  function clearCardFocus() {
+    if (state._currentFocusedCard) {
+      state._currentFocusedCard.classList.remove('focused');
+      if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
+      try { state._currentFocusedCard.blur(); } catch(e) {}
+      state._currentFocusedCard = null;
+    }
+    var f = document.querySelector('.card.focused, .iptv-channel.focused');
+    if (f) {
+      f.classList.remove('focused');
+      if (typeof stopCardTitleMarquee === 'function' && f.classList.contains('card')) stopCardTitleMarquee(f);
+      try { f.blur(); } catch(e) {}
+    }
+    clearHomeBg();
+  }
+
+  function getVisibleCards() {
+    var nodes = document.querySelectorAll('#sec-' + state.section + ' .card, #sec-' + state.section + ' .iptv-channel');
+    var arr = [];
+    for (var i = 0; i < nodes.length; i++) arr.push(nodes[i]);
+    return arr;
+  }
+
+  function selectFocused() {
+    var activeEl = document.activeElement;
+    var focused = document.querySelector('.focused');
+    var target = (activeEl && (activeEl.classList.contains('focused') || activeEl.classList.contains('card') || activeEl.classList.contains('iptv-channel') || activeEl.classList.contains('setting-btn') || activeEl.classList.contains('profile-action-btn'))) ? activeEl : focused;
+
+    if (!target) return;
+
+    if (target.classList.contains('profile-action-btn')) {
+      target.click();
+      return;
+    }
+
+    // 1. If it's a card
+    if (target.classList.contains('card')) {
+      if (state.section === 'search' && oskState && oskState.query && oskState.query.trim().length >= 2) {
+        saveRecentSearch(oskState.query.trim());
+      }
+      if (target._collectionData) {
+        openTvCollection(target._collectionData);
+        return;
+      }
+      if (target._continueItem) {
+        target.click();
+        return;
+      }
+      if (target._downloadItem) {
+        target.click();
+        return;
+      }
+      if (target._titleData) {
+        showDetail(target._titleData);
+        return;
+      }
+      var cardId = target.getAttribute('data-id');
+      if (cardId) {
+        var cardTitle = (target.querySelector('.card-title') ? target.querySelector('.card-title').textContent : '').trim();
+        var cardImg = target.querySelector('.card-img');
+        var cardPoster = cardImg ? cardImg.src : '';
+        showDetail({ id: parseInt(cardId), name: cardTitle, poster: cardPoster, type: state.section === 'tv' ? 'tv' : 'movie' });
+        return;
+      }
+    }
+
+    // 2. If it's an IPTV channel
+    if (target.classList.contains('iptv-channel') || target.classList.contains('iptv-ch-item')) {
+      var chId = target.getAttribute('data-chid');
+      var ch = findChannelById(chId);
+      if (ch) {
+        playChannel(ch);
+        return;
+      }
+    }
+
+    // 3. Fallback click
+    try { target.click(); } catch(ex) {}
+    try {
+      var evt = document.createEvent('MouseEvents');
+      evt.initMouseEvent('click', true, true, window, 1, 0, 0, 0, 0, false, false, false, false, 0, null);
+      target.dispatchEvent(evt);
+    } catch(ex) {}
+  }
+
+  // ========== API Helpers ==========
+  function apiFetch(path, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + path, true);
+    xhr.timeout = 10000;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status === 200) {
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback(e, null); }
+      } else { callback(new Error('HTTP ' + xhr.status), null); }
+    };
+    xhr.onerror = function() { callback(new Error('Network error'), null); };
+    xhr.ontimeout = function() { callback(new Error('Timeout'), null); };
+    xhr.send();
+  }
+
+  function apiPost(path, body, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', API + path, true);
+    xhr.timeout = (path.indexOf('/api/iptv') === 0) ? 35000 : 12000;
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback(e, null); }
+      } else { callback(new Error('HTTP ' + xhr.status), null); }
+    };
+    xhr.onerror = function() { callback(new Error('Network error'), null); };
+    xhr.ontimeout = function() { callback(new Error('Timeout'), null); };
+    xhr.send(JSON.stringify(body));
+  }
+
+  function apiPut(path, body, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('PUT', API + path, true);
+    xhr.timeout = 12000;
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback(null, { success: true }); }
+      } else { callback(new Error('HTTP ' + xhr.status), null); }
+    };
+    xhr.onerror = function() { callback(new Error('Network error'), null); };
+    xhr.ontimeout = function() { callback(new Error('Timeout'), null); };
+    xhr.send(JSON.stringify(body || {}));
+  }
+
+  function apiDelete(path, callback) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('DELETE', API + path, true);
+    xhr.timeout = 12000;
+    try {
+      xhr.setRequestHeader('X-Lumiere-TV', '1');
+      xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
+    } catch(e) {}
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
+    xhr.onload = function() {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try { callback(null, JSON.parse(xhr.responseText)); }
+        catch(e) { callback(null, { success: true }); }
+      } else { callback(new Error('HTTP ' + xhr.status), null); }
+    };
+    xhr.onerror = function() { callback(new Error('Network error'), null); };
+    xhr.ontimeout = function() { callback(new Error('Timeout'), null); };
+    xhr.send();
+  }
+
+  // ========== Utilities ==========
+  function esc(str) {
+    if (!str) return '';
+    return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // Expose methods and states to window for test automation and diagnostics
+  window.switchSection = switchSection;
+  window.iptvState = iptvState;
+  window.loadIptv = loadIptv;
+  window.loadEpg = loadEpg;
+  window.renderIptv = renderIptv;
+  window.getFilteredChannels = getFilteredChannels;
+  window.toggleFavorite = toggleFavorite;
+  window.toggleIptvFavorite = toggleFavorite;
+  window.focusIptvChannel = focusIptvChannel;
+  window.state = state;
+  window.oskState = oskState;
+  window.activateSearchChip = activateSearchChip;
+  window.saveRecentSearch = saveRecentSearch;
+  window.renderRecentSearches = renderRecentSearches;
+  window.getSearchChipElements = getSearchChipElements;
+  window.getVisibleRows = getVisibleRows;
+  window.focusCard = focusCard;
+  window.focusCardUp = focusCardUp;
+  window.focusCardDown = focusCardDown;
+  window.getRecentSearches = getRecentSearches;
+  window.openIptvOsk = openIptvOsk;
+  window.closeIptvOsk = closeIptvOsk;
+  window.showDetail = showDetail;
+  window.hideDetail = hideDetail;
+  window.findEpgId = findEpgId;
+  window.updatePreview = updatePreview;
+  window.iptvOskState = iptvOskState;
+  window.focusNav = focusNav;
+  window.renderHistoryRecommendations = renderHistoryRecommendations;
+  window.startCardTitleMarquee = startCardTitleMarquee;
+  window.stopCardTitleMarquee = stopCardTitleMarquee;
+  window.applyActivePlaylist = applyActivePlaylist;
+  window.loadAllPlaylists = loadAllPlaylists;
+  window.notifState = notifState;
+  window.epgReminderState = epgReminderState;
+  window.loadNotifications = loadNotifications;
+  window.renderNotifications = renderNotifications;
+  window.openNotification = openNotification;
+  window.focusNotificationElement = focusNotificationElement;
+  window.loadEpgReminders = loadEpgReminders;
+  window.toggleEpgReminder = toggleEpgReminder;
+  window.playSeasonEpisode = playSeasonEpisode;
+  window.playFile = playFile;
+
+  // Background Remote Command Polling for TV when player is closed
+  function pollTvBroadcastCommands() {
+    var pContainer = document.getElementById('player-container');
+    var isPlayerActive = pContainer && pContainer.style.display !== 'none' && !pContainer.classList.contains('hidden');
+    if (isPlayerActive) return;
+
+    apiFetch('/api/sessions/tv_broadcast/commands', function(err, res) {
+      if (err || !res || !res.commands || res.commands.length === 0) return;
+      for (var i = 0; i < res.commands.length; i++) {
+        var cmd = res.commands[i];
+        var action = (typeof cmd === 'object' && cmd.action) ? cmd.action : cmd;
+        var val = (typeof cmd === 'object') ? cmd.value : null;
+        console.log('[TV] Received broadcast command:', action, val);
+        if (action === 'play_media' && val) {
+          if (val.streamUrl) {
+            openPlayer({
+              url: val.streamUrl.indexOf('/') === 0 ? (API + val.streamUrl) : val.streamUrl,
+              title: val.title || 'Скачанное видео',
+              id: val.downloadId || 0,
+              type: 'movie',
+              poster: val.poster || '',
+              start: 0,
+              link: '',
+              files: []
+            });
+          } else if (val.mediaId) {
+            if (val.mediaType === 'tv' && val.season && val.episode) {
+              playSeasonEpisode(
+                { id: val.mediaId, name: val.title, title: val.title, poster: val.poster },
+                val.season,
+                { episode: val.episode, episode_number: val.episode },
+                val.poster || '',
+                true
+              );
+            } else {
+              showDetail({
+                id: val.mediaId,
+                name: val.title || '',
+                type: val.mediaType || 'movie',
+                poster: val.poster || ''
+              });
+            }
+          }
+        }
+      }
+    });
+  }
+  setInterval(pollTvBroadcastCommands, 3000);
+})();
+

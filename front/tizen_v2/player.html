@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
+  <title>Lumiere Player</title>
+  <link rel="stylesheet" href="/tv/player.css?v=550">
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+  <script>
+    (function() {
+      var lastLogs = {};
+      window.sendTvLog = function(level, category, message, details) {
+        try {
+          var key = (level || '') + ':' + (category || '') + ':' + (message || '');
+          var now = Date.now();
+          if (lastLogs[key] && now - lastLogs[key] < 3000) return;
+          lastLogs[key] = now;
+          var server = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.location.origin;
+          if (!server || server.startsWith('file')) return;
+          var payload = JSON.stringify({
+            level: level || 'error',
+            category: category || 'client',
+            message: String(message || 'Unknown'),
+            details: details || null,
+            time: new Date().toISOString()
+          });
+          if (navigator.sendBeacon) {
+            navigator.sendBeacon(server + '/api/tv/log', new Blob([payload], { type: 'application/json' }));
+          } else {
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', server + '/api/tv/log', true);
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.send(payload);
+          }
+        } catch(e) {}
+      };
+    })();
+  </script>
+</head>
+<body>
+  <div id="player">
+    <video id="video" playsinline></video>
+
+    <!-- OSD -->
+    <div id="osd">
+      <!-- Top bar -->
+      <div id="osd-top">
+        <div class="osd-top-left">
+          <button id="btn-back" class="osd-btn osd-top-btn" data-btn="back" tabindex="0">← Назад</button>
+          <div id="osd-title-wrap">
+            <div id="osd-title"></div>
+            <div id="osd-stats" class="osd-stats">
+              <span id="osd-res-badge" class="osd-badge">1080p</span>
+              <span id="osd-peers" class="osd-stat-text">-- / -- • -- подкл.</span>
+              <span id="osd-speed" class="osd-stat-speed">-- Мбит/с</span>
+              <div class="osd-buffer-wrap">
+                <span id="osd-buffer-text" class="osd-buffer-text">Буфер: --%</span>
+                <div id="osd-dots" class="osd-dots">
+                  <span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span><span class="osd-dot"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="osd-top-right">
+          <div id="osd-end-time-badge" class="osd-end-time-badge" style="display:none;">
+            <svg class="osd-end-time-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#e8c170" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+            <span class="osd-end-time-label">Конец в</span>
+            <span id="osd-end-time-val" class="osd-end-time-val">--:--</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Center Action Flash Indicator -->
+      <div id="center-indicator">
+        <span id="center-indicator-icon">▶</span>
+        <span id="center-indicator-text">Воспроизведение</span>
+      </div>
+
+      <!-- Bottom Controls -->
+      <div id="osd-bottom">
+        <div id="timeline-row">
+          <span id="time-current">0:00</span>
+          <div id="timeline-wrap" tabindex="0">
+            <div id="timeline-bar">
+              <div id="timeline-buffer"></div>
+              <div id="timeline-fill"></div>
+              <div id="timeline-thumb"></div>
+            </div>
+          </div>
+          <span id="time-total">0:00</span>
+        </div>
+
+        <!-- Controls Row (Transport Centered, Audio/Subs on Bottom Right) -->
+        <div id="osd-controls" class="osd-controls-row">
+          <div class="osd-controls-center">
+            <button id="btn-restart" class="osd-ctrl-btn" data-ctrl="restart" tabindex="0" title="В начало">⏮ В начало</button>
+            <button id="btn-rewind" class="osd-ctrl-btn" data-ctrl="rewind" tabindex="0" title="Назад 30 сек">⏪ -30с</button>
+            <button id="btn-play-pause" class="osd-ctrl-btn osd-ctrl-primary" data-ctrl="playpause" tabindex="0" title="Пауза / Пуск">⏯ Пауза</button>
+            <button id="btn-forward" class="osd-ctrl-btn" data-ctrl="forward" tabindex="0" title="Вперёд 30 сек">⏩ +30с</button>
+            <button id="btn-next" class="osd-ctrl-btn" data-ctrl="next" tabindex="0" title="След. серия / В конец">⏭ Далее</button>
+          </div>
+          <div class="osd-controls-right">
+            <button id="btn-audio" class="osd-ctrl-btn osd-extra-btn" data-ctrl="audio" tabindex="0" title="Аудиодорожки">🔊 Звук</button>
+            <button id="btn-cc" class="osd-ctrl-btn osd-extra-btn" data-ctrl="cc" tabindex="0" title="Субтитры">💬 Субтитры</button>
+          </div>
+        </div>
+
+        <div class="osd-hint-row">
+          <div class="osd-hint-item"><span class="osd-hint-key">OK</span> Пауза / Выбор</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">◄ / ►</span> Перемотка / Дорожки</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">▲</span> Ползунок дорожки</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">▼</span> Скрыть плеер</div>
+          <div class="osd-hint-item"><span class="osd-hint-key">Назад</span> Скрыть / Выход</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Popup Track Chooser -->
+    <div id="popup" class="hidden">
+      <div id="popup-header"></div>
+      <div id="popup-list"></div>
+    </div>
+
+    <!-- Next Episode Autoplay Countdown (30s) -->
+    <div id="next-ep-overlay" class="hidden">
+      <div class="next-ep-card">
+        <div class="next-ep-badge">СЛЕДУЮЩАЯ СЕРИЯ ЧЕРЕЗ</div>
+        <div id="next-ep-countdown" class="next-ep-timer">30</div>
+        <div id="next-ep-title" class="next-ep-name">Следующая серия</div>
+        <div class="next-ep-actions">
+          <button id="btn-next-now" class="next-ep-btn primary" tabindex="0">▶ Включить сейчас (OK)</button>
+          <button id="btn-next-cancel" class="next-ep-btn secondary" tabindex="0">✕ Отмена</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Subtitle Overlay -->
+    <div id="subtitle-overlay"></div>
+  </div>
+
+  <script src="/tv/player-adapter.js?v=550"></script>
+  <script src="/tv/player.js?v=550"></script>
+</body>
+</html>

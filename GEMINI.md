@@ -27,3 +27,17 @@
   - Скрипт сборки: `node scratch/build_native_tv_v2.cjs`
   - Статус: новая версия (актёры, карточки 1-в-1 как в WGT, плавные анимации лаунчера, разворачиваемые описания).
 
+## 📺 ВЕРСИИ SAMSUNG TIZEN TV (v1 и v2)
+- **v1 (Старая / боевая версия)**:
+  - Папка: `front/tizen/`
+  - Пакет приложения: `6DD6uEqKQe` (`6DD6uEqKQe.Lumiere`)
+  - Файлы сборки: `Lumiere.wgt` (размещение в корне, в `front/tizen/` и `back/public/tv/Lumiere.wgt`)
+  - Команда сборки: `tizen.bat package -t wgt -s LumiereSamsungProfile -- front/tizen`
+  - Статус: боевая, стабильная версия. Не трогать при экспериментальных работах.
+- **v2 (Новая версия)**:
+  - Папка: `front/tizen_v2/`
+  - Пакет приложения: `6DD6uEqKQ2` (`6DD6uEqKQ2.LumiereV2`, имя «Lumiere_v2»)
+  - Файлы сборки: `Lumiere_v2.wgt` (размещение в корне, в `front/tizen_v2/` и `back/public/tv/Lumiere_v2.wgt`)
+  - Скрипт сборки: `node scratch/build_tizen_v2.cjs`
+  - Статус: новая версия для оптимизаций производительности и плавности без риска для стабильной версии.
+

@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <script>
+  window.__DEFAULT_SERVER_URL__ = '';
+  try {
+    var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
+    if (cur && (/:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1)) {
+      localStorage.removeItem('lumiere_server_url');
+      localStorage.removeItem('lumiere_tv_server');
+      localStorage.removeItem('lumiere_server');
+    }
+  } catch(e) {}
+  </script>
+  <script type="text/javascript" src="$WEBAPIS/webapis/webapis.js"></script>
+  <script>
+  if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    window.__DEFAULT_SERVER_URL__ = window.location.origin;
+    try {
+      if (!localStorage.getItem('lumiere_server') && !localStorage.getItem('lumiere_server_url') && !localStorage.getItem('lumiere_tv_server')) {
+        localStorage.setItem('lumiere_server_url', window.location.origin);
+        localStorage.setItem('lumiere_tv_server', window.location.origin);
+      }
+    } catch(e) {}
+  }
+
+  // Automatic remote TV error & event logging to server
+  (function() {
+    var lastLogs = {};
+    window.sendTvLog = function(level, category, message, details) {
+      try {
+        var key = (level || '') + ':' + (category || '') + ':' + (message || '');
+        var now = Date.now();
+        if (lastLogs[key] && now - lastLogs[key] < 3000) return; // Debounce 3s identical errors
+        lastLogs[key] = now;
+
+        var server = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.__DEFAULT_SERVER_URL__ || window.location.origin;
+        if (!server || server.startsWith('file')) return;
+
+        var payload = JSON.stringify({
+          level: level || 'error',
+          category: category || 'client',
+          message: String(message || 'Unknown'),
+          details: details || null,
+          time: new Date().toISOString()
+        });
+
+        if (navigator.sendBeacon) {
+          navigator.sendBeacon(server + '/api/tv/log', new Blob([payload], { type: 'application/json' }));
+        } else {
+          var xhr = new XMLHttpRequest();
+          xhr.open('POST', server + '/api/tv/log', true);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          xhr.send(payload);
+        }
+      } catch(e) {}
+    };
+
+    var origError = console.error;
+    console.error = function() {
+      try {
+        var args = Array.prototype.slice.call(arguments);
+        var msg = args.map(function(a) { return (typeof a === 'object') ? JSON.stringify(a) : String(a); }).join(' ');
+        window.sendTvLog('error', 'console', msg);
+      } catch(e) {}
+      if (origError) origError.apply(console, arguments);
+    };
+
+    window.addEventListener('unhandledrejection', function(e) {
+      var reason = e.reason ? (e.reason.stack || e.reason.message || String(e.reason)) : 'Unhandled rejection';
+      window.sendTvLog('error', 'unhandled-promise', reason);
+    });
+  })();
+</script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
+  <title>Lumiere</title>
+  <link rel="stylesheet" href="./tv.css?v=603">
+  <link rel="stylesheet" href="./player.css?v=603">
+</head>
+<body>
+  <!-- Loading -->
+  <div id="loading" class="screen">
+    <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
+    <div style="color:#e8c170;font-size:16px;margin-top:12px;font-weight:700;letter-spacing:1px;">v603</div>
+    <div class="spinner"></div>
+  </div>
+
+  <!-- Profile Picker Screen ("Кто смотрит?") -->
+  <div id="profile-screen" class="screen hidden">
+    <div class="logo"><div class="dot"></div><span class="logo-text">Lumière</span></div>
+    <h1 class="profile-picker-title">Кто смотрит?</h1>
+    <p class="profile-picker-subtitle">Выберите профиль для продолжения</p>
+    <div class="profile-cards" id="profile-cards"></div>
+  </div>
+
+  <!-- TV PIN Dialog Modal -->
+  <div id="tv-pin-modal" class="tv-modal hidden">
+    <div class="tv-modal-box">
+      <div class="tv-modal-avatar" id="tv-pin-avatar">?</div>
+      <h3 class="tv-modal-title" id="tv-pin-title">Введите PIN-код</h3>
+      <div class="tv-pin-dots" id="tv-pin-dots">
+        <div class="tv-pin-dot"></div>
+        <div class="tv-pin-dot"></div>
+        <div class="tv-pin-dot"></div>
+        <div class="tv-pin-dot"></div>
+      </div>
+      <div class="tv-pin-error" id="tv-pin-error"></div>
+      <div class="tv-pin-pad" id="tv-pin-pad">
+        <button class="tv-pad-btn" data-key="1">1</button>
+        <button class="tv-pad-btn" data-key="2">2</button>
+        <button class="tv-pad-btn" data-key="3">3</button>
+        <button class="tv-pad-btn" data-key="4">4</button>
+        <button class="tv-pad-btn" data-key="5">5</button>
+        <button class="tv-pad-btn" data-key="6">6</button>
+        <button class="tv-pad-btn" data-key="7">7</button>
+        <button class="tv-pad-btn" data-key="8">8</button>
+        <button class="tv-pad-btn" data-key="9">9</button>
+        <button class="tv-pad-btn danger-btn" data-key="cancel">Отмена</button>
+        <button class="tv-pad-btn" data-key="0">0</button>
+        <button class="tv-pad-btn" data-key="back">⌫</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- TV Server Configuration Modal -->
+  <div id="tv-server-modal" class="tv-modal hidden">
+    <div class="tv-modal-box tv-server-modal-box">
+      <div class="tv-server-header">
+        <div class="tv-server-icon">⚙</div>
+        <div class="tv-server-header-text">
+          <h3 class="tv-modal-title" style="margin-bottom:4px;">Адрес сервера Lumière</h3>
+          <p class="tv-server-subtitle">Введите IP-адрес или домен вашего сервера (например: myserver.com или 192.168.1.100:3500)</p>
+        </div>
+      </div>
+
+      <!-- Current Input Value Box -->
+      <div class="tv-server-input-row">
+        <input type="text" id="tv-server-input" class="tv-server-input" placeholder="myserver.com или 192.168.1.100:3500" spellcheck="false" autocomplete="off" />
+        <button class="tv-server-key" data-action="backspace" id="tv-server-key-back" title="Стереть символ">⌫</button>
+      </div>
+
+      <!-- Status and connection messages -->
+      <div id="tv-server-status" class="tv-server-status"></div>
+
+      <!-- TV Remote Keypad Grid (D-Pad Navigable) -->
+      <div class="tv-server-keypad" id="tv-server-keypad">
+        <!-- Row 0: Quick protocols & common ports -->
+        <div class="tv-server-keypad-row" data-row="0">
+          <button class="tv-server-key key-proto" data-text="http://">http://</button>
+          <button class="tv-server-key key-proto" data-text="https://">https://</button>
+          <button class="tv-server-key key-port" data-text=":3500">:3500</button>
+          <button class="tv-server-key key-port" data-text=":8090">:8090</button>
+          <button class="tv-server-key key-port" data-text=":80">:80</button>
+          <button class="tv-server-key key-fn" data-action="clear">Очистить</button>
+        </div>
+
+        <!-- Row 1: Numbers 1-5 + dot -->
+        <div class="tv-server-keypad-row" data-row="1">
+          <button class="tv-server-key" data-text="1">1</button>
+          <button class="tv-server-key" data-text="2">2</button>
+          <button class="tv-server-key" data-text="3">3</button>
+          <button class="tv-server-key" data-text="4">4</button>
+          <button class="tv-server-key" data-text="5">5</button>
+          <button class="tv-server-key" data-text=".">.</button>
+        </div>
+
+        <!-- Row 2: Numbers 6-0 + colon -->
+        <div class="tv-server-keypad-row" data-row="2">
+          <button class="tv-server-key" data-text="6">6</button>
+          <button class="tv-server-key" data-text="7">7</button>
+          <button class="tv-server-key" data-text="8">8</button>
+          <button class="tv-server-key" data-text="9">9</button>
+          <button class="tv-server-key" data-text="0">0</button>
+          <button class="tv-server-key" data-text=":">:</button>
+        </div>
+
+        <!-- Row 3: Slash, Dash, Scan, Host shortcuts -->
+        <div class="tv-server-keypad-row" data-row="3">
+          <button class="tv-server-key" data-text="/">/</button>
+          <button class="tv-server-key" data-text="-">-</button>
+          <button class="tv-server-key key-wide" data-action="scan" style="background:rgba(232,193,112,0.18);color:#e8c170;border-color:rgba(232,193,112,0.4);font-weight:600;">🔍 Найти в сети</button>
+          <button class="tv-server-key key-wide" data-action="curhost">Текущий хост</button>
+          <button class="tv-server-key key-wide" data-action="default">По умолчанию</button>
+        </div>
+
+        <!-- Row 4: Primary actions -->
+        <div class="tv-server-keypad-row tv-server-actions-row" data-row="4">
+          <button class="tv-server-btn-primary" id="tv-server-btn-connect" data-action="connect">
+            ✓ Подключиться
+          </button>
+          <button class="tv-server-btn-cancel" id="tv-server-btn-cancel" data-action="cancel">
+            Отмена
+          </button>
+        </div>
+      </div>
+
+      <div class="tv-server-hint">
+        ◄ ▲ ▼ ► Стрелки — выбор кнопки • OK — нажать • 0-9 — прямой ввод с пульта • ⌫ — стереть
+      </div>
+    </div>
+  </div>
+
+  <!-- Main App -->
+  <div id="app" class="hidden">
+    <!-- Top bar -->
+    <header id="topbar">
+      <div class="logo-sm"><div class="dot-sm"></div><span>Lumière</span></div>
+      <nav id="nav">
+        <button class="nav-btn active" data-section="home">Главная</button>
+        <button class="nav-btn" data-section="search">Поиск</button>
+        <button class="nav-btn" data-section="movies">Фильмы</button>
+        <button class="nav-btn" data-section="tv">Сериалы</button>
+        <button class="nav-btn" data-section="iptv">IPTV</button>
+        <button class="nav-btn" data-section="my">Моё</button>
+        <button class="nav-btn" data-section="downloads">Скачанное</button>
+        <button class="nav-btn" data-section="collections">Подборки</button>
+        <button class="nav-btn" data-section="notifications" id="nav-notifications" title="Уведомления">🔔<span id="tv-notif-badge" class="tv-notif-badge hidden">0</span></button>
+        <button class="nav-btn" data-section="settings">Настройки</button>
+        <button class="nav-btn nav-profile-pill" data-section="profile" id="nav-user-pill" title="Мой профиль">
+          <span id="tv-user-avatar" class="tv-user-avatar">👤</span>
+          <span id="tv-user-name" class="tv-user-name">Войти</span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- Content sections -->
+    <main id="content">
+      <!-- Home -->
+      <section id="sec-home" class="section active">
+        <div id="home-bg" class="home-bg"></div>
+        <div class="row" id="row-continue">
+          <h2 class="row-title">Продолжить просмотр</h2>
+          <div class="row-items" id="continue-items"></div>
+        </div>
+        <div class="row" id="row-top10-movies">
+          <h2 class="row-title">🏆 Топ-10 фильмов сегодня</h2>
+          <div class="row-items top10-row-items" id="top10-movies-items"></div>
+        </div>
+        <div class="row" id="row-netflix-movies">
+          <div class="row-header-wrapper">
+            <h2 class="row-title">🔴 Топ фильмы Netflix</h2>
+            <div class="shelf-tab-group" id="netflix-movies-tabs">
+              <button class="shelf-tab active" data-shelf="movies" data-period="week">🔥 На этой неделе</button>
+              <button class="shelf-tab" data-shelf="movies" data-period="all_time">🏆 За всё время</button>
+            </div>
+          </div>
+          <div class="row-items" id="netflix-movies-items"></div>
+        </div>
+        <div class="row" id="row-now-playing">
+          <h2 class="row-title">✨ Новинки в кино и цифровые релизы</h2>
+          <div class="row-items" id="now-playing-items"></div>
+        </div>
+        <div class="row" id="row-top10-tv">
+          <h2 class="row-title">📺 Топ-10 сериалов недели</h2>
+          <div class="row-items top10-row-items" id="top10-tv-items"></div>
+        </div>
+        <div class="row" id="row-netflix-tv">
+          <div class="row-header-wrapper">
+            <h2 class="row-title">🔴 Топ сериалы Netflix</h2>
+            <div class="shelf-tab-group" id="netflix-tv-tabs">
+              <button class="shelf-tab active" data-shelf="tv" data-period="week">🔥 На этой неделе</button>
+              <button class="shelf-tab" data-shelf="tv" data-period="all_time">🏆 За всё время</button>
+            </div>
+          </div>
+          <div class="row-items" id="netflix-tv-items"></div>
+        </div>
+        <div class="row" id="row-top-rated">
+          <h2 class="row-title">⭐ Шедевры мирового кино (Высокий рейтинг)</h2>
+          <div class="row-items" id="top-rated-items"></div>
+        </div>
+        <div class="row" id="row-action">
+          <h2 class="row-title">💥 Боевики и приключения</h2>
+          <div class="row-items" id="action-items"></div>
+        </div>
+        <div class="row" id="row-banner">
+          <h2 class="row-title">🎬 Тематические подборки</h2>
+          <div class="row-items banner-row-items" id="banner-items"></div>
+        </div>
+        <div class="row" id="row-comedy">
+          <h2 class="row-title">😄 Комедии для отличного настроения</h2>
+          <div class="row-items" id="comedy-items"></div>
+        </div>
+        <div class="row" id="row-scifi">
+          <h2 class="row-title">🚀 Фантастика и другие миры</h2>
+          <div class="row-items" id="scifi-items"></div>
+        </div>
+        <div class="row" id="row-family">
+          <h2 class="row-title">🎨 Семейный вечер и анимация</h2>
+          <div class="row-items" id="family-items"></div>
+        </div>
+        <div class="row" id="row-popular">
+          <h2 class="row-title">🎬 Популярные фильмы</h2>
+          <div class="row-items" id="popular-items"></div>
+        </div>
+        <div class="row" id="row-tv">
+          <h2 class="row-title">🍿 Популярные сериалы</h2>
+          <div class="row-items" id="tv-items"></div>
+        </div>
+        <div class="row" id="row-trending">
+          <h2 class="row-title">🔥 В тренде прямо сейчас</h2>
+          <div class="row-items" id="trending-items"></div>
+        </div>
+        <div class="row" id="row-recommended-history">
+          <h2 class="row-title">✨ Вам может понравиться</h2>
+          <div class="row-items" id="recommended-history-items"></div>
+        </div>
+      </section>
+
+      <!-- Search -->
+      <section id="sec-search" class="section">
+        <h1 class="page-title">Поиск</h1>
+        <div class="search-tv-container">
+          <div class="search-query-bar" id="search-query-bar">
+            <span class="search-query-icon">🔍</span>
+            <span class="search-query-text placeholder" id="search-query-text">Введите название фильма или сериала...</span>
+            <span class="search-query-cursor">|</span>
+          </div>
+          <div class="tv-keyboard" id="tv-keyboard"></div>
+          <div class="search-history-wrap" id="search-history-wrap"></div>
+        </div>
+        <div class="search-source-tabs" id="search-source-tabs">
+          <button type="button" class="search-source-tab active" id="tab-source-tmdb" data-source="tmdb" tabindex="0">
+            <span class="tab-label">TMDB</span>
+            <span class="tab-count" id="count-source-tmdb">(0)</span>
+          </button>
+          <button type="button" class="search-source-tab" id="tab-source-kp" data-source="kp" tabindex="0">
+            <span class="tab-label">Кинопоиск</span>
+            <span class="tab-count" id="count-source-kp">(0)</span>
+          </button>
+        </div>
+        <div id="search-results" class="grid"></div>
+      </section>
+
+      <!-- Movies -->
+      <section id="sec-movies" class="section">
+        <h1 class="page-title">Фильмы</h1>
+        <div class="grid" id="movies-grid"></div>
+      </section>
+
+      <!-- TV Shows -->
+      <section id="sec-tv" class="section">
+        <h1 class="page-title">Сериалы</h1>
+        <div class="grid" id="tv-grid"></div>
+      </section>
+
+      <!-- Downloads (Скачанное) -->
+      <section id="sec-downloads" class="section">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;">
+          <div>
+            <h1 class="page-title" style="margin:0 0 6px 0;">Скачанное на сервер</h1>
+            <p class="page-subtitle" style="color:var(--text-dim);font-size:20px;margin:0;">Офлайн просмотр без задержек и ожидания пиров</p>
+          </div>
+          <div id="tv-downloads-disk-badge" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);padding:10px 22px;border-radius:14px;color:#e8c170;font-size:18px;font-weight:600;">
+            💾 Диск: Загрузка...
+          </div>
+        </div>
+        <div id="tv-downloads-empty" class="hidden" style="text-align:center;padding:100px 40px;color:rgba(255,255,255,0.4);">
+          <div style="font-size:64px;margin-bottom:20px;">📥</div>
+          <div style="font-size:26px;font-weight:600;color:rgba(255,255,255,0.8);margin-bottom:10px;">Нет скачанных фильмов</div>
+          <div style="font-size:18px;max-width:560px;margin:0 auto;line-height:1.5;">Вы можете заранее скачать любой фильм или серию в карточке контента через кнопку «📥 Скачать на сервер» или через Telegram-бота.</div>
+        </div>
+        <div class="row-items" id="tv-downloads-grid" style="display:flex;flex-wrap:wrap;gap:24px;padding:10px 0 60px 0;"></div>
+      </section>
+
+      <!-- Collections (Подборки) -->
+      <section id="sec-collections" class="section">
+        <h1 class="page-title">Подборки</h1>
+        <p class="page-subtitle" style="color:var(--text-dim);font-size:20px;margin-top:-20px;margin-bottom:30px;">Тематические подборки и жанры кино</p>
+        <div id="collections-grid" class="collections-tv-grid"></div>
+      </section>
+
+      <!-- IPTV — Three-column layout: Categories | Channels | Preview -->
+      <section id="sec-iptv" class="section iptv-section">
+        <!-- Left: Categories -->
+        <div id="iptv-categories" class="iptv-col iptv-col-left">
+          <div class="iptv-col-header">Категории</div>
+          <div id="iptv-cat-list" class="iptv-cat-list"></div>
+        </div>
+
+        <!-- Middle: Channels -->
+        <div id="iptv-channels-wrap" class="iptv-col iptv-col-mid">
+          <div class="iptv-col-header" style="display:flex;align-items:center;justify-content:space-between;">
+            <span id="iptv-channel-count">0 каналов</span>
+            <span style="font-size:14px;color:#facc15;font-weight:600;">[Зажатие OK: В избранное]</span>
+          </div>
+          <div class="iptv-search-box" id="iptv-search-box" tabindex="0">
+            <span style="font-size:16px;">🔍</span>
+            <span class="iptv-search-box-text placeholder" id="iptv-search-text">Поиск канала (OK для ввода)...</span>
+          </div>
+          <div id="iptv-channels" class="iptv-channel-list"></div>
+        </div>
+
+        <!-- Right: Preview & EPG Info -->
+        <div id="iptv-preview" class="iptv-col iptv-col-right">
+          <div id="iptv-preview-video-wrap" class="iptv-preview-video-wrap">
+            <video id="iptv-preview-video" class="iptv-preview-video" muted autoplay playsinline style="display:none;"></video>
+            <div id="iptv-preview-no-video" class="iptv-preview-no-video">
+              <span style="font-size:36px;">📺</span>
+              <span>Предпросмотр канала</span>
+            </div>
+          </div>
+          <div id="iptv-preview-banner" class="iptv-preview-banner">
+            <div id="iptv-preview-logo-box" class="iptv-preview-logo-box">TV</div>
+            <div class="iptv-preview-header-meta">
+              <div class="iptv-preview-live-badge"><span class="live-pulse">●</span> В ЭФИРЕ</div>
+              <div id="iptv-preview-title" class="iptv-preview-title"></div>
+              <div id="iptv-preview-group" class="iptv-preview-group"></div>
+            </div>
+          </div>
+          <div id="iptv-preview-info" class="iptv-preview-info">
+            <div id="iptv-preview-program-box" class="iptv-preview-program-box">
+              <div id="iptv-preview-program" class="iptv-preview-program"></div>
+              <div id="iptv-preview-progress-wrap" class="iptv-preview-progress-wrap">
+                <div id="iptv-preview-progress-fill" class="iptv-preview-progress-fill"></div>
+              </div>
+              <div id="iptv-preview-time" class="iptv-preview-time"></div>
+            </div>
+            <div id="iptv-preview-desc" class="iptv-preview-desc"></div>
+            <div id="iptv-preview-actions" class="iptv-preview-actions">
+              <button id="iptv-btn-play" class="iptv-action-btn primary" tabindex="0">▶ Смотреть во весь экран</button>
+              <button id="iptv-btn-fav" class="iptv-action-btn" tabindex="0">★ В избранное</button>
+            </div>
+            <div id="iptv-epg-schedule" class="iptv-epg-schedule"></div>
+          </div>
+        </div>
+
+        <!-- IPTV Custom Virtual Keyboard Overlay -->
+        <div id="iptv-osk-overlay" class="iptv-osk-overlay hidden">
+          <div class="iptv-osk-bar">
+            <span class="iptv-osk-query">Поиск: <span id="iptv-osk-query-text" style="color:#e8c170;"></span></span>
+            <button type="button" id="iptv-osk-close-btn" class="iptv-osk-close-btn" tabindex="0">Готово (↵ к каналам)</button>
+          </div>
+          <div id="iptv-osk-keyboard" class="tv-keyboard"></div>
+        </div>
+      </section>
+
+      <!-- My Library (Моё) -->
+      <section id="sec-my" class="section">
+        <div class="my-header">
+          <h1 class="page-title" style="margin-bottom:0;">Моё</h1>
+          <div class="my-tabs" id="my-tabs">
+            <button class="my-tab active" data-tab="watched" tabindex="0">Просмотрено</button>
+            <button class="my-tab" data-tab="watchlist" tabindex="0">Буду смотреть</button>
+            <button class="my-tab" data-tab="favorites" tabindex="0">Закладки</button>
+          </div>
+        </div>
+        <div id="my-grid" class="grid"></div>
+        <div id="my-empty" class="my-empty hidden">
+          <div class="my-empty-icon" id="my-empty-icon">📁</div>
+          <div class="my-empty-title" id="my-empty-title">Список пуст</div>
+          <div class="my-empty-desc" id="my-empty-desc">Здесь появятся ваши фильмы и сериалы</div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="sec-settings" class="section">
+        <h1 class="page-title">Настройки</h1>
+        <div class="settings-list">
+          <div class="setting-item">
+            <span class="setting-label">Сервер</span>
+            <span class="setting-value" id="tv-server-url">--</span>
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Пользователь</span>
+            <span class="setting-value" id="tv-user-email">--</span>
+          </div>
+          <div class="setting-item">
+            <span class="setting-label">Версия</span>
+            <span class="setting-value" id="tv-app-version">v564 (Release)</span>
+          </div>
+          <button class="setting-btn" id="btn-force-reload" style="background:#e8c170;color:#0a0b0f;font-weight:700;">Перезагрузить и очистить кэш</button>
+          <button class="setting-btn" id="btn-switch-profile" style="border:1px solid rgba(232,193,112,0.4);color:#e8c170;">Сменить профиль</button>
+          <button class="setting-btn" id="btn-change-server">Сменить сервер</button>
+          <button class="setting-btn" id="btn-clear-history">Очистить историю просмотров</button>
+          <button class="setting-btn danger" id="btn-logout">Выйти</button>
+        </div>
+      </section>
+
+      <!-- Notifications -->
+      <section id="sec-notifications" class="section">
+        <div class="notif-top-bar">
+          <h1 class="page-title" style="margin-bottom:0;">Уведомления</h1>
+          <div class="notif-actions">
+            <button class="notif-btn" id="btn-tv-check-episodes">🔄 Проверить серии</button>
+            <button class="notif-btn" id="btn-tv-read-all">✓ Прочитать все</button>
+          </div>
+        </div>
+        <div id="tv-notif-container" class="tv-notif-container">
+          <div class="tv-notif-empty">Загрузка уведомлений...</div>
+        </div>
+      </section>
+
+      <!-- Profile & Statistics -->
+      <section id="sec-profile" class="section">
+        <h1 class="page-title">Мой профиль</h1>
+        <div class="profile-view-wrap">
+          <div class="profile-header-card">
+            <div class="profile-avatar-large" id="tv-profile-avatar-large">👤</div>
+            <div class="profile-header-info">
+              <div class="profile-name-large" id="tv-profile-name-large">Пользователь</div>
+              <div class="profile-role-badge" id="tv-profile-role-badge">Основной профиль</div>
+              <div class="profile-email-sub" id="tv-profile-email-sub"></div>
+            </div>
+            <div class="profile-header-actions">
+              <button class="profile-action-btn" id="btn-profile-switch" data-action="switch" tabindex="0">Сменить профиль</button>
+              <button class="profile-action-btn danger" id="btn-profile-logout" data-action="logout" tabindex="0">Выйти</button>
+            </div>
+          </div>
+
+          <div class="profile-stats-grid">
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">⏱</div>
+              <div class="profile-stat-val" id="tv-stat-hours">0 ч</div>
+              <div class="profile-stat-lbl">Время просмотра</div>
+            </div>
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">🎬</div>
+              <div class="profile-stat-val" id="tv-stat-count">0</div>
+              <div class="profile-stat-lbl">Фильмов и серий</div>
+            </div>
+            <div class="profile-stat-card">
+              <div class="profile-stat-icon">📺</div>
+              <div class="profile-stat-val" id="tv-stat-device">Samsung Smart TV</div>
+              <div class="profile-stat-lbl">Устройство</div>
+            </div>
+          </div>
+
+          <div class="profile-genres-block" id="tv-profile-genres-block">
+            <h2 class="profile-section-title">Любимые жанры</h2>
+            <div class="profile-genres-list" id="tv-profile-genres-list">
+              <div class="profile-genre-empty">Здесь появится статистика после просмотра контента</div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Detail view (movie/show detail) -->
+  <div id="detail" class="hidden">
+    <div id="detail-content"></div>
+  </div>
+
+  <!-- All Cast Modal (Grid of all actors) -->
+  <div id="all-cast-modal" class="hidden">
+    <div class="all-cast-modal-box">
+      <div class="all-cast-modal-top">
+        <div class="all-cast-header-title-wrap">
+          <h2 class="all-cast-modal-title">В главных ролях</h2>
+          <span id="all-cast-count" class="all-cast-count">0</span>
+        </div>
+        <button id="all-cast-modal-back" class="person-back-btn" tabindex="0">‹ Назад</button>
+      </div>
+      <div id="all-cast-grid" class="all-cast-grid"></div>
+    </div>
+  </div>
+
+  <!-- Person / Actor Modal -->
+  <div id="person-modal" class="hidden">
+    <div class="person-modal-box">
+      <div class="person-modal-top">
+        <button id="person-modal-back" class="person-back-btn" tabindex="0">‹ Назад</button>
+      </div>
+      <div class="person-profile-row">
+        <div class="person-profile-avatar-wrap">
+          <img id="person-profile-img" class="person-profile-img" src="" alt="" />
+        </div>
+        <div class="person-profile-details">
+          <h2 id="person-name" class="person-name">Имя актёра</h2>
+          <div id="person-meta" class="person-meta"></div>
+          <p id="person-bio" class="person-bio"></p>
+        </div>
+      </div>
+      <div class="person-filmography-header">
+        <h3>Фильмография</h3>
+        <span id="person-filmography-count" class="person-filmography-count">0 фильмов</span>
+      </div>
+      <div id="person-filmography-grid" class="person-filmography-grid"></div>
+    </div>
+  </div>
+
+  <!-- Player Container for SPA Playback -->
+  <div id="player-container" class="hidden"></div>
+
+  <!-- EPG Auto-Switch Toast Overlay (Works during movie and IPTV playback) -->
+  <div id="tv-epg-switch-toast" class="tv-switch-toast hidden">
+    <div class="switch-toast-box">
+      <div class="switch-toast-icon">⏰</div>
+      <div class="switch-toast-body">
+        <div class="switch-toast-timer" id="switch-toast-countdown">Переключение через 60 сек</div>
+        <div class="switch-toast-title" id="switch-toast-prog">Название телепередачи</div>
+        <div class="switch-toast-channel" id="switch-toast-ch">Канал: Матч ТВ HD</div>
+      </div>
+      <div class="switch-toast-buttons">
+        <div class="toast-key-badge toast-ok">OK: Перейти</div>
+        <div class="toast-key-badge toast-cancel">BACK: Отмена</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="./hls.min.js?v=595" charset="UTF-8"></script>
+  <script src="./player-adapter.js?v=603" charset="UTF-8"></script>
+  <script src="./player.js?v=603" charset="UTF-8"></script>
+  <script src="./tv.js?v=603" charset="UTF-8"></script>
+  <script>
+    // Test if JS executes
+    document.addEventListener('DOMContentLoaded', function() {
+      var el = document.getElementById('loading');
+      if (el) {
+        var p = document.createElement('p');
+        p.style.cssText = 'color:#6ee7b7;font-size:12px;margin-top:10px;';
+        p.textContent = 'JS executing...';
+        el.appendChild(p);
+      }
+    });
+
+    window.onerror = function(msg, url, line, col, err) {
+      console.error('[UNCAUGHT-ERROR]', msg, 'at', line + ':' + col, err);
+      var appEl = document.getElementById('app');
+      var isAppActive = appEl && !appEl.classList.contains('hidden') && appEl.style.display !== 'none';
+      var playerEl = document.getElementById('player-container');
+      var isPlayerActive = playerEl && !playerEl.classList.contains('hidden') && playerEl.style.display !== 'none';
+      var detailEl = document.getElementById('detail');
+      var isDetailActive = detailEl && !detailEl.classList.contains('hidden') && detailEl.style.display !== 'none';
+      if (isAppActive || isPlayerActive || isDetailActive) {
+        console.warn('[Lumiere] Suppressed non-fatal error in active UI:', msg);
+        return true;
+      }
+      var el = document.getElementById('error-screen');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'error-screen';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:#0a0b0f;display:flex;align-items:center;justify-content:center;flex-direction:column;z-index:99999;';
+        document.body.appendChild(el);
+      }
+      el.style.display = 'flex';
+      el.innerHTML = '<div style="color:#f87171;font-size:18px;max-width:700px;text-align:center;padding:20px;">' +
+        '<b>JS Error:</b><br>' + msg + '<br><small style="color:#9aa0ac;">line ' + line + ':' + col + '</small></div>' +
+        '<button onclick="location.reload()" style="margin-top:20px;padding:14px 28px;border-radius:10px;background:#6ee7b7;color:#0a0b0f;border:none;font-size:16px;cursor:pointer;">Reload</button>';
+      var loading = document.getElementById('loading');
+      if (loading) loading.style.display = 'none';
+    };
+  </script>
+
+  <!-- TV IPTV 50/50 Multi-View Modal -->
+  <div id="tv-iptv-multiview" class="tv-modal hidden" style="position:fixed;top:0;left:0;right:0;bottom:0;z-index:9500;background:rgba(0,0,0,0.96);flex-direction:column;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:24px 48px;border-bottom:1px solid rgba(255,255,255,0.1);background:#07090e;">
+      <div style="display:flex;align-items:center;gap:16px;">
+        <span style="display:inline-block;width:12px;height:12px;border-radius:50%;background:#ef4444;box-shadow:0 0 10px #ef4444;"></span>
+        <h2 style="font-size:26px;font-weight:700;color:#ffffff;margin:0;">Мультискрин 50/50</h2>
+        <span style="font-size:16px;color:rgba(255,255,255,0.6);margin-left:12px;">Пульт: ◄ / ► переключение фокуса звука • Назад (Выход)</span>
+      </div>
+      <div id="tv-multiview-audio-indicator" style="font-size:18px;font-weight:700;color:#e8c170;background:rgba(232,193,112,0.15);border:1px solid rgba(232,193,112,0.3);padding:8px 20px;border-radius:20px;">
+        🔊 Звук: Экран 1 (Слева)
+      </div>
+    </div>
+    <div style="display:flex;gap:24px;padding:24px 48px;flex:1;min-height:0;box-sizing:border-box;">
+      <!-- Left 50% Screen -->
+      <div id="tv-multi-left" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid #e8c170;position:relative;display:flex;flex-direction:column;box-shadow:0 0 30px rgba(232,193,112,0.3);">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:#e8c170;color:#000;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 1</span>
+          <span id="tv-multi-title-left" style="color:#fff;font-size:18px;font-weight:700;">Канал 1</span>
+          <span id="tv-multi-audio-badge-left" style="color:#6ee7b7;font-weight:700;font-size:15px;">🔊 Звук активен</span>
+        </div>
+        <video id="tv-multi-video-left" style="width:100%;height:100%;object-fit:contain;background:#000;" playsinline></video>
+      </div>
+
+      <!-- Right 50% Screen -->
+      <div id="tv-multi-right" style="flex:1;border-radius:18px;overflow:hidden;background:#05070a;border:3px solid rgba(255,255,255,0.15);position:relative;display:flex;flex-direction:column;">
+        <div style="position:absolute;top:0;left:0;right:0;padding:16px;background:linear-gradient(180deg,rgba(0,0,0,0.85),transparent);display:flex;align-items:center;justify-content:space-between;z-index:10;">
+          <span style="background:rgba(255,255,255,0.2);color:#fff;font-size:14px;font-weight:800;padding:4px 12px;border-radius:6px;">ЭКРАН 2</span>
+          <span id="tv-multi-title-right" style="color:#fff;font-size:18px;font-weight:700;">Канал 2</span>
+          <span id="tv-multi-audio-badge-right" style="color:rgba(255,255,255,0.4);font-weight:700;font-size:15px;">🔇 Без звука</span>
+        </div>
+        <video id="tv-multi-video-right" style="width:100%;height:100%;object-fit:contain;background:#000;" muted playsinline></video>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
