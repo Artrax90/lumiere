@@ -405,6 +405,7 @@ fun DetailsScreen(
                                 )
                             } else {
                                 // Torrents Tab View with Filters & Sort
+                                var isTorrentsExpanded by remember(qualityFilter, sortBy, state.selectedSeason) { mutableStateOf(false) }
                                 val hasPreferredVoiceover = remember(state.torrents) { state.torrents.any { it.isPreferredVoiceover } }
                                 val qualityOptions = remember(hasPreferredVoiceover) {
                                     val list = mutableListOf("all" to "Все")
@@ -563,7 +564,8 @@ fun DetailsScreen(
                                             Text("Раздачи не найдены", color = TextMuted, fontSize = 14.sp)
                                         }
                                     } else {
-                                        filteredTorrents.forEach { torrent ->
+                                        val visibleTorrents = if (isTorrentsExpanded) filteredTorrents else filteredTorrents.take(5)
+                                        visibleTorrents.forEach { torrent ->
                                             TorrentRowItem(
                                                 item = torrent,
                                                 isLaunching = state.isStartingStream && state.activeTorrent?.magnet == torrent.magnet,
@@ -585,6 +587,46 @@ fun DetailsScreen(
                                                     }
                                                 }
                                             )
+                                        }
+
+                                        if (filteredTorrents.size > 5) {
+                                            val expandBtnShape = remember { RoundedCornerShape(12.dp) }
+                                            val remainingCount = filteredTorrents.size - 5
+                                            val expandLabel = if (isTorrentsExpanded) {
+                                                "▲  Свернуть список раздач"
+                                            } else {
+                                                val plural = when {
+                                                    remainingCount % 100 in 11..19 -> "$remainingCount раздач"
+                                                    remainingCount % 10 == 1 -> "$remainingCount раздачу"
+                                                    remainingCount % 10 in 2..4 -> "$remainingCount раздачи"
+                                                    else -> "$remainingCount раздач"
+                                                }
+                                                "▼  Показать ещё $plural..."
+                                            }
+
+                                            Button(
+                                                onClick = { isTorrentsExpanded = !isTorrentsExpanded },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.01f),
+                                                colors = ButtonDefaults.colors(
+                                                    containerColor = Color(0x12FFFFFF),
+                                                    contentColor = LumiereGold,
+                                                    focusedContainerColor = LumiereGold,
+                                                    focusedContentColor = BackgroundDark
+                                                ),
+                                                border = ButtonDefaults.border(
+                                                    border = Border(border = BorderStroke(1.dp, Color(0x22FFFFFF)), shape = expandBtnShape),
+                                                    focusedBorder = Border(border = BorderStroke(2.dp, Color.White), shape = expandBtnShape)
+                                                ),
+                                                shape = ButtonDefaults.shape(expandBtnShape),
+                                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
+                                            ) {
+                                                Text(
+                                                    text = expandLabel,
+                                                    fontSize = 13.sp,
+                                                    fontWeight = FontWeight.SemiBold
+                                                )
+                                            }
                                         }
                                     }
                                 }
