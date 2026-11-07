@@ -63,12 +63,14 @@ fun HomeScreen(
     var isTopBarFocused by remember { mutableStateOf(false) }
 
     var hasInitiallyFocused by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf(false) }
-    var lastClickedTitleId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Long?>(null) }
+    var pendingRestoreShelfId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingRestoreCardId by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<Long?>(null) }
     val restoreCardFocusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
-    val handleTitleClick: (Title) -> Unit = remember(onTitleClick) {
-        { title ->
-            lastClickedTitleId = title.id
+    val handleTitleClick: (String, Title) -> Unit = remember(onTitleClick) {
+        { shelfId, title ->
+            pendingRestoreShelfId = shelfId
+            pendingRestoreCardId = title.id
             onTitleClick(title)
         }
     }
@@ -84,6 +86,24 @@ fun HomeScreen(
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 viewModel.refreshWatchHistory()
+                if (pendingRestoreCardId != null) {
+                    coroutineScope.launch {
+                        var successCount = 0
+                        for (attempt in 1..10) {
+                            kotlinx.coroutines.delay(60)
+                            try {
+                                restoreCardFocusRequester.requestFocus()
+                                successCount++
+                                if (successCount >= 2 && attempt >= 5) {
+                                    break
+                                }
+                            } catch (_: Exception) {}
+                        }
+                        kotlinx.coroutines.delay(100)
+                        pendingRestoreCardId = null
+                        pendingRestoreShelfId = null
+                    }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -93,23 +113,12 @@ fun HomeScreen(
     }
 
     LaunchedEffect(Unit) {
-        if (!hasInitiallyFocused && lastClickedTitleId == null) {
+        if (!hasInitiallyFocused && pendingRestoreCardId == null) {
             hasInitiallyFocused = true
             kotlinx.coroutines.delay(100)
             try {
                 homeFocusRequester.requestFocus()
             } catch (_: Exception) {}
-        }
-    }
-
-    LaunchedEffect(lastClickedTitleId) {
-        val targetId = lastClickedTitleId
-        if (targetId != null) {
-            kotlinx.coroutines.delay(150)
-            try {
-                restoreCardFocusRequester.requestFocus()
-            } catch (_: Exception) {}
-            lastClickedTitleId = null
         }
     }
 
@@ -226,8 +235,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Продолжить просмотр" },
                                 items = state.continueWatching,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("continueWatching", it) },
+                                isTargetShelf = pendingRestoreShelfId == "continueWatching",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = continueWatchingState,
                                 firstItemFocusRequester = continueWatchingFocusRequester,
@@ -243,8 +253,9 @@ fun HomeScreen(
                                 subtitle = "На основе просмотренных вами фильмов и сериалов",
                                 items = state.recommendations,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("recommendations", it) },
+                                isTargetShelf = pendingRestoreShelfId == "recommendations",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = recommendationsState,
                                 firstItemFocusRequester = recommendationsFocusRequester,
@@ -260,8 +271,9 @@ fun HomeScreen(
                                 subtitle = "Самое популярное прямо сейчас",
                                 items = state.trendingMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("trendingMovies", it) },
+                                isTargetShelf = pendingRestoreShelfId == "trendingMovies",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = trendingMoviesState,
                                 firstItemFocusRequester = trendingMoviesFocusRequester,
@@ -282,8 +294,9 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 items = state.netflixMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("netflixMovies", it) },
+                                isTargetShelf = pendingRestoreShelfId == "netflixMovies",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 badgeText = "NETFLIX",
                                 headerAction = {
@@ -310,8 +323,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Популярные фильмы" },
                                 items = state.popularMovies,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("popularMovies", it) },
+                                isTargetShelf = pendingRestoreShelfId == "popularMovies",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = popularMoviesState,
                                 firstItemFocusRequester = popularMoviesFocusRequester,
@@ -332,8 +346,9 @@ fun HomeScreen(
                                 subtitle = subtitle,
                                 items = state.netflixSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("netflixTv", it) },
+                                isTargetShelf = pendingRestoreShelfId == "netflixTv",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 badgeText = "NETFLIX",
                                 headerAction = {
@@ -360,8 +375,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Популярные сериалы" },
                                 items = state.trendingSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("trendingTv", it) },
+                                isTargetShelf = pendingRestoreShelfId == "trendingTv",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = trendingSeriesState,
                                 firstItemFocusRequester = trendingSeriesFocusRequester,
@@ -376,8 +392,9 @@ fun HomeScreen(
                                 title = shelf.label.ifBlank { "Новые сезоны" },
                                 items = state.popularSeries,
                                 resolvePosterUrl = resolvePosterUrl,
-                                onTitleClick = handleTitleClick,
-                                restoreFocusId = lastClickedTitleId,
+                                onTitleClick = { handleTitleClick("popularTv", it) },
+                                isTargetShelf = pendingRestoreShelfId == "popularTv",
+                                restoreFocusId = pendingRestoreCardId,
                                 restoreFocusRequester = restoreCardFocusRequester,
                                 rowState = popularSeriesState,
                                 firstItemFocusRequester = popularSeriesFocusRequester,

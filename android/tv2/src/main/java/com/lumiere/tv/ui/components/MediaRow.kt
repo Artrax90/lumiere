@@ -38,6 +38,7 @@ fun MediaRow(
     rowState: androidx.compose.foundation.lazy.LazyListState = androidx.compose.foundation.lazy.rememberLazyListState(),
     firstItemFocusRequester: FocusRequester? = null,
     upFocusRequester: FocusRequester? = null,
+    isTargetShelf: Boolean = false,
     restoreFocusId: Long? = null,
     restoreFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier
@@ -134,12 +135,13 @@ fun MediaRow(
                 key = { index, item -> "${item.id}_${item.type}_$index" },
                 contentType = { _, _ -> "media_card" }
             ) { index, item ->
-                val isRestoreTarget = restoreFocusId != null && item.id == restoreFocusId && restoreFocusRequester != null
+                val isRestoreTarget = isTargetShelf && restoreFocusId != null && item.id == restoreFocusId && restoreFocusRequester != null
                 val cardModifier = Modifier
                     .then(
-                        if (isRestoreTarget) Modifier.focusRequester(restoreFocusRequester)
-                        else if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester)
-                        else Modifier
+                        if (isRestoreTarget) Modifier.focusRequester(restoreFocusRequester) else Modifier
+                    )
+                    .then(
+                        if (index == 0 && firstItemFocusRequester != null) Modifier.focusRequester(firstItemFocusRequester) else Modifier
                     )
                     .then(
                         if (index == 0 && upFocusRequester != null) {
