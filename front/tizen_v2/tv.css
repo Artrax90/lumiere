@@ -175,11 +175,10 @@ body.player-active .section {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255, 255, 255, 0.06);
+  background: rgba(22, 26, 38, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 30px;
   padding: 4px;
-  backdrop-filter: blur(10px);
 }
 .shelf-tab {
   background: transparent;
@@ -222,6 +221,9 @@ body.player-active .section {
   margin-top: -12px;
   margin-bottom: -12px;
   scrollbar-width: none;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+  transform: translateZ(0);
 }
 .row-items::-webkit-scrollbar { display: none; }
 .row-items .card { margin-right: 18px; }
@@ -231,7 +233,9 @@ body.player-active .section {
   flex-shrink: 0; width: 200px; cursor: pointer;
   border-radius: 12px; overflow: hidden;
   background: var(--surface);
-  transition: transform 0.15s ease;
+  transform: translate3d(0, 0, 0);
+  -webkit-transform: translate3d(0, 0, 0);
+  transition: transform 0.12s cubic-bezier(0.2, 0, 0, 1);
   will-change: transform;
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
@@ -239,9 +243,10 @@ body.player-active .section {
   contain: layout paint;
 }
 .card:focus, .card.focused {
-  transform: scale(1.05) !important;
+  transform: translate3d(0, 0, 0) scale(1.06) !important;
+  -webkit-transform: translate3d(0, 0, 0) scale(1.06) !important;
   outline: none !important;
-  box-shadow: 0 0 0 3px #e8c170, 0 8px 24px rgba(0,0,0,0.6) !important;
+  box-shadow: 0 0 0 3px #e8c170, 0 6px 16px rgba(0,0,0,0.6) !important;
   border-radius: 12px;
   z-index: 50;
 }
@@ -855,7 +860,7 @@ body.player-active .section {
   gap: 8px;
   padding: 10px 22px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.14);
+  background: rgba(24, 28, 40, 0.92);
   border: 1.5px solid rgba(255, 255, 255, 0.25);
   color: #ffffff;
   font-size: 16px;
@@ -864,8 +869,6 @@ body.player-active .section {
   outline: none;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
 }
 .detail-back-btn:hover,
 .detail-back-btn.focused {
@@ -893,13 +896,11 @@ body.player-active .section {
 /* Specs & Metadata block inside Left Hero column (fills void below synopsis) */
 .detail-specs-block {
   margin-top: 28px;
-  background: rgba(14, 18, 28, 0.45);
+  background: rgba(14, 18, 28, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 20px;
   padding: 24px 28px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 .detail-specs-header {
   font-family: Georgia, serif;
@@ -1067,7 +1068,7 @@ body.player-active .section {
 .detail-actor-card {
   display: flex;
   flex-direction: column;
-  background: rgba(16, 20, 30, 0.35);
+  background: rgba(18, 22, 34, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 16px;
   padding: 10px;
@@ -1076,8 +1077,6 @@ body.player-active .section {
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   text-align: left;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
 }
 .detail-actor-card:hover,
 .detail-actor-card.focused {
@@ -1125,11 +1124,9 @@ body.player-active .section {
 .detail-about-card {
   border-radius: 26px;
   padding: 24px 28px;
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
-  background: rgba(12, 14, 20, 0.68);
+  background: rgba(12, 14, 20, 0.94);
   color: #ffffff;
   transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
 }
@@ -1330,7 +1327,7 @@ body.player-active .section {
   align-items: center;
   justify-content: center;
   border-radius: 36px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(30, 36, 52, 0.94);
   border: 1.5px solid rgba(255, 255, 255, 0.25);
   color: #ffffff;
   font-size: 18px;
@@ -1339,8 +1336,6 @@ body.player-active .section {
   outline: none;
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 .detail-btn:hover {
   background: rgba(255, 255, 255, 0.22);
@@ -2159,9 +2154,8 @@ body.player-active .section {
   height: 100%;
   background-size: cover;
   background-position: center top;
-  filter: brightness(0.38) blur(0px);
   opacity: 0;
-  transition: opacity 0.6s ease, filter 0.6s ease;
+  transition: opacity 0.5s ease;
   z-index: 0;
   pointer-events: none;
 }
@@ -2767,9 +2761,7 @@ body.player-active .section {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(10, 11, 15, 0.85);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: rgba(10, 11, 15, 0.95);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2998,8 +2990,7 @@ body.player-active .section {
   left: 0;
   width: 100%;
   height: 100%;
-  background: rgba(0, 0, 0, 0.88);
-  backdrop-filter: blur(8px);
+  background: rgba(0, 0, 0, 0.94);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3303,8 +3294,7 @@ body.player-active .section {
   to { transform: translateY(0); opacity: 1; }
 }
 .switch-toast-box {
-  background: rgba(14, 16, 23, 0.94);
-  backdrop-filter: blur(20px);
+  background: rgba(14, 16, 23, 0.98);
   border: 2px solid #e8c170;
   border-radius: 18px;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.85), 0 0 30px rgba(232, 193, 112, 0.35);
@@ -3480,12 +3470,10 @@ body.player-active .section {
 
 /* Side Card: About & Cast */
 .detail-side-card {
-  background: rgba(18, 20, 29, 0.82);
+  background: rgba(16, 18, 26, 0.94);
   border: 1.5px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
   padding: 28px 32px;
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
   box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55);
 }
 
@@ -3618,9 +3606,7 @@ body.player-active .section {
 #all-cast-modal {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(4, 5, 8, 0.92);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  background: rgba(4, 5, 8, 0.96);
   z-index: 1150;
   display: flex;
   align-items: center;
@@ -3692,7 +3678,7 @@ body.player-active .section {
 .all-cast-card {
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(18, 22, 34, 0.92);
   border: 1.5px solid rgba(255, 255, 255, 0.12);
   border-radius: 16px;
   padding: 12px;
@@ -3701,8 +3687,6 @@ body.player-active .section {
   transition: all 0.2s cubic-bezier(0.2, 0, 0, 1);
   text-align: left;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
 }
 
 .all-cast-card:hover,
@@ -3753,9 +3737,7 @@ body.player-active .section {
 #person-modal {
   position: fixed;
   top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(4, 5, 8, 0.92);
-  backdrop-filter: blur(28px);
-  -webkit-backdrop-filter: blur(28px);
+  background: rgba(4, 5, 8, 0.96);
   z-index: 1200;
   display: flex;
   align-items: center;
@@ -4494,12 +4476,11 @@ body.player-active .section {
   width: 100%;
   height: 100%;
   z-index: 99999;
-  background: rgba(0, 0, 0, 0.94);
+  background: rgba(0, 0, 0, 0.96);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(10px);
 }
 .trailer-cinema-wrap {
   width: 85%;

@@ -2618,7 +2618,7 @@
           overview: 'Вы остановились на ' + timeStr + durStr
         };
 
-        card.innerHTML = '<div class="card-progress-wrap"><img class="card-img" src="' + esc(imgSrc || '') + '" alt="' + esc(name) + '" loading="lazy">' +
+        card.innerHTML = '<div class="card-progress-wrap"><img class="card-img" src="' + esc(imgSrc || '') + '" alt="' + esc(name) + '" loading="lazy" decoding="async">' +
           '<div class="card-progress-bar"><div class="card-progress-fill" style="width:' + fillPct + '%"></div></div></div>' +
           '<div class="card-title"><span class="card-title-text">' + esc(name) + '</span></div>';
 
@@ -2714,7 +2714,7 @@
 
         card.innerHTML = 
           '<div class="card-poster-wrap">' +
-            '<img class="card-poster" src="' + esc(pUrl) + '" alt="' + esc(item.title) + '" onerror="this.src=\'./icon.png\';">' +
+            '<img class="card-poster" src="' + esc(pUrl) + '" alt="' + esc(item.title) + '" loading="lazy" decoding="async" onerror="this.src=\'./icon.png\';">' +
             '<div class="card-badge" style="background:#10b981;color:#000;font-weight:800;font-size:12px;padding:3px 8px;border-radius:6px;position:absolute;top:8px;left:8px;">СКАЧАНО</div>' +
             '<div style="background:rgba(0,0,0,0.75);color:#fff;font-size:11px;font-weight:700;padding:2px 6px;border-radius:4px;position:absolute;bottom:8px;right:8px;">' + sizeText + '</div>' +
           '</div>' +
@@ -4182,11 +4182,11 @@
           : '<div style="position:absolute;top:10px;left:10px;background:#eab308;color:#000;font-size:14px;font-weight:700;padding:4px 10px;border-radius:6px;z-index:3;box-shadow:0 2px 8px rgba(0,0,0,0.6);">СКАЧИВАНИЕ ' + (item.progress || 0) + '%</div>';
 
         var sizeBadge = item.fileSizeFormatted
-          ? '<div style="position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.8);color:#fff;font-size:13px;font-weight:600;padding:3px 8px;border-radius:6px;z-index:3;backdrop-filter:blur(4px);">' + esc(item.fileSizeFormatted) + '</div>'
+          ? '<div style="position:absolute;bottom:10px;right:10px;background:rgba(0,0,0,0.88);color:#fff;font-size:13px;font-weight:600;padding:3px 8px;border-radius:6px;z-index:3;">' + esc(item.fileSizeFormatted) + '</div>'
           : '';
 
         var imgHtml = posterUrl
-          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';" />'
+          ? '<img class="card-img" src="' + esc(posterUrl) + '" alt="' + esc(item.title) + '" loading="lazy" decoding="async" onerror="this.onerror=null;this.src=\'./icon.png\';" />'
           : '<div class="card-img" style="display:flex;align-items:center;justify-content:center;font-size:48px;background:var(--surface-2);">🎬</div>';
 
         card.innerHTML =
@@ -4465,7 +4465,7 @@
     var imgSrc = imgUrl(rawPoster);
     var scoreHtml = title.score ? '<div class="card-score">' + title.score + '</div>' : '';
 
-    card.innerHTML = '<div class="card-img-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(title.name) + '" loading="lazy" onerror="this.onerror=null;this.src=\'./icon.png\';">' + scoreHtml + '</div>' +
+    card.innerHTML = '<div class="card-img-wrap"><img class="card-img" src="' + esc(imgSrc) + '" alt="' + esc(title.name) + '" loading="lazy" decoding="async" onerror="this.onerror=null;this.src=\'./icon.png\';">' + scoreHtml + '</div>' +
       '<div class="card-title"><span class="card-title-text">' + esc(title.name) + '</span></div>';
 
     card.addEventListener('focus', function() {
@@ -4607,7 +4607,7 @@
     var html = '';
     html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
     if (hasBackdrop && backdropUrl) {
-      html += '<img src="' + esc(backdropUrl) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+      html += '<img src="' + esc(backdropUrl) + '" class="detail-hero-img" decoding="async" onerror="this.style.display=\'none\'">';
     }
     html += '<div class="detail-hero-gradient"></div></div>';
 
@@ -4693,7 +4693,7 @@
     // Hero
     html += '<div class="detail-hero" style="' + (!hasBackdrop ? 'background: radial-gradient(circle at 60% 30%, rgba(30, 35, 55, 0.6) 0%, rgba(10, 11, 15, 0.95) 70%, #0a0b0f 100%);' : '') + '">';
     if (hasBackdrop && backdrop) {
-      html += '<img src="' + esc(backdrop) + '" class="detail-hero-img" onerror="this.style.display=\'none\'">';
+      html += '<img src="' + esc(backdrop) + '" class="detail-hero-img" decoding="async" onerror="this.style.display=\'none\'">';
     }
     html += '<div class="detail-hero-gradient"></div></div>';
 
@@ -4832,7 +4832,7 @@
         var rawRole = c.role || '';
         var cleanRole = rawRole.indexOf('/') !== -1 ? rawRole.split('/')[0].trim() : rawRole;
         html += '<div class="detail-actor-card" data-person-id="' + pId + '" data-person-name="' + esc(c.name) + '" data-cast-idx="' + idx + '" tabindex="0">';
-        html += '<div class="detail-actor-photo"><img src="' + esc(avatar) + '" class="detail-actor-img" onerror="this.style.display=\'none\'" loading="lazy"></div>';
+        html += '<div class="detail-actor-photo"><img src="' + esc(avatar) + '" class="detail-actor-img" onerror="this.style.display=\'none\'" loading="lazy" decoding="async"></div>';
         html += '<div class="detail-actor-name">' + esc(c.name) + '</div>';
         if (cleanRole) html += '<div class="detail-actor-role">' + esc(cleanRole) + '</div>';
         html += '</div>';
@@ -5672,7 +5672,7 @@
           credits.forEach(function(c, idx) {
             h += '<div class="person-movie-card" data-idx="' + idx + '" data-movie-id="' + c.id + '" data-movie-type="' + c.type + '" tabindex="0">';
             h += '<div class="person-movie-poster-wrap">';
-            h += '<img class="person-movie-poster" src="' + esc(imgUrl(c.poster)) + '" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22170%22 height=%22255%22><rect width=%22100%%22 height=%22100%%22 fill=%22%23161822%22/></svg>\'" loading="lazy">';
+            h += '<img class="person-movie-poster" src="' + esc(imgUrl(c.poster)) + '" onerror="this.src=\'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%22170%22 height=%22255%22><rect width=%22100%%22 height=%22100%%22 fill=%22%23161822%22/></svg>\'" loading="lazy" decoding="async">';
             if (c.score) {
               h += '<div class="person-movie-score">★ ' + Number(c.score).toFixed(1) + '</div>';
             }
@@ -5907,7 +5907,7 @@
         h += '<div class="all-cast-card" data-idx="' + idx + '" data-person-id="' + pId + '" data-person-name="' + esc(c.name) + '" tabindex="0">';
         h += '<div class="all-cast-card-photo">';
         if (c.image) {
-          h += '<img src="' + esc(avatar) + '" class="all-cast-card-img" onerror="this.style.display=\'none\'" loading="lazy">';
+          h += '<img src="' + esc(avatar) + '" class="all-cast-card-img" onerror="this.style.display=\'none\'" loading="lazy" decoding="async">';
         } else {
           h += '<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.06);color:rgba(255,255,255,0.3);font-size:32px;">👤</div>';
         }
@@ -6167,7 +6167,7 @@
     if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
     var toast = document.createElement('div');
     toast.id = 'tv-toast';
-    toast.style.cssText = 'position:fixed;bottom:48px;left:50%;transform:translateX(-50%);background:rgba(18,22,32,0.96);border:1.5px solid #e8c170;color:#fff;padding:16px 32px;border-radius:14px;font-size:18px;font-weight:700;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,0.85);backdrop-filter:blur(10px);pointer-events:none;';
+    toast.style.cssText = 'position:fixed;bottom:48px;left:50%;transform:translateX(-50%);background:rgba(18,22,32,0.98);border:1.5px solid #e8c170;color:#fff;padding:16px 32px;border-radius:14px;font-size:18px;font-weight:700;z-index:99999;box-shadow:0 8px 32px rgba(0,0,0,0.85);pointer-events:none;';
     toast.textContent = msg;
     document.body.appendChild(toast);
     setTimeout(function() {
@@ -6416,7 +6416,7 @@
         html += '<div class="' + cardClass + '" data-index="' + i + '" data-episode="' + ep.episode + '" data-season="' + seasonNum + '" tabindex="0">';
         html += '  <div class="ep-still-box">';
         if (epStill) {
-          html += '    <img src="' + esc(epStill) + '" class="ep-still-img" onerror="this.src=\'/tv/placeholder.png\'" loading="lazy">';
+          html += '    <img src="' + esc(epStill) + '" class="ep-still-img" onerror="this.src=\'/tv/placeholder.png\'" loading="lazy" decoding="async">';
         }
         html += '    <div class="ep-badge-num">' + epNumText + '</div>';
         if (duration && duration !== '—') {
@@ -12206,7 +12206,7 @@
         bg.style.backgroundImage = 'url(' + img.src + ')';
         bg.classList.add('visible');
       }
-    }, 250);
+    }, 350);
   }
 
   function clearHomeBg() {
@@ -12221,16 +12221,35 @@
       var elLeft = el.offsetLeft;
       var elW = el.offsetWidth;
       var parentW = rowItems.clientWidth;
-      rowItems.scrollLeft = elLeft - (parentW / 2) + (elW / 2);
+      var targetLeft = elLeft - (parentW / 2) + (elW / 2);
+      if (typeof rowItems.scrollTo === 'function') {
+        try {
+          rowItems.scrollTo({ left: targetLeft, behavior: 'smooth' });
+        } catch(e) {
+          rowItems.scrollLeft = targetLeft;
+        }
+      } else {
+        rowItems.scrollLeft = targetLeft;
+      }
     }
     var content = document.getElementById('content');
     if (content) {
       var elRect = el.getBoundingClientRect();
       var contentRect = content.getBoundingClientRect();
       if (elRect.top < contentRect.top + 60) {
-        content.scrollTop -= (contentRect.top + 60 - elRect.top);
+        var diff = contentRect.top + 60 - elRect.top;
+        if (typeof content.scrollBy === 'function') {
+          try { content.scrollBy({ top: -diff, behavior: 'smooth' }); } catch(e) { content.scrollTop -= diff; }
+        } else {
+          content.scrollTop -= diff;
+        }
       } else if (elRect.bottom > contentRect.bottom - 20) {
-        content.scrollTop += (elRect.bottom - contentRect.bottom + 20);
+        var diff = elRect.bottom - contentRect.bottom + 20;
+        if (typeof content.scrollBy === 'function') {
+          try { content.scrollBy({ top: diff, behavior: 'smooth' }); } catch(e) { content.scrollTop += diff; }
+        } else {
+          content.scrollTop += diff;
+        }
       }
     }
   }
