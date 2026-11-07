@@ -12218,12 +12218,21 @@
     if (!el) return;
     var rowItems = el.parentElement;
     if (rowItems && (rowItems.classList.contains('row-items') || rowItems.classList.contains('iptv-channels-row'))) {
-      var elLeft = el.offsetLeft;
-      var elW = el.offsetWidth || 200;
-      var parentW = rowItems.clientWidth || 1920;
-      var targetLeft = Math.max(0, elLeft - (parentW / 2) + (elW / 2));
-      if (Math.abs(rowItems.scrollLeft - targetLeft) > 4) {
-        rowItems.scrollLeft = targetLeft;
+      var cardLeft = el.offsetLeft;
+      var cardWidth = el.offsetWidth || 200;
+      var currentScroll = rowItems.scrollLeft;
+      var containerWidth = rowItems.clientWidth || 1920;
+
+      // Smart windowed scroll:
+      // Keep cards comfortably visible within 50px left margin and 300px right margin.
+      // If the card is already comfortably inside this window, DO NOT scroll the row at all!
+      var leftLimit = currentScroll + 50;
+      var rightLimit = currentScroll + containerWidth - 300;
+
+      if (cardLeft < leftLimit) {
+        rowItems.scrollLeft = Math.max(0, cardLeft - 60);
+      } else if ((cardLeft + cardWidth) > rightLimit) {
+        rowItems.scrollLeft = Math.max(0, (cardLeft + cardWidth + 120) - containerWidth);
       }
     }
     var row = el.closest('.row');
@@ -12231,7 +12240,7 @@
     if (content && row) {
       var rowTop = row.offsetTop;
       var targetTop = Math.max(0, rowTop - 60);
-      if (Math.abs(content.scrollTop - targetTop) > 20) {
+      if (Math.abs(content.scrollTop - targetTop) > 25) {
         content.scrollTop = targetTop;
       }
     }
@@ -12343,6 +12352,8 @@
         updateHomeBg(target);
         return;
       }
+      // Reached left or right edge of row: stay on edge card, never jump to other rows!
+      return;
     }
 
     var cards = getVisibleCards();

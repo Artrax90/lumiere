@@ -140,7 +140,6 @@ body.player-active .section {
 #content {
   position: fixed; top: 76px; bottom: 0; left: 0; right: 0;
   overflow-y: auto; overflow-x: hidden;
-  scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   z-index: 1;
 }
@@ -223,7 +222,6 @@ body.player-active .section {
   margin-top: -12px;
   margin-bottom: -12px;
   scrollbar-width: none;
-  scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
   transform: translateZ(0);
 }
@@ -2498,10 +2496,11 @@ body.player-active .section {
 }
 .top10-card:focus .card-img-wrap,
 .top10-card.focused .card-img-wrap {
-  transform: scale(1.06) translateY(-4px);
+  transform: scale(1.05) translateY(-3px);
   border-color: #e8c170 !important;
-  outline: none !important;
-  box-shadow: 0 0 25px rgba(232, 193, 112, 0.75), 0 16px 45px rgba(0,0,0,0.9) !important;
+  outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
 }
 .top10-card:focus .card-title,
 .top10-card.focused .card-title {
@@ -2510,10 +2509,10 @@ body.player-active .section {
 }
 .top10-card:focus .top10-num,
 .top10-card.focused .top10-num {
-  -webkit-text-stroke: 4.5px #ffffff;
+  -webkit-text-stroke: 4px #ffffff;
   color: rgba(232, 193, 112, 0.95);
-  transform: scale(1.1) translateY(-8px);
-  text-shadow: 0 0 35px rgba(232, 193, 112, 0.9), 0 12px 45px rgba(0,0,0,1);
+  transform: scale(1.06) translateY(-4px);
+  text-shadow: none !important;
 }
 
 
@@ -4623,18 +4622,19 @@ body.player-active .section {
 }
 .collection-tv-card:focus,
 .collection-tv-card.focused {
-  transform: scale(1.05) translateY(-4px) !important;
+  transform: scale(1.04) translateY(-3px) !important;
   border-color: #e8c170 !important;
-  outline: none !important;
-  box-shadow: 0 0 28px rgba(232, 193, 112, 0.65), 0 14px 40px rgba(0, 0, 0, 0.9) !important;
+  outline: 3px solid #e8c170 !important;
+  outline-offset: -3px !important;
+  box-shadow: none !important;
   z-index: 50 !important;
 }
 .collection-tv-card:focus .collection-tv-img,
 .collection-tv-card.focused .collection-tv-img,
 .collection-tv-card:focus .collection-tv-bg,
 .collection-tv-card.focused .collection-tv-bg {
-  transform: scale(1.06) !important;
-  filter: brightness(0.85) saturate(1.1) !important;
+  transform: none !important;
+  filter: none !important;
 }
 
 .collections-tv-grid {
