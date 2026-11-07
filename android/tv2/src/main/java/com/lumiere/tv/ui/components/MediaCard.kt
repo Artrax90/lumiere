@@ -36,6 +36,20 @@ fun MediaCard(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // Preload details with 350ms debounce when card is focused
+    androidx.compose.runtime.LaunchedEffect(isFocused) {
+        if (isFocused) {
+            kotlinx.coroutines.delay(350)
+            com.lumiere.tv.data.DetailsPreloadCache.preload(
+                context = context,
+                mediaId = title.id,
+                mediaType = title.type,
+                source = title.source
+            )
+        }
+    }
 
     Card(
         onClick = onClick,

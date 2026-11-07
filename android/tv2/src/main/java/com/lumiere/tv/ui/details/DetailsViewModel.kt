@@ -58,7 +58,11 @@ class DetailsViewModel(
     private val preferences = AppPreferences(application.applicationContext)
     private var networkClient: NetworkClient? = null
 
-    private val _uiState = MutableStateFlow(DetailsUiState())
+    private val cachedDetails = com.lumiere.tv.data.DetailsPreloadCache.get(mediaId, mediaType, source)
+    private val _uiState = MutableStateFlow(
+        if (cachedDetails != null) DetailsUiState(isLoading = false, title = cachedDetails)
+        else DetailsUiState()
+    )
     val uiState: StateFlow<DetailsUiState> = _uiState.asStateFlow()
 
     init {
@@ -67,7 +71,11 @@ class DetailsViewModel(
 
     fun loadDetails() {
         viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            if (_uiState.value.title == null) {
+                _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            } else {
+                _uiState.update { it.copy(errorMessage = null) }
+            }
 
             val serverUrl = preferences.serverUrl.first().orEmpty()
             val token = preferences.accessToken.first()
@@ -94,6 +102,7 @@ class DetailsViewModel(
                     api.getMovieDetails(mediaId)
                 }
 
+                com.lumiere.tv.data.DetailsPreloadCache.put(mediaId, mediaType, source, details)
                 _uiState.update { it.copy(isLoading = false, title = details) }
 
                 // Load saved playback progress

@@ -91,6 +91,36 @@ fun MediaRow(
         }
 
         val distinctItems = androidx.compose.runtime.remember(items) { items.distinctBy { it.id } }
+        val context = androidx.compose.ui.platform.LocalContext.current
+
+        // Prefetch posters ahead of current viewport position
+        androidx.compose.runtime.LaunchedEffect(rowState, distinctItems) {
+            androidx.compose.runtime.snapshotFlow {
+                val layout = rowState.layoutInfo
+                layout.visibleItemsInfo.lastOrNull()?.index ?: 0
+            }.collect { lastVisibleIndex ->
+                val prefetchAhead = 5
+                val start = lastVisibleIndex + 1
+                val end = (start + prefetchAhead).coerceAtMost(distinctItems.size)
+                if (start < end) {
+                    val loader = coil3.SingletonImageLoader.get(context)
+                    for (i in start until end) {
+                        val item = distinctItems[i]
+                        val posterUrl = resolvePosterUrl(item.poster)
+                        if (posterUrl.isNotBlank()) {
+                            val req = coil3.request.ImageRequest.Builder(context)
+                                .data(posterUrl)
+                                .size(300, 450)
+                                .memoryCacheKey(posterUrl)
+                                .diskCacheKey(posterUrl)
+                                .build()
+                            loader.enqueue(req)
+                        }
+                    }
+                }
+            }
+        }
+
         LazyRow(
             state = rowState,
             contentPadding = PaddingValues(horizontal = 32.dp, vertical = 12.dp),
