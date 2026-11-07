@@ -406,6 +406,22 @@ fun DetailsScreen(
                             } else {
                                 // Torrents Tab View with Filters & Sort
                                 var isTorrentsExpanded by remember(qualityFilter, sortBy, state.selectedSeason) { mutableStateOf(false) }
+                                var hasUserToggledExpand by remember(qualityFilter, sortBy, state.selectedSeason) { mutableStateOf(false) }
+                                val sixthItemFocusRequester = remember { FocusRequester() }
+                                val expandBtnFocusRequester = remember { FocusRequester() }
+
+                                LaunchedEffect(isTorrentsExpanded) {
+                                    if (!hasUserToggledExpand) return@LaunchedEffect
+                                    kotlinx.coroutines.delay(60)
+                                    try {
+                                        if (isTorrentsExpanded) {
+                                            sixthItemFocusRequester.requestFocus()
+                                        } else {
+                                            expandBtnFocusRequester.requestFocus()
+                                        }
+                                    } catch (_: Exception) {}
+                                }
+
                                 val hasPreferredVoiceover = remember(state.torrents) { state.torrents.any { it.isPreferredVoiceover } }
                                 val qualityOptions = remember(hasPreferredVoiceover) {
                                     val list = mutableListOf("all" to "Все")
@@ -565,9 +581,10 @@ fun DetailsScreen(
                                         }
                                     } else {
                                         val visibleTorrents = if (isTorrentsExpanded) filteredTorrents else filteredTorrents.take(5)
-                                        visibleTorrents.forEach { torrent ->
+                                        visibleTorrents.forEachIndexed { index, torrent ->
                                             TorrentRowItem(
                                                 item = torrent,
+                                                modifier = if (index == 5) Modifier.focusRequester(sixthItemFocusRequester) else Modifier,
                                                 isLaunching = state.isStartingStream && state.activeTorrent?.magnet == torrent.magnet,
                                                 isSelected = !state.lastPlayedTorrentMagnet.isNullOrBlank() && torrent.magnet == state.lastPlayedTorrentMagnet,
                                                 onClick = {
@@ -605,8 +622,13 @@ fun DetailsScreen(
                                             }
 
                                             Button(
-                                                onClick = { isTorrentsExpanded = !isTorrentsExpanded },
-                                                modifier = Modifier.fillMaxWidth(),
+                                                onClick = {
+                                                    hasUserToggledExpand = true
+                                                    isTorrentsExpanded = !isTorrentsExpanded
+                                                },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .focusRequester(expandBtnFocusRequester),
                                                 scale = ButtonDefaults.scale(scale = 1f, focusedScale = 1.01f),
                                                 colors = ButtonDefaults.colors(
                                                     containerColor = Color(0x12FFFFFF),
