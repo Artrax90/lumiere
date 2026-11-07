@@ -100,10 +100,22 @@ class DetailsViewModel(
                 val localProgress = preferences.getPlaybackPosition(mediaId, mediaType) ?: 0L
                 var finalProgress = localProgress
                 try {
-                    val serverProgress = api.getWatchProgress(mediaId, mediaType).progress
+                    val serverResp = api.getWatchProgress(mediaId, mediaType)
+                    val serverProgress = serverResp.progress
                     if (serverProgress > finalProgress) {
                         finalProgress = serverProgress
                         preferences.setPlaybackPosition(mediaId, mediaType, serverProgress)
+                    }
+                    val magnet = serverResp.torrentMagnet
+                    if (!magnet.isNullOrBlank()) {
+                        val s = if (serverResp.season != null && serverResp.season > 0) serverResp.season else 0
+                        preferences.setLastPlayedTorrent(mediaId, s, magnet, serverResp.torrentTitle.orEmpty())
+                    }
+                    if (mediaType == "tv" && serverResp.season != null && serverResp.season > 0 && serverResp.episode != null && serverResp.episode > 0) {
+                        preferences.setLastWatchedSeries(mediaId, serverResp.season, serverResp.episode)
+                        if (serverProgress > 0L) {
+                            preferences.setEpisodePlaybackPosition(mediaId, serverResp.season, serverResp.episode, serverProgress, serverResp.duration ?: 0L)
+                        }
                     }
                 } catch (_: Exception) {}
 
@@ -444,10 +456,22 @@ class DetailsViewModel(
             if (serverUrl.isNotBlank() && networkClient != null) {
                 try {
                     val api = networkClient!!.createApiService(serverUrl)
-                    val serverProgress = api.getWatchProgress(mediaId, mediaType).progress
+                    val serverResp = api.getWatchProgress(mediaId, mediaType)
+                    val serverProgress = serverResp.progress
                     if (serverProgress > finalProgress) {
                         finalProgress = serverProgress
                         preferences.setPlaybackPosition(mediaId, mediaType, serverProgress)
+                    }
+                    val magnet = serverResp.torrentMagnet
+                    if (!magnet.isNullOrBlank()) {
+                        val s = if (serverResp.season != null && serverResp.season > 0) serverResp.season else 0
+                        preferences.setLastPlayedTorrent(mediaId, s, magnet, serverResp.torrentTitle.orEmpty())
+                    }
+                    if (mediaType == "tv" && serverResp.season != null && serverResp.season > 0 && serverResp.episode != null && serverResp.episode > 0) {
+                        preferences.setLastWatchedSeries(mediaId, serverResp.season, serverResp.episode)
+                        if (serverProgress > 0L) {
+                            preferences.setEpisodePlaybackPosition(mediaId, serverResp.season, serverResp.episode, serverProgress, serverResp.duration ?: 0L)
+                        }
                     }
                 } catch (_: Exception) {}
             }

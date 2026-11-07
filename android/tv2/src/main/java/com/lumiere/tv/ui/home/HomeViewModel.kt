@@ -151,15 +151,41 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
                 // Map watch history to Titles for continue watching row
                 val continueWatching = syncData?.watchHistory?.map { item ->
+                    val epLabel = if (item.mediaType == "tv" && (item.season ?: 0) > 0 && (item.episode ?: 0) > 0) {
+                        "S${item.season} E${item.episode}"
+                    } else null
+                    val pct = if ((item.duration ?: 0L) > 0L) {
+                        ((item.progress ?: 0L).toDouble() / (item.duration ?: 1L).toDouble()) * 100.0
+                    } else {
+                        (item.progress ?: 0L).toDouble()
+                    }
                     Title(
                         id = item.tmdbId,
                         tmdbId = item.tmdbId,
                         name = item.titleName,
                         type = item.mediaType,
                         poster = item.poster,
-                        progress = (item.progress ?: 0L).toDouble()
+                        progress = pct,
+                        episode = epLabel
                     )
                 }.orEmpty()
+
+                // Warm up preferences from syncData in background
+                syncData?.watchHistory?.forEach { item ->
+                    val magnet = item.torrentMagnet
+                    if (!magnet.isNullOrBlank()) {
+                        preferences.setLastPlayedTorrent(item.tmdbId, item.season ?: 0, magnet, item.torrentTitle.orEmpty())
+                    }
+                    if (item.mediaType == "tv" && (item.season ?: 0) > 0 && (item.episode ?: 0) > 0) {
+                        preferences.setLastWatchedSeries(item.tmdbId, item.season ?: 1, item.episode ?: 1)
+                        if ((item.progress ?: 0L) > 0L) {
+                            preferences.setEpisodePlaybackPosition(item.tmdbId, item.season ?: 1, item.episode ?: 1, item.progress ?: 0L, item.duration ?: 0L)
+                        }
+                    }
+                    if ((item.progress ?: 0L) > 0L) {
+                        preferences.setPlaybackPosition(item.tmdbId, item.mediaType, item.progress ?: 0L)
+                    }
+                }
 
                 // Personalized recommendations based on watched history
                 var recommendations: List<Title> = emptyList()

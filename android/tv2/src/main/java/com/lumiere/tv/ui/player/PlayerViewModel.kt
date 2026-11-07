@@ -480,6 +480,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             )
                         } catch (_: Exception) {}
                     }
+                    val torrentPair = preferences.getLastPlayedTorrent(mediaId, if (mediaType == "tv") season else 0)
+                        ?: preferences.getLastPlayedTorrent(mediaId, 0)
                     api?.saveWatchProgress(
                         com.lumiere.core.model.WatchProgressRequest(
                             tmdbId = mediaId,
@@ -487,7 +489,12 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                             titleName = title,
                             poster = poster,
                             progress = effectiveSec,
-                            timestamp = System.currentTimeMillis()
+                            timestamp = System.currentTimeMillis(),
+                            season = season,
+                            episode = episode,
+                            duration = durSec,
+                            torrentMagnet = torrentPair?.first,
+                            torrentTitle = torrentPair?.second
                         )
                     )
                 }

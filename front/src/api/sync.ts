@@ -9,6 +9,11 @@ interface WatchHistoryItem {
   poster?: string;
   progress?: number;
   timestamp?: number;
+  season?: number;
+  episode?: number;
+  duration?: number;
+  torrentMagnet?: string;
+  torrentTitle?: string;
 }
 
 interface FavoriteItem {
@@ -221,6 +226,11 @@ class SyncClient {
         timestamp: Math.max(positions[existingIndex].timestamp || 0, item.timestamp || 0),
         titleName: item.titleName || positions[existingIndex].titleName,
         poster: item.poster || positions[existingIndex].poster,
+        season: item.season !== undefined ? item.season : positions[existingIndex].season,
+        episode: item.episode !== undefined ? item.episode : positions[existingIndex].episode,
+        duration: item.duration !== undefined ? item.duration : positions[existingIndex].duration,
+        torrentMagnet: item.torrentMagnet || positions[existingIndex].torrentMagnet,
+        torrentTitle: item.torrentTitle || positions[existingIndex].torrentTitle,
       };
     } else {
       positions.push(item);
@@ -233,17 +243,37 @@ class SyncClient {
       const pos = JSON.parse(getScopedItem('playback_positions') || '{}');
       pos[item.tmdbId] = {
         time: item.progress || 0,
+        duration: item.duration || 0,
+        season: item.season,
+        episode: item.episode,
         timestamp: item.timestamp || Date.now(),
         title: {
           id: item.tmdbId,
           name: item.titleName || '',
           poster: item.poster || '',
           type: item.mediaType || 'movie',
+          season: item.season,
+          episode: item.episode,
         },
       };
       setScopedItem('playback_positions', JSON.stringify(pos));
       window.dispatchEvent(new CustomEvent('playback-positions-synced'));
     } catch {}
+
+    if (item.torrentMagnet) {
+      try {
+        const lastTorrents = JSON.parse(getScopedItem('last_torrents') || '{}');
+        lastTorrents[item.tmdbId] = {
+          magnet: item.torrentMagnet,
+          title: item.torrentTitle || '',
+          type: item.mediaType || 'movie',
+          season: item.season,
+          episode: item.episode,
+          timestamp: item.timestamp || Date.now(),
+        };
+        setScopedItem('last_torrents', JSON.stringify(lastTorrents));
+      } catch {}
+    }
 
     this.pendingChanges.watchHistory.push(item);
   }
@@ -385,6 +415,9 @@ class SyncClient {
         if (!local || serverTime >= localTime || !hasLocalTitle) {
           rawPositions[id] = {
             time: item.progress || (typeof local === 'object' ? local.time : 0) || 0,
+            duration: item.duration || (typeof local === 'object' ? local.duration : 0) || 0,
+            season: item.season || (typeof local === 'object' ? local.season : undefined),
+            episode: item.episode || (typeof local === 'object' ? local.episode : undefined),
             timestamp: Math.max(serverTime, localTime),
             title: {
               id: id,
@@ -392,6 +425,8 @@ class SyncClient {
               poster: item.poster || (typeof local === 'object' && local.title?.poster) || '',
               backdrop: (typeof local === 'object' && local.title?.backdrop) || '',
               type: item.mediaType || 'movie',
+              season: item.season || (typeof local === 'object' && local.title?.season),
+              episode: item.episode || (typeof local === 'object' && local.title?.episode),
             },
           };
           changed = true;
@@ -401,6 +436,33 @@ class SyncClient {
         setScopedItem('playback_positions', JSON.stringify(rawPositions));
         window.dispatchEvent(new CustomEvent('playback-positions-synced'));
       }
+
+      // Also merge server torrent magnets into last_torrents
+      try {
+        const rawLastTorrents = JSON.parse(getScopedItem('last_torrents') || '{}');
+        let ltChanged = false;
+        for (const item of serverData.watchHistory || []) {
+          const id = Number(item.tmdbId);
+          if (!id || !item.torrentMagnet) continue;
+          const serverTime = Number(item.timestamp) || Date.now();
+          const curLt = rawLastTorrents[id];
+          const curTime = curLt ? (Number(curLt.timestamp) || 0) : 0;
+          if (!curLt || serverTime >= curTime) {
+            rawLastTorrents[id] = {
+              magnet: item.torrentMagnet,
+              title: item.torrentTitle || '',
+              type: item.mediaType || 'movie',
+              season: item.season || undefined,
+              episode: item.episode || undefined,
+              timestamp: serverTime,
+            };
+            ltChanged = true;
+          }
+        }
+        if (ltChanged) {
+          setScopedItem('last_torrents', JSON.stringify(rawLastTorrents));
+        }
+      } catch {}
     } catch (e) {
       console.error('[Sync] Error merging into playback_positions:', e);
     }

@@ -349,7 +349,12 @@ data class WatchProgressSyncItem(
     val titleName: String,
     val poster: String? = null,
     val progress: Long? = null,
-    val timestamp: Long? = null
+    val timestamp: Long? = null,
+    val season: Int? = 0,
+    val episode: Int? = 0,
+    val duration: Long? = 0L,
+    val torrentMagnet: String? = null,
+    val torrentTitle: String? = null
 )
 
 @Serializable
@@ -366,14 +371,24 @@ data class WatchProgressRequest(
     val titleName: String? = "",
     val poster: String? = "",
     val progress: Long = 0L,
-    val timestamp: Long = 0L
+    val timestamp: Long = 0L,
+    val season: Int = 0,
+    val episode: Int = 0,
+    val duration: Long = 0L,
+    val torrentMagnet: String? = null,
+    val torrentTitle: String? = null
 )
 
 @Serializable
 data class TitleProgressResponse(
     val progress: Long = 0L,
     val timestamp: Long = 0L,
-    val updatedAt: String? = null
+    val updatedAt: String? = null,
+    val season: Int = 0,
+    val episode: Int = 0,
+    val duration: Long = 0L,
+    val torrentMagnet: String? = null,
+    val torrentTitle: String? = null
 )
 
 @Serializable

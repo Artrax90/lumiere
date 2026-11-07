@@ -280,6 +280,9 @@
       duration: parseInt(p.duration, 10) || 0,
       start: parseInt(p.start) || 0,
       link: p.link || (state.activeTorrent && state.activeTorrent.magnet) || (state._lastMagnet || ''),
+      torrentTitle: p.torrentTitle || (state.activeTorrent && state.activeTorrent.title) || '',
+      season: p.season || undefined,
+      episode: p.episode || undefined,
       fileIndex: (p.fileIndex !== undefined) ? parseInt(p.fileIndex) : ((state.activeFile && state.activeFile.id !== undefined) ? state.activeFile.id : -1),
       files: p.files || state.activeTorrentFiles || (state.torrentFiles || [])
     };
@@ -8510,7 +8513,9 @@
       // Merge playback positions from server (strictly preserving watch timestamp)
       if (data.watchHistory && Array.isArray(data.watchHistory) && data.watchHistory.length > 0) {
         var local = {};
+        var lastTorrents = {};
         try { local = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e2) {}
+        try { lastTorrents = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e2) {}
         try { data.watchHistory.forEach(function(item) {
           var id = item.tmdbId;
           if (!id) return;
@@ -8532,12 +8537,43 @@
             }
             local[id] = {
               time: item.progress || 0,
+              duration: item.duration || (localItem && localItem.duration) || 0,
+              season: item.season || (localItem && localItem.season) || undefined,
+              episode: item.episode || (localItem && localItem.episode) || undefined,
               timestamp: realWatchTime,
-              title: { name: chosenName, poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '', id: id, type: itemType }
+              title: {
+                name: chosenName,
+                poster: item.poster || (localItem && localItem.title && localItem.title.poster) || '',
+                id: id,
+                type: itemType,
+                season: item.season || (localItem && localItem.season) || undefined,
+                episode: item.episode || (localItem && localItem.episode) || undefined
+              }
             };
+            if (itemType === 'tv' && item.season && item.episode) {
+              var epKey = id + '_s' + item.season + '_e' + item.episode;
+              local[epKey] = {
+                time: item.progress || 0,
+                duration: item.duration || 0,
+                timestamp: realWatchTime,
+                title: { name: chosenName, poster: item.poster || '', id: id, type: itemType, season: item.season, episode: item.episode }
+              };
+              setStorageItem('last_season_' + id, String(item.season));
+              setStorageItem('last_episode_' + id, String(item.episode));
+            }
+            if (item.torrentMagnet) {
+              if (!lastTorrents[id]) lastTorrents[id] = {};
+              lastTorrents[id].magnet = item.torrentMagnet;
+              if (item.torrentTitle) lastTorrents[id].title = item.torrentTitle;
+              lastTorrents[id].timestamp = realWatchTime;
+              lastTorrents[id].type = itemType;
+              if (itemType === 'tv' && item.season) lastTorrents[id].season = item.season;
+              if (itemType === 'tv' && item.episode) lastTorrents[id].episode = item.episode;
+            }
           }
         });
         setStorageItem('playback_positions', JSON.stringify(local));
+        setStorageItem('last_torrents', JSON.stringify(lastTorrents));
         } catch(e3) { console.error('[Lumiere] watchHistory merge error:', e3); }
       }
 
@@ -8561,7 +8597,9 @@
 
   function pushLocalData() {
     var positions = {};
+    var lastTorrentsMap = {};
     try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
+    try { lastTorrentsMap = JSON.parse(getStorageItem('last_torrents') || '{}'); } catch(e) {}
 
     var history = [];
     for (var id in positions) {
@@ -8580,17 +8618,28 @@
           mType = 'tv';
           if (/^(1408|Комната 1408)$/i.test(titleName)) titleName = 'Доктор Хаус';
         }
+        var sNum = pos.season || (pos.title && pos.title.season) || null;
+        var eNum = pos.episode || (pos.title && pos.title.episode) || null;
+        var dur = pos.duration || null;
+        var tInfo = lastTorrentsMap[id] || null;
+        var magnet = (tInfo && tInfo.magnet) || null;
+        var tTitle = (tInfo && tInfo.title) || null;
+
         history.push({
           tmdbId: Number(id),
           mediaType: mType,
           titleName: titleName,
           poster: poster,
           progress: Math.round(pos.time),
-          timestamp: pos.timestamp || Date.now()
+          timestamp: pos.timestamp || Date.now(),
+          season: sNum ? Number(sNum) : null,
+          episode: eNum ? Number(eNum) : null,
+          duration: dur ? Number(dur) : null,
+          torrentMagnet: magnet,
+          torrentTitle: tTitle
         });
       }
     }
-
 
     if (history.length > 0) {
       apiPost('/api/sync/push', { watchHistory: history }, function() {});

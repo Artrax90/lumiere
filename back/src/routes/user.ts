@@ -635,10 +635,21 @@ export function userRoutes(app: FastifyInstance) {
 
   // Get watch history
   app.get('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user?.userId || 1;
+    let userId = request.user?.userId;
+    if (!userId) {
+      try {
+        const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (u.rows.length > 0) userId = u.rows[0].id;
+      } catch {}
+    }
+    userId = userId || 1;
 
     const result = await pool.query(
-      'SELECT id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at FROM watch_history WHERE user_id = $1 ORDER BY updated_at DESC',
+      `SELECT id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at,
+              season, episode, duration, torrent_magnet, torrent_title
+       FROM watch_history
+       WHERE user_id = $1
+       ORDER BY updated_at DESC`,
       [userId]
     );
 
@@ -651,14 +662,49 @@ export function userRoutes(app: FastifyInstance) {
       progress: r.progress,
       timestamp: r.timestamp,
       updatedAt: r.updated_at,
+      season: r.season || 0,
+      episode: r.episode || 0,
+      duration: r.duration || 0,
+      torrentMagnet: r.torrent_magnet || '',
+      torrentTitle: r.torrent_title || '',
     })) };
   });
 
   // Update watch progress
   app.post('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    const userId = request.user?.userId || 1;
-    const { tmdbId, mediaType, titleName, poster, progress, timestamp } = request.body as {
-      tmdbId?: number; mediaType?: string; titleName?: string; poster?: string; progress?: number; timestamp?: number;
+    let userId = request.user?.userId;
+    if (!userId) {
+      try {
+        const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
+        if (u.rows.length > 0) userId = u.rows[0].id;
+      } catch {}
+    }
+    userId = userId || 1;
+
+    const {
+      tmdbId,
+      mediaType,
+      titleName,
+      poster,
+      progress,
+      timestamp,
+      season,
+      episode,
+      duration,
+      torrentMagnet,
+      torrentTitle,
+    } = request.body as {
+      tmdbId?: number;
+      mediaType?: string;
+      titleName?: string;
+      poster?: string;
+      progress?: number;
+      timestamp?: number;
+      season?: number;
+      episode?: number;
+      duration?: number;
+      torrentMagnet?: string;
+      torrentTitle?: string;
     };
 
     if (!tmdbId) {
@@ -669,17 +715,38 @@ export function userRoutes(app: FastifyInstance) {
     const effectiveType = mediaType || 'movie';
 
     const result = await pool.query(
-      `INSERT INTO watch_history (user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+      `INSERT INTO watch_history (
+         user_id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at,
+         season, episode, duration, torrent_magnet, torrent_title
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11, $12)
        ON CONFLICT (user_id, tmdb_id, media_type)
        DO UPDATE SET
          progress = EXCLUDED.progress,
          timestamp = GREATEST(watch_history.timestamp, EXCLUDED.timestamp),
          title_name = COALESCE(EXCLUDED.title_name, watch_history.title_name),
          poster = COALESCE(EXCLUDED.poster, watch_history.poster),
+         season = CASE WHEN EXCLUDED.season > 0 THEN EXCLUDED.season ELSE watch_history.season END,
+         episode = CASE WHEN EXCLUDED.episode > 0 THEN EXCLUDED.episode ELSE watch_history.episode END,
+         duration = CASE WHEN EXCLUDED.duration > 0 THEN EXCLUDED.duration ELSE watch_history.duration END,
+         torrent_magnet = COALESCE(NULLIF(EXCLUDED.torrent_magnet, ''), watch_history.torrent_magnet),
+         torrent_title = COALESCE(NULLIF(EXCLUDED.torrent_title, ''), watch_history.torrent_title),
          updated_at = NOW()
        RETURNING id`,
-      [userId, tmdbId, effectiveType, effectiveTitle, poster || '', progress || 0, timestamp || Date.now()]
+      [
+        userId,
+        tmdbId,
+        effectiveType,
+        effectiveTitle,
+        poster || '',
+        progress || 0,
+        timestamp || Date.now(),
+        season || 0,
+        episode || 0,
+        duration || 0,
+        torrentMagnet || '',
+        torrentTitle || '',
+      ]
     );
 
     return { success: true, id: result.rows[0]?.id };

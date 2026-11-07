@@ -69,6 +69,7 @@
 
   // Binge-Watching & Autoplay state
   var torrentLink = '';
+  var torrentTitle = '';
   var torrentFileIndex = -1;
   var torrentFiles = [];
   var nextFile = null;
@@ -404,7 +405,8 @@
       try { localStorage.setItem('last_watched_id', String(movieId)); } catch(e) {}
     }
 
-    torrentLink = params.link || '';
+    torrentLink = params.link || params.magnet || '';
+    torrentTitle = params.torrentTitle || params.torrentName || (params.torrent && params.torrent.title) || '';
     torrentFileIndex = (params.fileIndex !== undefined) ? parseInt(params.fileIndex) : -1;
     torrentFiles = params.files || [];
     precacheSent = false;
@@ -2045,6 +2047,8 @@
         if (!lastT[saveId]) lastT[saveId] = {};
         lastT[saveId].timestamp = now;
         lastT[saveId].type = mediaType;
+        if (torrentLink) lastT[saveId].magnet = torrentLink;
+        if (torrentTitle) lastT[saveId].title = torrentTitle;
         if (mediaType === 'tv') {
           if (sNum) lastT[saveId].season = sNum;
           if (eNum) lastT[saveId].episode = eNum;
@@ -2099,6 +2103,11 @@
             poster: savePoster,
             progress: effectiveTime,
             timestamp: now,
+            season: sNum ? Number(sNum) : null,
+            episode: eNum ? Number(eNum) : null,
+            duration: duration ? Math.round(duration) : null,
+            torrentMagnet: torrentLink || (lastT[saveId] && lastT[saveId].magnet) || null,
+            torrentTitle: torrentTitle || (lastT[saveId] && lastT[saveId].title) || null,
             token: token
           };
           var progressUrl = serverBase + '/api/sync/progress' + (token ? ('?token=' + encodeURIComponent(token)) : '');
