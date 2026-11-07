@@ -12219,38 +12219,17 @@
     var rowItems = el.parentElement;
     if (rowItems && (rowItems.classList.contains('row-items') || rowItems.classList.contains('iptv-channels-row'))) {
       var elLeft = el.offsetLeft;
-      var elW = el.offsetWidth;
-      var parentW = rowItems.clientWidth;
-      var targetLeft = elLeft - (parentW / 2) + (elW / 2);
-      if (typeof rowItems.scrollTo === 'function') {
-        try {
-          rowItems.scrollTo({ left: targetLeft, behavior: 'smooth' });
-        } catch(e) {
-          rowItems.scrollLeft = targetLeft;
-        }
-      } else {
-        rowItems.scrollLeft = targetLeft;
-      }
+      var elW = el.offsetWidth || 200;
+      var parentW = rowItems.clientWidth || 1920;
+      var targetLeft = Math.max(0, elLeft - (parentW / 2) + (elW / 2));
+      rowItems.scrollLeft = targetLeft;
     }
+    var row = el.closest('.row');
     var content = document.getElementById('content');
-    if (content) {
-      var elRect = el.getBoundingClientRect();
-      var contentRect = content.getBoundingClientRect();
-      if (elRect.top < contentRect.top + 60) {
-        var diff = contentRect.top + 60 - elRect.top;
-        if (typeof content.scrollBy === 'function') {
-          try { content.scrollBy({ top: -diff, behavior: 'smooth' }); } catch(e) { content.scrollTop -= diff; }
-        } else {
-          content.scrollTop -= diff;
-        }
-      } else if (elRect.bottom > contentRect.bottom - 20) {
-        var diff = elRect.bottom - contentRect.bottom + 20;
-        if (typeof content.scrollBy === 'function') {
-          try { content.scrollBy({ top: diff, behavior: 'smooth' }); } catch(e) { content.scrollTop += diff; }
-        } else {
-          content.scrollTop += diff;
-        }
-      }
+    if (content && row) {
+      var rowTop = row.offsetTop;
+      var targetTop = Math.max(0, rowTop - 60);
+      content.scrollTop = targetTop;
     }
   }
 
@@ -12347,7 +12326,11 @@
         target = delta > 0 ? target.nextElementSibling : target.previousElementSibling;
       }
       if (target) {
-        clearCardFocus();
+        if (state._currentFocusedCard) {
+          state._currentFocusedCard.classList.remove('focused');
+          if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
+        }
+        activeCard.classList.remove('focused');
         state._currentFocusedCard = target;
         target.classList.add('focused');
         scrollToCard(target);
@@ -12412,19 +12395,10 @@
         var prevRow = rows[curRowIdx - 1];
         var prevCards = Array.prototype.slice.call(prevRow.querySelectorAll('.card'));
         if (prevCards.length > 0) {
-          var curRect = current.getBoundingClientRect();
-          var curCenterX = curRect.left + curRect.width / 2;
-          var bestCard = prevCards[0];
-          var bestDist = Infinity;
-          for (var i = 0; i < prevCards.length; i++) {
-            var cRect = prevCards[i].getBoundingClientRect();
-            var cCenterX = cRect.left + cRect.width / 2;
-            var dist = Math.abs(cCenterX - curCenterX);
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestCard = prevCards[i];
-            }
-          }
+          var curRowCards = Array.prototype.slice.call(currentRow.querySelectorAll('.card'));
+          var curIdxInRow = curRowCards.indexOf(current);
+          var targetCardIdx = curIdxInRow >= 0 ? Math.min(curIdxInRow, prevCards.length - 1) : 0;
+          var bestCard = prevCards[targetCardIdx];
           var prevGlobalIdx = cards.indexOf(bestCard);
           if (prevGlobalIdx >= 0) {
             clearCardFocus();
@@ -12498,19 +12472,10 @@
         var nextRow = rows[curRowIdx + 1];
         var nextCards = Array.prototype.slice.call(nextRow.querySelectorAll('.card'));
         if (nextCards.length > 0) {
-          var curRect = current.getBoundingClientRect();
-          var curCenterX = curRect.left + curRect.width / 2;
-          var bestCard = nextCards[0];
-          var bestDist = Infinity;
-          for (var i = 0; i < nextCards.length; i++) {
-            var cRect = nextCards[i].getBoundingClientRect();
-            var cCenterX = cRect.left + cRect.width / 2;
-            var dist = Math.abs(cCenterX - curCenterX);
-            if (dist < bestDist) {
-              bestDist = dist;
-              bestCard = nextCards[i];
-            }
-          }
+          var curRowCards = Array.prototype.slice.call(currentRow.querySelectorAll('.card'));
+          var curIdxInRow = curRowCards.indexOf(current);
+          var targetCardIdx = curIdxInRow >= 0 ? Math.min(curIdxInRow, nextCards.length - 1) : 0;
+          var bestCard = nextCards[targetCardIdx];
           var nextGlobalIdx = cards.indexOf(bestCard);
           if (nextGlobalIdx >= 0) {
             clearCardFocus();
@@ -12572,14 +12537,12 @@
     if (state._currentFocusedCard) {
       state._currentFocusedCard.classList.remove('focused');
       if (typeof stopCardTitleMarquee === 'function') stopCardTitleMarquee(state._currentFocusedCard);
-      try { state._currentFocusedCard.blur(); } catch(e) {}
       state._currentFocusedCard = null;
     }
     var f = document.querySelector('.card.focused, .iptv-channel.focused');
     if (f) {
       f.classList.remove('focused');
       if (typeof stopCardTitleMarquee === 'function' && f.classList.contains('card')) stopCardTitleMarquee(f);
-      try { f.blur(); } catch(e) {}
     }
     clearHomeBg();
   }
