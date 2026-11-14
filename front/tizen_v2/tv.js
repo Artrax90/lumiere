@@ -8304,6 +8304,13 @@
     var startParam = '';
     if (optStart === 0) {
       startParam = '&start=0';
+      try {
+        var posClear = JSON.parse(getStorageItem('playback_positions') || '{}');
+        if (sNum && eNum) {
+          delete posClear[movieId + '_s' + sNum + '_e' + eNum];
+          setStorageItem('playback_positions', JSON.stringify(posClear));
+        }
+      } catch(e) {}
     } else if (movieId) {
       try {
         var positions = JSON.parse(getStorageItem('playback_positions') || '{}');

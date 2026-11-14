@@ -595,18 +595,14 @@
       player.on('timeUpdate', function(data) {
         if (isSeeking) return; // Ignore while user is actively seeking
         if (data && data.currentTime !== undefined) {
-          // If starting from 0, reject stale leftover timestamps (> 15s) from previous video
-          if (currentTime < 5 && (!params.start || params.start < 5) && data.currentTime > 15) {
-            console.warn('[Player] Suppressing stale initial timeUpdate:', data.currentTime);
+          // Suppress single-tick glitch dropping to 0 during active playback (> 10s)
+          if (data.currentTime < 2.0 && currentTime > 10.0) {
             return;
           }
-          if (currentTime > 0 && !isSeeking) {
+          if (currentTime > 0) {
             var diff = data.currentTime - currentTime;
-            // Strictly suppress backward jitter / zero drops during normal forward playback
-            if (diff < 0) {
-              return;
-            }
-            if (diff > 15.0) {
+            // Suppress tiny backward micro-jitter from B-frame reordering
+            if (diff < 0 && diff >= -1.5) {
               return;
             }
           }
@@ -1120,6 +1116,17 @@
     var nextSStr = (nextSeason < 10 ? '0' + nextSeason : String(nextSeason));
     var nextEStr = (nextEpisode < 10 ? '0' + nextEpisode : String(nextEpisode));
     var epName = (cleanBase ? (cleanBase + ' · S' + nextSStr + 'E' + nextEStr) : '') || nextFile.name || ('Серия ' + nextEpisode);
+
+    // Purge any stale saved position for this upcoming episode so it strictly starts from 00:00
+    try {
+      var pKey = getUserStorageKey('playback_positions');
+      var pData = JSON.parse(localStorage.getItem(pKey) || localStorage.getItem('playback_positions') || '{}');
+      var nextEpKey = movieId + '_s' + nextSeason + '_e' + nextEpisode;
+      if (pData[nextEpKey]) {
+        delete pData[nextEpKey];
+        localStorage.setItem(pKey, JSON.stringify(pData));
+      }
+    } catch(e) {}
 
     // 1. If current torrent already has the next file, play it!
     if (!nextFile.isDynamic && torrentLink && nextFile.id !== undefined) {

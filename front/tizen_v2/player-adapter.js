@@ -120,22 +120,20 @@
           if (self._duration && calculatedTime > self._duration) {
             calculatedTime = self._duration;
           }
-          // If starting from 0, reject stale leftover timestamps (> 15s) from previous video/hardware buffer
-          if ((self._seekOffset || 0) < 5 && self._lastReportedTime < 5 && calculatedTime > 15) {
-            console.warn('[AVPlay] Suppressing stale initial timestamp from previous media:', calculatedTime);
+
+          // Suppress single-tick glitch where AVPlay drops to 0 during active playback (> 10s)
+          if (calculatedTime < 2.0 && self._lastReportedTime > 10.0) {
             return;
           }
-          // Strict monotonic forward playback guard:
-          // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, zero ticks)
-          if (self._lastReportedTime > 0 && !self._isSeeking) {
+
+          // Suppress tiny backward micro-jitter (PTS fluctuation / B-frames)
+          if (self._lastReportedTime > 0) {
             var diff = calculatedTime - self._lastReportedTime;
-            if (diff < 0) {
-              return;
-            }
-            if (diff > 15.0) {
+            if (diff < 0 && diff >= -1.5) {
               return;
             }
           }
+
           self._currentTime = calculatedTime;
           self._lastReportedTime = calculatedTime;
           self._emit('timeUpdate', { currentTime: self._currentTime });
@@ -227,15 +225,12 @@
             if (self._duration && nowSec > self._duration) {
               nowSec = self._duration;
             }
-            if ((self._seekOffset || 0) < 5 && self._lastReportedTime < 5 && nowSec > 15) {
+            if (nowSec < 2.0 && self._lastReportedTime > 10.0) {
               return;
             }
-            if (self._lastReportedTime > 0 && !self._isSeeking) {
+            if (self._lastReportedTime > 0) {
               var diff = nowSec - self._lastReportedTime;
-              if (diff < 0) {
-                return;
-              }
-              if (diff > 15.0) {
+              if (diff < 0 && diff >= -1.5) {
                 return;
               }
             }
