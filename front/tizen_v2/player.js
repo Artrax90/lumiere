@@ -597,13 +597,8 @@
         if (data && data.currentTime !== undefined) {
           if (currentTime > 0 && !isSeeking) {
             var diff = data.currentTime - currentTime;
-            // Suppress backward jitter during normal forward playback
+            // Strictly suppress backward jitter / zero drops during normal forward playback
             if (diff < 0) {
-              if (data.currentTime < 5.0 && currentTime > 20.0) {
-                currentTime = data.currentTime;
-                updateTimelineUI();
-                return;
-              }
               return;
             }
             if (diff > 15.0) {
@@ -630,8 +625,9 @@
         if (data && data.duration && data.duration > 60) {
           if (duration > 60) {
             if (Math.abs(data.duration - duration) <= 15) return;
-            if (data.duration < duration && Math.abs(data.duration - duration) > 120) {
-              return; // Never let partial HLS chunk overwrite full movie/series duration!
+            // Never let partial buffer or smaller duration overwrite full movie/series duration
+            if (data.duration < duration) {
+              return;
             }
           }
           duration = data.duration;
@@ -772,10 +768,10 @@
 
     // Start playback
     if (streamUrl && player) {
+      player.play(streamUrl);
       if (duration > 0 && typeof player.setDuration === 'function') {
         player.setDuration(duration);
       }
-      player.play(streamUrl);
       fetchDurationFromApi(streamUrl);
       loadTrackInfo(streamUrl);
       startBufferPolling();

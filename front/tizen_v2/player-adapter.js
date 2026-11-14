@@ -80,11 +80,13 @@
   // ========== Play ==========
   PlayerAdapter.prototype.play = function(url) {
     this._hasFallenBackToVideo = false;
-    this._duration = 0;
+    if (!this._duration || this._duration <= 0) {
+      this._duration = 0;
+      this._hasExternalDuration = false;
+    }
     this._currentTime = 0;
     this._lastReportedTime = 0;
     this._seekOffset = 0;
-    this._hasExternalDuration = false;
     this._pendingSeek = null;
     this._isSeeking = false;
     console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
@@ -119,15 +121,11 @@
             calculatedTime = self._duration;
           }
           // Strict monotonic forward playback guard:
-          // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, EOF loop)
+          // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, zero ticks)
           if (self._lastReportedTime > 0 && !self._isSeeking) {
             var diff = calculatedTime - self._lastReportedTime;
             if (diff < 0) {
-              if (calculatedTime < 5.0 && self._lastReportedTime > 20.0) {
-                self._lastReportedTime = calculatedTime;
-              } else {
-                return;
-              }
+              return;
             }
             if (diff > 15.0) {
               return;
@@ -227,11 +225,7 @@
             if (self._lastReportedTime > 0 && !self._isSeeking) {
               var diff = nowSec - self._lastReportedTime;
               if (diff < 0) {
-                if (nowSec < 5.0 && self._lastReportedTime > 20.0) {
-                  self._lastReportedTime = nowSec;
-                } else {
-                  return;
-                }
+                return;
               }
               if (diff > 15.0) {
                 return;
