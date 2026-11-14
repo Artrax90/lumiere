@@ -595,6 +595,11 @@
       player.on('timeUpdate', function(data) {
         if (isSeeking) return; // Ignore while user is actively seeking
         if (data && data.currentTime !== undefined) {
+          // If starting from 0, reject stale leftover timestamps (> 15s) from previous video
+          if (currentTime < 5 && (!params.start || params.start < 5) && data.currentTime > 15) {
+            console.warn('[Player] Suppressing stale initial timeUpdate:', data.currentTime);
+            return;
+          }
           if (currentTime > 0 && !isSeeking) {
             var diff = data.currentTime - currentTime;
             // Strictly suppress backward jitter / zero drops during normal forward playback

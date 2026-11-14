@@ -120,6 +120,11 @@
           if (self._duration && calculatedTime > self._duration) {
             calculatedTime = self._duration;
           }
+          // If starting from 0, reject stale leftover timestamps (> 15s) from previous video/hardware buffer
+          if ((self._seekOffset || 0) < 5 && self._lastReportedTime < 5 && calculatedTime > 15) {
+            console.warn('[AVPlay] Suppressing stale initial timestamp from previous media:', calculatedTime);
+            return;
+          }
           // Strict monotonic forward playback guard:
           // Never allow time to jump backward during forward playback (PTS fluctuation, buffer underrun, B-frame jitter, zero ticks)
           if (self._lastReportedTime > 0 && !self._isSeeking) {
@@ -222,6 +227,9 @@
             if (self._duration && nowSec > self._duration) {
               nowSec = self._duration;
             }
+            if ((self._seekOffset || 0) < 5 && self._lastReportedTime < 5 && nowSec > 15) {
+              return;
+            }
             if (self._lastReportedTime > 0 && !self._isSeeking) {
               var diff = nowSec - self._lastReportedTime;
               if (diff < 0) {
@@ -252,12 +260,12 @@
 
   PlayerAdapter.prototype._playAvplay = function(url) {
     var self = this;
+    self._isAvplayPreparing = true;
     self._currentUrl = url;
     var startMatch = url.match(/[?&]start=(\d+)/);
     self._seekOffset = startMatch ? parseInt(startMatch[1], 10) : 0;
-    if (self._seekOffset > 0) {
-      self._currentTime = self._seekOffset;
-    }
+    self._currentTime = self._seekOffset;
+    self._lastReportedTime = self._seekOffset;
     console.log('[AVPlay] Starting playback:', url.substring(0, 100), 'initial offset:', self._seekOffset);
     try {
       if (this.container) {
@@ -303,7 +311,10 @@
       // Prepare and play with both success and error callbacks
       webapis.avplay.prepareAsync(function() {
         self.engineType = 'avplay';
+        self._isAvplayPreparing = false;
         self._isPlaying = true;
+        self._lastReportedTime = self._seekOffset || 0;
+        self._currentTime = self._seekOffset || 0;
         self._emit('loaded');
 
         // Get audio tracks
@@ -397,6 +408,7 @@
         // Polling for AVPlay — updates currentTime and duration continuously
         self._startAvplayPollTimer();
       }, function(prepareErr) {
+        self._isAvplayPreparing = false;
         console.error('[AVPlay] prepareAsync error:', prepareErr);
         if (typeof window.sendTvLog === 'function') {
           window.sendTvLog('warn', 'avplay_prepare', 'AVPlay prepareAsync error, fallback to HTML5 Video/HLS', { err: String(prepareErr), url: url });
@@ -712,6 +724,8 @@
       } catch(e) {}
     }
     this._isPlaying = false;
+    this._isAvplayPreparing = false;
+    this._hasExternalDuration = false;
     this._duration = 0;
     this._currentTime = 0;
     this._lastReportedTime = 0;
