@@ -84,10 +84,15 @@
       this._duration = 0;
       this._hasExternalDuration = false;
     }
+    if (this._seekDoneTimer) {
+      clearTimeout(this._seekDoneTimer);
+      this._seekDoneTimer = null;
+    }
     this._currentTime = 0;
     this._lastReportedTime = 0;
     this._seekOffset = 0;
     this._pendingSeek = null;
+    this._seekTarget = null;
     this._isSeeking = false;
     console.log('[PlayerAdapter] play called, isTizen:', isTizen(), 'webapis:', typeof webapis);
     if (isTizen()) {
@@ -112,32 +117,68 @@
         self._emit('ended');
       },
       oncurrentplaytime: function(time) {
-        if (self._isSeeking || self._isAvplayPreparing) return;
-        if (typeof time === 'number' && time >= 0) {
-          self._lastPlaytimeTimestamp = Date.now();
-          var rawSec = time / 1000;
-          var calculatedTime = (self._seekOffset || 0) + rawSec;
-          if (self._duration && calculatedTime > self._duration) {
-            calculatedTime = self._duration;
-          }
+        if (self._isAvplayPreparing) return;
+        if (typeof time !== 'number' || time < 0) return;
 
-          // Suppress single-tick glitch where AVPlay drops to 0 during active playback (> 10s)
-          if (calculatedTime < 2.0 && self._lastReportedTime > 10.0) {
-            return;
-          }
+        self._lastPlaytimeTimestamp = Date.now();
+        var rawSec = time / 1000;
+        var calculatedTime = (self._seekOffset || 0) + rawSec;
+        if (self._duration && calculatedTime > self._duration) {
+          calculatedTime = self._duration;
+        }
 
-          // Suppress tiny backward micro-jitter (PTS fluctuation / B-frames)
-          if (self._lastReportedTime > 0) {
-            var diff = calculatedTime - self._lastReportedTime;
-            if (diff < 0 && diff >= -1.5) {
+        // 1. While seeking: wait for decoder to output frames near seek target
+        if (self._isSeeking) {
+          if (typeof self._seekTarget === 'number') {
+            var target = self._seekTarget;
+            var isNearTarget = false;
+            // Torrent keyframe landing window (up to 6s before or 3s after)
+            if (calculatedTime >= (target - 6.0) && calculatedTime <= (target + 3.0)) {
+              isNearTarget = true;
+            } else if (Math.abs(calculatedTime - target) <= 2.5) {
+              isNearTarget = true;
+            }
+
+            if (isNearTarget) {
+              // Decoder has successfully landed at the seek position!
+              self._isSeeking = false;
+              self._seekTarget = null;
+              if (self._seekDoneTimer) {
+                clearTimeout(self._seekDoneTimer);
+                self._seekDoneTimer = null;
+              }
+              self._currentTime = calculatedTime;
+              self._lastReportedTime = calculatedTime;
+              self._emit('timeUpdate', { currentTime: calculatedTime });
+              if (self._pendingSeek) {
+                var next = self._pendingSeek;
+                self._pendingSeek = null;
+                self.seekTo(next.time, next.successCb, next.errorCb);
+              }
               return;
             }
           }
-
-          self._currentTime = calculatedTime;
-          self._lastReportedTime = calculatedTime;
-          self._emit('timeUpdate', { currentTime: self._currentTime });
+          // Decoder still outputting stale pre-seek frames or buffer transition: ignore!
+          return;
         }
+
+        // 2. Suppress single-tick glitch where AVPlay drops to 0 during active playback (> 10s)
+        if (calculatedTime < 2.0 && self._lastReportedTime > 10.0) {
+          return;
+        }
+
+        // 3. Strict Monotonic Forward Playback:
+        // During normal playback (not seeking), time can NEVER move backward!
+        // This permanently stops end-of-episode scrubber jumping and PTS jitter.
+        if (self._lastReportedTime > 0) {
+          if (calculatedTime < self._lastReportedTime) {
+            return;
+          }
+        }
+
+        self._currentTime = calculatedTime;
+        self._lastReportedTime = calculatedTime;
+        self._emit('timeUpdate', { currentTime: self._currentTime });
       },
       onbufferingstart: function() {
         self._isBuffering = true;
@@ -228,9 +269,8 @@
             if (nowSec < 2.0 && self._lastReportedTime > 10.0) {
               return;
             }
-            if (self._lastReportedTime > 0) {
-              var diff = nowSec - self._lastReportedTime;
-              if (diff < 0 && diff >= -1.5) {
+            if (self._lastReportedTime > 0 && !self._isSeeking) {
+              if (nowSec < self._lastReportedTime) {
                 return;
               }
             }
@@ -548,7 +588,6 @@
             return;
           }
         }
-        if (diff > 15.0) return;
       }
       self._lastReportedTime = self._currentTime;
       self._emit('timeUpdate', { currentTime: self._currentTime });
@@ -718,6 +757,13 @@
         stopXhr.send(JSON.stringify({ link: stoppingUrl }));
       } catch(e) {}
     }
+    if (this._seekDoneTimer) {
+      clearTimeout(this._seekDoneTimer);
+      this._seekDoneTimer = null;
+    }
+    this._isSeeking = false;
+    this._seekTarget = null;
+    this._pendingSeek = null;
     this._isPlaying = false;
     this._isAvplayPreparing = false;
     this._hasExternalDuration = false;
@@ -741,71 +787,12 @@
 
   PlayerAdapter.prototype.seek = function(seconds, successCb, errorCb) {
     var self = this;
-    var isHls = self._currentUrl && (
-      self._currentUrl.indexOf('/api/torrents/hls') !== -1 ||
-      self._currentUrl.indexOf('/api/downloads/server/hls') !== -1 ||
-      self._currentUrl.indexOf('.m3u8') !== -1
-    );
-    if (self.engineType === 'avplay' && typeof webapis !== 'undefined' && webapis.avplay && !isHls) {
-      var avState = '';
-      try { avState = webapis.avplay.getState(); } catch(e) {}
-      if (avState === 'PLAYING' || avState === 'PAUSED') {
-        if (self._currentUrl && self._currentUrl.indexOf('/api/downloads/server/stream') !== -1) {
-          var target = Math.max(1.5, self._currentTime + seconds);
-          self.seekTo(target, successCb, errorCb);
-          return;
-        }
-        var offsetMs = Math.round(Math.abs(seconds) * 1000);
-        if (self._isBuffering) {
-          var target = Math.max(1.5, self._currentTime + seconds);
-          self._pendingSeek = { time: target, successCb: successCb, errorCb: errorCb };
-          return;
-        }
-        if (seconds < 0 && typeof webapis.avplay.jumpBackward === 'function' && self._currentTime > 2) {
-          self._isSeeking = true;
-          try {
-            webapis.avplay.jumpBackward(offsetMs, function() {
-              self._currentTime = Math.max(1.5, self._currentTime + seconds);
-              self._lastReportedTime = self._currentTime;
-              self._isSeeking = false;
-              self._emit('timeUpdate', { currentTime: self._currentTime });
-              if (successCb) successCb();
-            }, function(err) {
-              console.warn('[AVPlay] jumpBackward failed, falling back to seekTo:', err);
-              self._isSeeking = false;
-              var target = Math.max(1.5, self._currentTime + seconds);
-              self.seekTo(target, successCb, errorCb);
-            });
-            return;
-          } catch(e) {
-            console.warn('[AVPlay] jumpBackward exception:', e);
-            self._isSeeking = false;
-          }
-        } else if (seconds > 0 && typeof webapis.avplay.jumpForward === 'function') {
-          self._isSeeking = true;
-          try {
-            webapis.avplay.jumpForward(offsetMs, function() {
-              self._currentTime = self._currentTime + seconds;
-              self._lastReportedTime = self._currentTime;
-              self._isSeeking = false;
-              self._emit('timeUpdate', { currentTime: self._currentTime });
-              if (successCb) successCb();
-            }, function(err) {
-              console.warn('[AVPlay] jumpForward failed, falling back to seekTo:', err);
-              self._isSeeking = false;
-              var target = Math.max(1.5, self._currentTime + seconds);
-              self.seekTo(target, successCb, errorCb);
-            });
-            return;
-          } catch(e) {
-            console.warn('[AVPlay] jumpForward exception:', e);
-            self._isSeeking = false;
-          }
-        }
-      }
+    var baseTime = (typeof self._currentTime === 'number' && self._currentTime > 0) ? self._currentTime : 0;
+    var target = Math.max(1.5, baseTime + seconds);
+    if (self._duration > 2 && target > self._duration - 2) {
+      target = Math.max(1.5, self._duration - 2);
     }
-    var target = Math.max(1.5, this._currentTime + seconds);
-    this.seekTo(target, successCb, errorCb);
+    self.seekTo(target, successCb, errorCb);
   };
 
   PlayerAdapter.prototype._seekHlsAvplay = function(targetSec, successCb, errorCb) {
@@ -1009,7 +996,6 @@
     var self = this;
     var targetSec = Math.max(0, Number(timeSeconds) || 0);
     self._currentTime = targetSec;
-    self._lastReportedTime = targetSec;
 
     if (self.engineType === 'avplay') {
       var isHls = self._currentUrl && (
@@ -1059,6 +1045,7 @@
       }
 
       self._isSeeking = true;
+      self._seekTarget = safeTargetSec;
 
       // Safety timeout: release lock after 5 seconds if callbacks don't fire
       var seekTimeout = setTimeout(function() {
@@ -1069,7 +1056,12 @@
 
       var onSeekDone = function() {
         clearTimeout(seekTimeout);
+        if (self._seekDoneTimer) {
+          clearTimeout(self._seekDoneTimer);
+          self._seekDoneTimer = null;
+        }
         self._isSeeking = false;
+        self._seekTarget = null;
         if (self._pendingSeek) {
           var next = self._pendingSeek;
           self._pendingSeek = null;
@@ -1084,7 +1076,11 @@
           self._currentTime = safeTargetSec;
           self._lastReportedTime = safeTargetSec;
           self._emit('timeUpdate', { currentTime: safeTargetSec });
-          setTimeout(onSeekDone, 150);
+
+          // Watchdog: auto-release seek lock after 1200ms if oncurrentplaytime didn't match target
+          if (self._seekDoneTimer) clearTimeout(self._seekDoneTimer);
+          self._seekDoneTimer = setTimeout(onSeekDone, 1200);
+
           if (successCb) successCb();
         }, function(err) {
           console.warn('[AVPlay] seekTo error callback:', err);
@@ -1092,12 +1088,12 @@
             window.sendTvLog('warn', 'seek', 'AVPlay seekTo failed, maintaining playback', { targetSec: safeTargetSec, err: err });
           }
           // Do NOT call _reloadAtTime or stop()/close() - that causes TV deadlocks/hangs!
-          setTimeout(onSeekDone, 150);
+          onSeekDone();
           if (errorCb) errorCb(err);
         });
       } catch(e) {
         console.warn('[AVPlay] seekTo exception:', e);
-        setTimeout(onSeekDone, 150);
+        onSeekDone();
         if (errorCb) errorCb(e);
       }
     } else if (self._videoEl) {

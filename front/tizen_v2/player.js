@@ -57,6 +57,7 @@
 
   // Debounced seeking state
   var isSeeking = false;
+  var justSeeked = false;
   var pendingSeekTarget = 0;
   var accumulatedDelta = 0;
   var seekBaseTime = 0;
@@ -596,13 +597,20 @@
         if (isSeeking) return; // Ignore while user is actively seeking
         if (data && data.currentTime !== undefined) {
           // Suppress single-tick glitch dropping to 0 during active playback (> 10s)
-          if (data.currentTime < 2.0 && currentTime > 10.0) {
+          if (data.currentTime < 2.0 && currentTime > 10.0 && !justSeeked) {
+            return;
+          }
+          if (justSeeked) {
+            justSeeked = false;
+            currentTime = data.currentTime;
+            updateTimelineUI();
+            updateSubtitleDisplay();
             return;
           }
           if (currentTime > 0) {
-            var diff = data.currentTime - currentTime;
-            // Suppress tiny backward micro-jitter from B-frame reordering
-            if (diff < 0 && diff >= -1.5) {
+            // Strictly monotonic during normal forward playback:
+            // Prevents scrubber jumping back and forth at end of episode!
+            if (data.currentTime < currentTime) {
               return;
             }
           }
@@ -913,6 +921,7 @@
       var seekDoneTimer = setTimeout(function() {
         console.warn('[Player] Debounced seek safety timeout triggered, clearing isSeeking');
         isSeeking = false;
+        justSeeked = true;
         accumulatedDelta = 0;
         seekBaseTime = 0;
       }, 4000);
@@ -921,9 +930,10 @@
         clearTimeout(seekDoneTimer);
         setTimeout(function() {
           isSeeking = false;
+          justSeeked = true;
           accumulatedDelta = 0;
           seekBaseTime = 0;
-        }, 300);
+        }, 150);
       };
 
       if (typeof player.seek === 'function' && curDelta !== 0 && (typeof player._currentUrl !== 'string' || player._currentUrl.indexOf('/api/torrents/hls') === -1)) {
@@ -947,6 +957,7 @@
     updateTimelineUI(target);
     var seekDoneTimer = setTimeout(function() {
       isSeeking = false;
+      justSeeked = true;
       accumulatedDelta = 0;
       seekBaseTime = 0;
     }, 4000);
@@ -954,16 +965,18 @@
       clearTimeout(seekDoneTimer);
       setTimeout(function() {
         isSeeking = false;
+        justSeeked = true;
         accumulatedDelta = 0;
         seekBaseTime = 0;
-      }, 300);
+      }, 150);
     }, function() {
       clearTimeout(seekDoneTimer);
       setTimeout(function() {
         isSeeking = false;
+        justSeeked = true;
         accumulatedDelta = 0;
         seekBaseTime = 0;
-      }, 300);
+      }, 150);
     });
     showOsd(true);
   }
@@ -2286,6 +2299,7 @@
         $nextOv.style.display = 'none';
       }
       isSeeking = false;
+      justSeeked = false;
       pendingSeekTarget = 0;
       accumulatedDelta = 0;
       seekBaseTime = 0;
