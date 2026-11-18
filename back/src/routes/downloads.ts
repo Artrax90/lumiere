@@ -1696,14 +1696,13 @@ export function downloadRoutes(app: FastifyInstance) {
         nextIndex = 0;
       }
 
-      const preloadUrl = `${torrUrl}/stream?link=${linkParam}&index=${nextIndex}&preload`;
-      console.log(`[Precache] Triggering TorrServer preload for next episode: index=${nextIndex}, url=${preloadUrl}`);
-      // Fire-and-forget preload request to TorrServer
-      fetch(preloadUrl, { signal: AbortSignal.timeout(6000) }).catch((err) => {
-        console.warn('[Precache] TorrServer preload warning:', err.message);
-      });
-
-      return { success: true, message: `Pre-cache started for next episode (index ${nextIndex})`, nextIndex };
+      // Note: TorrServer maintains a single cache context per torrent hash.
+      // Calling /stream?...&preload for the next file index while the current file is actively streaming
+      // forces TorrServer to close the active stream's cache ("Close cache for..."), dropping the client's connection
+      // and causing video loop / timeline jumps at the end of the episode.
+      // We safely acknowledge the request without calling destructive TorrServer &preload.
+      console.log(`[Precache] Safe bypass for next episode pre-cache (index=${nextIndex}) to protect active stream cache.`);
+      return { success: true, message: `Pre-cache acknowledged for next episode (index ${nextIndex})`, nextIndex };
     } catch (err: any) {
       return reply.code(500).send({ error: err.message });
     }

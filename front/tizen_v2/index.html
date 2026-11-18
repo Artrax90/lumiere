@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <script>
-  window.__DEFAULT_SERVER_URL__ = '';
+  window.__DEFAULT_SERVER_URL__ = 'http://192.168.1.196:3500';
   try {
     var cur = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_tv_server');
     if (cur && (/:3000\/?$/.test(cur) || cur.indexOf('192.168.1.77') !== -1)) {
@@ -16,13 +16,14 @@
   <script>
   if (window.location.origin && window.location.origin !== 'null' && !window.location.origin.startsWith('file') && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
     window.__DEFAULT_SERVER_URL__ = window.location.origin;
-    try {
-      if (!localStorage.getItem('lumiere_server') && !localStorage.getItem('lumiere_server_url') && !localStorage.getItem('lumiere_tv_server')) {
-        localStorage.setItem('lumiere_server_url', window.location.origin);
-        localStorage.setItem('lumiere_tv_server', window.location.origin);
-      }
-    } catch(e) {}
   }
+  try {
+    if (!localStorage.getItem('lumiere_server') && !localStorage.getItem('lumiere_server_url') && !localStorage.getItem('lumiere_tv_server')) {
+      localStorage.setItem('lumiere_server', window.__DEFAULT_SERVER_URL__);
+      localStorage.setItem('lumiere_server_url', window.__DEFAULT_SERVER_URL__);
+      localStorage.setItem('lumiere_tv_server', window.__DEFAULT_SERVER_URL__);
+    }
+  } catch(e) {}
 
   // Automatic remote TV error & event logging to server
   (function() {
@@ -34,7 +35,7 @@
         if (lastLogs[key] && now - lastLogs[key] < 3000) return; // Debounce 3s identical errors
         lastLogs[key] = now;
 
-        var server = localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.__DEFAULT_SERVER_URL__ || window.location.origin;
+        var server = localStorage.getItem('lumiere_server') || localStorage.getItem('lumiere_server_url') || localStorage.getItem('lumiere_tv_server') || window.__DEFAULT_SERVER_URL__ || 'http://192.168.1.196:3500';
         if (!server || server.startsWith('file')) return;
 
         var payload = JSON.stringify({
@@ -75,8 +76,8 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=1920,initial-scale=1,user-scalable=no">
   <title>Lumiere</title>
-  <link rel="stylesheet" href="./tv.css?v=2007">
-  <link rel="stylesheet" href="./player.css?v=2007">
+  <link rel="stylesheet" href="./tv.css?v=2014">
+  <link rel="stylesheet" href="./player.css?v=2014">
 </head>
 <body>
   <!-- Loading -->
@@ -603,10 +604,10 @@
     </div>
   </div>
 
-  <script src="./hls.min.js?v=2011" charset="UTF-8"></script>
-  <script src="./player-adapter.js?v=2011" charset="UTF-8"></script>
-  <script src="./player.js?v=2011" charset="UTF-8"></script>
-  <script src="./tv.js?v=2011" charset="UTF-8"></script>
+  <script src="./hls.min.js?v=2014" charset="UTF-8"></script>
+  <script src="./player-adapter.js?v=2014" charset="UTF-8"></script>
+  <script src="./player.js?v=2014" charset="UTF-8"></script>
+  <script src="./tv.js?v=2014" charset="UTF-8"></script>
   <script>
     // Test if JS executes
     document.addEventListener('DOMContentLoaded', function() {

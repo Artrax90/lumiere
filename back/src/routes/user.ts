@@ -635,14 +635,10 @@ export function userRoutes(app: FastifyInstance) {
 
   // Get watch history
   app.get('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
+    const userId = request.user?.userId;
     if (!userId) {
-      try {
-        const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
+      return { history: [] };
     }
-    userId = userId || 1;
 
     const result = await pool.query(
       `SELECT id, tmdb_id, media_type, title_name, poster, progress, timestamp, updated_at,
@@ -672,14 +668,10 @@ export function userRoutes(app: FastifyInstance) {
 
   // Update watch progress
   app.post('/api/user/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
+    const userId = request.user?.userId;
     if (!userId) {
-      try {
-        const u = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
+      return { success: false, message: 'Unauthorized' };
     }
-    userId = userId || 1;
 
     const {
       tmdbId,

@@ -50,7 +50,16 @@ export function searchRoutes(
       };
     }
 
-    // Default: Search both in parallel
+    // Default: Search both in parallel with hard timeout for KP so TMDB results are never delayed
+    const kpSearchPromise = (kpProvider && kpProvider.hasToken())
+      ? Promise.race([
+          kpProvider.search(queryStr, pageNum),
+          new Promise<any>((resolve) =>
+            setTimeout(() => resolve({ results: [], page: 1, totalPages: 0, totalResults: 0 }), 2500)
+          ),
+        ]).catch(() => ({ results: [], page: 1, totalPages: 0, totalResults: 0 }))
+      : Promise.resolve({ results: [], page: 1, totalPages: 0, totalResults: 0 });
+
     const [tmdbRes, kpRes] = await Promise.all([
       provider.search(queryStr, pageNum, lang).catch(() => ({
         results: [],
@@ -58,14 +67,7 @@ export function searchRoutes(
         totalPages: 0,
         totalResults: 0,
       })),
-      kpProvider
-        ? kpProvider.search(queryStr, pageNum).catch(() => ({
-            results: [],
-            page: 1,
-            totalPages: 0,
-            totalResults: 0,
-          }))
-        : Promise.resolve({ results: [], page: 1, totalPages: 0, totalResults: 0 }),
+      kpSearchPromise,
     ]);
 
     const activeResults = tmdbRes.results.length > 0 ? tmdbRes.results : kpRes.results;

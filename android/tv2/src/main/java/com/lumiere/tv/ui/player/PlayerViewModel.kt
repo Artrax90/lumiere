@@ -84,10 +84,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application) 
                 val currentSec = posMs / 1000L
                 val remainingSec = (durationSec - currentSec).toInt()
 
-                // Pre-caching next episode in TorrServer RAM buffer at duration - 180s (3 minutes)
-                if (durationSec > 180L && currentSec > 120L && remainingSec in 1..180) {
-                    triggerPrecacheNextEpisode()
-                }
+                // Pre-caching next episode disabled: TorrServer maintains a single cache context per torrent hash.
+                // Preloading another episode terminates the active playback cache.
 
                 // 30-second countdown for binge watching next episode (strictly guarded: video must be >3 min, played for >2 min, and remaining <= 30s)
                 if (durationSec > 180L && currentSec > 120L && remainingSec in 1..30) {

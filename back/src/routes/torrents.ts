@@ -693,13 +693,14 @@ async function ensureTorrServerOptimized() {
     });
     if (res.ok) {
       const sets = (await res.json()) as any;
-      const targetCacheSize = 209715200; // 200 MB cache (prevents multi-GB RAM exhaustion while ensuring smooth 4K/1080p playback)
-      const targetTimeout = 30; // 30s disconnect timeout (releases memory promptly when client stops)
+      const targetCacheSize = 524288000; // 500 MB cache (rock-solid buffer without underruns)
+      const targetTimeout = 300; // 5 min disconnect timeout (prevents TorrServer from dropping cache when player buffers)
       if (
         sets.CacheSize !== targetCacheSize ||
         sets.TorrentDisconnectTimeout !== targetTimeout ||
-        !sets.RemoveCacheOnDrop ||
-        (sets.ConnectionsLimit && sets.ConnectionsLimit < 150)
+        sets.RemoveCacheOnDrop !== false ||
+        (sets.ConnectionsLimit && sets.ConnectionsLimit < 200) ||
+        sets.ReaderReadAHead !== 90
       ) {
         await fetch(`${torrUrl}/settings`, {
           method: 'POST',
@@ -708,18 +709,18 @@ async function ensureTorrServerOptimized() {
             action: 'set',
             sets: {
               CacheSize: targetCacheSize,
-              ConnectionsLimit: 150,
-              ReaderReadAHead: 85,
-              PreloadCache: 5,
+              ConnectionsLimit: 200,
+              ReaderReadAHead: 90,
+              PreloadCache: 10,
               TorrentDisconnectTimeout: targetTimeout,
-              RemoveCacheOnDrop: true,
+              RemoveCacheOnDrop: false,
               ResponsiveMode: true,
               RetrackersMode: 1,
             },
           }),
           signal: AbortSignal.timeout(5000),
         });
-        console.log('[TorrServer] Automatically optimized settings: 200MB cache, RemoveCacheOnDrop: true, 30s timeout');
+        console.log('[TorrServer] Automatically optimized settings: 500MB cache, RemoveCacheOnDrop: false, 300s timeout');
       }
     }
   } catch {

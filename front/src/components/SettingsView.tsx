@@ -1369,6 +1369,7 @@ function TmdbConfig() {
   const [proxyUrl, setProxyUrl] = useState('');
   const [maskedToken, setMaskedToken] = useState('');
   const [kpToken, setKpToken] = useState('');
+  const [kpProxyUrl, setKpProxyUrl] = useState('');
   const [maskedKpToken, setMaskedKpToken] = useState('');
   const [showKpToken, setShowKpToken] = useState(false);
   const [kpConfigured, setKpConfigured] = useState(false);
@@ -1378,6 +1379,7 @@ function TmdbConfig() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
+  const [testingKp, setTestingKp] = useState(false);
   const [showToken, setShowToken] = useState(false);
   const [toast, setToast] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -1391,6 +1393,7 @@ function TmdbConfig() {
       setMaskedKpToken(data.kpTokenMasked || '');
       setKpConfigured(Boolean(data.kpConfigured));
       setProxyUrl(data.proxyUrl || '');
+      setKpProxyUrl(data.kpProxyUrl || '');
       setOnline(data.online);
       setStatusMessage(data.message || '');
     } catch {
@@ -1416,6 +1419,7 @@ function TmdbConfig() {
     try {
       const payload: any = {
         proxyUrl: proxyUrl.trim(),
+        kpProxyUrl: kpProxyUrl.trim(),
       };
       if (token.trim()) {
         payload.token = token.trim();
@@ -1437,6 +1441,7 @@ function TmdbConfig() {
       if (data.tokenMasked) setMaskedToken(data.tokenMasked);
       if (data.kpTokenMasked !== undefined) setMaskedKpToken(data.kpTokenMasked);
       if (data.kpConfigured !== undefined) setKpConfigured(Boolean(data.kpConfigured));
+      if (data.kpProxyUrl !== undefined) setKpProxyUrl(data.kpProxyUrl);
       setToken('');
       setKpToken('');
       showToast(data.online ? 'success' : 'error', data.message || 'Настройки каталогов успешно сохранены');
@@ -1480,6 +1485,19 @@ function TmdbConfig() {
       showToast('error', 'Не удалось связаться с сервером');
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handleTestKp = async () => {
+    setTestingKp(true);
+    try {
+      const res = await serverFetch('/api/settings/kp/test', { method: 'POST' });
+      const data = await res.json();
+      showToast(data.ok ? 'success' : 'error', data.message || (data.ok ? 'Соединение с Кинопоиском работает' : 'Ошибка соединения с Кинопоиском'));
+    } catch {
+      showToast('error', 'Не удалось связаться с сервером');
+    } finally {
+      setTestingKp(false);
     }
   };
 
@@ -1682,6 +1700,57 @@ function TmdbConfig() {
                   Сбросить токен
                 </button>
               )}
+            </div>
+          </div>
+
+          {/* Kinopoisk Proxy Section */}
+          <div className="mt-4 pt-4 border-t border-white/[0.06]">
+            <div className="mb-2 flex items-center justify-between">
+              <label className="text-[13px] font-medium text-white/80 flex items-center gap-2">
+                <Wifi className="h-3.5 w-3.5 text-orange-400/80" strokeWidth={1.5} />
+                Прокси для Кинопоиска (Kinopoisk Proxy URL)
+              </label>
+              <span className="rounded-full bg-orange-400/10 px-2 py-0.5 text-[10px] font-medium text-orange-300/80">
+                SOCKS5 / HTTP
+              </span>
+            </div>
+            <p className="mb-2 text-[11px] leading-relaxed text-white/40">
+              Если запросы к kinopoiskapiunofficial.tech блокируются провайдером или Cloudflare, укажите адрес прокси (SOCKS5 или HTTP).
+            </p>
+            <input
+              type="text"
+              value={kpProxyUrl}
+              onChange={(e) => setKpProxyUrl(e.target.value)}
+              placeholder="socks5h://user:password@host:port или http://..."
+              className="w-full rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-4 py-2.5 text-[13px] text-white font-mono placeholder:text-white/25 placeholder:font-sans focus:border-orange-400/40 focus:outline-none transition-cinematic"
+            />
+            <div className="mt-2.5 flex flex-wrap items-center gap-2">
+              {proxyUrl && (
+                <button
+                  type="button"
+                  onClick={() => setKpProxyUrl(proxyUrl)}
+                  className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-amber-300/80 transition-cinematic hover:bg-white/[0.08] hover:text-amber-200"
+                >
+                  Скопировать адрес прокси из TMDB
+                </button>
+              )}
+              {kpProxyUrl && (
+                <button
+                  type="button"
+                  onClick={() => setKpProxyUrl('')}
+                  className="rounded-full bg-white/[0.04] border border-white/[0.06] px-3 py-1 text-[11px] text-white/60 transition-cinematic hover:bg-white/[0.08] hover:text-white"
+                >
+                  Сбросить (прямой доступ)
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={handleTestKp}
+                disabled={testingKp}
+                className="rounded-full bg-orange-500/15 border border-orange-500/30 px-3 py-1 text-[11px] text-orange-300 transition-cinematic hover:bg-orange-500/25 disabled:opacity-50"
+              >
+                {testingKp ? 'Проверка...' : 'Проверить Kinopoisk API'}
+              </button>
             </div>
           </div>
         </div>

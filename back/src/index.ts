@@ -109,13 +109,13 @@ await app.register(cors, {
 
 const tmdbClient = new TmdbClient(config.tmdb.token, config.tmdb.proxyUrl);
 const provider = new TmdbProvider(tmdbClient);
-const kpProvider = new KinopoiskProvider(config.kinopoisk.token);
+const kpProvider = new KinopoiskProvider(config.kinopoisk.token, config.kinopoisk.proxyUrl);
 
 app.register(movieRoutes, provider);
 app.register(tvRoutes, provider);
 app.register(searchRoutes, { provider, kpProvider });
 app.register(genreRoutes, provider);
-app.register(imageRoutes, { tmdbClient });
+app.register(imageRoutes, { tmdbClient, kpProvider });
 app.register(authRoutes);
 app.register(userRoutes);
 app.register(onlineRoutes);
@@ -232,10 +232,11 @@ app.post('/api/setup/admin', async (req, reply) => {
 
 async function loadPersistedSettings() {
   try {
-    const res = await pool.query(`SELECT key, value FROM app_settings WHERE key IN ('tmdb_token', 'tmdb_proxy_url', 'kinopoisk_token')`);
+    const res = await pool.query(`SELECT key, value FROM app_settings WHERE key IN ('tmdb_token', 'tmdb_proxy_url', 'kinopoisk_token', 'kinopoisk_proxy_url')`);
     let token = config.tmdb.token;
     let proxyUrl = config.tmdb.proxyUrl;
     let kpToken = config.kinopoisk.token;
+    let kpProxyUrl = config.kinopoisk.proxyUrl;
     for (const row of res.rows) {
       if (row.key === 'tmdb_token' && row.value) {
         token = row.value;
@@ -246,14 +247,17 @@ async function loadPersistedSettings() {
       if (row.key === 'kinopoisk_token' && row.value) {
         kpToken = row.value;
       }
+      if (row.key === 'kinopoisk_proxy_url') {
+        kpProxyUrl = row.value;
+      }
     }
     if (token !== config.tmdb.token || proxyUrl !== config.tmdb.proxyUrl) {
       tmdbClient.updateConfig(token, proxyUrl);
       console.log('Applied TMDB configuration from database');
     }
-    if (kpToken && kpToken !== config.kinopoisk.token) {
-      kpProvider.updateToken(kpToken);
-      console.log('Applied Kinopoisk token from database');
+    if (kpToken !== config.kinopoisk.token || kpProxyUrl !== config.kinopoisk.proxyUrl) {
+      kpProvider.updateConfig(kpToken, kpProxyUrl);
+      console.log('Applied Kinopoisk configuration from database');
     }
   } catch (err: any) {
     console.warn('Could not load app settings from database:', err.message);

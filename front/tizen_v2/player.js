@@ -13,7 +13,7 @@
       var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
       if (u && u.id) uid = u.id;
     } catch(e) {}
-    return uid ? 'u' + uid + '_' + baseKey : baseKey;
+    return uid ? 'u' + uid + '_' + baseKey : 'guest_' + baseKey;
   }
 
   // Playback state
@@ -602,26 +602,10 @@
           }
           if (justSeeked) {
             justSeeked = false;
-            currentTime = data.currentTime;
-            updateTimelineUI();
-            updateSubtitleDisplay();
-            return;
-          }
-          if (currentTime > 0) {
-            // Strictly monotonic during normal forward playback:
-            // Prevents scrubber jumping back and forth at end of episode!
-            if (data.currentTime < currentTime) {
-              return;
-            }
           }
           currentTime = data.currentTime;
           updateTimelineUI();
           updateSubtitleDisplay();
-
-          // Pre-caching next episode at duration - 90s
-          if (duration > 180 && (duration - currentTime <= 90)) {
-            triggerPrecacheNext();
-          }
 
           // 30-second countdown for binge watching next episode (strictly guarded: video must be >3 min, played for >2 min, and remaining <= 30s)
           if (duration > 180 && currentTime > 120 && (duration - currentTime <= 30) && (duration - currentTime > 0)) {
@@ -729,7 +713,7 @@
     } else if (movieId) {
       try {
         var posKey = getUserStorageKey('playback_positions');
-        var positions = JSON.parse(localStorage.getItem(posKey) || localStorage.getItem('playback_positions') || '{}');
+        var positions = JSON.parse(localStorage.getItem(posKey) || '{}');
         var epMatch = (movieTitle || '').match(/·\s*S([0-9]+)\s*E([0-9]+)/i) || (movieTitle || '').match(/\bS([0-9]+)E([0-9]+)\b/i);
         var sNum = epMatch ? parseInt(epMatch[1], 10) : undefined;
         var eNum = epMatch ? parseInt(epMatch[2], 10) : undefined;
@@ -984,23 +968,9 @@
   // ========== Binge-Watching ==========
 
   function triggerPrecacheNext() {
-    if (precacheSent || !torrentLink) return;
-    precacheSent = true;
-    var nextIdx = (nextFile && nextFile.id !== undefined) ? nextFile.id : undefined;
-    console.log('[Player] Triggering server pre-cache for next episode, fileIndex:', nextIdx);
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', API + '/api/downloads/server/precache-next', true);
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('lumiere_access');
-    if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token);
-    xhr.send(JSON.stringify({
-      magnet: torrentLink,
-      link: torrentLink,
-      nextIndex: nextIdx,
-      fileIndex: nextIdx,
-      season: curSeason,
-      nextEpisode: curEpisode + 1
-    }));
+    // Disabled: TorrServer maintains a single cache context per torrent hash.
+    // Preloading the next episode kills active streaming cache, causing client disconnect & scene repeats.
+    return;
   }
 
   function showNextEpOverlay() {
@@ -1016,7 +986,7 @@
       if (!sMatch && movieId) {
         try {
           var ltKey = getUserStorageKey('last_torrents');
-          var ltObj = JSON.parse(localStorage.getItem(ltKey) || localStorage.getItem('last_torrents') || '{}')[movieId];
+          var ltObj = JSON.parse(localStorage.getItem(ltKey) || '{}')[movieId];
           if (ltObj && ltObj.episode) {
             curS = parseInt(ltObj.season || curSeason || 1, 10);
             curE = parseInt(ltObj.episode, 10);
@@ -1133,12 +1103,15 @@
     // Purge any stale saved position for this upcoming episode so it strictly starts from 00:00
     try {
       var pKey = getUserStorageKey('playback_positions');
-      var pData = JSON.parse(localStorage.getItem(pKey) || localStorage.getItem('playback_positions') || '{}');
+      var pData = JSON.parse(localStorage.getItem(pKey) || '{}');
       var nextEpKey = movieId + '_s' + nextSeason + '_e' + nextEpisode;
       if (pData[nextEpKey]) {
         delete pData[nextEpKey];
-        localStorage.setItem(pKey, JSON.stringify(pData));
       }
+      if (pData[movieId]) {
+        pData[movieId].time = 0;
+      }
+      localStorage.setItem(pKey, JSON.stringify(pData));
     } catch(e) {}
 
     // 1. If current torrent already has the next file, play it!
@@ -2022,7 +1995,7 @@
     try {
       localStorage.setItem('last_watched_id', String(saveId));
       var posKey = getUserStorageKey('playback_positions');
-      var pos = JSON.parse(localStorage.getItem(posKey) || localStorage.getItem('playback_positions') || '{}');
+      var pos = JSON.parse(localStorage.getItem(posKey) || '{}');
       var existingPoster = (pos[saveId] && pos[saveId].title && pos[saveId].title.poster) || '';
       var savePoster = posterUrl || existingPoster || '';
       var sNum = undefined;
@@ -2069,7 +2042,7 @@
       // Also persist season and episode and timestamp to last_torrents
       try {
         var ltKey = getUserStorageKey('last_torrents');
-        var lastT = JSON.parse(localStorage.getItem(ltKey) || localStorage.getItem('last_torrents') || '{}');
+        var lastT = JSON.parse(localStorage.getItem(ltKey) || '{}');
         if (!lastT[saveId]) lastT[saveId] = {};
         lastT[saveId].timestamp = now;
         lastT[saveId].type = mediaType;
@@ -2120,6 +2093,7 @@
       // Also persist to server history via /api/sync/progress if progress > 2
       if (effectiveTime > 2) {
         var token = localStorage.getItem(TOKEN_KEY) || localStorage.getItem('token') || localStorage.getItem('lumiere_access') || '';
+        if (!token) return;
         var serverBase = (API || '').replace(/\/+$/, '');
         if (serverBase) {
           var payload = {

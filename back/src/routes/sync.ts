@@ -5,13 +5,7 @@ import { requireAuth, optionalAuth, type AuthenticatedRequest } from '../middlew
 export function syncRoutes(app: FastifyInstance, db: Pool) {
   // Handler for getting all sync data for the current user
   const handleGetSync = async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
-    if (!userId) {
-      try {
-        const u = await db.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
-    }
+    const userId = request.user?.userId;
     if (!userId) {
       return { watchHistory: [], favorites: [], iptvPlaylists: [], syncedAt: new Date().toISOString() };
     }
@@ -95,13 +89,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
   // Clear watch history for current user
   app.delete('/api/sync/history', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
-    if (!userId) {
-      try {
-        const u = await db.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
-    }
+    const userId = request.user?.userId;
     if (!userId) return { success: false, message: 'Unauthorized' };
     await db.query('DELETE FROM watch_history WHERE user_id = $1', [userId]);
     try {
@@ -116,13 +104,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
   // Push sync data (batch update)
   app.post('/api/sync/push', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
-    if (!userId) {
-      try {
-        const u = await db.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
-    }
+    const userId = request.user?.userId;
     if (!userId) return { success: false, message: 'Unauthorized' };
 
     // Reject push if history was cleared recently (within 5 minutes)
@@ -290,13 +272,7 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
   // Get watch history for a specific title
   app.get('/api/sync/progress/:tmdbId', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
-    if (!userId) {
-      try {
-        const u = await db.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
-    }
+    const userId = request.user?.userId;
     if (!userId) return { progress: 0, timestamp: 0, season: 0, episode: 0, duration: 0, torrentMagnet: '', torrentTitle: '' };
     const { tmdbId } = request.params as { tmdbId: string };
     const { type } = request.query as { type?: string };
@@ -327,14 +303,8 @@ export function syncRoutes(app: FastifyInstance, db: Pool) {
 
   // Update watch progress for a specific title
   app.post('/api/sync/progress', { preHandler: optionalAuth }, async (request: AuthenticatedRequest) => {
-    let userId = request.user?.userId;
-    if (!userId) {
-      try {
-        const u = await db.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-        if (u.rows.length > 0) userId = u.rows[0].id;
-      } catch {}
-    }
-    if (!userId) return { success: false, message: 'No user found' };
+    const userId = request.user?.userId;
+    if (!userId) return { success: false, message: 'Unauthorized' };
 
     const {
       tmdbId,

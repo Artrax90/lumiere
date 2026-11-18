@@ -198,8 +198,9 @@ export function authRoutes(app: FastifyInstance) {
         name: user.name,
       };
 
-      const accessToken = generateAccessToken(payload);
-      const refreshToken = generateRefreshToken(payload);
+      const tokenExpiry = isTvRequest(req) ? '90d' : '30d';
+      const accessToken = generateAccessToken(payload, tokenExpiry);
+      const refreshToken = generateRefreshToken(payload, '90d');
 
       try { await saveRefreshToken(user.id, refreshToken); } catch {}
 
@@ -245,8 +246,9 @@ export function authRoutes(app: FastifyInstance) {
           name: user.name,
         };
 
-        const accessToken = generateAccessToken(payload);
-        const refreshToken = generateRefreshToken(payload);
+        const tokenExpiry = isTvRequest(req) ? '90d' : '30d';
+        const accessToken = generateAccessToken(payload, tokenExpiry);
+        const refreshToken = generateRefreshToken(payload, '90d');
 
         try { await saveRefreshToken(user.id, refreshToken); } catch {}
 
@@ -352,8 +354,9 @@ export function authRoutes(app: FastifyInstance) {
             isKids: !!user.is_kids,
             name: user.name,
           };
-          const accessToken = generateAccessToken(payload);
-          const refreshToken = generateRefreshToken(payload);
+          const tokenExpiry = isTvRequest(req) ? '90d' : '30d';
+          const accessToken = generateAccessToken(payload, tokenExpiry);
+          const refreshToken = generateRefreshToken(payload, '90d');
 
           try { await saveRefreshToken(user.id, refreshToken); } catch {}
 
@@ -405,8 +408,9 @@ export function authRoutes(app: FastifyInstance) {
       await deleteRefreshToken(refreshToken);
     } catch {}
 
-    const newAccessToken = generateAccessToken({ userId: payload.userId, email: payload.email });
-    const newRefreshToken = generateRefreshToken({ userId: payload.userId, email: payload.email });
+    const tokenExpiry = isTvRequest(req) ? '90d' : '30d';
+    const newAccessToken = generateAccessToken({ userId: payload.userId, email: payload.email }, tokenExpiry);
+    const newRefreshToken = generateRefreshToken({ userId: payload.userId, email: payload.email }, '90d');
 
     try {
       await saveRefreshToken(payload.userId, newRefreshToken);

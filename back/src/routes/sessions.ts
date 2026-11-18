@@ -113,14 +113,6 @@ export function sessionRoutes(app: FastifyInstance) {
           userId = undefined;
         }
       }
-      if (!userId) {
-        try {
-          const firstUser = await pool.query('SELECT id FROM users ORDER BY id ASC LIMIT 1');
-          if (firstUser.rows.length > 0) {
-            userId = firstUser.rows[0].id;
-          }
-        } catch {}
-      }
 
       const body = req.body as HeartbeatBody;
 

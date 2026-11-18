@@ -9,6 +9,7 @@ export const config = {
   },
   kinopoisk: {
     token: process.env.KINOPOISK_TOKEN || '',
+    proxyUrl: process.env.KINOPOISK_PROXY_URL || process.env.KP_PROXY_URL || undefined,
   },
   cors: {
     origin: true,

@@ -1,3 +1,6 @@
+import fetch from 'node-fetch';
+import { SocksProxyAgent } from 'socks-proxy-agent';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import type { Title, TitleResult } from './types.js';
 
 export interface KinopoiskSearchFilm {
@@ -64,15 +67,65 @@ export interface KinopoiskFilmDetails {
 
 export class KinopoiskProvider {
   private token: string;
+  private proxyUrl?: string;
+  private agent?: SocksProxyAgent | HttpsProxyAgent<string>;
   private baseUrl = 'https://kinopoiskapiunofficial.tech';
   private cache = new Map<string, { data: any; expires: number }>();
+  private lastFailureTime = 0;
+  private readonly FAILURE_COOLDOWN_MS = 60000;
 
-  constructor(token: string) {
+  constructor(token: string, proxyUrl?: string) {
     this.token = token.trim();
+    if (proxyUrl) {
+      this.initAgent(proxyUrl);
+    }
+  }
+
+  private initAgent(proxyUrl: string) {
+    try {
+      const trimmed = proxyUrl.trim();
+      if (!trimmed) {
+        this.agent = undefined;
+        this.proxyUrl = undefined;
+        return;
+      }
+      this.proxyUrl = trimmed;
+      if (trimmed.startsWith('socks')) {
+        this.agent = new SocksProxyAgent(trimmed);
+      } else {
+        this.agent = new HttpsProxyAgent(trimmed);
+      }
+    } catch (e) {
+      console.error('[Kinopoisk] Failed to initialize proxy agent:', e);
+      this.agent = undefined;
+      this.proxyUrl = undefined;
+    }
+  }
+
+  updateConfig(token: string, proxyUrl?: string) {
+    this.token = token.trim();
+    this.proxyUrl = proxyUrl && proxyUrl.trim() ? proxyUrl.trim() : undefined;
+    if (this.proxyUrl) {
+      this.initAgent(this.proxyUrl);
+    } else {
+      this.agent = undefined;
+    }
+    this.lastFailureTime = 0;
   }
 
   updateToken(token: string) {
     this.token = token.trim();
+    this.lastFailureTime = 0;
+  }
+
+  updateProxyUrl(proxyUrl?: string) {
+    this.proxyUrl = proxyUrl && proxyUrl.trim() ? proxyUrl.trim() : undefined;
+    if (this.proxyUrl) {
+      this.initAgent(this.proxyUrl);
+    } else {
+      this.agent = undefined;
+    }
+    this.lastFailureTime = 0;
   }
 
   hasToken(): boolean {
@@ -83,8 +136,34 @@ export class KinopoiskProvider {
     return this.token;
   }
 
+  getProxyUrl(): string {
+    return this.proxyUrl || '';
+  }
+
+  getAgent(): SocksProxyAgent | HttpsProxyAgent<string> | undefined {
+    return this.agent;
+  }
+
+  async testConnection(): Promise<{ ok: boolean; message?: string }> {
+    if (!this.token) {
+      return { ok: false, message: 'API-токен Кинопоиска не задан' };
+    }
+    try {
+      const data = await this.fetchApi<any>('/api/v2.2/films/301');
+      if (data && (data.nameRu || data.kinopoiskId)) {
+        return { ok: true, message: 'Соединение с Kinopoisk API успешно установлено' };
+      }
+      return { ok: false, message: 'Не удалось получить данные от Kinopoisk API' };
+    } catch (err: any) {
+      return { ok: false, message: err?.message || 'Ошибка подключения к Kinopoisk API' };
+    }
+  }
+
   private async fetchApi<T>(endpoint: string, params: Record<string, string> = {}): Promise<T | null> {
     if (!this.token) return null;
+    if (this.lastFailureTime && Date.now() - this.lastFailureTime < this.FAILURE_COOLDOWN_MS) {
+      return null;
+    }
     const cacheKey = `${endpoint}?${new URLSearchParams(params).toString()}`;
     const cached = this.cache.get(cacheKey);
     if (cached && cached.expires > Date.now()) {
@@ -96,26 +175,37 @@ export class KinopoiskProvider {
       url.searchParams.set(k, v);
     }
 
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 6000);
+
     try {
       const res = await fetch(url.toString(), {
         headers: {
           'X-API-KEY': this.token,
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(6000),
+        agent: this.agent as any,
+        signal: controller.signal as any,
       });
+      clearTimeout(timeout);
 
       if (!res.ok) {
         console.warn(`[Kinopoisk] HTTP ${res.status} for ${endpoint}`);
+        if (res.status === 401 || res.status === 403 || res.status >= 500) {
+          this.lastFailureTime = Date.now();
+        }
         return null;
       }
 
       const json = (await res.json()) as T;
+      this.lastFailureTime = 0;
       // Cache responses for 10 minutes
       this.cache.set(cacheKey, { data: json, expires: Date.now() + 10 * 60 * 1000 });
       return json;
     } catch (e: any) {
+      clearTimeout(timeout);
       console.warn(`[Kinopoisk] fetch error for ${endpoint}:`, e?.message || e);
+      this.lastFailureTime = Date.now();
       return null;
     }
   }
@@ -192,6 +282,10 @@ export class KinopoiskProvider {
       return { results: [], page: 1, totalPages: 0, totalResults: 0 };
     }
 
+    if (this.lastFailureTime && Date.now() - this.lastFailureTime < this.FAILURE_COOLDOWN_MS) {
+      return { results: [], page: 1, totalPages: 0, totalResults: 0 };
+    }
+
     // 1. Primary: Use v2.2/films which searches specifically by title keyword
     const data = await this.fetchApi<{
       total?: number;
@@ -233,8 +327,13 @@ export class KinopoiskProvider {
       };
     }
 
-    // 2. Fallback to v2.1 if v2.2 returned nothing, but strictly filter by title matching
-    // (Prevents unrelated movies like "Вверх" where keyword only appears in plot description)
+    // If v2.2 failed or timed out (null), do not attempt v2.1 to prevent slow sequential timeouts
+    if (data === null) {
+      return { results: [], page: 1, totalPages: 0, totalResults: 0 };
+    }
+
+    // 2. Fallback to v2.1 only if v2.2 succeeded but returned 0 items
+    // Strictly filter by title matching (prevents unrelated movies where keyword only appears in plot description)
     const v21Data = await this.fetchApi<{
       pagesCount?: number;
       searchFilmsCountResult?: number;

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import fetch from 'node-fetch';
 import type { TmdbClient } from '../services/tmdb-client.js';
+import type { KinopoiskProvider } from '../services/metadata/kinopoisk.js';
 
 interface ImageCacheEntry {
   buffer: Buffer;
@@ -14,9 +15,10 @@ const MAX_CACHE_ENTRIES = 300;
 
 export function imageRoutes(
   app: FastifyInstance,
-  opts: { tmdbClient?: TmdbClient; proxyUrl?: string } | TmdbClient
+  opts: { tmdbClient?: TmdbClient; kpProvider?: KinopoiskProvider; proxyUrl?: string } | TmdbClient
 ) {
   const tmdbClient = opts && 'getAgent' in opts ? (opts as TmdbClient) : (opts as any)?.tmdbClient;
+  const kpProvider = (opts as any)?.kpProvider as KinopoiskProvider | undefined;
 
   app.get('/api/image', async (req, reply) => {
     const { url } = req.query as { url?: string };
@@ -40,12 +42,13 @@ export function imageRoutes(
       }
     }
 
+    let host = '';
     try {
       const parsed = new URL(targetUrl);
       if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
         return reply.code(400).send({ error: 'Invalid protocol' });
       }
-      const host = parsed.hostname.toLowerCase();
+      host = parsed.hostname.toLowerCase();
       const isAllowed =
         host.endsWith('tmdb.org') ||
         host.endsWith('themoviedb.org') ||
@@ -69,7 +72,8 @@ export function imageRoutes(
     }
 
     try {
-      const agent = tmdbClient?.getAgent();
+      const isKpHost = host.includes('kinopoisk') || host.includes('kpcdn') || host.includes('yandex');
+      const agent = (isKpHost && kpProvider?.getAgent()) ? kpProvider.getAgent() : tmdbClient?.getAgent();
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 12000);
 

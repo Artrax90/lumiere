@@ -26,6 +26,7 @@ export function settingsRoutes(
 
     let kpTokenMasked = '';
     const kpToken = kpProvider ? kpProvider.getToken() : '';
+    const kpProxy = kpProvider ? kpProvider.getProxyUrl() : '';
     if (kpToken) {
       if (kpToken.length > 10) {
         kpTokenMasked = `${kpToken.slice(0, 4)}••••••••${kpToken.slice(-4)}`;
@@ -46,6 +47,8 @@ export function settingsRoutes(
       message: test.message,
       kpConfigured: Boolean(kpToken),
       kpTokenMasked: isAdmin ? kpTokenMasked : '',
+      kpProxyUrl: isAdmin ? (kpProxy || '') : '',
+      isConfiguredKpProxy: Boolean(kpProxy),
     };
   });
 
@@ -55,10 +58,11 @@ export function settingsRoutes(
       return reply.code(403).send({ error: 'Доступ разрешен только администраторам' });
     }
 
-    const { token, proxyUrl, kpToken } = req.body as {
+    const { token, proxyUrl, kpToken, kpProxyUrl } = req.body as {
       token?: string;
       proxyUrl?: string;
       kpToken?: string;
+      kpProxyUrl?: string;
     };
 
     const current = tmdbClient.getConfig();
@@ -71,20 +75,34 @@ export function settingsRoutes(
 
     tmdbClient.updateConfig(newToken, newProxy);
 
-    // Update Kinopoisk token if supplied
-    if (kpToken !== undefined && kpProvider) {
-      const trimmedKp = kpToken.trim();
-      kpProvider.updateToken(trimmedKp);
+    // Update Kinopoisk token & proxy if supplied
+    let newKpProxy = kpProvider ? kpProvider.getProxyUrl() : '';
+    if ((kpToken !== undefined || kpProxyUrl !== undefined) && kpProvider) {
+      const curKpToken = kpProvider.getToken();
+      const nextKpToken = kpToken !== undefined ? kpToken.trim() : curKpToken;
+      newKpProxy = kpProxyUrl !== undefined ? kpProxyUrl.trim() : kpProvider.getProxyUrl();
+      kpProvider.updateConfig(nextKpToken, newKpProxy);
+
       if (pool) {
         try {
-          await pool.query(
-            `INSERT INTO app_settings (key, value, updated_at) 
-             VALUES ('kinopoisk_token', $1, NOW()) 
-             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-            [trimmedKp]
-          );
+          if (kpToken !== undefined) {
+            await pool.query(
+              `INSERT INTO app_settings (key, value, updated_at) 
+               VALUES ('kinopoisk_token', $1, NOW()) 
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+              [nextKpToken]
+            );
+          }
+          if (kpProxyUrl !== undefined) {
+            await pool.query(
+              `INSERT INTO app_settings (key, value, updated_at) 
+               VALUES ('kinopoisk_proxy_url', $1, NOW()) 
+               ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+              [newKpProxy]
+            );
+          }
         } catch (err: any) {
-          console.warn('Could not persist Kinopoisk token to DB:', err.message);
+          console.warn('Could not persist Kinopoisk settings to DB:', err.message);
         }
       }
     }
@@ -126,6 +144,7 @@ export function settingsRoutes(
       tokenMasked: newToken.length > 10 ? `${newToken.slice(0, 4)}••••••••${newToken.slice(-4)}` : '••••••••',
       kpConfigured: Boolean(curKp),
       kpTokenMasked: kpMasked,
+      kpProxyUrl: newKpProxy,
     };
   });
 
@@ -136,6 +155,17 @@ export function settingsRoutes(
     }
     const test = await tmdbClient.testConnection();
     return test;
+  });
+
+  // Test current Kinopoisk connection (Admin only)
+  app.post('/api/settings/kp/test', { preHandler: requireAuth }, async (req: AuthenticatedRequest, reply) => {
+    if (req.user?.role !== 'admin') {
+      return reply.code(403).send({ error: 'Доступ разрешен только администраторам' });
+    }
+    if (!kpProvider) {
+      return { ok: false, message: 'Провайдер Кинопоиска не инициализирован' };
+    }
+    return await kpProvider.testConnection();
   });
 }
 

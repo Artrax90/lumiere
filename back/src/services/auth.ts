@@ -21,12 +21,14 @@ export async function comparePassword(password: string, hash: string): Promise<b
   return bcrypt.compare(password, hash);
 }
 
-export function generateAccessToken(payload: TokenPayload): string {
-  return jwt.sign(payload, config.jwt.secret as string, { expiresIn: config.jwt.accessExpiry as any });
+export function generateAccessToken(payload: TokenPayload, expiresIn?: string | number): string {
+  const expiry = expiresIn || config.jwt.accessExpiry || '30d';
+  return jwt.sign(payload, config.jwt.secret as string, { expiresIn: expiry as any });
 }
 
-export function generateRefreshToken(payload: TokenPayload): string {
-  return jwt.sign(payload, config.jwt.secret as string, { expiresIn: config.jwt.refreshExpiry as any });
+export function generateRefreshToken(payload: TokenPayload, expiresIn?: string | number): string {
+  const expiry = expiresIn || config.jwt.refreshExpiry || '90d';
+  return jwt.sign(payload, config.jwt.secret as string, { expiresIn: expiry as any });
 }
 
 export function verifyAccessToken(token: string): TokenPayload | null {

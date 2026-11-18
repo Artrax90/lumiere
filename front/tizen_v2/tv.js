@@ -37,35 +37,15 @@
         if (u && u.id) uid = u.id;
       } catch(e) {}
     }
-    return uid ? 'u' + uid + '_' + baseKey : baseKey;
+    return uid ? 'u' + uid + '_' + baseKey : 'guest_' + baseKey;
   }
 
   function getStorageItem(key) {
     var scopedKey = getUserStorageKey(key);
     var val = localStorage.getItem(scopedKey);
+    // Fallback to unscoped key if scoped key is not set yet
     if (val === null && scopedKey !== key) {
-      var uid = (state && state.user && state.user.id) || 0;
-      if (!uid) {
-        try {
-          var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
-          if (u && u.id) uid = u.id;
-        } catch(e) {}
-      }
-      var migKey = 'mig_' + key;
-      if (uid === 1 && !localStorage.getItem(migKey)) {
-        val = localStorage.getItem(key);
-        if (val !== null) {
-          try {
-            localStorage.setItem(scopedKey, val);
-          } catch(e) {}
-        }
-        try {
-          localStorage.setItem(migKey, '1');
-          localStorage.removeItem(key);
-        } catch(e) {}
-      } else {
-        try { localStorage.removeItem(key); } catch(e) {}
-      }
+      val = localStorage.getItem(key);
     }
     return val;
   }
@@ -73,12 +53,17 @@
   function setStorageItem(key, val) {
     var scopedKey = getUserStorageKey(key);
     localStorage.setItem(scopedKey, val);
+    if (scopedKey !== key) {
+      try { localStorage.setItem(key, val); } catch(e) {}
+    }
   }
 
   function removeStorageItem(key) {
     var scopedKey = getUserStorageKey(key);
-    localStorage.removeItem(scopedKey);
-    if (scopedKey !== key) localStorage.removeItem(key);
+    try { localStorage.removeItem(scopedKey); } catch(e) {}
+    if (scopedKey !== key) {
+      try { localStorage.removeItem(key); } catch(e) {}
+    }
   }
 
   // Player base URL — same as getBaseUrl() when running in .wgt SPA mode
@@ -561,7 +546,7 @@
         } else if (isHttpOrigin) {
           server = window.location.origin;
         } else {
-          server = '';
+          server = 'http://192.168.1.196:3500';
         }
       }
       if (server) {
@@ -677,6 +662,7 @@
       apiFetch('/api/user/profile', function(err, profile) {
         if (profile && profile.id) {
           state.user = profile;
+          try { localStorage.setItem('lumiere_user', JSON.stringify(profile)); } catch(se) {}
           startApp();
         } else {
           localStorage.removeItem(TOKEN_KEY);
@@ -910,6 +896,18 @@
         iptvState.selectedPlaylistIndex = -1;
       }
       try { localStorage.setItem('lumiere_user', JSON.stringify(data.user)); } catch(se) {}
+
+      // Clean up previous profile cards from DOM
+      var $cRow = document.getElementById('row-continue');
+      if ($cRow) $cRow.style.display = 'none';
+      var $cItems = document.getElementById('continue-items');
+      if ($cItems) $cItems.innerHTML = '';
+      state._currentFocusedCard = null;
+      state.focusedCard = null;
+      if (typeof renderContinueWatching === 'function') {
+        renderContinueWatching._lastSync = 0;
+      }
+
       updateTvUserBadge();
       loadAndApplyHomeShelves();
 
@@ -921,6 +919,7 @@
       state.screen = 'app';
       var $app = document.getElementById('app');
       if ($app) { $app.classList.remove('hidden'); $app.style.display = 'block'; }
+      renderContinueWatching();
       startApp();
     });
   }
@@ -960,6 +959,31 @@
   window.updateTvUserBadge = updateTvUserBadge;
 
   function showProfilePicker() {
+    state.user = null;
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem('lumiere_user');
+      localStorage.removeItem('lumiere_active_profile');
+      localStorage.removeItem('playback_positions');
+      localStorage.removeItem('last_torrents');
+    } catch(e) {}
+
+    var $cRow = document.getElementById('row-continue');
+    if ($cRow) $cRow.style.display = 'none';
+    var $cItems = document.getElementById('continue-items');
+    if ($cItems) $cItems.innerHTML = '';
+    state._currentFocusedCard = null;
+    state.focusedCard = null;
+    if (typeof renderContinueWatching === 'function') {
+      renderContinueWatching._lastSync = 0;
+    }
+    if (typeof iptvState !== 'undefined') {
+      iptvState.playlists = [];
+      iptvState.channels = [];
+      iptvState.groups = [];
+      iptvState.selectedPlaylistIndex = -1;
+    }
+
     var $app = document.getElementById('app');
     if ($app) { $app.classList.add('hidden'); $app.style.display = 'none'; }
     var $picker = document.getElementById('profile-screen');
@@ -2389,6 +2413,7 @@
 
 
     if (items.length === 0) {
+      if (container) container.innerHTML = '';
       var row = document.getElementById('row-continue');
       if (row) row.style.display = 'none';
       return;
@@ -4500,8 +4525,9 @@
   }
 
   // ========== Detail View ==========
-  function showDetail(title) {
+  function showDetail(title, opts) {
     if (!title) return;
+    opts = opts || {};
     if (typeof title.name === 'object' && title.name) {
       title.name = title.name.name || title.name.title || '';
     }
@@ -4510,6 +4536,36 @@
       title.name = (typeof title.title === 'object') ? (title.title.name || title.title.title || '') : title.title;
     }
     if (title.name === '[object Object]') title.name = '';
+
+    // Guarantee title.name is always a string
+    title.name = (typeof title.name === 'string') ? title.name : (title.title ? String(title.title) : '');
+
+    // Normalize type if mediaType was passed
+    if (!title.type && title.mediaType) {
+      title.type = title.mediaType;
+    }
+
+    // Detail history navigation: push previous detail snapshot if navigating deeper while detail is visible
+    if (!$detail) $detail = document.getElementById('detail');
+    var isDetailOpen = $detail && !$detail.classList.contains('hidden') && $detail.style.display !== 'none';
+    if (!opts.fromHistory) {
+      if (isDetailOpen && state.detail && state.detail.id && Number(state.detail.id) !== Number(title.id)) {
+        if (!state.detailHistory) state.detailHistory = [];
+        state.detailHistory.push({
+          id: state.detail.id,
+          name: state.detail.name || '',
+          title: state.detail.title || state.detail.name || '',
+          type: state.detail.type || 'movie',
+          poster: state.detail.poster,
+          backdrop: state.detail.backdrop,
+          year: state.detail.year,
+          score: state.detail.score
+        });
+        if (state.detailHistory.length > 10) state.detailHistory.shift();
+      } else if (!isDetailOpen) {
+        state.detailHistory = [];
+      }
+    }
 
     // Self-heal House M.D. (ID 1408) if opened or passed as movie 1408
     if (Number(title.id) === 1408 || /^(1408|Комната 1408)$/i.test(title.name)) {
@@ -4522,15 +4578,15 @@
     // Self-heal Harry Potter (ID 671)
     if (Number(title.id) === 671) {
       title.type = 'movie';
-      title.name = cleanMovieTitle(title.name).replace(/\s*·\s*S\d+.*$/i, '').trim();
+      title.name = cleanMovieTitle(title.name || '').replace(/\s*·\s*S\d+.*$/i, '').trim();
       if (!title.name) title.name = 'Гарри Поттер и философский камень';
     } else if (Number(title.id) === 13) {
       title.type = 'movie';
       title.name = 'Форрест Гамп';
     } else if (title.type === 'movie' && Number(title.id) !== 1408) {
       title.type = 'movie';
-      title.name = title.name.replace(/\s*·\s*S\d+.*$/i, '').trim();
-    } else if (title.type !== 'movie' && (/ · S[0-9]+/i.test(title.name))) {
+      title.name = (title.name ? String(title.name).replace(/\s*·\s*S\d+.*$/i, '').trim() : '');
+    } else if (title.type !== 'movie' && title.name && (/ · S[0-9]+/i.test(title.name))) {
       title.type = 'tv';
     }
 
@@ -4953,13 +5009,23 @@
     return path;
   }
 
-  function hideDetail() {
-    if (state.inPersonModal) closePersonModal();
-    if (state.inAllCastModal) closeAllCastModal();
+  function hideDetail(forceAll) {
+    if (state.inPersonModal) { closePersonModal(); return; }
+    if (state.inAllCastModal) { closeAllCastModal(); return; }
     var now = Date.now();
     lastBackTimestamp = now;
     state.modalCloseTimestamp = now;
     try { if (typeof window !== 'undefined') window.lastBackTimestamp = now; } catch(we) {}
+
+    // If navigated deeper (e.g. from one movie to another via actor/rec), pop previous movie from history!
+    if (!forceAll && state.detailHistory && state.detailHistory.length > 0) {
+      var prevDetail = state.detailHistory.pop();
+      if (prevDetail && prevDetail.id) {
+        showDetail(prevDetail, { fromHistory: true });
+        return;
+      }
+    }
+    state.detailHistory = [];
 
     var closingDetailId = state.detailLoadedId || (state.detail && state.detail.id) || state.lastDetailTitleId;
 
@@ -4973,6 +5039,10 @@
     if (app) {
       app.classList.remove('hidden');
       app.style.display = 'block';
+    }
+
+    if (state.section === 'search' && typeof renderRecentSearches === 'function') {
+      renderRecentSearches();
     }
 
     var c = document.querySelector('.card.focused');
@@ -5648,14 +5718,29 @@
           var movieCards = grid.querySelectorAll('.person-movie-card');
           movieCards.forEach(function(card) {
             card.addEventListener('click', function() {
+              var idx = parseInt(card.getAttribute('data-idx'), 10);
+              var credit = (!isNaN(idx) && credits && credits[idx]) ? credits[idx] : null;
               var mId = card.getAttribute('data-movie-id');
               var mType = card.getAttribute('data-movie-type');
-              if (mId) {
-                closePersonModal();
+              if (mId || (credit && credit.id)) {
+                closePersonModal(true);
                 if (state.inAllCastModal) {
-                  closeAllCastModal();
+                  closeAllCastModal(true);
                 }
-                showDetail({ id: parseInt(mId, 10), type: mType || 'movie' });
+                if (credit) {
+                  showDetail({
+                    id: parseInt(credit.id || mId, 10),
+                    name: credit.title || '',
+                    title: credit.title || '',
+                    type: credit.type || mType || 'movie',
+                    poster: credit.poster,
+                    backdrop: credit.backdrop,
+                    year: credit.year,
+                    score: credit.score
+                  });
+                } else {
+                  showDetail({ id: parseInt(mId, 10), type: mType || 'movie' });
+                }
               }
             });
           });
@@ -5664,7 +5749,7 @@
     });
   }
 
-  function closePersonModal() {
+  function closePersonModal(dontRestoreFocus) {
     var modal = document.getElementById('person-modal');
     if (modal) {
       modal.classList.add('hidden');
@@ -5687,6 +5772,8 @@
       $detail.classList.remove('hidden');
       $detail.style.display = 'block';
     }
+
+    if (dontRestoreFocus) return;
 
     // Restore focus to what opened the modal
     var target = state.personModalReturnEl;
@@ -5941,7 +6028,7 @@
     }
   }
 
-  function closeAllCastModal() {
+  function closeAllCastModal(dontRestoreFocus) {
     var modal = document.getElementById('all-cast-modal');
     if (modal) {
       modal.classList.add('hidden');
@@ -5966,6 +6053,8 @@
       $detail.classList.remove('hidden');
       $detail.style.display = 'block';
     }
+
+    if (dontRestoreFocus) return;
 
     // Restore focus to what opened all-cast modal (typically #detail-all-cast-btn)
     var target = state.allCastModalReturnEl;
@@ -8308,8 +8397,11 @@
         var posClear = JSON.parse(getStorageItem('playback_positions') || '{}');
         if (sNum && eNum) {
           delete posClear[movieId + '_s' + sNum + '_e' + eNum];
-          setStorageItem('playback_positions', JSON.stringify(posClear));
         }
+        if (posClear[movieId]) {
+          posClear[movieId].time = 0;
+        }
+        setStorageItem('playback_positions', JSON.stringify(posClear));
       } catch(e) {}
     } else if (movieId) {
       try {
@@ -8444,6 +8536,12 @@
 
   // ========== Sync ==========
   function syncWithServer(callback) {
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (!token) {
+      if (callback) callback();
+      return;
+    }
+
     // Pull data from server
     apiFetch('/api/sync', function(err, data) {
       console.log('[Sync] callback err:', err ? err.message : null, 'data:', data ? Object.keys(data) : null);
@@ -8550,16 +8648,26 @@
 
       // Refresh continue watching
       renderContinueWatching();
+      // Push local data only after successful pull and merge
+      pushLocalData();
       } catch(e) { console.error('[Lumiere] Sync error:', e); }
 
       if (callback) callback();
     });
-
-    // Push local data to server
-    pushLocalData();
   }
 
   function pushLocalData() {
+    var token = localStorage.getItem(TOKEN_KEY);
+    if (!token) return;
+    var uid = (state && state.user && state.user.id) || 0;
+    if (!uid) {
+      try {
+        var u = JSON.parse(localStorage.getItem('lumiere_user') || localStorage.getItem('lumiere_active_profile') || 'null');
+        if (u && u.id) uid = u.id;
+      } catch(e) {}
+    }
+    if (!uid) return;
+
     var positions = {};
     var lastTorrentsMap = {};
     try { positions = JSON.parse(getStorageItem('playback_positions') || '{}'); } catch(e) {}
@@ -8752,7 +8860,15 @@
         oskState.query = oskState.query.substring(0, oskState.query.length - 1);
       }
     } else if (action === 'clear') {
+      if (oskState.query && oskState.query.trim().length >= 2) {
+        saveRecentSearch(oskState.query.trim());
+      }
       oskState.query = '';
+      updateOskQueryDisplay();
+      var container = document.getElementById('search-results');
+      if (container) container.innerHTML = '';
+      renderRecentSearches();
+      return;
     } else if (action === 'lang') {
       oskState.lang = (oskState.lang === 'ru') ? 'en' : 'ru';
       renderOsk();
@@ -8777,6 +8893,14 @@
 
   function handleOskKeys(code, e) {
     var key = e.key;
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+    if (isBack) {
+      clearOskFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
     var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
     var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
     var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
@@ -8821,6 +8945,9 @@
         var targetCol2 = Math.min(nextLen - 1, Math.round(oskState.col * (nextLen / curRowLen)));
         focusOskKey(oskState.row + 1, targetCol2);
       } else {
+        if (oskState && oskState.query && oskState.query.trim().length >= 2) {
+          saveRecentSearch(oskState.query.trim());
+        }
         var chipEls = getSearchChipElements();
         if (chipEls.length > 0) {
           clearOskFocus();
@@ -8888,6 +9015,7 @@
     if (queryVal) {
       oskState.query = queryVal;
       updateOskQueryDisplay();
+      saveRecentSearch(queryVal);
       clearSearchChipFocus();
       performSearch(queryVal);
       // Wait for search results to render and automatically focus first result card
@@ -8907,6 +9035,14 @@
 
   function handleSearchChipKeys(code, e) {
     var key = e.key;
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+    if (isBack) {
+      clearSearchChipFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
     var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
     var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
     var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
@@ -8917,6 +9053,9 @@
     if (isLeft) {
       if (searchChipIndex > 0) {
         focusSearchChip(searchChipIndex - 1);
+      } else {
+        clearSearchChipFocus();
+        focusNav(state.focusedNav || 0);
       }
       if (e && e.preventDefault) e.preventDefault();
       return;
@@ -8980,7 +9119,14 @@
     if (trimmed.length < 2) return;
     try {
       var list = getRecentSearches();
-      list = list.filter(function(item) { return item.toLowerCase() !== trimmed.toLowerCase(); });
+      var lowerTrimmed = trimmed.toLowerCase();
+      // Remove exact duplicates and intermediate prefixes of this query (e.g. "мат" when saving "матрица")
+      list = list.filter(function(item) {
+        var lowerItem = item.toLowerCase();
+        if (lowerItem === lowerTrimmed) return false;
+        if (lowerTrimmed.indexOf(lowerItem) === 0 && lowerTrimmed.length > lowerItem.length) return false;
+        return true;
+      });
       list.unshift(trimmed);
       if (list.length > 12) list = list.slice(0, 12);
       setStorageItem('recent_searches', JSON.stringify(list));
@@ -8991,6 +9137,7 @@
   function clearRecentSearches() {
     try {
       removeStorageItem('recent_searches');
+      try { localStorage.removeItem('recent_searches'); } catch(e) {}
       renderRecentSearches();
     } catch(e) {}
   }
@@ -9165,6 +9312,14 @@
 
   function handleSearchSourceTabKeys(code, e, targetFocus) {
     var key = e.key;
+    var isBack = (code === 10009 || code === 27 || key === 'Escape' || key === 'GoBack');
+    if (isBack) {
+      clearSearchSourceTabFocus();
+      focusNav(state.focusedNav || 0);
+      if (e && e.preventDefault) e.preventDefault();
+      return;
+    }
+
     var isLeft = code === 37 || key === 'ArrowLeft' || key === 'Left';
     var isRight = code === 39 || key === 'ArrowRight' || key === 'Right';
     var isUp = code === 38 || key === 'ArrowUp' || key === 'Up';
@@ -9259,11 +9414,13 @@
     updateSearchSourceTabStyles();
   }
 
+  var _currentSearchQuery = '';
   function performSearch(query) {
     var container = document.getElementById('search-results');
     if (!container) return;
 
     if (!query || !query.trim()) {
+      _currentSearchQuery = '';
       searchSourceState.tmdbResults = [];
       searchSourceState.kpResults = [];
       searchSourceState.tmdbCount = 0;
@@ -9275,8 +9432,22 @@
       return;
     }
 
-    apiFetch('/api/search?q=' + encodeURIComponent(query), function(err, data) {
+    var trimmedQuery = query.trim();
+    _currentSearchQuery = trimmedQuery;
+
+    // Show search spinner while fetching
+    container.innerHTML = '<div style="display:flex;justify-content:center;align-items:center;padding:40px;width:100%;"><div class="spinner"></div></div>';
+
+    console.log('[Lumiere] Performing search for:', trimmedQuery);
+
+    apiFetch('/api/search?q=' + encodeURIComponent(trimmedQuery), function(err, data) {
+      if (_currentSearchQuery !== trimmedQuery) {
+        console.log('[Lumiere] Discarding stale search response for:', trimmedQuery);
+        return;
+      }
+
       if (err || !data) {
+        console.error('[Lumiere] Search error for:', trimmedQuery, err);
         searchSourceState.tmdbResults = [];
         searchSourceState.kpResults = [];
         searchSourceState.tmdbCount = 0;
@@ -9301,6 +9472,8 @@
       var tmdbCount = (typeof tmdbData.count === 'number') ? tmdbData.count : tmdbResults.length;
       var kpCount = (typeof kpData.count === 'number') ? kpData.count : kpResults.length;
 
+      console.log('[Lumiere] Search results:', trimmedQuery, 'TMDB:', tmdbCount, 'KP:', kpCount);
+
       searchSourceState.tmdbResults = tmdbResults;
       searchSourceState.kpResults = kpResults;
       searchSourceState.tmdbCount = tmdbCount;
@@ -9315,6 +9488,11 @@
       updateSearchSourceBadges();
       updateSearchSourceTabStyles();
       renderCurrentSearchResults();
+
+      // Automatically save to recent searches if search returned results
+      if ((tmdbCount > 0 || kpCount > 0) && trimmedQuery.length >= 2) {
+        saveRecentSearch(trimmedQuery);
+      }
     });
   }
 
@@ -9414,10 +9592,11 @@
     var clearHistoryBtn = document.getElementById('btn-clear-history');
     if (clearHistoryBtn) {
       clearHistoryBtn.addEventListener('click', function() {
-        localStorage.removeItem('playback_positions');
-        localStorage.removeItem('last_torrents');
+        removeStorageItem('playback_positions');
+        removeStorageItem('last_torrents');
+        apiDelete('/api/sync/history', function() {});
         renderContinueWatching();
-        alert('История просмотров очищена');
+        showTvToast('История просмотров очищена', 3000);
       });
     }
 
@@ -10044,6 +10223,9 @@
   }
 
   function switchSection(section) {
+    if (state.section === 'search' && oskState && oskState.query && oskState.query.trim().length >= 2) {
+      saveRecentSearch(oskState.query.trim());
+    }
     if (section === 'switch-profile') {
       showProfilePicker();
       return;
@@ -12223,63 +12405,6 @@
     btns[index].focus();
     var sec = btns[index].getAttribute('data-section');
     if (sec && sec !== 'switch-profile') {
-      switchSection(sec);
-    }
-  }
-
-  function focusNavDelta(delta) {
-    var btns = document.querySelectorAll('.nav-btn');
-    var newIndex = state.focusedNav + delta;
-    if (newIndex < 0) newIndex = 0;
-    if (newIndex >= btns.length) newIndex = btns.length - 1;
-    focusNav(newIndex);
-  }
-
-  function clearNavFocus() {
-    document.querySelectorAll('.nav-btn').forEach(function(b) {
-      b.classList.remove('focused');
-      try { b.blur(); } catch(e) {}
-    });
-  }
-
-  // Card focus
-  function focusCard(index) {
-    var cards = getVisibleCards();
-    if (cards.length === 0) return;
-    clearCardFocus();
-    index = Math.max(0, Math.min(index, cards.length - 1));
-    state.focusedCard = index;
-    state._currentFocusedCard = cards[index];
-    cards[index].classList.add('focused');
-    scrollToCard(cards[index]);
-    try { cards[index].focus({ preventScroll: true }); } catch(e) { try { cards[index].focus(); } catch(e2) {} }
-    if (typeof startCardTitleMarquee === 'function') {
-      startCardTitleMarquee(cards[index]);
-    }
-    // Set home background to movie backdrop (debounced)
-    updateHomeBg(cards[index]);
-  }
-
-  var homeBgTimer = null;
-  function updateHomeBg(cardEl) {
-    if (homeBgTimer) clearTimeout(homeBgTimer);
-    homeBgTimer = setTimeout(function() {
-      var bg = document.getElementById('home-bg');
-      if (!bg || !cardEl) return;
-      var img = cardEl.querySelector('img');
-      if (img && img.src) {
-        bg.style.backgroundImage = 'url(' + img.src + ')';
-        bg.classList.add('visible');
-      }
-    }, 350);
-  }
-
-  function clearHomeBg() {
-    var bg = document.getElementById('home-bg');
-    if (bg) bg.classList.remove('visible');
-  }
-
-  function scrollToCard(el) {
     if (!el) return;
     var rowItems = el.parentElement;
     if (rowItems && (rowItems.classList.contains('row-items') || rowItems.classList.contains('iptv-channels-row'))) {
@@ -12401,7 +12526,6 @@
     }
   }
   window.applyHomeShelvesLayout = applyHomeShelvesLayout;
-
   function loadAndApplyHomeShelves(callback) {
     var local = null;
     try { local = JSON.parse(localStorage.getItem('lumiere_home_shelves') || 'null'); } catch(e) {}
@@ -12684,9 +12808,20 @@
   function selectFocused() {
     var activeEl = document.activeElement;
     var focused = document.querySelector('.focused');
-    var target = (activeEl && (activeEl.classList.contains('focused') || activeEl.classList.contains('card') || activeEl.classList.contains('iptv-channel') || activeEl.classList.contains('setting-btn') || activeEl.classList.contains('profile-action-btn'))) ? activeEl : focused;
+    var target = (activeEl && (activeEl.classList.contains('focused') || activeEl.classList.contains('card') || activeEl.classList.contains('iptv-channel') || activeEl.classList.contains('setting-btn') || activeEl.classList.contains('profile-action-btn') || activeEl.classList.contains('search-chip'))) ? activeEl : focused;
 
     if (!target) return;
+
+    if (target.classList.contains('search-chip')) {
+      activateSearchChip(target);
+      return;
+    }
+
+    if (target.id === 'btn-clear-search-history') {
+      clearRecentSearches();
+      focusOskFromBottom();
+      return;
+    }
 
     if (target.classList.contains('profile-action-btn')) {
       target.click();
@@ -12747,7 +12882,7 @@
   function apiFetch(path, callback) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', API + path, true);
-    xhr.timeout = 10000;
+    xhr.timeout = 15000;
     try {
       xhr.setRequestHeader('X-Lumiere-TV', '1');
       xhr.setRequestHeader('X-Lumiere-Client', 'tizen-tv');
