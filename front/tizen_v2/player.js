@@ -272,6 +272,24 @@
     return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
+  function formatSubtitleText(raw) {
+    if (!raw) return '';
+    var s = String(raw);
+    // 1. Convert any <br>, <br/>, <br />, <BR> to \n
+    s = s.replace(/<br\s*\/?>/gi, '\n');
+    // 2. Strip ASS/SSA override tags like {\an8}, {\pos(100,200)}, {\b1}, etc.
+    s = s.replace(/\{[^}]+\}/g, '');
+    // 3. Strip any other HTML/XML tags (like <font...>, </font>, <i>, </i>, <b>, </b>, etc.)
+    s = s.replace(/<[^>]+>/g, '');
+    // 4. Normalize \r\n and \r to \n
+    s = s.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    // 5. Trim lines and remove multiple empty lines
+    var lines = s.split('\n').map(function(l) { return l.trim(); }).filter(function(l) { return l.length > 0; });
+    if (lines.length === 0) return '';
+    // 6. Escape HTML on each line and join with real <br>
+    return lines.map(escHtml).join('<br>');
+  }
+
   // ========== Initialization (Called from tv.js openPlayer) ==========
   window.initPlayer = function(params) {
     console.log('[Player] Initializing with params:', params);
@@ -650,8 +668,9 @@
       player.on('subtitleChange', function(data) {
         if ($subtitleOverlay && currentSubtitleIdx >= 0) {
           var txt = (data && data.text ? String(data.text) : '').trim();
-          if (txt) {
-            $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(txt) + '</span>';
+          var formatted = formatSubtitleText(txt);
+          if (formatted) {
+            $subtitleOverlay.innerHTML = '<span class="sub-text">' + formatted + '</span>';
           } else {
             $subtitleOverlay.innerHTML = '';
           }
@@ -1584,8 +1603,9 @@
     for (var i = 0; i < subtitleCues.length; i++) {
       if (currentTime >= subtitleCues[i].start && currentTime < subtitleCues[i].end) {
         var txt = (subtitleCues[i].text || '').trim();
-        if (txt) {
-          $subtitleOverlay.innerHTML = '<span class="sub-text">' + escHtml(txt) + '</span>';
+        var formatted = formatSubtitleText(txt);
+        if (formatted) {
+          $subtitleOverlay.innerHTML = '<span class="sub-text">' + formatted + '</span>';
         } else {
           $subtitleOverlay.innerHTML = '';
         }

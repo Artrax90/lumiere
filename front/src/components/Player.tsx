@@ -65,7 +65,11 @@ function parseVttTime(time: string): number {
 
 function cleanSubText(text: string): string {
   if (!text) return '';
-  return text.replace(/<[^>]+>/g, '').replace(/\{[^}]+\}/g, '').trim();
+  return text
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\{[^}]+\}/g, '')
+    .trim();
 }
 
 export default function Player({ title, onExit, initialTime, onTimeUpdate, externalSubs }: PlayerProps) {
@@ -1792,7 +1796,7 @@ export default function Player({ title, onExit, initialTime, onTimeUpdate, exter
       {/* Subtitle overlay */}
       {subtitleText && subtitleText.trim() && (
         <div className="absolute bottom-24 left-1/2 -translate-x-1/2 z-20 pointer-events-none text-center max-w-[80%]">
-          <div className="inline-block px-4 py-2 rounded-lg bg-black/80 backdrop-blur-sm text-white text-[18px] leading-relaxed shadow-lg">
+          <div className="inline-block px-4 py-2 rounded-lg bg-black/80 backdrop-blur-sm text-white text-[18px] leading-relaxed shadow-lg whitespace-pre-line">
             {subtitleText.trim()}
           </div>
         </div>
